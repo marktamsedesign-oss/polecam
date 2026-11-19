@@ -180,12 +180,19 @@
     meta: {}, defects: JSON.parse(JSON.stringify(DEF_CHECK)), userName: '',
     listSort: 'new', listGroup: true,
     quality: 'strict', readId: false, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
-    exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
+    exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'addr', 'utm', 'time', 'by', 'project'], naming: 'id', /* (beta 6.4: + addr, the address) */
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfRows: null, dxfRowSel: 0 }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfBoqGrid: true, dxfRows: null, dxfRowSel: 0, dxfLabels: 'std', dxfRoads: true }, /* beta 6.7 (UX step 4; critic): dxfRoads kept (Plan style › Plan file), on as before */ // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
+  /* beta 6.7 (UX step 3, 4; the owner: Tidy is the company standard; the RTA/JPA legend is not part of it): the company standard look of
+     the plan, the one place it is set. Export › Plan drawing › Look and Plan style's card say Company standard ✓ or what differs; Use
+     company standard sets these keys only. PL_NEW_ON_STD: a new install (nothing saved yet) starts on it (its Pole labels: Tidy); a phone
+     that had the app keeps what it had (Standard where it never chose). false: new installs stay on Standard (DEF.exp). */
+  const PL_STD = { dxfLabels: 'tidy', rtaOn: true, photoSize: 18, photoStamp: 'addr', dxfClampType: true, boxLoops: false, dxfBoqGrid: true };
+  const PL_NEW_ON_STD = true;
+  const S_NEW = (() => { try { return !localStorage.getItem(`${STORE}.settings`); } catch (e) { return true; } })(); // beta 6.7 (UX step 4): nothing saved yet
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem(`${STORE}.settings`) || '{}')); } catch (e) { return { ...DEF }; } })();
   applyHand();
   let persistWarned = 0, pointsLost = false; // v2.42.4: pointsLost: the records did not load at start
@@ -202,6 +209,11 @@
   if (S.quality !== 'normal') S.quality = 'strict';
   if (!S.v17) { S.v17 = 1; S.quality = 'strict'; S.maxSpan = 200; S.dropSatTiles = true; }
   S.exp = { ...DEF.exp, ...(S.exp || {}) };
+  if (S_NEW && PL_NEW_ON_STD) S.exp.dxfLabels = PL_STD.dxfLabels; // beta 6.7 (UX step 4): a new install on the company standard
+  if (S_NEW) S.plNotice = 1; // beta 6.7 (UX step 4): it never had Plan settings and Drawing style: no "now one screen" note
+  // beta 6.4: the Address stamp field (road, barangay, city from the road pack): on for those who had every field on (as they came); a
+  // choice of one's own (some fields off) is kept as it was, Address off: it is one tap away in Settings and Export
+  if (!S.v64addr) { const f = S.exp.stampFields; if (Array.isArray(f) && !f.includes('addr') && ['id', 'coords', 'utm', 'time', 'by', 'project'].every((k) => f.includes(k))) S.exp.stampFields = DEF.exp.stampFields.slice(); S.v64addr = 1; }
   S.sig = { ...DEF.sig, ...(S.sig && typeof S.sig === 'object' ? S.sig : {}) };
   if (S.stamp === false && !S.v20) S.exp.stamp = false;
   if (S.maxPx && !S.v20) S.exp.maxPx = S.maxPx;
@@ -413,6 +425,7 @@
   }
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const cefHooks = {}; // v2.44 beta 4.0: CEF-Plan's hooks into Projects, New project, the main screen, the site pin's record, Share and the mailbox (set further down)
+  const splHooks = {}; // beta 4.6: the splicing details' hooks into the Drawing, Export the plan, Share and the mailbox (set further down)
   const tmHooks = {}; // v2.43 beta 2: the team mailbox's hooks into Projects, New project, the KMZ reference and the capture button (set further down)
   /* ---- project mode + acceptance helpers ---- */
   const pmeta = (name) => (S.meta && S.meta[name || S.project]) || { mode: 'survey' };
@@ -493,7 +506,14 @@
   /* v2.42.1: an electric pole (concrete, wood, steel) has two details only: its transformer, and a telco arm (the extra arm the electric
      cooperative puts up for telco cables; not every pole has one: the plan draws it) */
   const ELEC_DETAIL_ITEMS = ['Transformer', 'Telco arm'];
-  const hasTelcoArm = (p) => (p.details || []).some((d) => d && /^telco\s*arm$/i.test(String(d.item || '').trim()));
+  /** beta 6.3: the arms already on a pole (any pole, also when the company sets its own list of details): the same kinds as New arm. */
+  const EXIST_ARM_ITEMS = ['Extension arm 26"', 'Extension arm 44.5"', '10-pin alley arm'];
+  /** beta 6.3: an arm already on the pole that holds the cable, as a telco arm does: [detail, badge, the plan's text, its name]. */
+  const ARMS_ON_POLE = [[/^telco\s*arm$/i, 'TA', 'TELCO ARM', 'telco arm'], [/^extension\s*arm\s*26"?$/i, 'EA', 'EXT. ARM 26"', 'extension arm 26"'],
+    [/^extension\s*arm\s*44\.5"?$/i, 'EA', 'EXT. ARM 44.5"', 'extension arm 44.5"'], [/^10-?pin\s*alley\s*arm$/i, 'AA', '10-PIN ALLEY ARM', '10-pin alley arm']];
+  const armOnPole = (p) => { for (const d of (p && p.details) || []) { const t = String((d && d.item) || '').trim(), a = ARMS_ON_POLE.find(([re]) => re.test(t)); if (a) return a; } return null; };
+  const hasTelcoArm = (p) => !!armOnPole(p); // (beta 6.3: a telco arm, an extension arm 26" / 44.5" or a 10-pin alley arm)
+  const armName = (p) => (armOnPole(p) || [])[3] || 'telco arm';
   const boqOwners = () => [...new Set([...boqList('owner'), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
   /* v2.43.0: the owner lists in each user's own order. The pole owners and the coops he sets most on his poles come first, counted at
      each save on this phone (and once from the poles he made or changed before this version); the others keep their order. A coop he
@@ -713,7 +733,10 @@
     }
     return pts.length ? C.nextPoleId(latest(pts).poleId) : '';
   }
-  const projPoints = () => points.filter((p) => p.project === S.project).sort((a, b) => (a.created < b.created ? -1 : 1));
+  /* Hide (poles on no cable, at Export): while an export runs (xScope), the records left out of the exports are not in projPoints(), so
+     every list, count, number, route, BOQ and drawing the export makes leaves them out. null otherwise (the map, Route, Share, Backup). */
+  var xOmit = null, xOmitDraw = false;
+  const projPoints = () => points.filter((p) => p.project === S.project && !(xOmit && xOmit.has(p.id))).sort((a, b) => (a.created < b.created ? -1 : 1));
   function haversine(a, b) {
     const R = 6371008.8, r = Math.PI / 180;
     const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
@@ -814,10 +837,10 @@
   /* ================= sheets + back button ================= */
   const stack = []; const pendingClose = [];
   let editorSaving = false;
-  function openSheet(id) {
+  function openSheet(id, reuse) {
     LOG.info('open', id);
     const el = $(id); el.hidden = false; el.style.zIndex = 1000 + stack.length;
-    stack.push(id); history.pushState({ sheet: id }, '');
+    stack.push(id); if (reuse) history.replaceState({ sheet: id }, ''); else history.pushState({ sheet: id }, ''); // (reuse: it takes the place of the photo shown full size, beta 6.7)
   }
   function closeSheet() {
     if (editorSaving && stack[stack.length - 1] === 'editor') return Promise.resolve();
@@ -828,6 +851,13 @@
     if (editorSaving && stack[stack.length - 1] === 'editor') {
       history.pushState({ sheet: 'editor' }, '');
       LOG.info('back.blockedWhileSaving'); toast('Finishing the save. Your photo is still here.'); return;
+    }
+    // beta 4.6: a question open over a screen is answered first, as Esc answers it on a computer (Cancel, Later…); the screen stays
+    if (!pendingClose.length && stack.length && !$('askBox').hidden && askEsc) { history.pushState({ sheet: stack[stack.length - 1] }, ''); LOG.info('back.answered'); askEsc(); return; }
+    // beta 4.6: the splicing details: a panel open on the page (the A3 sheets, Your choices, Export) closes first, not the page
+    if (!pendingClose.length && stack[stack.length - 1] === 'spliceSheet') {
+      let shut = false; try { const w = $('spliceFrame').contentWindow; shut = !!(w && w.AskPage && w.AskPage.back && w.AskPage.back()); } catch (e) { /* not loaded yet */ }
+      if (shut) { history.pushState({ sheet: 'spliceSheet' }, ''); return; }
     }
     // v2.21: the phone's Back on a record with unsaved changes: it stays open and asks
     if (!pendingClose.length && stack[stack.length - 1] === 'editor' && ed && !ed.closeOK && edDirty()) {
@@ -843,19 +873,25 @@
     closeSheet();
   }));
   function onSheetClosed(id) {
+    if (id === 'drawing' && drwEd) drwEditSet(false); // beta 6.7: Back from the Drawing ends its Edit route
+    if (id === 'editor' && drwEd) drwEdSoon(); // beta 6.7: a tower placed on the Drawing: its record saved (or not)
     if (id === 'editor') { document.body.classList.remove('edopen'); if (typeof ppxRefresh === 'function') ppxRefresh(); } // beta 4.1
     if (id === 'dupSheet' && dupRes) { const r = dupRes; dupRes = null; r(null); } // beta 3.3: Back: decided later
-    if (id === 'drwStyle' && stack.includes('planSet')) renderPlanSet(); // v2.42.28: the clamp types may have changed there
-    if (id === 'export' || id === 'planSet') { // v2.42.28
+    if (id !== 'export' && stack[stack.length - 1] === 'export') xBackOn(); // beta 6.7 (UX step 3 fixes): Export on top again (Look › Change ›, Get the roads…): its Plan drawing row anew
+    if (id === 'export' || id === 'drwStyle') { // v2.42.28 (beta 6.7, UX step 4: Plan style, docked as Plan settings was)
       $(id).classList.remove('side'); if (id === 'export') $('export').classList.remove('plan');
-      if (!['export', 'planSet'].some((k) => stack.includes(k) && $(k).classList.contains('side'))) document.body.classList.remove('drwside');
+      if (!['export', 'drwStyle'].some((k) => stack.includes(k) && $(k).classList.contains('side'))) document.body.classList.remove('drwside');
       if (stack.includes('drawing') && drw) { renderDrawBar(); drawSeqSoon(); drawDrawing(); renderDrawLegend(); }
     }
     if (id !== 'editor' && ed) scheduleDraft(); // back on the record from the camera, the marks or a photo: kept safe (v2.21)
     if (id === 'camera') stopCamera();
     if (id === 'camera' && ed && ed.svStale) { ed.svStale = false; renderSvPhotos(); } // beta 5.9: the photos added with the camera open
     if (id === 'camera' && cefHooks.camClosed) cefHooks.camClosed(); // v2.44
+    if (id === 'cefPick' && cefHooks.pickClosed) cefHooks.pickClosed(); // beta 6.7: the CEF plan's photo picker
     if (id === 'cefSheet' && cefHooks.closed) cefHooks.closed();
+    if (id === 'spliceSheet' && splHooks.closed) splHooks.closed(); // beta 4.6: the splicing details
+    if (id === 'cefSheet' && splHooks.drawSync) splHooks.drawSync(); // (its line keeps Splicing details › after the CEF button)
+    if ((id === 'cefSheet' || id === 'spliceSheet') && stack.includes('export') && splHooks.need) splHooks.need(true); // made from Export the plan: its line and the One PDF tile update
     if (id === 'editor') { cleanupEditor(); }
     if (sharedWaiting && (id === 'editor' || id === 'camera')) setTimeout(sharedResume, id === 'camera' ? 3000 : 400); // v2.21
     if (id === 'profile' && !profileOk()) sharedWaiting = null; // closed without the details: the file is not opened later by surprise
@@ -881,11 +917,13 @@
       fold(c, hints, hints[0]);
     });
     document.querySelectorAll('.xcard').forEach((card) => {
+      if (card.closest('#export')) return; // beta 6.7 (UX step 3): an Export row says what you get in its open row (You get), never folded
       const head = card.querySelector(':scope > .head'), p = head && head.querySelector('p'); if (!p) return;
       p.className = 'hint'; fold(card, [p], head.nextSibling);
     });
   }
   setupHelp();
+  document.querySelectorAll('details.help').forEach((d) => { d.open = !!S.showHelp; }); // beta 6.7 (UX step 4): the ⓘ written in the page (Plan style's) follow Settings › Show help too
   // v2.18: text is Small unless another size was chosen; Very small added
   const applyTextSize = () => { const v = [0.8, 0.9, 1, 1.15, 1.3, 1.45].includes(+S.textScale) ? +S.textScale : 0.9; document.documentElement.style.setProperty('--fs', String(v)); $('setTextSize').value = String(v); };
   applyTextSize();
@@ -910,10 +948,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.14';
+  const APP_VER = '2.45.0';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '4.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '6.8'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1606,10 +1644,10 @@
       spanLbls.forEach(({ ll, mk }) => { const on = show && b.contains(ll), has = routeLayer.hasLayer(mk); if (on && !has) routeLayer.addLayer(mk); else if (!on && has) routeLayer.removeLayer(mk); });
     } catch (e) { /* (early in the start: the route's layer not made yet) */ }
   }
-  const pinLook = (p, sel) => { const acc = p.kind === 'acceptance', el = elemOf(p); return { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, weight: sel ? 4 : !acc && p.status === 'New' ? 3 : 2,
+  const pinLook = (p, sel) => { const acc = p.kind === 'acceptance', el = elemOf(p), xh = !acc && !!xHid && xHid.has(p.id); return { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, weight: sel ? 4 : !acc && p.status === 'New' ? 3 : 2,
     color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : !acc && pinCol(p) ? pinCol(p) : !acc && p.status === 'Proposed' ? '#e03131' : !acc && p.status === 'New' ? '#17202a' : '#fff',
-    dashArray: !acc && p.status === 'Proposed' && !sel ? '3 3' : null,
-    fillColor: acc ? STATUS_COLORS[recStatus(p)] : pinCol(p) || typeColor(p.poleType), fillOpacity: !acc && p.status === 'Proposed' ? 0.5 : 1 }; };
+    dashArray: xh && !sel ? '2 3' : !acc && p.status === 'Proposed' && !sel ? '3 3' : null, opacity: xh ? 0.6 : 1, // (Hide: a pole left out of the exports, faded)
+    fillColor: acc ? STATUS_COLORS[recStatus(p)] : pinCol(p) || typeColor(p.poleType), fillOpacity: xh ? 0.25 : !acc && p.status === 'Proposed' ? 0.5 : 1 }; };
   const pinTip = (p, R) => { const acc = p.kind === 'acceptance', n = acc ? openCount(p) : 0, role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
     return `${C.xmlEsc(recName(p) || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`; };
   /** v2.42.19: a tap in Route: the route and its bar again, and only the pins whose look changed (the one selected before, the one
@@ -1702,7 +1740,7 @@
   });
   /* ================= v2.28: the bar's Drawing (As-Plan / As-Built) or Find (every other project) ================= */
   const drawOn = () => !!S.project && !isAcc() && BOQ_PURPOSES.includes(svPurpose());
-  $('drawBtn').addEventListener('click', () => { if (!S.project) { openProjects(); return; } if (drawOn()) openDrawing(); else openFind(); });
+  $('drawBtn').addEventListener('click', () => { if (!S.project) { openProjects(); return; } if (drawOn()) { openDrawing(); if (splHooks.remind) splHooks.remind(); } else openFind(); }); // (beta 4.6: the plans still to make, once)
   /* v2.36: a pin placed on the map by hand (no photo needed): v2.37 a tower or OLT site, or an ODC, with
      its name and colour. It is a survey record like the others: the route links it, the exports and the plan drawing have it
      (drawn exactly where it is placed). A photo can be added later (open the pin → Add photo). */
@@ -1711,13 +1749,42 @@
     if (isAcc()) return;
     { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // beta 3.3 (QA-09): an accepted task
     // v2.37: only the models: a tower or an OLT site, or an ODC (poles, ODFs and handholes are recorded from the camera)
-    const k = await ask('Add a pin on the map', 'Tower, OLT or ODC? Then drag the map to place it, type its name and pick its colour. A photo is optional. For the homing site or ODC (where the route starts or ends), set Existing.', [
-      { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
+    // beta 6.8 (the owner): and a proposed pole, "since some did not take a picture during survey, it will only be plotted during plan drawing"
+    const pp = ppStatus(), k = await ask('Add a pin on the map', `${pp ? `${pp === 'New' ? 'New pole' : 'Proposed pole'}, tower` : 'Tower'}, OLT or ODC? Then drag the map to place it${pp ? ' (a pole on a cable: on its line)' : ''}, type its name and pick its colour. A photo is optional${pp ? ': a proposed pole needs none' : ''}. For the homing site or ODC (where the route starts or ends), set Existing.`, [
+      ...(pp ? [{ label: pp === 'New' ? 'New pole' : 'Proposed pole', value: 'Pole' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
     if (!k) return;
-    const c = map.getCenter(), el = k === 'ODC' ? 'ODC' : 'Site';
+    const c = map.getCenter(), el = k === 'Pole' ? 'Pole' : k === 'ODC' ? 'ODC' : 'Site';
     LOG.info('pin.add', { el, k });
-    await openEditor({ mode: 'new', element: el, siteKind: el === 'Site' ? k : '', lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: 'Placed on the map · photo optional' });
+    await openEditor({ mode: 'new', element: el, siteKind: el === 'Site' ? k : '', ...(el === 'Pole' ? ppRec() : {}), lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: el === 'Pole' ? 'Placed on the map · no photo needed' : 'Placed on the map · photo optional' });
   });
+  /** beta 6.8: the status of a pole placed by hand (no photo): Proposed in an As-Plan, New in an As-Built; '' where a survey has none (Audit). */
+  const ppStatus = () => { const L = svStatuses('Pole'); return L.includes('Proposed') ? 'Proposed' : L.includes('New') ? 'New' : ''; };
+  /** beta 6.8: what a proposed pole placed by hand starts with, as one from the camera: Proposed (or New), a Globe pole (GT; its owner
+      Globe, ownerNameOf), its PP- number suggested in the record (editable). */
+  const ppRec = () => ({ status: ppStatus(), type: globeType() });
+  /** beta 6.8: a proposed pole just placed by hand (the map's ＋ pin or the Drawing's ＋): on a span of a proposed cable (within tol
+      metres of its line, between its ends), the question to put it on that cable, splitting the span at it (as a cable grabbed onto a
+      pole: rtAttach); with ↶ in Route. */
+  async function ppOnCable(id, tol) {
+    const p = points.find((x) => x.id === id); if (!p || elemOf(p) !== 'Pole' || isAcc()) return false;
+    const R = routeModel(); if (!R.fib) return false; const xy = xyOf(p.lat), Q = xy(p); let best = null;
+    for (const h of R.fib.hops.values()) {
+      const fs = h.fs.filter((f) => !f.ex && f.path.indexOf(id) < 0); if (!fs.length) continue; const A = R.fib.by.get(h.a), B = R.fib.by.get(h.b); if (!A || !B) continue;
+      const r = projOn(Q, [xy(A), xy(B)]); if (r.d > tol || r.t < 1 || r.t > r.len - 1) continue;
+      if (!best || r.d < best.d) best = { d: r.d, h, fs };
+    }
+    if (!best) return false;
+    const nm = (x) => fibName(x), who = recName(p) || p.poleId || 'The pole', runs = best.fs.map((f) => f.n), rl = (L) => L.map((n) => `RUN ${n}`).join(' and ');
+    const v = await ask(`Put ${who} on the cable?`, `It is on the span ${nm(best.h.a)} → ${nm(best.h.b)} (${rl(runs)}). On the cable, the span is split at it: ${nm(best.h.a)} → ${who} → ${nm(best.h.b)}.`,
+      [{ label: `Put on ${rl(runs)}`, value: 'all', primary: true }, ...(runs.length > 1 ? runs.map((n) => ({ label: `RUN ${n} only`, value: `n${n}` })) : []), { label: 'Not on a cable', value: '' }]);
+    if (!v || !points.some((x) => x.id === id)) return false;
+    const F = fibers(), on = v === 'all' ? runs : [+v.slice(1)]; let L = null;
+    if (routeMode) routeUndo.push(routeSnap());
+    on.forEach((n) => { const f = F.find((x) => x.n === n); if (!f) return; const j = f.path.findIndex((x, i) => i > 0 && spanKey(f.path[i - 1], x) === spanKey(best.h.a, best.h.b)); if (j < 1) return; L = rtAttach(f, id, F, j, L || undefined) || L; });
+    setRoute(L, F); LOG.info('pp.attach', { runs: on.length });
+    if (routeMode) routeRefresh([id]); else renderPoles();
+    toast(`${who} put on ${rl(on)}${routeMode ? ' (↶ takes it off)' : ''}`, 3500); return true;
+  }
   /* v2.42.24: the blocks the Drawing screen draws on the cable, as the plan does: a dummy NAP (DN: the template's green rounded box)
      and a hybrid closure (the template's P-Joint pentagon: proposed red filled, existing a blue outline) at their pole; each cable meets
      their sides. Keyed by the pole's ID: { kind: 'dn' | 'clo', xy, ax (the cable's direction through the pole, for the DN), old, cid, size }. */
@@ -1772,14 +1839,22 @@
      the preview shows them as the DXF will (the same numbers), with each pole's arm, NAP, loop, closure and guys as small tags (a
      double check), and the NAP and closure pins tied to the pole they stand on. Fit, Labels, Map and the information line are on
      the drawing, at its lower right, as on the map; the legend at its upper left. */
-  let drw = null;
+  let drw = null, drwEd = false, drwEdWas = false, drwSiteArm = null, drwSiteWait = null; // beta 6.7: Edit route on the Drawing (on; Route was on before; a tower, OLT or ODC to place; one placed, its record open)
   const ACI_HEX = { 1: '#ff0000', 2: '#ffff00', 3: '#00ff00', 4: '#00ffff', 5: '#0000ff', 6: '#ff00ff', 7: '#ffffff' };
   const ACI_NAME = { 0: 'by layer', 1: 'red', 2: 'yellow', 3: 'green', 4: 'cyan', 5: 'blue', 6: 'magenta', 7: 'white' };
-  const ACI_INK = { 1: '#e03131', 2: '#d9a400', 3: '#2b8a3e', 4: '#0c8599', 5: '#1c3f94', 6: '#ae3ec9', 7: '#495057' }; // the same colours, readable on the light preview
+  /* beta 6.0: a colour of the user's own (Drawing style's colour picker) is kept as #rrggbb; the plan gets it as the colour itself (and its
+     nearest AutoCAD colour for older CAD), see dxftpl's colGroups. AutoCAD colour numbers stay numbers. */
+  const isHexCol = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+  const colHex = (c) => (isHexCol(c) ? c : ACI_HEX[c]), colName = (c) => (isHexCol(c) ? `your colour ${c.toLowerCase()}` : ACI_NAME[c]);
+  const jobCols = (o) => (o == null ? o : JSON.parse(JSON.stringify(o), (k, v) => (isHexCol(v) ? 0x1000000 + parseInt(v.slice(1), 16) : v))); // (for the plan: TC0 + 0xRRGGBB)
+  const ACI_INK = new Proxy({ 1: '#e03131', 2: '#d9a400', 3: '#2b8a3e', 4: '#0c8599', 5: '#1c3f94', 6: '#ae3ec9', 7: '#495057' }, { get: (t, k) => (isHexCol(k) ? k : t[k]) }); // the same colours, readable on the light preview (beta 6.0: a colour of the user's own: itself)
   const drwMapKind = () => (['off', 'offline', 'sat', 'street'].includes(S.drawMapKind) ? S.drawMapKind : 'offline'); // v2.41: the offline map by default
   const drwBase = () => { const k = drw ? drw.mapKind : drwMapKind(); return k === 'offline' ? (shownPacks().length ? 'offline' : 'off') : k === 'sat' ? 'satellite' : k === 'street' ? 'street' : 'off'; };
-  function openDrawing(again) { // again: drawn anew in the open sheet (v2.42.12: another project was chosen)
-    const pts = projPoints(); if (!pts.length) { toast('Nothing recorded in this project yet'); return; }
+  /* beta 6.2: the Drawing is the plan as exported: the poles hidden from the exports (Hide, at Export) are not on it (their pins, labels,
+     numbers, spans on no RUN, counts, legend, What to export); a chip on it says how many, and opens them. */
+  function openDrawing(again, view) { return xNow(() => openDrawing0(again, view)); }
+  function openDrawing0(again, view) { // again: drawn anew in the open sheet (v2.42.12: another project was chosen); view: where it looks (beta 4.6: kept after the splicing details changed a record)
+    const pts = projPoints(); if (!pts.length) { toast(xOmit && xOmit.size ? 'Every point of this project is hidden from the exports: Show in exports, in its record' : 'Nothing recorded in this project yet'); return; }
     const z = S.zone, U = (p) => { const u = C.utmForward(p.lat, p.lon, z, p.lat < 0); return [u.E, u.N]; };
     const R = routeModel(), items = pts.map((p) => ({ p, xy: U(p), el: elemOf(p) }));
     // the project's reference KMZ faint behind, as the map shows it (v2.42.12: hidden there, or its lines hidden: not drawn either)
@@ -1790,22 +1865,25 @@
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
     drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), ia: String(h.a), ib: String(h.b), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     drw.blocks = drwBlocks(items, R, U); // v2.42.24: the dummy NAPs and closures on the cable
+    drw.pts = pts; drwXHid(); // beta 6.2: the points as exported (clamps); the hidden ones' chip
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
     $('drawHint').hidden = !!S.drawHintOff; $('drawInfoBtn').setAttribute('aria-pressed', String(!S.drawHintOff));
     $('drawInfo').hidden = true; $('drawLabels').setAttribute('aria-pressed', 'true'); $('drawMapMenu').hidden = true;
     $('drawLegend').open = S.drawLegendOpen != null ? S.drawLegendOpen !== false : window.innerWidth > 700; // folded on a phone until opened
     renderDrawMap(); setWhat(deskOn() && S.drwWhatDesk !== false, false); renderDrawBar(); renderDrawLegend(); // v2.42.28: What to export
+    if (!again) plNoticeShow(); // beta 6.7 (UX step 4): once, on a phone that had Plan settings and Drawing style: "now one screen: Plan style"
     if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: the CEF plans of the tower sites
+    if (splHooks.drawSync) splHooks.drawSync(); // beta 4.6: the splicing details
     try { renderCredit(); } catch (e) { /* not ready */ } // v2.42.7: the balance at the upper right
     if (!again) openSheet('drawing');
-    requestAnimationFrame(() => { sizeDrawing(); fitDrawing(); drawDrawing(); drawSeqSoon(); });
+    requestAnimationFrame(() => { sizeDrawing(); if (view && drw && view.sc > 0) drw.view = { ...drw.view, cx: view.cx, cy: view.cy, sc: view.sc }; else fitDrawing(); drawDrawing(); drawSeqSoon(); });
   }
   /** v2.41: the numbers of the plan in the preview: the same order as the DXF (along the route from the homing). */
   function drawSeqSoon() {
     if (!drw) return;
     const go = () => { if (!drw) return; const pts = drw.items.map((it) => it.p), MS = dxfMarkSel(pts);
-      const NUM = poleNums(projPoints(), routeModel()), on = new Set(MS.ids.map(String)); // v2.42.18: the pole numbers (the same in the DXF and the CSV)
+      const NUM = xNow(() => poleNums(projPoints(), routeModel())), on = new Set(MS.ids.map(String)); // v2.42.18: the pole numbers (the same in the DXF and the CSV; beta 6.2: as the export numbers them, without the hidden poles)
       drw.seq = new Map([...NUM.entries()].filter(([id]) => on.has(String(id))).map(([id, n]) => [String(id), n])); drawDrawing(); };
     if (window.GeDxfTpl && window.GeDxfTpl.markOrder) go(); else loadScript('dxftpl.js').then(go).catch((e) => LOG.warn('draw.seq', errInfo(e)));
   }
@@ -1833,11 +1911,12 @@
     if (nGuy) out.push([nGuy > 1 ? `G${nGuy}` : 'G', '#1971c2']);
     if (groundYes(b)) out.push(['GR', '#2b8a3e']);
     if (b.riser || riserAuto(p)) out.push(['R', '#495057']); // (2.44.7: or UG meets aerial here)
-    if (hasTelcoArm(p)) out.push(['TA', '#0c8599']); // v2.42.1
+    if (hasTelcoArm(p)) out.push([armOnPole(p)[1], '#0c8599']); // v2.42.1 (beta 6.3: EA an extension arm, AA a 10-pin alley arm)
     return out;
   }
   function drawDrawing() {
     if (!drw || !drw.view) return;
+    if (drwEd) drw.selRun = fibAdd != null ? fibAdd : fibSel; // beta 6.7: Edit route: the cable in the bar (or lit) lit as on the map
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
     g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
     if (drwBase() !== 'off') { drawUnderlay(g); underlaySoon(); } // v2.36: the map under the drawing
@@ -1867,17 +1946,17 @@
       const S0 = [], S1 = []; for (let j = 0; j < m; j++) { S0.push(endAt(ids[j], Q[j], Q[j + 1])); S1.push(endAt(ids[j + 1], Q[j + 1], Q[j])); }
       const D = S0.map((p, j) => u2(p, S1[j])), Ls = S0.map((p, j) => Math.hypot(S1[j][0] - p[0], S1[j][1] - p[1])), Lt = Ls.map((L) => Math.min(3.2 * GAP, L / 3));
       const at = (j, t) => [S0[j][0] + D[j][0] * t + N[j][0], S0[j][1] + D[j][1] * t + N[j][1]];
-      const lines = []; let cur = [];
+      const lines = []; let cur = [], u0 = 0; // (u0: how far along its current span's lane the line is)
       for (let i = 0; i <= m; i++) {
         if (BK.has(String(ids[i]))) { // a block on the cable: the lane meets its side, drawn in to fit it, and moves out to its lane
           if (i > 0) { const w = fitIn(ids[i], N[i - 1]); if (Math.hypot(w[0] - N[i - 1][0], w[1] - N[i - 1][1]) > 0.5) cur.push(at(i - 1, Math.max(0, Ls[i - 1] - Lt[i - 1]))); cur.push([S1[i - 1][0] + w[0], S1[i - 1][1] + w[1]]); lines.push(cur); cur = []; }
-          if (i < m) { const w = fitIn(ids[i], N[i]); cur = [[S0[i][0] + w[0], S0[i][1] + w[1]]]; if (Math.hypot(w[0] - N[i][0], w[1] - N[i][1]) > 0.5) cur.push(at(i, Lt[i])); }
+          if (i < m) { const w = fitIn(ids[i], N[i]); cur = [[S0[i][0] + w[0], S0[i][1] + w[1]]]; u0 = 0; if (Math.hypot(w[0] - N[i][0], w[1] - N[i][1]) > 0.5) { cur.push(at(i, Lt[i])); u0 = Lt[i]; } }
           continue; }
         if (i === 0) { cur.push(at(0, 0)); continue; }
         if (i === m) { cur.push(at(m - 1, Ls[m - 1])); continue; }
-        const A = D[i - 1], B = D[i], c = A[0] * B[1] - A[1] * B[0];
-        if (Math.abs(c) > 0.14) { const p1 = at(i - 1, 0), q1 = at(i, 0), t = ((q1[0] - p1[0]) * B[1] - (q1[1] - p1[1]) * B[0]) / c, X = [p1[0] + A[0] * t, p1[1] + A[1] * t]; if (Math.hypot(X[0] - Q[i][0], X[1] - Q[i][1]) < 6 * GAP) { cur.push(X); continue; } }
-        if (Math.hypot(N[i - 1][0] - N[i][0], N[i - 1][1] - N[i][1]) < 0.5) cur.push(at(i, 0)); else cur.push(at(i - 1, Math.max(0, Ls[i - 1] - Lt[i - 1])), at(i, Lt[i]));
+        const J = laneJoin(Q[i], at(i - 1, 0), D[i - 1], Ls[i - 1], at(i, 0), D[i], Ls[i], u0, GAP); // beta 6.8: a turn: mitred, a sharp one cut off (no more a lane swinging across the others)
+        if (J) { cur.push(...J.pts); u0 = J.u; continue; }
+        if (Math.hypot(N[i - 1][0] - N[i][0], N[i - 1][1] - N[i][1]) < 0.5) { cur.push(at(i, 0)); u0 = 0; } else { cur.push(at(i - 1, Math.max(0, Ls[i - 1] - Lt[i - 1])), at(i, Lt[i])); u0 = Lt[i]; }
       }
       if (cur.length > 1) lines.push(cur);
       const lw = drwLw(f.ex ? lwOfCores(f.cores) : lwOfCab(f.cab), d); drw.hitL.push({ n: f.n, lines });
@@ -1919,9 +1998,9 @@
     g.font = `600 ${fs}px ui-monospace, monospace`;
     // a NAP or closure pin: a dotted line to the pole it stands on
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
-    const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num; // (v2.42.14: the drawing shown)
+    const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num, rtaC = rtaCats(NS.rta, drw.items.map((it) => it.p)); /* (beta 6.6) */ // (v2.42.14: the drawing shown)
     const roomy = v.sc * 30 >= 26 * d; // the numbers / photos once the poles are far enough apart on screen (zoom in to see them)
-    const phK = plStyle().photo.size / 18; // (Drawing style › Photos: the photos' size, 1 at Normal)
+    const phK = phTidyMm(plStyle().photo.size) * 1.1 / 18; // (Drawing style › Photos: the photos' size, 1 at 18 m; beta 6.7: as the plan prints it, 1:1100)
     const nCol = ACI_INK[NS.color] || '#d9a400', bCol = ACI_INK[NS.bcolor] || nCol;
     const free = (bx) => !placed.some((q) => bx[0] < q[0] + q[2] && bx[0] + bx[2] > q[0] && bx[1] < q[1] + q[3] && bx[1] + bx[3] > q[1]);
     drw.items.forEach((it) => {
@@ -1934,10 +2013,10 @@
       placed.push(bk && bk.kind === 'dn' ? [px - Math.abs(bk.ax[0]) * bk.hl - Math.abs(bk.ax[1]) * bk.hw, py - Math.abs(bk.ax[1]) * bk.hl - Math.abs(bk.ax[0]) * bk.hw, 2 * (Math.abs(bk.ax[0]) * bk.hl + Math.abs(bk.ax[1]) * bk.hw), 2 * (Math.abs(bk.ax[1]) * bk.hl + Math.abs(bk.ax[0]) * bk.hw)] : [px - r, py - r, r * 2, r * 2]);
       // its photo or number on the plan (as the DXF will have it)
       const n = roomy ? drw.seq.get(String(p.id)) : 0;
-      if (n) {
+      if (n) { const rc = rtaCatOf(p, NS.rta, rtaC), nC = rc ? ACI_INK[rc.color] : nCol, bC = rc ? nC : bCol; // (beta 6.5: its RTA/JPA category's colour)
         const pp = bk && bk.kind === 'dn' ? (-bk.ax[1] >= 0 ? [-bk.ax[1], bk.ax[0]] : [bk.ax[1], -bk.ax[0]]) : null; // (v2.42.24: outside a block; beside a DN's long side)
         const hasPh = mode !== 'num' && photosOf(p).length > 0, dx = pp ? pp[0] * (bk.hw + 18 * d) : r + 8 * d, dy = pp ? pp[1] * (bk.hw + 18 * d) - 8 * d : -(r + 10 * d), cx = px + dx, cy = py + dy;
-        g.strokeStyle = bCol; g.lineWidth = 1.2 * d; g.beginPath(); if (pp) g.moveTo(px + pp[0] * bk.hw, py + pp[1] * bk.hw); else g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke();
+        g.strokeStyle = bC; g.lineWidth = 1.2 * d; g.beginPath(); if (pp) g.moveTo(px + pp[0] * bk.hw, py + pp[1] * bk.hw); else g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke();
         if (hasPh) { // a photo frame (beta 4.1: with photo + number it stands a little further out, and the number has its circle by the pole)
           const fx = mode === 'both' ? cx + 21 * d : cx, fy = mode === 'both' ? cy - 9 * d : cy;
           const k = phK, X = fx - 9 * d, Y = fy + 7 * d - 14 * d * k, s = (u) => u * d * k; // (Drawing style › Photos: the size set, Normal as before; grown from its corner by the pole)
@@ -1947,12 +2026,12 @@
         }
         if (!hasPh || mode === 'both') {
           const rr = Math.max(7, 3 + String(n).length * 3.2) * d;
-          const sh = [2, 3, 4].includes(+NS.color), so = 1.1 * d; // v2.42.13: a light number over a dark shadow, as on the plan
+          const sh = [2, 3, 4].includes(+(rc ? rc.color : NS.color)), so = 1.1 * d; // v2.42.13: a light number over a dark shadow, as on the plan
           g.fillStyle = '#ffffff'; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fill();
-          if (NS.d > 0) { if ([2, 3, 4].includes(+(NS.bcolor || NS.color))) { g.strokeStyle = 'rgba(52,58,64,0.9)'; g.lineWidth = 1.6 * d; g.beginPath(); g.arc(cx + so, cy + so, rr, 0, Math.PI * 2); g.stroke(); } g.strokeStyle = bCol; g.lineWidth = 1.6 * d; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.stroke(); }
+          if (NS.d > 0) { if ([2, 3, 4].includes(+(rc ? rc.color : NS.bcolor || NS.color))) { g.strokeStyle = 'rgba(52,58,64,0.9)'; g.lineWidth = 1.6 * d; g.beginPath(); g.arc(cx + so, cy + so, rr, 0, Math.PI * 2); g.stroke(); } g.strokeStyle = bC; g.lineWidth = 1.6 * d; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.stroke(); }
           g.font = `700 ${9.5 * d}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
           if (sh) { g.fillStyle = 'rgba(52,58,64,0.9)'; g.fillText(String(n), cx + so, cy + 0.5 * d + so); }
-          g.fillStyle = nCol; g.fillText(String(n), cx, cy + 0.5 * d);
+          g.fillStyle = nC; g.fillText(String(n), cx, cy + 0.5 * d);
           placed.push([cx - rr, cy - rr, rr * 2, rr * 2]);
         }
         g.font = `600 ${fs}px ui-monospace, monospace`;
@@ -1964,7 +2043,7 @@
       const [px, py] = drwPx(xy), bk = el === 'Pole' ? BK.get(String(p.id)) : null, r = bk ? bk.r + 2 * d : (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
       g.font = `600 ${fs}px ui-monospace, monospace`;
       const t = p.poleId || el, w = g.measureText(t).width;
-      const CLs = plStyle().clamp, inL = !ct || CLs.place === 'label', sub0 = near && el === 'Pole' ? [ct ? clampOf(p, drw.R, projPoints()).join('+') : '', (drw.R && hwOf(p, drw.R).noClamp ? '' : (p.boq || {}).clamp || '')].filter(Boolean).join(' ') || (ct && CLs.hw ? hwShort(p, drw.R) : '') : ''; // v2.42.21: or its 12C hardware
+      const CLs = plStyle().clamp, inL = !ct || CLs.place === 'label', sub0 = near && el === 'Pole' ? [ct ? clampOf(p, drw.R, drw.pts || projPoints()).join('+') : '', (drw.R && hwOf(p, drw.R).noClamp ? '' : (p.boq || {}).clamp || '')].filter(Boolean).join(' ') || (ct && CLs.hw ? hwShort(p, drw.R) : '') : ''; // v2.42.21: or its 12C hardware
       const sub = inL ? sub0 : ''; if (!inL && sub0) clTags.push([px, py, r, sub0]);
       const tags = near && el === 'Pole' ? poleTags(it) : [];
       const fs2 = 9.5 * d; g.font = `600 ${fs2}px ui-monospace, monospace`; const w2 = sub ? g.measureText(sub).width : 0; g.font = `600 ${fs}px ui-monospace, monospace`;
@@ -1999,6 +2078,7 @@
     const sb = [10, 20, 50, 100, 200, 500, 1000, 2000].find((m) => m * v.sc > 70 * d) || 2000, sx = cv.width - 26 * d - sb * v.sc, sy = 62 * d;
     g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + sb * v.sc, sy); g.moveTo(sx, sy - 5 * d); g.lineTo(sx, sy + 5 * d); g.moveTo(sx + sb * v.sc, sy - 5 * d); g.lineTo(sx + sb * v.sc, sy + 5 * d); g.stroke();
     g.textBaseline = 'bottom'; g.fillText(sb >= 1000 ? `${sb / 1000} km` : `${sb} m`, sx + sb * v.sc / 2, sy - 4 * d);
+    if (drwEd) drwEdPaint(g, d); // beta 6.7: Edit route: the line being drawn, the handles, what is dragged
   }
   /* v2.42.24: the closure's texts and the cable labels and span lengths on the Drawing screen, where they cover nothing (the other
      labels, the IDs, numbers and tags, the blocks, the cables): as on the plan. Each cable its own label beside its own line, as large
@@ -2126,16 +2206,20 @@
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
     let last = null, moved = 0, pinch = null;
     cv.addEventListener('pointerdown', (e) => { if (!drw) return; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0;
-      if (drw.ptrs.size === 2) { const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc }; } });
+      if (drw.ptrs.size === 2) { const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc };
+        if (drwEd) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; pinch.m = m; pinch.w = [drw.view.cx + (m[0] * d() - cv.width / 2) / drw.view.sc, drw.view.cy - (m[1] * d() - cv.height / 2) / drw.view.sc]; } } }); // (beta 6.7, Edit route: two fingers move and zoom it, about their middle)
     cv.addEventListener('pointermove', (e) => {
       if (!drw || !drw.ptrs.has(e.pointerId)) return; drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]);
-      if (drw.ptrs.size === 2 && pinch) { const [a, b] = [...drw.ptrs.values()]; drw.view.sc = Math.max(0.01, pinch.sc * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.dist); moved = 99; drawDrawing(); return; }
+      if (drw.ptrs.size === 2 && pinch) { const [a, b] = [...drw.ptrs.values()]; drw.view.sc = Math.max(0.01, pinch.sc * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.dist); moved = 99;
+        if (pinch.w) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; drw.view.cx = pinch.w[0] - (m[0] * d() - cv.width / 2) / drw.view.sc; drw.view.cy = pinch.w[1] + (m[1] * d() - cv.height / 2) / drw.view.sc; }
+        drawDrawing(); return; }
       const dx = e.clientX - last[0], dy = e.clientY - last[1]; last = [e.clientX, e.clientY]; moved += Math.abs(dx) + Math.abs(dy);
+      if (drwEd && (rtDrawing() || rtGrab || rtDraft || rtMpan || (e.pointerType === 'mouse' && e.buttons !== 1))) return; // beta 6.7, Edit route: ✎ one finger draws (Route's gestures, rtGest); ✋ one finger moves it
       drw.view.cx -= dx * d() / drw.view.sc; drw.view.cy += dy * d() / drw.view.sc; drawDrawing();
     });
     const up = (e) => {
       if (!drw) return; drw.ptrs.delete(e.pointerId); if (drw.ptrs.size < 2) pinch = null;
-      if (moved < 8 && e.type === 'pointerup') { // a tap: the nearest point
+      if (moved < 8 && e.type === 'pointerup' && !drwEd) { // a tap: the nearest point (beta 6.7: in Edit route, Route's tap)
         const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
         let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(it.xy), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; });
         drw.sel = best ? best.it.p.id : null; const info = $('drawInfo');
@@ -2147,6 +2231,7 @@
           info.textContent = `${n ? `No. ${n} · ` : ''}${p.poleId || elemOf(p)} · ${svDesc(p)}${boqText(p) ? ` · ${boqText(p)}` : ''}${tg.length ? ` · on the plan: ${tg.join(', ')}` : ''}${best.it.on ? ` · on pole ${best.it.on.p.poleId || '(no ID)'}` : ''} · E ${u[0].toFixed(1)} N ${u[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; }
         else if (drw.selRun == null) { info.hidden = true; $('drawHint').hidden = !!S.drawHintOff; } // (v2.42.26: a cable tapped keeps its line)
         if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: a tower site tapped: its CEF plan
+        if (splHooks.drawSync) splHooks.drawSync(); // beta 4.6: a site, closure or dummy NAP tapped: Splicing details ›
         drawDrawing();
       }
     };
@@ -2236,9 +2321,10 @@
   /* v2.42.28: under the plan, What to export (the drawings of the plan export, in one line) and Export; on the plan, the drawing
      shown (‹ › go through them). The table: mxRender. Clamp types, pole numbers, the template… are in Plan settings (the sliders at the
      top). Before: Photos ▾, CA, All points ▾ and the drawing picker on the bar, the drawings on the DXF card. */
-  function renderDrawBar() {
+  function renderDrawBar() { xNow(renderDrawBar0); } // (beta 6.2: its counts as exported)
+  function renderDrawBar0() {
     const R0 = dxfRows(), i = rowIdx(), many = R0.length > 1;
-    $('drawWhatV').textContent = `${R0.length} drawing${many ? 's' : ''}: ${R0.slice(0, 2).map(rowShort).join(', ')}${R0.length > 2 ? ` +${R0.length - 2}` : ''}`;
+    $('drawWhatV').textContent = `${R0.length} · ${R0.slice(0, 2).map(rowShort).join(', ')}${R0.length > 2 ? ` +${R0.length - 2}` : ''}`; // (beta 6.7, UX step 3: Drawings: 1 · Every point · Photo)
     $('drawPv').hidden = false; $('drawPv').title = rowText(R0[i]);
     $('drawPvT').innerHTML = `${many ? `<b>${i + 1}/${R0.length}</b>` : ''}${C.xmlEsc(rowShort(R0[i]))}`;
     $('drawPvPrev').hidden = !many; $('drawPvNext').hidden = !many;
@@ -2257,7 +2343,7 @@
   }
   $('drawWhat').addEventListener('click', () => setWhat($('drawWhatBox').hidden, true));
   $('mxClose').addEventListener('click', () => setWhat(false, true));
-  $('mxGo').addEventListener('click', () => openPlanExport());
+  $('mxGo').addEventListener('click', () => setWhat(false, true)); // beta 6.7 (UX step 3): Done (the Drawing bar has one Export: Export plan)
   /** v2.41: the legend of the preview (only what this project has). */
   function renderDrawLegend() {
     const pts = drw ? drw.items : [], has = (f) => pts.some(f), rows = [];
@@ -2271,8 +2357,9 @@
     if (drw && drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); } // v2.42.12
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
-    if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${Z} m)`)]); } // (Drawing style › Photos: a size other than Normal)
-    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
+    { const RT = plStyle().num.rta; if (RT.on) { const cnt = new Map(), RC = rtaCats(RT, pts.map((it) => it.p)); pts.forEach((it) => { const c = rtaCatOf(it.p, RT, RC); if (c) cnt.set(c, (cnt.get(c) || 0) + 1); }); [...RC.slice(0, 1), RTA_PROP, RTA_GT, ...RC.slice(1)].filter((c, i, A) => cnt.has(c) && A.indexOf(c) === i).forEach((c) => rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[c.color]}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[c.color]}">1</text>`), `${c.text} (${cnt.get(c)})`])); } } // beta 6.5: the RTA/JPA categories on the drawing
+    if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${phTidyMm(Z)} mm)`)]); } // (Drawing style › Photos: a size other than Normal)
+    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)'], ['EA', '#0c8599', 'Extension arm 26" or 44.5" on the pole'], ['AA', '#0c8599', '10-pin alley arm on the pole']];
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 5h20" stroke="#1c3f94" stroke-width="1.2" stroke-dasharray="4 2.5"/><path d="M1 11h20" stroke="#1c3f94" stroke-width="2.6" stroke-dasharray="4 2.5"/>'), 'Cables: each its own line in its lane, thicker for a larger size (12C thinnest, 288C thickest); its label says its size, type and run (PROPOSED 24C FIG-8 (RUN 5))']); // v2.42.20 (v2.42.23; v2.42.24: the width by size)
     if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'dn')) rows.push([sv('<rect x="1.5" y="4" width="19" height="8" rx="3" fill="#fff" stroke="#14b81e" stroke-width="1.2"/><text x="11" y="10.4" text-anchor="middle" font-size="5.5" font-weight="800" fill="#14b81e" font-family="Arial,sans-serif">DN</text>'), 'Dummy NAP (DN) on the cable: its cables meet its sides']); // v2.42.24
     if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'clo')) rows.push([sv('<polygon points="11,2 17.2,6.5 14.8,13.8 7.2,13.8 4.8,6.5" fill="#ff0000"/>'), 'Hybrid closure on the cable (red: proposed; blue outline: existing), with its ID and size; its cables meet its sides']); // v2.42.24
@@ -2283,82 +2370,162 @@
     $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join('');
   }
   $('drawDxf').addEventListener('click', () => openPlanExport()); // v2.42.28: Export the plan, over the Drawing (beside it on a computer)
-  $('drawSetBtn').addEventListener('click', () => openPlanSet()); // v2.42.28: Plan settings (Drawing style is in it)
+  $('drawSetBtn').addEventListener('click', () => openStyle()); // v2.42.28 (beta 6.7, UX step 4: Plan style, on the tab used last)
   /* v2.41: the drawing style, the user's preference (on this phone): the numbers beside the points (colour, circle colour, height,
      circle, distance, leader line, where), the IDs of the points on the cable (bold, colour, height) and the vicinity map (circle and
      route colour and width). Defaults: the numbers yellow, 3 m high in a 7 m circle, 2 m from the point with a leader line, at the
      first free spot; the IDs as before (2.5 m, by layer); the circle yellow. Sizes are metres of the drawing (1:1100: 1 m = 0.9 mm). */
-  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, zoom: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
-    clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
+  /* beta 6.5 (the owner: "can you add this kind of pole number per our standard? if there are other attachment, allow user to edit pole
+     numbering design as needed"): the pole numbers coloured by RTA/JPA category, number and circle in one colour, as the owner's "RTA/JPA
+     LEGEND": proposed poles red; existing poles by their owner (the pole form's Pole owner): Electric green (RTA-ELECTRIC), CONVERGE
+     magenta, PLDT cyan; the user may add an owner's category or change these. The same rule as the PMI's rows: a proposed (or new)
+     pole first, a Globe pole none, then the first category whose owner the pole owner contains. Other poles and points as set above. */
+  const RTA_STD = [{ k: 'proposed', text: 'PROPOSED POLES', color: 1 }, { k: 'owner', owner: 'Electric', text: 'RTA-ELECTRIC', color: 3 }, { k: 'owner', owner: 'CONVERGE', text: 'RTA-CONVERGE', color: 6 }, { k: 'owner', owner: 'PLDT', text: 'RTA-PLDT', color: 4 }];
+  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto', rta: { on: true, cats: RTA_STD, off: [], legend: 'off' } }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, zoom: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
+    clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true }, route: 'road', boxLoops: false }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words; beta 6.1: a cable's line between two points follows the road (or straight) */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
-    crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' },
-    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 }, photo: { size: 18 } }; /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+    crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room', icons: true }, /* beta 6.7: icons: Drawing style › Landmarks › Icons */
+    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0, idForm: 'auto' }, span: { h: 0, color: 0 }, photo: { size: 18, near: 16, stamp: 'addr' }, grid: { split: 0, pos: 'tr', h: 0, color: 0, leaders: 'auto' } }; /* beta 6.0: Photos: near its pole within 8-40 mm on the A3 sheet; Grid: leader lines only when there is no other way (auto) or allowed */ /* beta 6.0: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+  /* (PL_STD, the company standard, is defined beside DEF: beta 6.7, UX step 4) */
+  /** What differs from the company standard: [[setting, now]] (the look only: pole numbers are the project's). */
+  function plStdDiff() {
+    const P = plStyle(), E = S.exp, out = [], tidy = E.dxfLabels === 'tidy' ? 'tidy' : 'std', st = P.photo.stamp || 'off';
+    // (beta 6.8, UX step 6; reviewer: each difference by its Basic row's label, as the user sees it there)
+    if (tidy !== PL_STD.dxfLabels) out.push(['Pole labels', tidy === 'tidy' ? 'Tidy' : 'Standard']);
+    if (!!(P.num.rta && P.num.rta.on) !== PL_STD.rtaOn) out.push(['Pole number colours', P.num.rta && P.num.rta.on ? 'By pole owner' : 'One colour']);
+    if (P.photo.size !== PL_STD.photoSize) out.push(['Photos on the plan', phName(P.photo.size)]);
+    if (st !== PL_STD.photoStamp) out.push(['Stamp on the plan\'s photos', { off: 'Off', ll: 'Lat-long', addr: 'Lat-long + address' }[st] || 'Off']);
+    if ((E.dxfClampType !== false) !== PL_STD.dxfClampType) out.push(['Clamp types beside each pole', E.dxfClampType !== false ? 'On' : 'Off']);
+    if (!!P.cab.boxLoops !== PL_STD.boxLoops) out.push(['20 m loops at boxes', P.cab.boxLoops ? 'Written' : 'Not written']);
+    if ((E.dxfBoqGrid !== false) !== PL_STD.dxfBoqGrid) out.push(['BOQ table on each map sheet', E.dxfBoqGrid !== false ? 'On' : 'Off']);
+    return out;
+  }
   /* Drawing style › Photos: the long side of every pole and point photo on the plan, in metres of the drawing where the poles stand
      25 m apart or more (closer, the plan draws them smaller, to two thirds, as before). Normal (18 m) is the size before; 6 to 40 m. */
   const PH_SIZES = [[12, 'Small'], [18, 'Normal'], [24, 'Large'], [30, 'Extra large']];
-  const phSize = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(40, Math.max(6, Math.round(+v * 2) / 2)) : 18);
+  const phSize = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(53, Math.max(6, Math.round(+v * 2) / 2)) : 18); // (beta 6.7: to 53 m, 48 mm printed)
   const phName = (m) => { const k = PH_SIZES.find(([v]) => v === m); return k ? k[1] : 'Your own size'; };
   const phMm = (m) => `${Math.round(m * 0.75 / 1.1)} × ${Math.round(m / 1.1)} mm`; // (an upright 3:4 photo at 1:1100, the GEO sheets' scale)
+  const PH_STAMP = { off: 'no stamp on them', ll: 'stamped with their lat, long', addr: 'stamped with their lat, long and address' }; // beta 6.4
+  /* beta 6.4 (the owner: "settings is photo is large but the plan still is small"): Tidy prints the photos at clear steps whatever the grid.
+     beta 6.7 (the owner: "the photo small, medium and large is not spaced enough ... i tried 300 i think that should be your large"): every
+     plan, Standard and Tidy, prints every photo at the step set, the steps well apart: Small 9 mm, Normal 18 mm, Large 36 mm (what an own
+     size of 300 gave: 40 m, the most then), Extra large 48 mm on the long side; your own size in metres at 1:1100 (6 to 53 m). */
+  const phTidyMm = (m) => ({ 12: 9, 18: 18, 24: 36, 30: 48 }[m] || Math.min(48, Math.max(4, Math.round(m / 1.1 * 10) / 10)));
   function plStyle() {
-    const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
-    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
-    return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
+    const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (isHexCol(v) ? v.toLowerCase() : Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d); // (beta 6.0: or a colour of the user's own)
+    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, Gr = { ...PL_DEF.grid, ...(u.grid || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
+    const Rt = { ...PL_DEF.num.rta, ...(N.rta || {}) }, rtaCats = (Array.isArray(Rt.cats) ? Rt.cats : RTA_STD).filter((x) => x && (x.k === 'proposed' || (x.k === 'owner' && String(x.owner || '').trim()))).slice(0, 16).map((x) => ({ k: x.k, ...(x.k === 'owner' ? { owner: String(x.owner).trim().slice(0, 40) } : {}), text: String(x.text || '').replace(/\s+/g, ' ').trim().slice(0, 32) || (x.k === 'proposed' ? 'PROPOSED POLES' : `RTA-${String(x.owner).trim().toUpperCase()}`), color: x.k === 'proposed' ? 1 : c(x.color, 2) })); // (beta 6.5: the proposed red stays the legend's)
+    return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto', rta: { on: Rt.on !== false, cats: rtaCats, off: (Array.isArray(Rt.off) ? Rt.off : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 30), legend: ['boq', 'sheet'].includes(Rt.legend) ? Rt.legend : 'off' } }, // (beta 6.6: off: the automatic categories removed; legend: where it goes, off by default)
       id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, zoom: V.zoom !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
-      cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])) },
+      cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])), route: Cb.route === 'straight' ? 'straight' : 'road', boxLoops: Cb.boxLoops === true },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
-      crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
-      pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true) }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size) } };
+      crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room', icons: Cr.icons !== false }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
+      pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true), idForm: ['stack', 'line'].includes(Po.idForm) ? Po.idForm : 'auto' }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size), near: n(Ph.near, 8, 40, 16), stamp: ['off', 'll', 'addr'].includes(Ph.stamp) ? Ph.stamp : 'addr' }, /* (beta 6.4: the stamp on the plan's photos) */
+      grid: { split: Number.isInteger(+Gr.split) && +Gr.split >= 1 && +Gr.split <= 6 ? +Gr.split : 0, pos: ['tr', 'tl', 'br', 'bl'].includes(Gr.pos) ? Gr.pos : 'tr', h: hz(Gr.h, 4, 30), color: c(Gr.color, 0, true), leaders: Gr.leaders === 'allow' ? 'allow' : 'auto' } }; // beta 6.0 (beta 6.0: leaders)
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${ACI_NAME[V.circle]}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? colName(Cl.color) : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Pole ID (Tidy): ${{ auto: 'CC over 123456, CC-123456 where it needs room', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · Cables between points: ${Cb.route === 'straight' ? 'straight from point to point' : 'follow the road'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : colName(P.site.acol)) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${N.rta.on ? `by RTA/JPA category (${N.rta.cats.map((x) => `${x.text} ${colName(x.color)}`).join(', ')}), others ` : ''}${colName(N.color)}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${colName(N.bcolor)}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? colName(I.color) : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${colName(V.circle)}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? colName(V.route) : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m; ${PH_STAMP[P.photo.stamp]} · Grid: ${P.grid.split ? `your own split 1/${P.grid.split} (Tidy)` : 'Auto split (Tidy: 1/1 to 1/4)'}; the sheets\u2019 names ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, ${P.grid.h ? `${P.grid.h} mm` : 'auto size'}, ${P.grid.color ? colName(P.grid.color) : 'auto colour (Tidy: light grey)'}, under the details; leader lines ${P.grid.leaders === 'allow' ? 'allowed, for fewer sheets' : 'only where there is no other way'}; photos near their pole within ${P.photo.near} mm`;
   }
-  function openStyle() { DSP.reset(); renderStyle(); openSheet('drwStyle'); setTimeout(() => { DSP.reset(); DSP.onScroll(); }, 0); } // (the settings from the top, the preview large)
+  /* beta 6.5: Drawing style › Numbers › Colour by RTA/JPA category: on or off, and the categories: each its legend text and colour (the
+     proposed red is the legend's, locked), a pole owner's one removed or added (an owner from the list, or typed), the standard four again */
+  const rtaSvg = (c) => `<svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="11" fill="#fff" stroke="${ACI_INK[c]}" stroke-width="2.4"/><text x="15" y="20.5" text-anchor="middle" font-size="15" font-weight="800" fill="${ACI_INK[c]}" font-family="Arial, sans-serif">1</text></svg>`;
+  const rtaSet = (cats, on, extra) => { const R = plStyle().num.rta; setPl('num', 'rta', { ...R, on: on == null ? R.on : on, cats, ...(extra || {}) }); }; // (beta 6.6: off and legend kept)
+  const rtaSws = (box, val, pick) => { box.innerHTML = '';
+    [1, 2, 3, 4, 5, 6, 7].forEach((k) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'sw2'; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(val === k)); b.setAttribute('aria-label', `${ACI_NAME[k]} (AutoCAD colour ${k})`); b.title = b.getAttribute('aria-label'); b.style.setProperty('--c', ACI_HEX[k]); b.addEventListener('click', () => pick(k)); box.appendChild(b); });
+    const own = isHexCol(val), lb = document.createElement('label'); lb.className = `sw2 own${own ? '' : ' txt'}`; lb.setAttribute('role', 'radio'); lb.setAttribute('aria-checked', String(own)); lb.title = own ? `Your colour ${val} (tap to change)` : 'Your own colour: pick any colour'; if (own) lb.style.setProperty('--c', val);
+    const inp = document.createElement('input'); inp.type = 'color'; inp.value = own ? val : '#ff8800'; inp.setAttribute('aria-label', lb.title); inp.addEventListener('change', () => pick(inp.value.toLowerCase())); lb.append(inp, own ? '' : 'Own…'); box.appendChild(lb); };
+  let rtaNewCol = '#ff8000';
+  /* beta 6.5 (6.6): the categories in force for this project (the user's and one for each other owner found, marked "added for this
+     project"), Globe's two fixed rows, + Add category (an owner of the list or a new one typed, kept in the pole form's owners too), where
+     the legend goes, and the standard four again */
+  function renderRta(P, seg, o) {
+    const R = P.num.rta, box = $('stRtaList'); if (!box) return;
+    seg('stRtaOn', R.on ? '1' : '0'); seg('stRtaLeg', R.legend); // (beta 6.7, UX step 4: greyed with its reason by plDims)
+    o('stRtaHint', R.on ? 'Each pole’s number and its circle in its category’s colour: a proposed or new pole red; an existing pole by its pole owner (the pole form); every other owner of the project gets a category and a colour of its own; Globe’s own poles (GT, Bayantel) red (proposed) or blue (existing), always. Poles with no owner and the other points: the Number colour below. The PMI counts the same poles in its RTA rows, a row added for each other owner.' : 'Off: every number in the Number colour below, as before.');
+    const cats = rtaCats(R, typeof projPoints === 'function' ? projPoints() : []);
+    box.innerHTML = '';
+    cats.forEach((c) => { const i = R.cats.indexOf(c), row = document.createElement('div'); row.className = 'rtacat';
+      const keep = (x) => { const cs = plStyle().num.rta.cats; if (c.auto) rtaSet([...cs, { k: 'owner', owner: c.owner, text: x.text || c.text, color: x.color != null ? x.color : c.color }]); else rtaSet(cs.map((y, j) => (j === i ? { ...y, ...x } : y))); }; // (an automatic one changed: kept as the user's)
+      const ic = document.createElement('span'); ic.innerHTML = rtaSvg(c.color);
+      const t = document.createElement('input'); t.type = 'text'; t.maxLength = 32; t.value = c.text; t.setAttribute('aria-label', `Legend text of ${c.k === 'proposed' ? 'proposed poles' : `the poles of ${c.owner}`}`);
+      t.addEventListener('change', () => { const v = t.value.replace(/\s+/g, ' ').trim(); if (!v) { t.value = c.text; return; } keep({ text: v.toUpperCase() }); });
+      const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'chip small'; rm.textContent = '✕'; rm.setAttribute('aria-label', `Remove ${c.text}`); rm.title = rm.getAttribute('aria-label');
+      rm.addEventListener('click', () => { const R1 = plStyle().num.rta; if (c.auto) rtaSet(R1.cats, null, { off: [...R1.off, c.owner] }); else rtaSet(R1.cats.filter((x, j) => j !== i), null, c.owner ? { off: R1.off.filter((x) => x.toUpperCase() !== c.owner.toUpperCase()).concat(c.owner) } : null); });
+      const who = document.createElement('div'); who.className = 'rtaown'; who.textContent = c.k === 'proposed' ? 'Proposed or new poles, any owner' : `Existing poles owned by ${c.owner}${c.auto ? ' · added for this project (change it to keep it)' : ''}`;
+      row.append(ic, t, rm, who);
+      if (c.k === 'proposed') { const lk = document.createElement('div'); lk.className = 'rtalock hint'; lk.textContent = 'Red, as the legend’s proposed colour 🔒'; row.appendChild(lk); }
+      else { const sw = document.createElement('div'); sw.className = 'sws'; sw.setAttribute('role', 'radiogroup'); sw.setAttribute('aria-label', `Colour of ${c.text}`); rtaSws(sw, c.color, (k) => keep({ color: k })); row.appendChild(sw); }
+      box.appendChild(row); });
+    { const g = document.createElement('div'); g.className = 'rtacat rtafix'; g.innerHTML = `<span>${rtaSvg(5)}</span><div><b>EXISTING POLES</b></div><span></span><div class="rtaown">Globe’s own poles (GT, Bayantel), existing: the legend’s blue; proposed or new ones red. Always (no RTA) 🔒</div>`; box.appendChild(g); }
+    if (R.off.length) { const h = document.createElement('p'); h.className = 'hint'; h.style.margin = '0'; h.textContent = `Not coloured: ${R.off.join(', ')} (removed). + Add category brings one back.`; box.appendChild(h); }
+    if (!$('stRtaNew').hidden) { const pick = (k) => { rtaNewCol = k; rtaSws($('stRtaNewCol'), rtaNewCol, pick); }; pick(rtaNewCol); }
+  }
+  const rtaNewOpen = () => { const R = plStyle().num.rta, used = new Set(rtaCats(R, projPoints()).filter((x) => x.owner && !x.auto).map((x) => x.owner.toUpperCase())), opts = [...new Set([...boqOwners(), ...projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => String((p.boq && p.boq.owner) || '').trim()).filter(Boolean)])].filter((x) => !used.has(String(x).toUpperCase()) && !/^\s*globe/i.test(x)); // (the owners' list and the project's own; not Globe: its poles are fixed)
+    $('stRtaOwnL').innerHTML = opts.map((x) => `<option value="${C.xmlEsc(x)}"></option>`).join(''); $('stRtaOwn').value = ''; $('stRtaTxt').value = ''; $('stRtaTxt').dataset.auto = '1';
+    const usedC = new Set(rtaCats(R, projPoints()).map((x) => String(x.color).toLowerCase())); rtaNewCol = RTA_AUTO_COLS.find((x) => !usedC.has(x)) || '#ff8000'; $('stRtaNew').hidden = false; const pick = (k) => { rtaNewCol = k; rtaSws($('stRtaNewCol'), rtaNewCol, pick); }; pick(rtaNewCol); setTimeout(() => $('stRtaOwn').focus(), 0); };
+  const rtaOwnerNow = () => $('stRtaOwn').value.replace(/\s+/g, ' ').trim();
+  /* (openStyle, Plan style's way in: beside renderPlanSet; beta 6.7, UX step 4) */
   function renderStyle() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic;
     const sw = (id, val, zero, part, key) => { const box = $(id); box.innerHTML = '';
       const opts = (zero ? [[0, zero]] : []).concat([1, 2, 3, 4, 5, 6, 7].map((k) => [k, ACI_NAME[k]]));
       opts.forEach(([k, nm]) => { const b = document.createElement('button'); b.type = 'button'; b.className = `sw2${k ? '' : ' txt'}`; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(val === k)); b.setAttribute('aria-label', k ? `${nm} (AutoCAD colour ${k})` : nm); b.title = b.getAttribute('aria-label');
-        if (k) b.style.setProperty('--c', ACI_HEX[k]); else b.textContent = nm; b.addEventListener('click', () => setPl(part, key, k)); box.appendChild(b); }); };
+        if (k) b.style.setProperty('--c', ACI_HEX[k]); else b.textContent = nm; b.addEventListener('click', () => setPl(part, key, k)); box.appendChild(b); });
+      /* beta 6.0: a colour of the user's own: the phone's or computer's colour picker (kept as #rrggbb; the plan gets the colour itself) */
+      const own = isHexCol(val), lb = document.createElement('label'); lb.className = `sw2 own${own ? '' : ' txt'}`; lb.setAttribute('role', 'radio'); lb.setAttribute('aria-checked', String(own));
+      lb.title = own ? `Your colour ${val} (tap to change)` : 'Your own colour: pick any colour'; if (own) lb.style.setProperty('--c', val);
+      const inp = document.createElement('input'); inp.type = 'color'; inp.value = own ? val : '#ff8800'; inp.setAttribute('aria-label', lb.title);
+      inp.addEventListener('change', () => setPl(part, key, inp.value.toLowerCase())); lb.append(inp, own ? '' : 'Own…'); box.appendChild(lb); };
     sw('stClCol', P.clamp.color, 'By layer', 'clamp', 'color'); // v2.42.21
-    { const Q = P.pole, Z = P.span, hh = (id, v, def, auto) => { if (document.activeElement !== $(id)) $(id).value = String(v || def); $(id + 'Auto').setAttribute('aria-pressed', String(!v)); $(id + 'O').textContent = v ? `${v} m · ${mmOf(v)} mm` : auto; }; // beta 4.3
+    if ($('stPoleTidy')) $('stPoleTidy').hidden = S.exp.dxfLabels !== 'tidy'; // beta 4.7: Pole labels Tidy: which pole settings apply
+    { const Q = P.pole, Z = P.span, hh = (id, v, def, auto) => { if (document.activeElement !== $(id)) $(id).value = String(v || def); $(id + 'Auto').setAttribute('aria-pressed', String(!v)); $(id + 'O').textContent = v ? `${mmOf(v)} mm` : auto; }; // beta 4.3 (beta 6.7, UX step 4: mm on the printed sheet only)
       sw('stPoleIdCol', Q.idColor, 'Auto', 'pole', 'idColor'); sw('stPoleOwnCol', Q.ownColor, 'Auto', 'pole', 'ownColor'); sw('stPoleLlCol', Q.llColor, 'Auto', 'pole', 'llColor'); sw('stSpanCol', Z.color, 'Auto', 'span', 'color');
-      hh('stPoleIdH', Q.idH, 2.2, 'auto (2.2 m · 2.0 mm)'); hh('stPoleOwnH', Q.ownH, Q.idH || 2.2, 'auto (as the pole ID)'); hh('stPoleLlH', Q.llH, 1.2, 'auto (1.2 m · 1.1 mm)'); hh('stSpanH', Z.h, 2, 'auto (2.0 m · 1.8 mm)');
-      $('stPoleIdColO').textContent = Q.idColor ? ACI_NAME[Q.idColor] : 'auto (as the template)'; $('stPoleOwnColO').textContent = Q.ownColor ? ACI_NAME[Q.ownColor] : 'auto (as the pole ID)'; $('stPoleLlColO').textContent = Q.llColor ? ACI_NAME[Q.llColor] : 'auto (by layer)'; $('stSpanColO').textContent = Z.color ? ACI_NAME[Z.color] : 'auto (by layer)'; }
+      hh('stPoleIdH', Q.idH, 2.2, 'auto (2.0 mm)'); hh('stPoleOwnH', Q.ownH, Q.idH || 2.2, 'auto (as the pole ID)'); hh('stPoleLlH', Q.llH, 1.2, 'auto (1.1 mm)'); hh('stSpanH', Z.h, 2, 'auto (1.8 mm)');
+      $('stPoleIdColO').textContent = Q.idColor ? colName(Q.idColor) : 'auto (as the template)'; $('stPoleOwnColO').textContent = Q.ownColor ? colName(Q.ownColor) : 'auto (as the pole ID)'; $('stPoleLlColO').textContent = Q.llColor ? colName(Q.llColor) : 'auto (by layer)'; $('stSpanColO').textContent = Z.color ? colName(Z.color) : 'auto (by layer)'; }
     sw('stNumCol', N.color, null, 'num', 'color'); sw('stNumBCol', N.bcolor, 'Same as the number', 'num', 'bcolor'); sw('stIdCol', I.color, 'By layer (as before)', 'id', 'color'); sw('stVicCol', V.circle, null, 'vic', 'circle'); sw('stVicRCol', V.route, 'By cable', 'vic', 'route');
     const o = (id, t) => { $(id).textContent = t; };
-    o('stClColO', P.clamp.color ? ACI_NAME[P.clamp.color] : 'by layer'); // v2.42.21
-    o('stNumColO', ACI_NAME[N.color]); o('stNumBColO', N.bcolor ? ACI_NAME[N.bcolor] : 'as the number'); o('stIdColO', I.color ? ACI_NAME[I.color] : 'by layer'); o('stVicColO', ACI_NAME[V.circle]); o('stVicRColO', V.route ? ACI_NAME[V.route] : 'by cable');
+    o('stClColO', P.clamp.color ? colName(P.clamp.color) : 'by layer'); // v2.42.21
+    o('stNumColO', colName(N.color)); o('stNumBColO', N.bcolor ? colName(N.bcolor) : 'as the number'); o('stIdColO', I.color ? colName(I.color) : 'by layer'); o('stVicColO', colName(V.circle)); o('stVicRColO', V.route ? colName(V.route) : 'by cable');
     [['stNumH', N.h], ['stNumD', N.d], ['stNumG', N.g], ['stIdH', I.h], ['stVicW', V.circleW], ['stVicRW', V.routeW], ['stClH', P.clamp.h]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
-    o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
+    o('stNumHO', `${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${mmOf(N.g)} mm`); o('stIdHO', `${mmOf(I.h)} mm`); // (beta 6.7, UX step 4: mm on the printed sheet) o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+    renderRta(P, seg, o); // beta 6.5: Numbers › Colour by RTA/JPA category
+    seg('stPoleIdForm', P.pole.idForm); o('stPoleIdFormHint', { auto: 'Tidy: its type over its number (CC over 123456, as the Standard labels and earlier versions draw it); on one line, CC-123456, only where the stacked block finds no room.', stack: 'Tidy: always its type over its number (CC over 123456), as the Standard labels.', line: 'Tidy: always on one line, CC-123456 (a proposed pole: PROP.POLE \u00b7 its height).' }[P.pole.idForm] + ' No tag: NPT. Standard labels always stack them.'); // beta 6.2
+    { const G = P.grid; // beta 6.0: Drawing style › Grid
+      sw('stGridCol', G.color, 'Auto', 'grid', 'color'); o('stGridColO', G.color ? colName(G.color) : S.exp.dxfLabels === 'tidy' ? 'auto: light grey (Tidy)' : 'auto: the template\u2019s layer colour');
+      seg('stGridSplit', String(G.split)); seg('stGridPos', G.pos); seg('stGridLead', G.leaders); // (beta 6.0)
+      o('stGridLeadHint', G.leaders === 'allow' ? 'A pole\u2019s block may stand a little away with a thin line to its pole where that keeps the sheets larger (as before).' : 'A pole\u2019s block sits right beside its pole; a thin line only where every place beside it would cover the plan\u2019s details (Auto takes a finer grid first, to 1/4; those left are listed under Drawing checks). Landmark names make room: smaller, to 1.3 mm.');
+      if (document.activeElement !== $('stGridH')) $('stGridH').value = String(G.h || 12); $('stGridHAuto').setAttribute('aria-pressed', String(!G.h)); o('stGridHO', G.h ? `${G.h} mm on the A3 sheet` : 'auto (a tenth of the sheet)');
+      o('stGridSplitO', G.split ? `1/${G.split}: your own` : 'Auto (1/1 to 1/4)');
+      o('stGridHint', `Tidy: ${G.split ? `every GEO sheet shows 1/${G.split} of the template\u2019s cell (${Math.round(440 / G.split)} m), at ${G.split} times its scale; the plan keeps it even where labels lack room (they are listed under Drawing checks)` : `the plan picks the largest grid, 1/1 to 1/4 of the template\u2019s cell, at which every label has a place, no sheet has more than two pole blocks over a road or two photos away from their pole${G.leaders === 'allow' ? '' : ', and no pole\u2019s block needs a line to its pole'}`}. Standard keeps the template\u2019s cell. The sheet\u2019s name is drawn under the details, which stay readable over it.`); }
     seg('stNumLeader', N.leader ? '1' : '0'); seg('stNumPlace', N.place); seg('stIdBold', I.bold ? '1' : '0');
     seg('stVicZoom', V.zoom ? '1' : '0'); seg('stVicArea', V.area ? '1' : '0'); if (document.activeElement !== $('stVicLbl')) $('stVicLbl').value = V.label; if (document.activeElement !== $('stVicLh')) $('stVicLh').value = String(V.lh); o('stVicLhO', `${V.lh} m`); // beta 3.9
-    $('drwStyle').querySelectorAll('[data-dim="vicarea"]').forEach((r) => r.classList.toggle('dim', !V.area));
     seg('stCabPer', String(P.cab.per)); seg('stSiteName', P.site.name); seg('stOdfPlace', P.odf.place); seg('stOdfLbl', P.odf.lbl); // v2.42.26
-    seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); // beta 3.8
+    seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); seg('stLmIcons', P.crowd.icons ? '1' : '0'); /* beta 6.7 */ // beta 3.8
     seg('stSiteMove', P.site.move); seg('stSiteArrow', P.site.arrow ? '1' : '0'); sw('stSiteACol', P.site.acol, 'As the tower', 'site', 'acol');
     [['stCrowdMin', P.crowd.min], ['stCrowdMove', P.crowd.move]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
-    o('stCrowdMinO', `${P.crowd.min} % of the size you set`); o('stCrowdMoveO', `${P.crowd.move} m · ${mmOf(P.crowd.move)} mm`);
-    o('stSiteAColO', P.site.acol ? (P.site.acol === 7 ? 'white · black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower');
-    $('drwStyle').querySelectorAll('[data-dim="auto"]').forEach((r) => r.classList.toggle('dim', !P.crowd.auto));
-    $('drwStyle').querySelectorAll('[data-dim="tower"]').forEach((r) => r.classList.toggle('dim', P.site.move === 'point'));
+    o('stCrowdMinO', `${P.crowd.min} % of the size you set`); o('stCrowdMoveO', `${mmOf(P.crowd.move)} mm`);
+    o('stSiteAColO', P.site.acol ? (P.site.acol === 7 ? 'white · black on the PDF' : colName(P.site.acol)) : 'as the tower');
     $('stCabW').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(!!P.cab.w[b.dataset.k])));
-    if (document.activeElement !== $('stCabH')) $('stCabH').value = String(P.cab.h || 1.3); $('stCabHAuto').setAttribute('aria-pressed', String(!P.cab.h)); o('stCabHO', P.cab.h ? `${P.cab.h} m · ${mmOf(P.cab.h)} mm` : 'auto (1.0–1.3 m by the poles\u2019 spacing)');
+    if (document.activeElement !== $('stCabH')) $('stCabH').value = String(P.cab.h || 1.3); $('stCabHAuto').setAttribute('aria-pressed', String(!P.cab.h)); o('stCabHO', P.cab.h ? `${mmOf(P.cab.h)} mm` : 'auto (0.9–1.2 mm, by the poles\u2019 spacing)');
     o('stCabReads', `Reads: ${['F72', 'L12', 'U144'].map((k, i) => runLbl(cabWords(k), i + 1) || '(nothing)').join(' · ')}`);
-    ['stCabPer', 'stCabH', 'stCabW'].forEach((id) => { const r = $(id).closest('.strow'); if (r) r.classList.toggle('dim', !P.cab.on); });
-    seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0');
-    o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); });
+    seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0'); seg('stCabRoute', P.cab.route); drawRoutePreview(P); // (beta 6.1)
+    o('stClHO', `${mmOf(P.clamp.h)} mm`); // (beta 6.7, UX step 4: the rows greyed with their reason by plDims: clamp types off, In the pole label)
     { const Z = P.photo.size; // Drawing style › Photos
       $('stPhSize').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === Z)));
       if (document.activeElement !== $('stPhL')) $('stPhL').value = String(Z);
-      o('stPhO', `${phName(Z)} · ${Z} m`);
-      o('stPhHint', `Each photo is ${Z} m on its long side on the drawing: about ${phMm(Z)} on the A3 sheet (1:1100). The same for every pole and point photo. Where the poles stand closer than 25 m the plan draws them smaller (down to ${+(Z * 2 / 3).toFixed(1)} m) so they fit; a photo with no room beside its point goes further out, with a thin line to it.`); }
+      o('stPhO', `${phTidyMm(Z)} mm on the printed sheet${PH_SIZES.some(([v]) => v === Z) ? '' : ' (your own size)'}`); // (beta 6.4; beta 6.7: Standard too; UX step 4: the readout of Basic › Photos on the plan)
+      { const nm = P.photo.near; if (document.activeElement !== $('stPhNear')) $('stPhNear').value = String(nm); o('stPhNearO', `${nm} mm on the A3 sheet: about ${[1, 2, 3, 4].map((k) => `${Math.round(nm / 0.6135 / k)} m at 1/${k}`).join(', ')}`); } // beta 6.0: a photo is near its pole within this (its centre), at the company template's scale
+      seg('stPhStamp', P.photo.stamp); { const mm = phTidyMm(Z), /* (beta 6.7) */ fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' ? '' : `text ${fsMm.toFixed(1)} mm high`); } // beta 6.4 (an upright photo: the coordinates across its width; beta 6.7, UX step 4: short, in Basic)
+      o('stPhHint', `Every photo on the plan is printed ${phTidyMm(Z)} mm on its long side on the A3 sheet (Small 9, Normal 18, Large 36, Extra large 48 mm; your own size in metres at 1:1100), the same for every pole and point. Where a photo has no free place near its pole it goes where there is room, with a thin line to its pole; only where there is no place at all is that photo drawn smaller, as little as it needs (listed in the README), never left out. The pole comes first, then its details and number, then its photo.${S.exp.dxfLabels === 'tidy' ? ' Pole labels Tidy: at any grid split; bigger photos may make Auto choose a finer grid.' : ` Standard: ${(phTidyMm(Z) * 1.1).toFixed(0)} m on the drawing (1:1100).`}`); } // (beta 6.7: one size for all, a line where needed)
     o('stSum', plSummary());
-    DSP.render(P); drawVicPreview(P); // (beta 3.8: the scene the user works on)
+    DSP.soon(); drawVicPreview(P); // (beta 3.8: the scene the user works on; beta 6.7, UX step 4: drawn after a 150 ms pause)
+    renderPlanSet(); plDims(P); plSums(P); // beta 6.7 (UX step 4): the Basic rows, the company standard, the greyed rows' reasons, each section's summary
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
   }
   [['stNumH', 'num', 'h'], ['stNumD', 'num', 'd'], ['stNumG', 'num', 'g'], ['stIdH', 'id', 'h'], ['stVicW', 'vic', 'circleW'], ['stVicRW', 'vic', 'routeW'], ['stClH', 'clamp', 'h'], ['stCrowdMin', 'crowd', 'min'], ['stCrowdMove', 'crowd', 'move']].forEach(([id, part, key]) => $(id).addEventListener('input', () => setPl(part, key, +$(id).value)));
@@ -2368,23 +2535,64 @@
   $('stVicLbl').addEventListener('input', () => setPl('vic', 'label', $('stVicLbl').value.slice(0, 40)));
   $('stVicLh').addEventListener('input', () => setPl('vic', 'lh', +$('stVicLh').value));
   $('stNumPlace').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'place', b.dataset.v); });
+  $('stRtaOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) rtaSet(plStyle().num.rta.cats, b.dataset.v === '1'); }); // beta 6.5
+  $('stRtaLeg').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) rtaSet(plStyle().num.rta.cats, null, { legend: b.dataset.v }); }); // beta 6.6: where the RTA/JPA LEGEND goes
+  $('stRtaReset').addEventListener('click', () => { $('stRtaNew').hidden = true; rtaSet(RTA_STD.map((x) => ({ ...x })), null, { off: [] }); });
+  $('stRtaAdd').addEventListener('click', () => rtaNewOpen());
+  $('stRtaCancel').addEventListener('click', () => { $('stRtaNew').hidden = true; });
+  $('stRtaOwn').addEventListener('input', () => { if ($('stRtaTxt').dataset.auto) $('stRtaTxt').value = rtaOwnerNow() ? `RTA-${rtaOwnerNow().toUpperCase()}`.slice(0, 32) : ''; });
+  $('stRtaTxt').addEventListener('input', () => { delete $('stRtaTxt').dataset.auto; });
+  $('stRtaOk').addEventListener('click', () => { const ow = rtaOwnerNow(); if (!ow) { toast('Type the pole owner, or pick one', 2500); return; } const R = plStyle().num.rta; if (R.cats.some((x) => x.owner && x.owner.toUpperCase() === ow.toUpperCase())) { toast(`${ow} has a category already`, 2500); return; }
+    const txt = ($('stRtaTxt').value.replace(/\s+/g, ' ').trim() || `RTA-${ow}`).toUpperCase().slice(0, 32); $('stRtaNew').hidden = true;
+    if (!boqOwners().some((x) => x.toLowerCase() === ow.toLowerCase())) { S.myOwners = (S.myOwners || []).concat(ow).slice(-20); persist(); toast(`${ow} added to the pole owners too (the pole form)`, 2500); } // (beta 6.6: a new owner: in the pole form's owners as well)
+    rtaSet([...R.cats, { k: 'owner', owner: ow, text: txt, color: rtaNewCol }], true, { off: R.off.filter((x) => x.toUpperCase() !== ow.toUpperCase()) }); });
   $('stIdBold').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('id', 'bold', b.dataset.v === '1'); });
-  [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1']]
+  [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1'], ['stCabRoute', 'cab', 'route', (v) => v]]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); })); // v2.42.21
   [['stCabPer', 'cab', 'per', (v) => +v], ['stSiteName', 'site', 'name', (v) => v], ['stOdfPlace', 'odf', 'place', (v) => v], ['stOdfLbl', 'odf', 'lbl', (v) => v], // v2.42.26
-    ['stCrowdAuto', 'crowd', 'auto', (v) => v === '1'], ['stCrowdLeader', 'crowd', 'leader', (v) => v === '1'], ['stCrowdStreets', 'crowd', 'streets', (v) => v], ['stCrowdMarks', 'crowd', 'marks', (v) => v], // beta 3.8
+    ['stCrowdAuto', 'crowd', 'auto', (v) => v === '1'], ['stCrowdLeader', 'crowd', 'leader', (v) => v === '1'], ['stCrowdStreets', 'crowd', 'streets', (v) => v], ['stCrowdMarks', 'crowd', 'marks', (v) => v], ['stLmIcons', 'crowd', 'icons', (v) => v === '1'], // beta 3.8 (beta 6.7: the landmarks' icons)
     ['stSiteMove', 'site', 'move', (v) => v], ['stSiteArrow', 'site', 'arrow', (v) => v === '1']]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); }));
+  $('stPoleIdForm').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('pole', 'idForm', b.dataset.v); }); // beta 6.2: the pole's ID in the Tidy block
   [['stPoleIdH', 'pole', 'idH'], ['stPoleOwnH', 'pole', 'ownH'], ['stPoleLlH', 'pole', 'llH'], ['stSpanH', 'span', 'h']].forEach(([id, part, key]) => { $(id).addEventListener('input', () => setPl(part, key, +$(id).value)); $(id + 'Auto').addEventListener('click', () => setPl(part, key, 0)); }); // beta 4.3
   $('stCabH').addEventListener('input', () => setPl('cab', 'h', +$('stCabH').value)); $('stCabHAuto').addEventListener('click', () => setPl('cab', 'h', 0));
   $('stCabW').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; const w = { ...plStyle().cab.w, [b.dataset.k]: !plStyle().cab.w[b.dataset.k] }; setPl('cab', 'w', w); });
-  $('stClOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.exp.dxfClampType = b.dataset.v === '1'; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }); // (the Drawing's CA button too)
-  $('stReset').addEventListener('click', () => { delete S.plStyle; S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Drawing style: the defaults', 2000); }); // (v2.42.21: clamp types on again)
+  /* beta 6.7 (UX step 4; critic: Reset… and Use company standard did different things with nothing to tell them apart): Reset… puts every
+     look choice back, Basic to the company standard (PL_STD) and Advanced to its defaults (PL_DEF), and says so first; never this
+     project's pole numbers nor the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). beta 6.7 (UX
+     step 6; reviewer): it says the owner colours and their legend texts go back to the standard four (RTA_STD). */
+  $('stReset').addEventListener('click', async () => {
+    if (!(await ask('Reset Plan style?', `Every look choice goes back: Basic to the company standard, Advanced (sizes, colours, cables, tower site, location map, map sheets) to its defaults. The owner colours and their legend texts go back to the standard four (${RTA_STD.map((x) => x.text).join(', ')}): owner colours you added are taken off. Not changed: this project’s pole numbers and the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). Use company standard, at the top, changes only the Basic look and keeps your Advanced choices.`, [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
+    delete S.plStyle; S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Plan style: the company standard and the defaults', 2500);
+  });
   $('stDone').addEventListener('click', () => closeSheet());
   $('stPhSize').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'size', +b.dataset.v); }); // Drawing style › Photos: Small, Normal, Large, Extra large
+  $('stPhStamp').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'stamp', b.dataset.v); }); // beta 6.4: Stamp on the photos: Off, Lat-long, Lat-long + address
   $('stPhL').addEventListener('input', () => { const v = +$('stPhL').value; if (v >= 6 && v <= 40) setPl('photo', 'size', phSize(v)); }); // (your own size, while it is typed: only once it is one)
-  $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–40 m)
+  $('stGridSplit').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'split', +b.dataset.v); }); // beta 6.0: Drawing style › Grid: Auto or the user's own split
+  $('stGridPos').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'pos', b.dataset.v); }); // (the corner of the sheet's name)
+  $('stGridLead').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'leaders', b.dataset.v); }); // beta 6.0: leader lines
+  $('stPhNear').addEventListener('input', () => setPl('photo', 'near', +$('stPhNear').value)); // beta 6.0: a photo's distance from its pole
+  $('stGridH').addEventListener('input', () => setPl('grid', 'h', +$('stGridH').value)); $('stGridHAuto').addEventListener('click', () => setPl('grid', 'h', 0)); // (its height, mm on the A3 sheet)
+  $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–53 m, beta 6.7)
   /** The vicinity preview: a map 1.5 km across (1 unit = 25 m), the route on its white band and the PROJECT AREA circle. */
+  /** beta 6.1: Drawing style › Cables between points: a small picture of a curving road with a pole, two handholes and a service box
+      along it, the cable drawn as the setting says (following the road at its side of it, or straight from point to point). */
+  function drawRoutePreview(P) {
+    const svg = $('stRoutePrev'); if (!svg) return; const NSV = 'http://www.w3.org/2000/svg', road = P.cab.route !== 'straight';
+    const el = (tag, a) => { const e = document.createElementNS(NSV, tag); Object.entries(a).forEach(([k, v]) => { if (v != null) e.setAttribute(k, v); }); svg.appendChild(e); return e; };
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    el('rect', { x: 0, y: 0, width: 72, height: 28, fill: '#000' });
+    const C = [36, 74], R = 66, A = (a, r) => [C[0] + r * Math.sin(a), C[1] - r * Math.cos(a)], arc = (a0, a1, r) => { const o = []; for (let i = 0; i <= 24; i++) o.push(A(a0 + (a1 - a0) * i / 24, r)); return o; };
+    const path = (pts) => pts.map((q, i) => `${i ? 'L' : 'M'}${q[0].toFixed(2)} ${q[1].toFixed(2)}`).join(' ');
+    [R - 3, R + 3].forEach((r) => el('path', { d: path(arc(-0.62, 0.62, r)), stroke: '#ffffff', 'stroke-width': 0.35, fill: 'none' })); // (the road's edges)
+    const at = [-0.5, -0.17, 0.17, 0.5], rc = R + 5.2, Q = at.map((a) => A(a, rc)); // (the points along the road, beside it)
+    const line = road ? path(arc(at[0], at[3], rc)) : path(Q);
+    el('path', { d: line, stroke: '#ff3b3b', 'stroke-width': 0.6, fill: 'none', 'stroke-dasharray': '2.2 1.1', 'stroke-linejoin': 'round' });
+    el('circle', { cx: Q[0][0], cy: Q[0][1], r: 1.3, fill: 'none', stroke: '#ffffff', 'stroke-width': 0.35 }); // (a pole with its riser)
+    Q.slice(1).forEach((q, i) => el('rect', { x: q[0] - 1.2, y: q[1] - 1.2, width: 2.4, height: 2.4, fill: 'none', stroke: i === 2 ? '#00ffff' : '#ffff00', 'stroke-width': 0.35, transform: `rotate(${(at[i + 1] * 180 / Math.PI).toFixed(1)} ${q[0].toFixed(2)} ${q[1].toFixed(2)})` }));
+    svg.setAttribute('aria-label', road ? 'Preview: the cable follows the curve of the road between the points' : 'Preview: the cable runs straight from point to point');
+  }
   function drawVicPreview(P, into) {
     const svg = into || $('stVicPrev'); if (!svg) return; if (into) { svg.setAttribute('viewBox', '0 0 60 40'); svg.style.aspectRatio = '60 / 40'; } /* (beta 3.8: also the main preview's Vicinity map) */ const NSV = 'http://www.w3.org/2000/svg', V = P.vic, k = 1 / 25;
     const el = (tag, a, text) => { const e = document.createElementNS(NSV, tag); Object.entries(a).forEach(([kk, v]) => { if (v != null) e.setAttribute(kk, v); }); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
@@ -2394,9 +2602,9 @@
     const route = 'M9 29 L18 26.5 L30 24.5 L41 19 L49 12', zs = V.zoom === false ? 0.4 : 1, tf = zs === 1 ? null : `translate(${29 * (1 - zs)} ${21 * (1 - zs)}) scale(${zs})`; // (beta 4.1: zoom off: the project small in a wide map)
     if (zs !== 1) [['M0 19 L60 16', 0.35], ['M27 0 L30 40', 0.35], ['M50 0 L53 40', 0.3], ['M6 0 L8 40', 0.3], ['M0 36 L60 34', 0.3]].forEach(([d, w]) => el('path', { d, stroke: '#c9c4b5', 'stroke-width': w, fill: 'none' }));
     el('path', { d: route, transform: tf, stroke: '#fff', 'stroke-width': V.routeW * 2 * k, fill: 'none', 'stroke-linejoin': 'round' });
-    el('path', { d: route, transform: tf, stroke: ACI_HEX[V.route] || '#ff0000', 'stroke-width': V.routeW * k, fill: 'none', 'stroke-dasharray': V.route ? '' : `${26 * k * V.routeW / 16.5 * 2} ${26 * k * V.routeW / 16.5}`, 'stroke-linejoin': 'round' });
+    el('path', { d: route, transform: tf, stroke: colHex(V.route) || '#ff0000', 'stroke-width': V.routeW * k, fill: 'none', 'stroke-dasharray': V.route ? '' : `${26 * k * V.routeW / 16.5 * 2} ${26 * k * V.routeW / 16.5}`, 'stroke-linejoin': 'round' });
     if (!V.area) return; // (beta 3.9: no project area)
-    el('circle', { cx: 29, cy: 21, r: 15 * zs, fill: 'none', stroke: ACI_HEX[V.circle], 'stroke-width': V.circleW * k });
+    el('circle', { cx: 29, cy: 21, r: 15 * zs, fill: 'none', stroke: colHex(V.circle), 'stroke-width': V.circleW * k });
     const lt = V.label.trim(); if (!lt) return; const f = 2.2 * V.lh / 18, hb = 3.4 * V.lh / 18, wb = Math.min(58, lt.length * f * 0.62 + 1.6), yb = Math.max(0.3, 21 - 15 * zs - 0.6 - hb); // (its label above the circle, as tall as set)
     el('rect', { x: 29 - wb / 2, y: yb, width: wb, height: hb, fill: '#333', stroke: ACI_HEX[2], 'stroke-width': 0.15 }); el('text', { x: 29, y: yb + hb * 0.74, fill: '#ffff00', 'font-size': f, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif', textLength: lt.length * f * 0.62 > 56 ? 56 : null }, lt);
   }
@@ -2410,7 +2618,7 @@
   const DSP = (() => {
     const NSV = 'http://www.w3.org/2000/svg', ARIAL = 'Arial, Helvetica, sans-serif';
     const mk = (p, tag, a, text) => { const e = document.createElementNS(NSV, tag); for (const k in a) if (a[k] != null && a[k] !== false) e.setAttribute(k, a[k]); if (text != null) e.textContent = text; p.appendChild(e); return e; };
-    const PAL = { ...ACI_HEX, bg: '#000000', grey: '#8a909a', road: '#ffffff', photo: '#2c3542', sky: '#3c5a7a', mask: '#000000', clash: '#ff5a5a' };
+    const PAL = new Proxy({ ...ACI_HEX, bg: '#000000', grey: '#8a909a', road: '#ffffff', photo: '#2c3542', sky: '#3c5a7a', mask: '#000000', clash: '#ff5a5a' }, { get: (t, k) => (isHexCol(k) ? k : t[k]) }); // (beta 6.0: a colour of the user's own is itself)
     const tW = (t, h, b) => String(t).length * h * (b ? 0.66 : 0.58);
     const bx = (cx, cy, w, h) => ({ x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 });
     const ovA = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
@@ -2493,6 +2701,18 @@
       const ct = S.exp.dxfClampType !== false, Cl = P.clamp, inL = !ct || Cl.place === 'label', N = P.num, lines = [], out = [];
       const clT = p.hw ? (ct && Cl.hw ? p.hw : '') : p.cl ? (ct ? p.cl : p.cl.replace(/^[A-Z0-9]+ /, '')) : '';
       const PP = P.pole, hI = PP.idH || 2.2; // beta 4.3: the pole's ID, its owner's name and its lat/long in their own height and colour (Auto: as before)
+      /* beta 6.7 (UX step 4; critic: the preview shows what Basic changes): Pole labels Tidy: one block off the road, beside its pole with no
+         line to it, the ID as set (CC over 123456, or CC-123456), then the clamps, owner and lat/long in smaller text (Tidy sizes them) */
+      if (S.exp.dxfLabels === 'tidy' && dxfMode() === 'tpl') {
+        const sm = hI * 0.72;
+        if (p.pre && PP.idForm === 'line') lines.push({ t: `${p.pre}-${p.id}`, h: hI, c: PP.idColor || 3, st: 'pid' });
+        else { if (p.pre) lines.push({ t: p.pre, h: hI, c: PP.idColor || 7, st: 'pid' }); lines.push({ t: p.id, h: hI, c: PP.idColor || 3, st: 'pid' }); }
+        if (clT && inL) lines.push({ t: clT, h: sm, c: ct ? Cl.color || 4 : 4, st: 'clamp' });
+        if (p.own) lines.push({ t: p.own, h: sm, c: PP.ownColor || PP.idColor || 3, st: 'pown' });
+        if (p.ll) lines.push({ t: p.ll, h: sm * 0.8, c: PP.llColor || 7, italic: true, serif: true, st: 'pll' });
+        out.push(Blk({ id: `b${p.k}`, pri: 80, lines, shrink: true, lead: false, ax: p.x, ay: p.y, ar: 1.3,
+          spots: ring({ ax: p.x, ay: p.y, ar: 1.3, def: (d) => ({ cx: p.x + 1.8 + d.w / 2, cy: p.y - 1.8 - d.h / 2 }), pref: (ux, uy) => (uy > -0.1 ? 6 : 0) + (ux < -0.3 ? 0.8 : 0) }) }));
+      } else {
       if (p.pre) lines.push({ t: p.pre, h: hI, c: PP.idColor || 7, st: 'pid' });
       lines.push({ t: p.id, h: hI, c: PP.idColor || 3, st: 'pid' });
       if (clT && inL) lines.push({ t: clT, h: hI, c: ct ? Cl.color || 4 : 4, st: 'clamp' });
@@ -2500,12 +2720,13 @@
       if (p.ll) lines.push({ t: p.ll, h: PP.llH ? PP.llH * 1.1 / 1.2 : 1.1, c: PP.llColor || 7, italic: true, serif: true, st: 'pll' });
       out.push(Blk({ id: `b${p.k}`, pri: 80, lines, shrink: true, lead: true, ax: p.x, ay: p.y, ar: 1.3, leadMin: 2.5,
         spots: ring({ ax: p.x, ay: p.y, ar: 1.3, def: (d) => (opts && opts.left ? { cx: p.x - 2.2 - d.w / 2, cy: p.y + 0.3 - d.h / 2 } : { cx: p.x + 2.2 + d.w / 2, cy: p.y + 0.3 - d.h / 2 }), pref: (ux, uy) => (ux < -0.3 ? 1.2 : 0) + (uy > 0.3 ? 2.5 : 0) }) }));
+      }
       const R0 = N.d / 2, half = Math.max(R0, N.h * 0.46, N.h / 2), dir = N.place === 'out' ? (opts && opts.outDir) || [0, -1] : (opts && opts.dir) || [-0.985, -0.17], dist = 1.1 + N.g + half;
       out.push({ id: `n${p.k}`, st: 'num', pri: 90, ax: p.x, ay: p.y, size: () => ({ w: half * 2, h: half * 2 }),
         spots: () => { const o = [{ cx: p.x + dir[0] * dist, cy: p.y + dir[1] * dist, d: 0, cost: 0 }], a0 = Math.atan2(dir[1], dir[0]);
           for (const ex of [0, 1.5, 3, 5, 8, 12, 16, 21]) for (let i = 1; i < 24; i++) { const da = (i % 2 ? 1 : -1) * Math.ceil(i / 2) * Math.PI / 12, a = a0 + da, r = dist + ex; o.push({ cx: p.x + Math.cos(a) * r, cy: p.y + Math.sin(a) * r, d: ex + Math.abs(da) * r * 0.35, cost: ex + Math.abs(da) * 2.2 }); }
           return o.sort((x, y) => x.cost - y.cost); },
-        draw(g, at, k, pal) { const col = pal[N.color] || pal[2], bcol = pal[N.bcolor] || col;
+        draw(g, at, k, pal) { const rc = N.rta && N.rta.on && N.rta.cats.length ? N.rta.cats[p.k % N.rta.cats.length] : null, col = rc ? pal[rc.color] : pal[N.color] || pal[2], bcol = rc ? col : pal[N.bcolor] || col; // (beta 6.5: the sample poles in the RTA/JPA colours, one each)
           if (N.leader) { const dx = at.cx - p.x, dy = at.cy - p.y, dd = Math.hypot(dx, dy); if (dd > 1.1 + half + 0.3) mk(g, 'line', { x1: p.x + dx / dd * 1.1, y1: p.y + dy / dd * 1.1, x2: at.cx - dx / dd * half, y2: at.cy - dy / dd * half, stroke: bcol, 'stroke-width': 0.2 }); }
           if (N.d > 0) mk(g, 'circle', { cx: at.cx, cy: at.cy, r: R0, fill: 'none', stroke: bcol, 'stroke-width': 0.22 });
           mk(g, 'text', { x: at.cx, y: at.cy + N.h * 0.36, 'font-size': N.h, fill: col, 'text-anchor': 'middle', 'font-family': ARIAL }, String(p.k)); } });
@@ -2527,7 +2748,7 @@
     function scStreet(P, C) {
       const sc = { vb: [0, 0, 120, 70], bounds: { x0: 0.5, y0: 0.5, x1: 119.5, y1: 62 }, under: [], over: [], labels: [], obst: [] }, yTop = 44, yBot = 51, yc = 45.4;
       const poles = [{ k: 1, x: 20, y: 41.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 40.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 41.5, pre: 'CC', id: '4303161', cl: '2A 10-12', own: 'DLPC', ll: '7.165334°  125.575313°' }]; // (beta 4.3: one pole with its owner's name)
-      sc.under.push((g, pal) => { line(g, [[0, yTop], [120, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [120, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 66); });
+      sc.under.push((g, pal) => { line(g, [[0, yTop], [120, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [120, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 66); });
       sc.obst.push(...segBoxes([0, yc], [120, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
       poles.forEach((p) => sc.labels.push(...poleLabels(P, p)));
       sc.labels.push(idL(P, 'nap', 'NAP-0001', 60, yc, 2.2));
@@ -2540,9 +2761,9 @@
        set, the poles 40 m apart (the plan draws the photos that size where the poles stand 25 m apart or more); no room there: further out,
        with a thin line to its pole */
     function scPhoto(P, C) {
-      const L = P.photo.size, W = L * 0.75, sc = { vb: [0, 0, 132, 88], bounds: { x0: 0.5, y0: 0.5, x1: 131.5, y1: 80 }, under: [], over: [], labels: [], obst: [] }, yTop = 62, yBot = 69, yc = 63.4;
+      const L = phTidyMm(P.photo.size) * 1.1, /* (beta 6.7) */ W = L * 0.75, sc = { vb: [0, 0, 132, 88], bounds: { x0: 0.5, y0: 0.5, x1: 131.5, y1: 80 }, under: [], over: [], labels: [], obst: [] }, yTop = 62, yBot = 69, yc = 63.4;
       const poles = [{ k: 1, x: 20, y: 59.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 58.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 59.5, pre: 'CC', id: '4303161', cl: '2A 10-12', own: 'DLPC', ll: '7.165334°  125.575313°' }];
-      sc.under.push((g, pal) => { line(g, [[0, yTop], [132, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [132, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [132, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 84); });
+      sc.under.push((g, pal) => { line(g, [[0, yTop], [132, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [132, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [132, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 84); });
       sc.obst.push(...segBoxes([0, yc], [132, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
       poles.forEach((p) => {
         sc.labels.push(...poleLabels(P, p).filter((l) => l.st !== 'num')); // (a pole with a photo has no number beside it)
@@ -2550,7 +2771,12 @@
           spots: ring({ ax: p.x, ay: p.y, ar: 1.3, def: () => ({ cx: p.x + 9, cy: p.y - 13 - L / 2 }), pref: (ux, uy) => (uy > 0.2 ? 10 : 0) }), // (never toward the road)
           draw(g, at, k, pal) {
             if (at.d > 2) { const [qx, qy] = nearOnBox(bx(at.cx, at.cy, W, L), p.x, p.y), dx = qx - p.x, dy = qy - p.y, dd = Math.hypot(dx, dy) || 1; mk(g, 'line', { x1: p.x + dx / dd * 1.3, y1: p.y + dy / dd * 1.3, x2: qx, y2: qy, stroke: pal.grey, 'stroke-width': 0.16 }); }
-            photoSym(g, pal, at.cx - W / 2, at.cy - L / 2, W, L); } });
+            photoSym(g, pal, at.cx - W / 2, at.cy - L / 2, W, L);
+            if (P.photo.stamp !== 'off') { // beta 6.4: its stamp, as planStamp burns it in (lat, long; the address under it)
+              const x = at.cx - W / 2, fs = Math.min(W * 0.93 / 9, L * 0.1), fa = fs * 0.86, T = [[p.ll.replace(/°\s+/, ', ').replace(/°/g, ''), fs, 700]].concat(P.photo.stamp === 'addr' ? [['Main St., Brgy. Centro,', fa, 600], ['Sample City', fa, 600]] : []);
+              let y = at.cy + L / 2 - fs * 0.64 - T.reduce((t, l) => t + l[1] * 1.16, 0); mk(g, 'rect', { x, y, width: W, height: at.cy + L / 2 - y, fill: '#000', 'fill-opacity': 0.66 }); y += fs * 0.32;
+              T.forEach(([t, h, wt]) => { mk(g, 'text', { x: x + W * 0.035, y: y + h * 0.85, 'font-size': h, 'font-weight': wt, fill: '#fff', 'font-family': ARIAL, ...(wt === 700 ? { textLength: W * 0.93, lengthAdjust: 'spacingAndGlyphs' } : {}) }, t); y += h * 1.16; });
+            } } });
       });
       sc.labels.push(idL(P, 'nap', 'NAP-0001', 60, yc, 2.2));
       if (P.cab.on) [[20, 60], [60, 100]].forEach(([a, b], i) => sc.labels.push(Txt({ id: `cab${i}`, st: 'cab', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, shrink: true, spots: along({ a: [a, yc], b: [b, yc], side: 1, gap: 0.9 }) })));
@@ -2564,7 +2790,7 @@
         .map(([k, x, y, id, cl], i) => ({ k, x, y, pre: 'CC', id, cl, ll: `7.061${21 + i}° 125.604${32 + i * 8}°` }));
       sc.under.push((g, pal) => {
         [[[0, 54], [74, 54]], [[82, 54], [120, 54]], [[0, 62], [120, 62]], [[74, 0], [74, 54]], [[82, 0], [82, 54]]].forEach((p) => line(g, p, { stroke: pal.road, 'stroke-width': 0.15 }));
-        line(g, [[0, yc], [xc, yc], [xc, 0]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); line(g, [[xc, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' });
+        line(g, [[0, yc], [xc, yc], [xc, 0]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' }); line(g, [[xc, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' });
         napSym(g, pal, 56, yc); cloSym(g, pal, 67, yc, 1.8);
         mk(g, 'path', { d: 'M45.4 45.6h3.2v-2.3l-1.6-1.4-1.6 1.4z', fill: 'none', stroke: pal.grey, 'stroke-width': 0.3 }); mk(g, 'path', { d: 'M86 43.6v4.2M84.5 45h3', stroke: pal.grey, 'stroke-width': 0.45 });
         poles.forEach((p) => poleSym(g, pal, p.x, p.y)); });
@@ -2583,7 +2809,7 @@
     /* the tower site: its point at TS, the sheet's edge (R-12 / R-13) at y 104 */
     const TS = [50.6, 96], SHEETY = 104, TP = [{ k: 1, x: 30.2, y: 9.5, pre: 'CC', id: '4303122', cl: 'CA 8-9', ll: '7.10358° 125.61750°' }, { k: 2, x: 32.2, y: 50, id: 'GT-0207', cl: 'CA 8-9', ll: '7.10339° 125.61796°' }, { k: 3, x: 34.2, y: 88, pre: 'CC', id: '4303106', cl: 'CA 10-12', own: 'DLPC', ll: '7.10304° 125.61815°' }];
     const TPH = [[6, 20, 14, 17], [8, 56, 14, 17], [10, 82, 14, 17], [88, 74, 14, 17]], TCAB = [[0, 10.5], [30.2, 9.5], [32.2, 50], [34.2, 88], TS];
-    const tphOf = (P) => { const f = P.photo.size / 18; if (f === 1) return TPH; let y1 = -1e9; // (Photos: at the size set, each on its side of the cable, kept apart)
+    const tphOf = (P) => { const f = phTidyMm(P.photo.size) / 18; /* (beta 6.7: as printed, 1 at Normal) */ if (f === 1) return TPH; let y1 = -1e9; // (Photos: at the size set, each on its side of the cable, kept apart)
       return TPH.map(([x, y, w, h], i) => { const W = w * f, H = h * f, left = x < 50, y0 = left && i ? Math.max(y + h / 2 - H / 2, y1 + 1.5) : y + h / 2 - H / 2; if (left) y1 = y0 + H; return [left ? x + w - W : x, y0, W, H]; }); };
     const roadL = (y) => 34 + 0.05 * y, roadR = (y) => 42 + 0.05 * y;
     function placeTower(point, PH) {
@@ -2634,7 +2860,7 @@
       const sc = { vb: [0, 30, 120, 82], bounds: { x0: 1, y0: 1, x1: 119, y1: SHEETY - 2 }, under: [], over: [], labels: [], obst: [] };
       sc.under.push((g, pal) => {
         line(g, [0, 160].map((y) => [roadL(y), y]), { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [0, 160].map((y) => [roadR(y), y]), { stroke: pal.road, 'stroke-width': 0.15 });
-        line(g, TCAB, { stroke: pal[1], 'stroke-width': 0.55, 'stroke-dasharray': '3 1.5' });
+        line(g, TCAB, { stroke: pal[1], 'stroke-width': 0.55, 'stroke-dasharray': '3 1.5', 'data-st': 'route' });
         PH.forEach(([x, y, w, h]) => photoSym(g, pal, x, y, w, h));
         cloSym(g, pal, 36.5, 89.8, 2.1); TP.forEach((p) => poleSym(g, pal, p.x, p.y));
         mk(g, 'line', { x1: 0, y1: SHEETY, x2: 150, y2: SHEETY, stroke: pal[6], 'stroke-width': 0.35, 'stroke-dasharray': '2.4 1.4' });
@@ -2665,76 +2891,115 @@
       sc.tower = T;
       return sc;
     }
+    /** beta 6.0: Drawing style › Grid: a GEO sheet's cell and its neighbours, its name in the corner chosen at the height and colour chosen
+        (Auto: a tenth of the sheet, the template's layer colour), drawn first: the details (road, cable, poles, their labels) over it. */
+    function gridPrev(P, svg) {
+      while (svg.firstChild) svg.removeChild(svg.firstChild); svg.setAttribute('viewBox', '0 0 120 70'); svg.style.aspectRatio = '120 / 70';
+      const G = P.grid, g = mk(svg, 'g', {}), x0 = 28, y0 = 3, C = 64, mx = C * 0.04, my = C * 0.03, h = G.h ? C * 0.1 * G.h / 27 : C * 0.1, col = G.color ? PAL[G.color] : S.exp.dxfLabels === 'tidy' ? '#c8c8c8' : PAL[2]; // (beta 6.0: Tidy's Auto: light grey)
+      mk(g, 'rect', { x: 0, y: 0, width: 120, height: 70, fill: PAL.bg });
+      const [sx, sy] = { tr: [1, 1], tl: [-1, 1], br: [1, -1], bl: [-1, -1] }[G.pos], tx = sx > 0 ? x0 + C - mx : x0 + mx, ty = sy > 0 ? y0 + my + h * 0.8 : y0 + C - my;
+      mk(g, 'text', { x: tx, y: ty, 'font-size': h.toFixed(2), fill: col, 'text-anchor': sx > 0 ? 'end' : 'start', 'font-family': ARIAL }, 'B-2');
+      mk(g, 'path', { d: 'M0 44 L120 30 M0 52 L120 38', stroke: PAL.road, 'stroke-width': 0.35, fill: 'none' }); mk(g, 'path', { d: 'M0 47 L120 33', stroke: PAL[1], 'stroke-width': 0.6, fill: 'none' });
+      [[8, 46.1], [40, 42.3], [72, 38.6], [104, 34.8]].forEach(([x, y], i) => { mk(g, 'circle', { cx: x, cy: y - 2.6, r: 1.1, fill: 'none', stroke: PAL[7], 'stroke-width': 0.3 }); mk(g, 'text', { x: x + 1.8, y: y - 6, 'font-size': 2.6, fill: PAL[7], 'font-family': ARIAL }, `CC-01${i + 4}0`); mk(g, 'text', { x: x + 1.8, y: y - 3.4, 'font-size': 1.6, fill: PAL[7], 'font-family': ARIAL }, 'CONC · 9M'); });
+      if (G.pos === 'tr' || G.pos === 'tl') mk(g, 'text', { x: sx > 0 ? x0 + C - 9 : x0 + 4, y: y0 + my + h * 0.55, 'font-size': 2.6, fill: PAL[7], 'font-family': ARIAL }, 'CC-0199'); // (a label over the name: it stays readable)
+      [x0, x0 + C].forEach((x) => mk(g, 'line', { x1: x, y1: 0, x2: x, y2: 70, stroke: PAL[6], 'stroke-width': 0.3 })); [y0, y0 + C].forEach((y) => mk(g, 'line', { x1: 0, y1: y, x2: 120, y2: y, stroke: PAL[6], 'stroke-width': 0.3 }));
+    }
     /* state and layout */
-    let scene = 'street', compact = false, big = false, wired = false, last = null, shrink = 220; // (shrink: how much shorter the preview gets; the settings stay put)
-    const NAMES = { street: 'Street', photo: 'Photos', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Vicinity map' };
+    let scene = 'street', compact = false, big = false, wired = false, last = null, shrink = 220, soonT = 0, pickAt = 0; // (shrink: how much shorter the preview gets; the settings stay put)
+    const NAMES = { street: 'Street', photo: 'Photos', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Location map', grid: 'Map sheets' };
     const body = () => $('drwStyle').querySelector('.dsbody'), col = () => $('dsPrevCol');
+    /* beta 6.7 (UX step 4): no part chips: the scene is the one of the Advanced section opened (Basic: the street, or the photos while a
+       photo row is changed); only that scene is drawn, after a 150 ms pause while settings change (slow phones) */
     function render(P) {
-      wire(); P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
+      wire(); clearTimeout(soonT); soonT = 0; P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
       const C = { auto: P.crowd.auto, min: P.crowd.min / 100, move: P.crowd.move, leader: P.crowd.leader, streets: P.crowd.streets, marks: P.crowd.marks, mark: $('dsMark').checked };
-      $('drwStyle').querySelectorAll('.dsscenes [data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === scene)));
-      $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = !g.dataset.scene.split(' ').includes(scene); }); // beta 3.9: only the settings of the part picked (beta 4.3: a group can belong to several parts)
       let r = null;
       if (scene === 'vic') { while (svg.firstChild) svg.removeChild(svg.firstChild); drawVicPreview(P, svg); }
+      else if (scene === 'grid') gridPrev(P, svg); // beta 6.0
       else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scene === 'photo' ? scPhoto(P, C) : scStreet(P, C), C);
       svg.setAttribute('preserveAspectRatio', compact ? 'xMidYMid slice' : 'xMidYMid meet');
       const cap = $('dsCap'); cap.textContent = '';
-      const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · `; const b = document.createElement('span');
-      if (!r) b.textContent = 'the route and the project area';
+      const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · ${r && dxfMode() === 'tpl' ? `${S.exp.dxfLabels === 'tidy' ? 'Tidy' : 'Standard'} labels · ` : ''}`; const b = document.createElement('span'); // (beta 6.7, UX step 4: Basic's Pole labels, said)
+      if (!r) b.textContent = scene === 'grid' ? `the sheet’s name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, the details over it` : 'the route and the project area';
       else { b.className = `ov ${r.clashes ? 'bad' : 'good'}`; b.textContent = r.clashes ? `${r.clashes} label${r.clashes > 1 ? 's' : ''} overlap` : 'nothing overlaps'; }
-      cap.append(a, b); if (scene === 'photo') cap.append(` · ${P.photo.size} m photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
+      cap.append(a, b); if (scene === 'photo') cap.append(` · ${phTidyMm(P.photo.size)} mm photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
       svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
       last = { scene, clashes: r ? r.clashes : 0, skipped: r ? r.skipped : 0, ids: r ? r.ids : [] };
       markPicked();
     }
+    function soon() { if (soonT) return; soonT = setTimeout(() => { soonT = 0; if (!$('drwStyle').hidden) render(); }, 150); }
     /* beta 4.3 (MarkT): a label of the preview is tapped: the settings that are its own come into view and are marked, and the label is framed.
-       ST: the label's kind -> the rows (or the whole group) of its settings. */
-    const ST = { num: ['stNum'], pid: ['stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClOn', 'stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stId'],
-      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks'], photo: ['stPh'] };
-    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmark names', photo: 'the photos' };
+       ST: the label's kind -> its rows. beta 6.7 (UX step 4; critic): the rows' one home: Basic (the photos: size and stamp) or the Advanced
+       section (opened, with its Colours and sizes); Clamp types on/off is Basic's switch, the rest of the clamp boxes Advanced's. */
+    const ST = { num: ['stNumCol', 'stNumBCol', 'stNumH', 'stNumD', 'stNumG', 'stNumLeader', 'stNumPlace'], pid: ['stPoleIdForm', 'stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stIdBold', 'stIdCol', 'stIdH'],
+      cab: ['stCabOn', 'stCabW', 'stCabPer', 'stCabH'], street: ['stCrowdStreets'], mark: ['stLmIcons', 'stCrowdMarks'], photo: ['stPhSize', 'stPhStamp'], route: ['stCabRoute', 'stCabOn', 'stCabW', 'stCabPer', 'stCabH'] }; // (beta 6.7: route, the cable itself)
+    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner’s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the box names (NAPs, closures, boxes)', cab: 'the cable names', street: 'the street names', mark: 'the landmarks', photo: 'the photos', route: 'the fiber cable: how it runs between points, and its name' };
     let picked = null, pickT = 0;
-    const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow')) : null; }).filter(Boolean);
+    const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow, .psrow, .swrow')) : null; }).filter(Boolean); // (beta 6.7, UX step 4: a Basic row too)
     function markPicked() {
       const svg = $('stPrev'); if (!svg) return; svg.querySelectorAll('.dspick').forEach((x) => x.remove()); if (!picked) return;
       svg.querySelectorAll(`[data-st="${picked}"]`).forEach((el) => { let b = null; try { b = el.getBBox(); } catch (e) { b = null; } if (!b || !(b.width > 0)) return;
         const tf = el.getAttribute('transform'), r = mk(svg, 'rect', { x: (b.x - 0.5).toFixed(2), y: (b.y - 0.4).toFixed(2), width: (b.width + 1).toFixed(2), height: (b.height + 0.8).toFixed(2), fill: 'none', stroke: '#ffd43b', 'stroke-width': 0.28, 'stroke-dasharray': '1.2 0.7', class: 'dspick', 'pointer-events': 'none' }); if (tf) r.setAttribute('transform', tf); });
     }
+    /** Brings a row of Plan style into view under the preview (sticky on a phone). */
+    function toRow(top) {
+      const bd = body(); if (!bd || !top) return;
+      const go = () => { const rb = bd.getBoundingClientRect(), rt = top.getBoundingClientRect(), pc = col(), stick = narrow() && pc ? pc.getBoundingClientRect().bottom - rb.top : 0; bd.scrollTop += rt.top - rb.top - Math.max(12, stick + 10); };
+      // beta 6.8 (UX step 6; reviewer): the scroll folds the preview (onScroll, compact): measured again then, so the row sits just under
+      // the smaller preview, not where the large one ended (on a small phone with large text: under the Reset / Done footer)
+      const c0 = compact; go(); if (!$('drwStyle').hidden) { onScroll(); if (compact !== c0) go(); }
+    }
     function pick(key) {
-      const rows = rowsOf(key); if (!rows.length) return false; const grp = rows[0].closest('.stgrp') || rows[0], scs = (grp.dataset.scene || scene).split(' ');
-      picked = key; if (!scs.includes(scene)) { scene = scs[0]; } render();
+      const rows = rowsOf(key); if (!rows.length) return false;
+      // beta 6.7 (UX step 4): its tab, its section and its Colours and sizes opened (the scene stays: the label tapped is in it)
+      pickAt = Date.now(); const pane = rows[0].closest('[role="tabpanel"]'); if (pane) plTab(pane.id === 'plAdv' ? 'advanced' : 'basic', null, true);
+      rows.forEach((x) => { for (let d = x.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) if (!d.open) d.open = true; });
+      picked = key; render();
       const root = $('drwStyle'); root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); rows.forEach((x) => x.classList.add('sthl'));
-      const bd = body(), top = rows[0]; if (bd && top) { const rb = bd.getBoundingClientRect(), rt = top.getBoundingClientRect(), pc = col(), stick = narrow() && pc ? pc.getBoundingClientRect().bottom - rb.top : 0; bd.scrollTop += rt.top - rb.top - Math.max(12, stick + 10); }
+      toRow(rows[0]);
       const cap = $('dsCap'); if (cap) { const s = document.createElement('span'); s.className = 'dspk'; s.textContent = ` · ${ST_NAME[key] || key}: settings marked below`; cap.append(s); }
       clearTimeout(pickT); pickT = setTimeout(() => { root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); }, 9000);
       return true;
     }
-    function setScene(sn) { if (sn === scene || !NAMES[sn]) return; scene = sn; picked = null; render(); const bd = body(); if (bd && !$('drwStyle').hidden && (bd.clientWidth >= 720 || !compact)) bd.scrollTop = 0; } // (beta 3.9: its settings from their top)
+    function setScene(sn) { if (sn === scene || !NAMES[sn]) return; scene = sn; picked = null; render(); } // (beta 6.7, UX step 4: the settings stay where they are)
+    const picking = () => Date.now() - pickAt < 400; // (a section opened by a tap on the preview keeps the scene tapped)
     const narrow = () => { const bd = body(); return !bd || bd.clientWidth < 720; };
     function setCompact(on) {
-      if (on === compact) return; const c = col(), h0 = c.getBoundingClientRect().height; compact = on; c.classList.toggle('compact', on);
-      $('stPrev').setAttribute('preserveAspectRatio', on ? 'xMidYMid slice' : 'xMidYMid meet'); const d = c.getBoundingClientRect().height - h0; if (on && d < 0) shrink = -d; body().scrollTop += d; // (the settings stay where they were)
+      if (on === compact) return; const c = col(), h0 = c.getBoundingClientRect().height, st0 = body().scrollTop; compact = on; c.classList.toggle('compact', on);
+      $('stPrev').setAttribute('preserveAspectRatio', on ? 'xMidYMid slice' : 'xMidYMid meet'); const d = c.getBoundingClientRect().height - h0; if (on && d < 0) shrink = -d; body().scrollTop = st0 + d; // (the settings stay where they were; beta 6.7, UX step 4: from where it was, as the end of the list may have moved it already: the last row stayed half under the foot)
     }
     function onScroll() {
       const bd = body(); if (!bd || $('drwStyle').hidden) return; const nb = narrow(); $('dsBig').hidden = !nb;
       if (!nb || big) { if (compact) setCompact(false); return; }
       if (!compact && bd.scrollTop > 150 + shrink) setCompact(true); else if (compact && bd.scrollTop < 20) setCompact(false); // (the gap: no back and forth at the threshold)
     }
-    function reset() { picked = null; compact = false; big = false; const c = col(); if (c) c.classList.remove('compact'); if ($('dsBig')) $('dsBig').textContent = 'Bigger'; const bd = body(); if (bd) bd.scrollTop = 0; }
+    function setBig(on) { big = !!on; const c = col(); if (c) c.classList.toggle('big', big); const b = $('dsBig'); if (b) { b.setAttribute('aria-pressed', String(big)); b.setAttribute('aria-label', big ? 'Make the preview smaller' : 'Enlarge the preview'); b.title = b.getAttribute('aria-label'); } }
+    function reset() { picked = null; compact = false; setBig(false); const c = col(); if (c) c.classList.remove('compact', 'kbd'); const bd = body(); if (bd) bd.scrollTop = 0; }
     function wire() {
       if (wired) return; wired = true;
       const root = $('drwStyle');
-      root.querySelector('.dsscenes').addEventListener('click', (e) => { const b = e.target.closest('[data-scene]'); if (b) setScene(b.dataset.scene); });
-      root.querySelectorAll('.stgrp[data-scene]').forEach((g) => { const go = () => { const L = g.dataset.scene.split(' '); if (!L.includes(scene)) setScene(L[0]); }; g.addEventListener('pointerdown', go); g.addEventListener('focusin', go); });
+      // beta 6.7 (UX step 4): an Advanced section opened shows its part of the plan (Plan file: the scene stays); kept for next time
+      root.querySelectorAll('details.stsec').forEach((d) => d.addEventListener('toggle', () => {
+        if (!d.open) return; if (S.plOpen !== d.id) { S.plOpen = d.id; persist(); }
+        if (!picking() && d.dataset.scene) setScene(d.dataset.scene.split(' ')[0]);
+      }));
+      // Basic: the street; the photos while a photo row is changed
+      $('plBasic').addEventListener('pointerdown', (e) => { if (e.target.closest('#plPhRow, #plStampRow')) setScene('photo'); else if (e.target.closest('.plb')) setScene('street'); });
+      $('plBasic').addEventListener('focusin', (e) => { if (e.target.closest('#plPhRow, #plStampRow')) setScene('photo'); });
       // beta 4.3: a tap on the preview: the label under the finger, or the nearest one within reach (the labels are small on a phone); on empty ground the marks go
       $('stPrev').addEventListener('click', (e) => { let best = null; $('stPrev').querySelectorAll('[data-st]').forEach((el) => { const r = el.getBoundingClientRect(); if (!(r.width > 0 || r.height > 0)) return;
           const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right), dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom), d = Math.hypot(dx, dy), ar = r.width * r.height; if (d <= 14 && (!best || d < best.d || (d === best.d && ar < best.ar))) best = { d, ar, k: el.getAttribute('data-st') }; });
         if (best) pick(best.k); else if (picked) { picked = null; root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); render(); } });
       $('dsMark').addEventListener('change', () => render());
-      $('dsBig').addEventListener('click', () => { big = !big; $('dsBig').textContent = big ? 'Smaller' : 'Bigger'; if (big) setCompact(false); else onScroll(); });
+      $('dsBig').addEventListener('click', () => { setBig(!big); if (big) setCompact(false); else onScroll(); }); // (beta 6.7, UX step 4: its own button in the preview's corner; a tap on the preview picks a label)
       body().addEventListener('scroll', onScroll, { passive: true });
+      // beta 6.7 (UX step 4; critic): a phone's keyboard open for a text or number: the preview folds away, back when it closes
+      const typing = (t) => t && t.matches && t.matches('#drwStyle .dsctl input[type=text], #drwStyle .dsctl input[type=number], #drwStyle .dsctl input[type=search], #drwStyle .dsctl input:not([type])'); // (beta 6.7, UX step 5: Find a setting too)
+      root.addEventListener('focusin', (e) => { if (typing(e.target) && narrow()) col().classList.add('kbd'); });
+      root.addEventListener('focusout', (e) => { if (typing(e.target)) setTimeout(() => { if (!typing(document.activeElement)) col().classList.remove('kbd'); }, 0); });
       window.addEventListener('resize', () => { if (!$('drwStyle').hidden) onScroll(); });
     }
-    return { render, setScene, reset, onScroll, pick, picked: () => picked, scene: () => scene, stats: () => last, compact: () => compact };
+    return { render, soon, setScene, reset, onScroll, pick, toRow, picked: () => picked, scene: () => scene, stats: () => last, compact: () => compact };
   })();
   /* Find: search the project's pins by ID, element, status or defect; tap one to fly to it on the map and open it. */
   function openFind() { $('findQ').value = ''; renderFind(); openSheet('find'); setTimeout(() => $('findQ').focus(), 120); }
@@ -3023,7 +3288,19 @@
   function legacyFid(f) { return `L${f.n}-${(Array.isArray(f.path) && f.path[0]) || ''}`; }
   function fidOf(f) { return f.fid || legacyFid(f); }
   function linkSig(q) { return JSON.stringify([q[2] || '', Array.isArray(q[3]) ? q[3] : []]); }
-  function fibSig(f) { const { n, fid, o, t, _x, ...r } = f || {}; return JSON.stringify(r, Object.keys(r).sort()); }
+  function fibSig(f) { const { n, fid, o, t, _x, ft, ...r } = f || {}; return JSON.stringify(r, Object.keys(r).sort()); }
+  /* beta 4.6: a RUN's fields the splicing details also write (its cable type or size, fibers per buffer, cable ID) each keep their own time
+     (f.ft), so two people filling in different fields of one cable both keep theirs at a Share; the rest of a RUN still goes whole, the newer. */
+  const RUN_FT = { size: ['cab', 'cores'], fpt: ['fpt'], cid: ['cableId'] };
+  const runFtSig = (f, g) => JSON.stringify(RUN_FT[g].map((k) => (f && f[k] != null ? f[k] : null)));
+  /** Fields of src changed later than dst's (by their own times) are put on dst. Returns how many changed dst's values. */
+  function runFtTake(dst, src) {
+    let n = 0; const sf = (src && src.ft) || {}, df = (dst && dst.ft) || {};
+    Object.keys(RUN_FT).forEach((g) => { if (String(sf[g] || '') <= String(df[g] || '')) return;
+      if (runFtSig(dst, g) !== runFtSig(src, g)) { RUN_FT[g].forEach((k) => { if (src[k] != null) dst[k] = src[k]; else delete dst[k]; }); n++; }
+      dst.ft = { ...(dst.ft || {}), [g]: sf[g] }; });
+    return n;
+  }
   function routeTrack(m0, l, F, now) {
     const me = routeWho(), x = {};
     if (l) {
@@ -3040,7 +3317,7 @@
         if (!f.fid) { const w = was.get(legacyFid(f)); f.fid = w && !w.fid ? legacyFid(f) : `f${uid()}`; }
         const w = was.get(f.fid); is.add(f.fid);
         if (!w) { f.o = f.o || me; f.t = now; delete fg[f.fid]; } // new (or back by Undo: its maker kept)
-        else { if (!f.o && w.o) f.o = w.o; if (fibSig(w) !== fibSig(f)) f.t = now; else if (!f.t && w.t) f.t = w.t; } // (a new RUN number is not a change)
+        else { if (!f.o && w.o) f.o = w.o; if (fibSig(w) !== fibSig(f)) { f.t = now; const ft = { ...(f.ft || w.ft || {}) }; let st = false; Object.keys(RUN_FT).forEach((g) => { if (runFtSig(w, g) !== runFtSig(f, g)) { ft[g] = now; st = true; } }); if (st || f.ft || w.ft) f.ft = ft; } else if (!f.t && w.t) f.t = w.t; } // (a new RUN number is not a change) (beta 4.6: + each splicing field's time)
       });
       was.forEach((w, id) => { if (!is.has(id)) fg[id] = { o: w.o || '', by: me, t: now }; });
       x.fgone = fg;
@@ -3092,19 +3369,19 @@
       Object.entries(inFG).forEach(([id, T]) => { if (!auth(T) || inFid.has(id)) return; const f = byFid.get(id), lo = f ? f.o || '' : '';
         if (f && lo !== me && lo === (T.o || '') && tS(f.t) <= tS(T.t)) gone.add(id);
         if (!fg[id] || tS(fg[id].t) < tS(T.t)) fg[id] = { o: T.o || '', by: T.by || '', t: tS(T.t) }; });
-      const hit = new Map(), add = [];
+      const hit = new Map(), add = [], cut = [];
       FI.forEach((fi) => {
         let lf = byFid.get(fi.fid);
         if (!lf) { const sg = bySig.get(fibSig(fi)); if (sg && (/^L/.test(sg.fid) || /^L/.test(fi.fid)) && !inFid.has(sg.fid) && !gone.has(sg.fid) && ![...hit.values()].includes(sg)) { lf = sg; if (/^L/.test(sg.fid)) { byFid.delete(sg.fid); sg.fid = fi.fid; byFid.set(fi.fid, sg); } } } // (the same cable from before beta 3.3)
         if (lf && gone.has(lf.fid)) return;
         if (lf) { hit.set(fi.fid, lf);
-          if (fi.t > tS(lf.t) && fibSig(fi) !== fibSig(lf)) { const keep = { n: lf.n, fid: lf.fid, o: lf.o || fi._x }; Object.keys(lf).forEach((k) => delete lf[k]); Object.assign(lf, fi, keep); R.cChanged++; }
-          else if (!lf.o && (fi._x || (fresh && X))) lf.o = fi._x || X;
+          if (fi.t > tS(lf.t) && fibSig(fi) !== fibSig(lf)) { const keep = { n: lf.n, fid: lf.fid, o: lf.o || fi._x }, was = { ...lf }; Object.keys(lf).forEach((k) => delete lf[k]); Object.assign(lf, fi, keep); runFtTake(lf, was); R.cChanged++; } // (beta 4.6: a field changed here later than there stays)
+          else { if (!lf.o && (fi._x || (fresh && X))) lf.o = fi._x || X; if (runFtTake(lf, fi)) R.cChanged++; } // (beta 4.6: a field changed there later than here is taken)
           return; }
         const o2 = fi._x || X; if (o2 && o2 === me) return;
         if (fg[fi.fid] && tS(fg[fi.fid].t) >= fi.t) return;
         const path = fi.path.filter((id) => !goneHere(id)); if (path.length < 2) return;
-        const nf = { ...fi, path, o: o2 }; add.push(nf); hit.set(fi.fid, nf); delete fg[fi.fid]; R.cAdded++;
+        const nf = { ...fi, path, o: o2 }; add.push(nf); hit.set(fi.fid, nf); delete fg[fi.fid]; R.cAdded++; if (path.length < fi.path.length) cut.push(nf);
       });
       F = FL.filter((f) => !gone.has(f.fid)); R.cRemoved = FL.length - F.length;
       // RUN numbers (see above)
@@ -3124,6 +3401,7 @@
       F = F.concat(add).sort((a, b) => a.n - b.n);
       { const seen = new Set(); F.forEach((f) => { if (seen.has(f.n)) { const was = f.n; f.n = top([...seen, ...F.map((g) => g.n)]) + 1; R.ren.push(`RUN ${was} (twice) is RUN ${f.n}`); } seen.add(f.n); }); }
       F = F.map(({ _x, ...f }) => f);
+      runGaps(L, cut).forEach((q) => { L.push(q); src[spanKey(q[0], q[1])] = { o: me, t: now }; R.added++; }); // beta 6.8: a cable that came through a point deleted here: joined over it
     }
     if (fresh) { R.added = L.length; R.cAdded = F ? F.length : 0; } // (a project new on this phone: what came with it)
     const after = `${kset(L)}|${F ? fset(F) : fset(m.fibers)}`;
@@ -3139,11 +3417,37 @@
   }
 
   const routeSnap = () => ({ l: links(), f: fibers() });
-  /** The links as the route analysis reads them: a span on new fibers carries their cables (the lowest-numbered fiber's first). */
+  /** The links as the route analysis reads them: a span on new fibers carries their cables (the lowest-numbered fiber's first).
+      beta 6.8: and a step of a RUN with no span (a pole deleted on it before beta 6.8, an update's cable through a point deleted here)
+      is a span all the same, so the map, the Drawing, the plan and every table show the same joined cable with its length. (A step is
+      read between the RUN's points that are in the project: not only those exported, a drawing's or a sheet's.) */
   function effLinks() {
-    const L = links(), F = fibers().filter((f) => !f.ex && f.path.length > 1).sort((a, b) => a.n - b.n); if (!F.length) return L;
-    const on = new Map(); F.forEach((f) => f.path.forEach((id, i) => { if (i) { const k = spanKey(f.path[i - 1], id); (on.get(k) || on.set(k, []).get(k)).push(f.cab || ''); } }));
+    const L0 = links(), ok = new Set(points.filter((p) => p.project === S.project).map((p) => p.id)), F = fibers().filter((f) => !f.ex).map((f) => ({ ...f, path: f.path.filter((id) => ok.has(id)) })).filter((f) => f.path.length > 1).sort((a, b) => a.n - b.n); if (!F.length) return L0;
+    const L = L0.concat(runGaps(L0, F)), on = new Map(); F.forEach((f) => f.path.forEach((id, i) => { if (i) { const k = spanKey(f.path[i - 1], id); (on.get(k) || on.set(k, []).get(k)).push(f.cab || ''); } }));
     return L.map((l) => { const c = on.get(spanKey(l[0], l[1])); return c ? linkWith(l[0], l[1], c[0], c.slice(1)) : l; });
+  }
+  /** beta 6.8: the spans the proposed RUNs in F step over that the links L do not have, one each, of the first such RUN's cable (an existing
+      cable has no spans of its own). ok: the points here (else every point is); a point of a RUN that is not here is stepped over when
+      over(id) says so (deleted), else the RUN is not joined across it (a record still to come with a later update). The owner: "the
+      cable should not be deleted or broken unless the user deletes or edits it". */
+  function runGaps(L, F, ok, over) {
+    const have = new Set(L.map((l) => spanKey(l[0], l[1]))), add = [];
+    F.forEach((f) => { if (f.ex || !Array.isArray(f.path)) return; let a = null;
+      f.path.forEach((b) => { if (ok && !ok.has(b)) { if (over && !over(b)) a = null; return; }
+        if (a != null && a !== b) { const k = spanKey(a, b); if (!have.has(k)) { have.add(k); add.push(linkWith(a, b, f.cab || '')); } } a = b; }); });
+    return add;
+  }
+  /** beta 6.8: points taken off the route (deleted): their spans go, and each RUN that passed one goes on from the point before it to the
+      point after it on a span (a new one of its cable, or the one already there, which then carries this RUN too: effLinks); where one
+      was a RUN's end, the RUN is only shorter. Before beta 6.8 the RUN was cut there (its two sides "flagged until linked"): the map
+      still drew it joined, with no span, and the Drawing and the plan left the piece out. Returns { l: the links, f: the fibers }. */
+  function routeDrop(gone, L0, F0) {
+    const l = (L0 || []).filter((q) => !gone.has(q[0]) && !gone.has(q[1])), have = new Set(l.map((q) => spanKey(q[0], q[1])));
+    const f = (F0 || []).map((x) => { const P = []; let cut = false;
+      (Array.isArray(x.path) ? x.path : []).forEach((id) => { if (gone.has(id)) { cut = P.length > 0; return; } const a = P[P.length - 1]; if (a === id) return;
+        if (cut && !x.ex && !have.has(spanKey(a, id))) { have.add(spanKey(a, id)); l.push(linkWith(a, id, x.cab || '')); } cut = false; P.push(id); }); // (joined only where a point was taken off)
+      return { ...x, path: P }; });
+    return { l, f };
   }
   /* v2.29: each span carries its FOC cable type (the third value of the link): AE Figure 8 72C, Light cable 12C or UG 144C air-blown */
   const CAB = C.CABLES;
@@ -3170,8 +3474,11 @@
   const routeModel = () => { const rp = routePts(), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); riserAutoIds = risersOf(R); return R; }; // (2.44.7: and its riser poles)
   /** v2.42.20: the fibers on the route R: R.fib = { list (all, by number; each with len, spans, gaps), planned (new, 2+ points),
       hops: Map spanKey -> { a, b, s, fs: fibers in lane order }, by }; each span: lanes (its fibers in lane order) and fibers (the
-      new ones). Lanes: on a shared span, the fibers in the order of the side each goes off to (left of a → b first), so they do not
-      cross where they part. */
+      new ones). Lanes: on a shared span, from the right of a → b to its left (lane 0 on the right), so they do not cross where they
+      part. beta 6.8 (the owner: two cables criss-crossing at a corner): two fibers keep the same side of each other all along the
+      stretch of spans they run on together, however each span was drawn (a → b or b → a): the side each turns off to where they part
+      (at either end of the stretch, from the way they came), else the lower RUN on the right of its own way. So through a turn one
+      stays inside and the other outside, and the lanes nest instead of swapping sides at the corner. */
   function fibAnnotate(R, pts) {
     R.fib = null; R.spans.forEach((s) => { s.lanes = []; s.fibers = []; });
     const F = fibers(); if (!F.length) return R;
@@ -3186,17 +3493,33 @@
       }
     });
     const cs = Math.cos(((pts[0] && pts[0].lat) || 0) * Math.PI / 180), xy = (id) => { const p = by.get(id); return [p.lon * cs, p.lat]; };
-    const setOf = (k) => { const h = hops.get(k); return h ? h.fs.map((f) => f.n).join(',') : ''; };
+    /* beta 6.8: each two fibers' side of each other on a span came from that span alone before (the side each left to, seen from the
+       span's own line, else the lower RUN first by a → b), so it could swap from one span to the next, at a turn most of all. Now, for
+       the stretch the two run on together: where they part at its end, the one that turns off more to the left is on the left; where
+       they came together at its start, likewise looking back; neither (they start and end together): the lower RUN on the right of its
+       own way. Both ends, disagreeing (they must cross): the end where they part the more wins, so they cross where they part the less. */
+    const ix = new Map(list.map((f, i) => [f, i])), pk = (f, g) => `${ix.get(f)}|${ix.get(g)}`, same = (a, b) => a !== undefined && b !== undefined && String(a) === String(b);
+    const hopAt = new Map(list.map((f) => { const m = new Map(); for (let i = 1; i < f.path.length; i++) { const k = spanKey(f.path[i - 1], f.path[i]); if (!m.has(k)) m.set(k, i - 1); } return [f, m]; }));
+    const turn = (a, p, b) => { const A = xy(a), P = xy(p), B = xy(b), u = [P[0] - A[0], P[1] - A[1]], v = [B[0] - P[0], B[1] - P[1]]; return Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1]); }; // (+ to the left)
+    const rel = new Map(); // spanKey -> Map pair -> +1: the first fiber left of the second, looking a → b
+    const pairRel = (f, g, k) => {
+      const F = f.path, i = hopAt.get(f).get(k), j = hopAt.get(g).get(k), fw = same(g.path[j], F[i]);
+      const Gt = (t) => { const x = fw ? j + (t - i) : j + 1 - (t - i); return x >= 0 && x < g.path.length ? g.path[x] : undefined; }; // g's point abreast of F[t]
+      let s = i, e = i + 1; while (e + 1 < F.length && same(F[e + 1], Gt(e + 1))) e++; while (s > 0 && same(F[s - 1], Gt(s - 1))) s--; // the stretch F[s..e]
+      const dv = F[e + 1] !== undefined && Gt(e + 1) !== undefined ? turn(F[e - 1], F[e], F[e + 1]) - turn(F[e - 1], F[e], Gt(e + 1)) : 0; // > 0: f turns off left of g
+      const du = s > 0 && Gt(s - 1) !== undefined ? turn(F[s + 1], F[s], Gt(s - 1)) - turn(F[s + 1], F[s], F[s - 1]) : 0; // > 0: f came in from left of g (looking back)
+      let r = Math.abs(dv) > 1e-9 ? Math.sign(dv) : 0; const ru = Math.abs(du) > 1e-9 ? Math.sign(du) : 0;
+      if (r && ru && r !== ru && Math.abs(du) > Math.abs(dv)) r = ru; if (!r) r = ru;
+      if (!r) r = f.n < g.n || !fw ? -1 : 1; // (the lower RUN on the right of its own way)
+      for (let t = s; t < e; t++) { const kk = spanKey(F[t], F[t + 1]), h = hops.get(kk), sg = String(h.a) === String(F[t]) ? r : -r;
+        (rel.get(kk) || rel.set(kk, new Map()).get(kk)).set(pk(f, g), sg).set(pk(g, f), -sg); }
+    };
     for (const [k, h] of hops) {
       if (h.fs.length < 2) continue;
-      const A = xy(h.a), B = xy(h.b), d = [B[0] - A[0], B[1] - A[1]], here = setOf(k);
-      const side = (f) => { // where it leaves the fibers of this span: ahead, else behind
-        const P = f.path, i = Math.min(P.indexOf(h.a), P.indexOf(h.b)); let e = null;
-        for (let j = i + 1; j < P.length - 1 && e == null; j++) if (setOf(spanKey(P[j], P[j + 1])) !== here) e = P[j + 1];
-        for (let j = i - 1; j >= 0 && e == null; j--) if (setOf(spanKey(P[j], P[j + 1])) !== here) e = P[j];
-        if (e == null) return 0; const E = xy(e); return d[0] * (E[1] - A[1]) - d[1] * (E[0] - A[0]);
-      };
-      h.fs = h.fs.map((f) => [f, side(f)]).sort((x, y) => x[1] - y[1] || x[0].n - y[0].n).map((x) => x[0]);
+      h.fs.forEach((f, a) => h.fs.forEach((g, b) => { if (a < b && f !== g && !(rel.get(k) && rel.get(k).has(pk(f, g)))) pairRel(f, g, k); }));
+      const R1 = rel.get(k) || new Map(), lo = h.fs.reduce((x, y) => (y.n < x.n ? y : x)), dir = same(lo.path[hopAt.get(lo).get(k)], h.a) ? 1 : -1; // (the lowest RUN's way on this span)
+      const sc = new Map(h.fs.map((f) => [f, h.fs.reduce((t, g) => t + (g !== f && R1.get(pk(f, g)) > 0 ? 1 : 0), 0)])); // how many it is left of
+      h.fs = h.fs.slice().sort((x, y) => sc.get(x) - sc.get(y) || dir * (x.n - y.n));
     }
     R.spans.forEach((s) => { const h = hops.get(spanKey(s.ia, s.ib)); s.lanes = h ? h.fs : []; s.fibers = s.lanes.filter((f) => !f.ex); });
     R.fib = { list, planned: list.filter((f) => !f.ex && f.path.length > 1), hops, by };
@@ -3225,6 +3548,8 @@
   const fmtLen = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   function drawRoute() {
     routeLayer.clearLayers(); fibLayer.clearLayers(); lastR = null; spanLbls = [];
+    if (xOmit) xOmitDraw = true; // (drawn during an export: drawn again after it, with the hidden poles)
+    xHid = isAcc() ? null : xHiddenIds(); if (xf) xfSoon(); // (Hide: those pins faded; Fix: a pole put on a cable moves the bar on)
     if (isAcc()) return null;
     const R = routeModel();
     if (viewHide().route && !routeMode) { if (typeof declutterSoon === 'function') declutterSoon(); return R; } // v2.30: route hidden from the map button
@@ -3250,6 +3575,7 @@
     }
     if (routeMode) { updateRouteBar(R); const by = new Map(projPoints().map((p) => [p.id, p])); if (rtTools) routeAdvice(R).forEach((a) => { const p = by.get(a.id); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 17, color: a.kind === 'flag' ? '#c92a2a' : '#e8590c', weight: 2.5, dashArray: '5 4', fill: false, interactive: false }).addTo(routeLayer); }); }
     if (typeof declutterSoon === 'function') declutterSoon(); // v2.28
+    if (drwEd) drwEdSoon(); // beta 6.7: Edit route on the Drawing: the Drawing drawn anew (the route or a record changed), or again
     return R;
   }
   /** v2.42.26: the cable on a span nearest a tap (its lane, 6 px apart as drawn); null on a span with no cable. */
@@ -3286,6 +3612,28 @@
         L.marker(map.unproject(L.point((a.x + b.x) / 2, (a.y + b.y) / 2), z), { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="fib-arrow" style="color:${col};transform:translate(-50%,-50%) rotate(${ang.toFixed(1)}deg)">➤</span>`, iconSize: null }) }).addTo(fibLayer); }
     }
   }
+  /** beta 6.8: where one lane's two lines meet at a turn (the plan's dxftpl.js has the same). P: the turn's point on the cable; p1, A, L1:
+      the lane's line in (its start, direction, length: it ends abreast of P); q1, B, L2: the line out (it starts abreast of P); u0: how far
+      along the line in the lane already is; K: the cut's distance. Mitred; on the outside of a sharp turn cut off square, K beyond the
+      lane's own offset from P along the turn's bisector (so the lanes' cuts stay a lane apart, as their mitres do); on the inside, where
+      the lines would meet beyond the spans, straight across. Nearly straight on (under 8°): the same lane mitred too (before, a lane
+      off the cable's line cut the slight bend short and came closer to the next lane); another lane: null (it moves over gently, as
+      before). Returns { pts, u }: the points, and how far along the line out it then is. */
+  function laneJoin(P, p1, A, L1, q1, B, L2, u0, K) {
+    const dot = (u, v) => u[0] * v[0] + u[1] * v[1], c = A[0] * B[1] - A[1] * B[0], dt = dot(A, B), rel = (q) => [q[0] - P[0], q[1] - P[1]], nL = (D) => [-D[1], D[0]], on = (p, D, t) => [p[0] + D[0] * t, p[1] + D[1] * t];
+    const mitre = () => on(p1, A, ((q1[0] - p1[0]) * B[1] - (q1[1] - p1[1]) * B[0]) / c);
+    if (dt > 0.99) { // nearly straight on: another lane moves over gently (null, as before); the same lane bends with the cable (mitred)
+      if (Math.abs(dot(rel(on(p1, A, L1)), nL(A)) - dot(rel(q1), nL(B))) > 0.05 * K) return null;
+      if (Math.abs(c) < 1e-9) return { pts: [q1], u: 0 }; const X = mitre(); return { pts: [X], u: Math.max(0, dot([X[0] - q1[0], X[1] - q1[1]], B)) };
+    }
+    const bl = Math.hypot(A[0] - B[0], A[1] - B[1]), bo = [(A[0] - B[0]) / bl, (A[1] - B[1]) / bl], nOut = (D) => { const n = nL(D); return dot(n, bo) < 0 ? [-n[0], -n[1]] : n; }; // (bo: out of the turn)
+    const cap = K + Math.max(0, dot(rel(on(p1, A, L1)), nOut(A)), dot(rel(q1), nOut(B))); // (the lane's offset out of the turn)
+    let X = null, dX = Infinity; if (Math.abs(c) > 1e-9) { X = mitre(); dX = dot(rel(X), bo); }
+    if (dX > cap) { const s2 = (cap - dot(rel(q1), bo)) / dot(B, bo); return { pts: [on(p1, A, (cap - dot(rel(p1), bo)) / dot(A, bo)), on(q1, B, s2)], u: Math.max(0, s2) }; } // the outside of a sharp turn: cut off
+    const t = dot([X[0] - p1[0], X[1] - p1[1]], A), u = dot([X[0] - q1[0], X[1] - q1[1]], B);
+    if (t >= u0 - 1e-6 && u <= L2) return { pts: [X], u: Math.max(0, u) };
+    const u1 = Math.max(0, Math.min(L2, u)); return { pts: [on(p1, A, Math.min(L1, Math.max(u0, t))), on(q1, B, u1)], u: u1 }; // (the inside, spans too short for the lanes)
+  }
   /** v2.42.23: the fibers for the plan: each fiber's way and, on each step, its lane (k of n, in the order of the span's lanes, by the
       span's own direction a → b), so the plan draws each fiber as one line in its lane. */
   /** v2.42.23: the Drawing's fibers: each a line through its points, broken where a new fiber is on no span (a gap); on a route span
@@ -3299,7 +3647,10 @@
         const h = R.fib.hops.get(spanKey(f.path[i], b));
         if (!h || (!h.s && !f.ex)) { flush(); pts = [U(R.fib.by.get(b))]; ids = [String(b)]; st = []; return; }
         const z = !!h.s && !h.fs.some((x) => !x.ex), k = Math.max(0, h.fs.indexOf(f));
-        pts.push(U(R.fib.by.get(b))); ids.push(String(b)); st.push({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), k: z ? k + 1 : k, n: z ? h.fs.length + 1 : h.fs.length, z });
+        // beta 6.8: beside the span's own cable, the existing ones on the left of the lowest RUN's way (before: of a → b, so they swapped
+        // sides of it wherever a span was drawn the other way)
+        const lo = z ? h.fs.reduce((x, y) => (y.n < x.n ? y : x)) : null, fw = !lo || lo.path.some((x, j) => String(x) === String(h.a) && String(lo.path[j + 1]) === String(h.b));
+        pts.push(U(R.fib.by.get(b))); ids.push(String(b)); st.push({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), k: z ? (fw ? k + 1 : k - h.fs.length) : k, n: z ? h.fs.length + 1 : h.fs.length, z });
       });
       flush();
     });
@@ -3323,7 +3674,7 @@
     const many = R.fib.list.filter((f) => f.path.length > 1).length > 1;
     return R.fib.list.filter((f) => f.path.length > 1).map((f) => ({ n: f.n, cab: f.cab || '', ex: !!f.ex, ...(f.ex ? { cores: exCores(f) } : {}), path: f.path.map(String), lbl: runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', many ? f.n : 0),
       steps: f.path.slice(1).map((b, i) => { const a = f.path[i], h = R.fib.hops.get(spanKey(a, b)); if (!h || (!h.s && !f.ex)) return { a: String(h ? h.a : a), b: String(h ? h.b : b), k: 0, n: 1, gap: true }; // (a new fiber's gap: not drawn)
-        const k = Math.max(0, h.fs.indexOf(f)), z = !!h.s && !h.fs.some((x) => !x.ex); return { a: String(h.a), b: String(h.b), k: z ? k + 1 : k, n: z ? h.fs.length + 1 : h.fs.length }; }) })); // (a route span with only existing fibers: its own cable on lane 0)
+        const k = Math.max(0, h.fs.indexOf(f)), z = !!h.s && !h.fs.some((x) => !x.ex); return { a: String(h.a), b: String(h.b), k: z ? k + 1 : k, n: z ? h.fs.length + 1 : h.fs.length, ...(z ? { z: true } : {}) }; }) })); // (a route span with only existing fibers: its own cable on lane 0; beta 6.8: z, the plan counts these lanes from it toward the road)
   }
   /** v2.42.21: in Route, the end of the fiber you are on (a ring that pulses: drag from it), the ends of the fibers (rings), and the
       points the fiber passes without being on them (dashed, 'passes': tap one to put it on). */
@@ -3370,8 +3721,8 @@
     const old12 = at.filter((s) => !onF(s) && isLight(s.cable)).length, o72 = at.find((s) => !onF(s) && isFig8(s.cable)), old72 = o72 ? 1 : 0;
     const sz8 = [...new Set(f72.map((f) => f.cab).concat(o72 ? [o72.cable] : []))].map((k) => `${CAB[k].cores}C`).join('/') || '72C';
     if (hasTelcoArm(p)) {
-      if (n12) items.push(['J-hook', 2, '12C · telco arm'], ['Span clamp', 2 * f12.length + (old12 ? 2 : 0), '12C · telco arm']);
-      if (f72.length + old72) items.push(['Suspension clamp', f72.length + old72, `${sz8} · telco arm`]);
+      if (n12) items.push(['J-hook', 2, `12C · ${armName(p)}`], ['Span clamp', 2 * f12.length + (old12 ? 2 : 0), `12C · ${armName(p)}`]);
+      if (f72.length + old72) items.push(['Suspension clamp', f72.length + old72, `${sz8} · ${armName(p)}`]);
       return { items, noClamp: true };
     }
     if (n12) items.push(['Retractor', n12 >= 2 ? 2 : 1, '12C'], ['Span clamp', f12.reduce((t, f) => t + ends(f), 0) + Math.min(old12, 2), '12C']);
@@ -3383,8 +3734,8 @@
     if (at.some((s) => s.fibers && s.fibers.length)) return hwFib(p, R, at, aer); // v2.42.20: per fiber
     const n12 = at.filter((s) => isLight(s.cable)).length, s72 = at.filter((s) => isFig8(s.cable)), n72 = s72.length, nOther = at.filter((s) => !isLight(s.cable) && aer(s)).length, items = [];
     if (hasTelcoArm(p)) {
-      if (n12) items.push(['J-hook', 2, '12C · telco arm'], ['Span clamp', 2, '12C · telco arm']);
-      if (n72) items.push(['Suspension clamp', 1, `${[...new Set(s72.map((s) => `${CAB[s.cable].cores}C`))].join('/')} · telco arm`]);
+      if (n12) items.push(['J-hook', 2, `12C · ${armName(p)}`], ['Span clamp', 2, `12C · ${armName(p)}`]);
+      if (n72) items.push(['Suspension clamp', 1, `${[...new Set(s72.map((s) => `${CAB[s.cable].cores}C`))].join('/')} · ${armName(p)}`]);
       return { items, noClamp: true };
     }
     if (n12) { const k = n12 >= 2 ? 2 : 1; items.push(['Retractor', k, '12C'], ['Span clamp', k, '12C']); }
@@ -3494,7 +3845,7 @@
       const nf = R.spans.filter((s) => !(s.fibers && s.fibers.length));
       if (nf.length) out.push({ id: nf[0].ia, poleId: name(nf[0].ia), kind: 'flag', text: `${nf.length} span${nf.length === 1 ? '' : 's'} on no cable (grey, dashed: ${nf.slice(0, 3).map((s) => `${s.from} → ${s.to}`).join(', ')}${nf.length > 3 ? '…' : ''}): put a cable on ${nf.length === 1 ? 'it' : 'them'}, or unlink` });
       for (const f of R.fib.planned) {
-        f.gaps.forEach(([a, b]) => out.push({ id: a, poleId: name(a), kind: 'flag', text: `RUN ${f.n}: no span ${name(a)} → ${name(b)} (link them)` }));
+        f.gaps.forEach(([a, b]) => out.push({ id: a, poleId: name(a), kind: 'flag', text: `RUN ${f.n}: no span ${name(a)} → ${name(b)} (link them)` })); // (beta 6.8: a step with no span is one now, effLinks: none is flagged once joined)
         ['from', 'to'].forEach((w) => { const e = fibEnd(f, w, by); if (e.kind === 'Pole') out.push({ id: e.id, poleId: name(e.id), kind: 'flag', text: `RUN ${f.n} ${w === 'to' ? 'ends' : 'starts'} at ${name(e.id)}: no closure, NAP, ODF, ODC or site there` }); });
       }
       links().forEach((l) => { const more = Array.isArray(l[3]) ? l[3].length : 0; if (!more) return; const s = R.spans.find((x) => spanKey(x.ia, x.ib) === spanKey(l[0], l[1]));
@@ -3666,7 +4017,8 @@
       if (at.length) {
         const h = document.createElement('span'); h.className = 'lbl'; h.textContent = `SPANS AT ${String(sel.poleId || '').toUpperCase()} · TAP ONE FOR ITS ${R.fib && R.fib.list.length ? 'CABLES' : 'RUNS'}`; box.appendChild(h);
         at.forEach((s) => { const o = s.ia === sel.id ? s.b : s.a, n = (s.runs || []).length, b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm'; b.dataset.a = s.ia; b.dataset.b = s.ib;
-          b.textContent = `→ ${o.poleId || '(no ID)'} · ${fmtLen(s.len)} · ${s.lanes && s.lanes.length ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join(' ') : `${CAB[s.cable] ? CAB[s.cable].short : 'cable not set'}${n > 1 ? ` · ${n} runs` : ''}`}`; box.appendChild(b); });
+          const u = ugSpanOf(s.ia, s.ib), um = u ? (u.m === 'hdd' ? 'HDD' : UG_METHODS.find(([k]) => k === u.m)[1]) : ''; if (u) b.classList.add('ug'); // (beta 6.7: a UG span's way: its own, or as its RUN)
+          b.textContent = `→ ${o.poleId || '(no ID)'} · ${fmtLen(s.len)} · ${s.lanes && s.lanes.length ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join(' ') : `${CAB[s.cable] ? CAB[s.cable].short : 'cable not set'}${n > 1 ? ` · ${n} runs` : ''}`}${u ? ` · ${u.own ? `${um} (this span)` : `as the RUN (${um})`}` : ''}`; box.appendChild(b); });
       }
     }
     $('rbUndo').disabled = !routeUndo.length;
@@ -3696,7 +4048,7 @@
     box.innerHTML = head + `<div class="cl-head"><span class="lbl">CABLES · ${all.length}</span>${busy ? '' : `<button class="btn sm primary" type="button" data-cc="new">＋ New cable${sel ? ` from ${hEsc(sel.poleId || '')}` : ''}</button>`}</div>` // v2.42.24: one list of cables
       + (all.length ? '' : '<p class="rb-hint">No cable yet. ＋ New cable: pick its type, then draw it on the map or follow the capture order.</p>')
       + all.map((f) => { const fi = info.get(f.n) || { len: 0 }, a0 = f.path.length ? fibName(f.path[0]) : '', z0 = f.path.length > 1 ? fibName(f.path[f.path.length - 1]) : '';
-        return `<div class="ccard${fibAdd === f.n ? ' on' : ''}${fibSel === f.n ? ' sel' : ''}" data-n="${f.n}"><div class="cc-t"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i><b>RUN ${f.n}</b><span>${hEsc(fibCabName(f))}</span></div>`
+        return `<div class="ccard${fibAdd === f.n ? ' on' : ''}${fibSel === f.n ? ' sel' : ''}" data-n="${f.n}"><div class="cc-t"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i><b>RUN ${f.n}</b><span>${hEsc(fibCabName(f))}${!f.ex && isUG(f.cab) ? ` · ${hEsc(UG_METHODS.find(([k]) => k === ugOf(f).m)[1])}` : ''}</span></div>`
           + `<div class="cc-m">${fmtLen(fi.len || 0)} · ${a0 ? `${hEsc(a0)} → ${hEsc(z0 || '…')}` : 'no points yet'}${fibAdd === f.n ? ' · <b>in the bar</b>' : ''}</div>`
           + `<div class="cc-a">${busy ? '' : `<button class="btn sm primary" type="button" data-cc="cont" data-n="${f.n}">Continue</button>${cabSel(f)}`}<button class="btn sm" type="button" data-cc="det" data-n="${f.n}" aria-pressed="${fibSel === f.n}">Details</button>${busy ? '' : `<button class="btn sm danger" type="button" data-cc="del" data-n="${f.n}">${rtDelArm === f.n ? 'Tap again to delete' : 'Delete'}</button>`}</div></div>`; }).join('');
     box.hidden = false;
@@ -3713,6 +4065,8 @@
       + (shares.length ? `<p class="rb-hint">Shares ${shares.join('; ')}</p>` : '') + (f.ex ? '<p class="rb-hint">An existing cable: drawn on the plan (dashed), not in the BOQ, the cable lengths, the loops or the hardware.</p>' : '')
       + `<div class="rf-row"><select data-fa="cab" aria-label="Cable of RUN ${f.n}">${cabOpts}</select><select data-fa="side" aria-label="Side of RUN ${f.n} (auto: as on the plan)" title="Auto: as on the plan (the leg ending furthest east is right)"><option value="auto"${!f.side || f.side === 'auto' ? ' selected' : ''}>Side: auto</option><option value="right"${f.side === 'right' ? ' selected' : ''}>Right</option><option value="left"${f.side === 'left' ? ' selected' : ''}>Left</option><option value="none"${f.side === 'none' ? ' selected' : ''}>No side</option></select>`
       + `<select data-fa="ex" aria-label="New or existing cable"><option value="0"${f.ex ? '' : ' selected'}>New</option><option value="1"${f.ex ? ' selected' : ''}>Existing (drawn only)</option></select>${f.ex ? `<select data-fa="cores" aria-label="Size of the existing cable">${[...new Set([...EX_SIZES, exCores(f)])].sort((a, b) => a - b).map((c) => `<option value="${c}"${c === exCores(f) ? ' selected' : ''}>${c}C</option>`).join('')}</select>` : ''}</div>`
+      + (!f.ex && isUG(f.cab) ? (() => { const own = f.path.slice(1).map((b, i) => [f.path[i], b]).filter(([a, b]) => { const x = ugSpanOf(a, b, all); return x && x.own && x.n === f.n; }); return own.length ? `<p class="rb-hint">${own.length} span${own.length > 1 ? 's' : ''} laid otherwise (set on the span): ${own.map(([a, b]) => `${hEsc(fibName(a))} → ${hEsc(fibName(b))}`).join(', ')}.</p>` : ''; })() : '') // beta 6.7
+      + (!f.ex && isUG(f.cab) ? (() => { const u = ugOf(f), d = ugDefM(f.cab); return `<div class="rf-row"><select data-fa="ugm" aria-label="How RUN ${f.n} is laid">${UG_METHODS.map(([k, , l]) => `<option value="${k}"${u.m === k ? ' selected' : ''}>${hEsc(l)}${k === d ? ' (default)' : ''}</option>`).join('')}</select><select data-fa="cd" aria-label="Conduit of RUN ${f.n}">${[1, 2].flatMap((r) => UG_CDS.map((c) => `<option value="${r}x${c}"${u.cr === r && u.cd === c ? ' selected' : ''}>${r} run${r > 1 ? 's' : ''} · ${c} mm</option>`)).join('')}</select></div>`; })() : '') // beta 6.7
       + `<div class="rf-btns"><button class="btn sm${adding ? '' : ' primary'}" type="button" data-fa="add">${adding ? '✓ Finish' : 'Continue'}</button><button class="btn sm" type="button" data-fa="rev"${f.path.length > 1 ? '' : ' disabled'}>Reverse</button></div>`; // (v2.42.24: Delete in the list, with its spans)
     card.hidden = false;
   }
@@ -3769,7 +4123,7 @@
   $('rbFib').addEventListener('change', (e) => {
     const t = e.target, k = t.dataset.fa; if (!k || fibSel == null) return;
     setFiber(fibSel, (f, F) => {
-      if (k === 'cab') f.cab = t.value; else if (k === 'cores') f.cores = +t.value || 12; else if (k === 'side') f.side = t.value; /* (v2.42.21: an existing cable's size) */ else if (k === 'fromSt') f.fromSt = t.value; else if (k === 'toSt') f.toSt = t.value;
+      if (k === 'cab') { if (ugDefM(t.value) !== ugDefM(f.cab)) delete f.ugm; f.cab = t.value; } else if (k === 'ugm') f.ugm = t.value; else if (k === 'cd') { const [r, c] = t.value.split('x'); f.cdr = +r === 1 ? 1 : 2; f.cd = c; } /* (beta 6.7) */ else if (k === 'cores') f.cores = +t.value || 12; else if (k === 'side') f.side = t.value; /* (v2.42.21: an existing cable's size) */ else if (k === 'fromSt') f.fromSt = t.value; else if (k === 'toSt') f.toSt = t.value;
       else if (k === 'ex') { // an existing cable has no spans of its own; a new fiber needs one on each step
         f.ex = t.value === '1'; if (f.ex) f.cores = exCores(f); else delete f.cores; const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x)));
         if (f.ex) { const mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); return links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
@@ -3805,7 +4159,11 @@
         + `<p class="rb-hint">${sp.lanes.length} cable${sp.lanes.length === 1 ? '' : 's'} on this span.${fibSel != null && sp.lanes.some((f) => f.n === fibSel) ? ` RUN ${fibSel} is lit all along its way${sp.lanes.length > 1 ? '; tap another to light it' : ''}.` : ' Tap one to light its whole way.'}</p>`
         + sp.lanes.map((f) => { const i = f.path.indexOf(sp.ia), j = f.path.indexOf(sp.ib), fw = j === i + 1, nx = f.path[fw ? j + 1 : i + 1], sd = fibSide(f, all, by), a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by);
           return `<button class="btn sm rs-fib" type="button" data-rs="fib" data-n="${f.n}" aria-pressed="${fibSel === f.n}"><i style="background:${fibColor(f)}"></i><span><b>RUN ${f.n}</b>${sd ? ` · ${sd}` : ''} · ${f.ex ? 'existing' : hEsc(CAB[f.cab] ? CAB[f.cab].short : 'cable not set')} · ${hEsc(a.ref || a.kind)} → ${hEsc(z.ref || z.kind)}${nx ? ` · then ${hEsc(fibName(nx))}` : ''}</span></button>`; }).join('')
-        + '<p class="rb-hint">Another cable on this span: Continue it in the list, and draw it along these poles.</p>';
+        + '<p class="rb-hint">Another cable on this span: Continue it in the list, and draw it along these poles.</p>'
+        + (() => { const u = ugSpanOf(sp.ia, sp.ib, all); if (!u) return ''; const o = ugSpanOwn(sp.ia, sp.ib, all) || {}, b = u.base, nm = (k) => UG_METHODS.find(([x]) => x === k)[2], nR = ugRunsOn(sp.ia, sp.ib, all).length; // beta 6.7: this span's own way, else as its RUN
+          return `<div class="rs-ug"><span class="lbl">THIS SPAN · LAID BY</span><select data-rs="ugm" aria-label="How this span is laid"><option value=""${o.m ? '' : ' selected'}>As the RUN (${hEsc(nm(b.m))})</option>${UG_METHODS.map(([k, , l]) => `<option value="${k}"${o.m === k ? ' selected' : ''}>${hEsc(l)}</option>`).join('')}</select>`
+            + `<span class="lbl">THIS SPAN · CONDUIT</span><select data-rs="ugcd" aria-label="This span's conduit"><option value=""${o.cd ? '' : ' selected'}>As the RUN (${b.cr} run${b.cr > 1 ? 's' : ''} · ${b.cd} mm)</option>${[1, 2].flatMap((r) => UG_CDS.map((c) => `<option value="${r}x${c}"${o.cd === c && (+o.cr === 1 ? 1 : 2) === r ? ' selected' : ''}>${r} run${r > 1 ? 's' : ''} · ${c} mm</option>`)).join('')}</select>`
+            + `<p class="rb-hint">${u.own ? 'Laid as set here' : `As RUN ${u.n}`}: ${hEsc(ugTxt(u))}. The span counts once in the PMI and the sheets' BOQ${nR > 1 ? `, for the ${nR} UG cables on it (RUN ${u.n} counts it)` : ''}${u.m !== 'hdd' ? '; where it crosses a road, that part is HDD' : ''}.</p></div>`; })();
       box.hidden = false; $('rbHint').hidden = true; return;
     }
     const opts = (v) => [...Object.entries(CAB).map(([kk, c]) => `<option value="${kk}"${kk === v ? ' selected' : ''}>${hEsc(c.label)}</option>`), `<option value=""${v ? '' : ' selected'}>Cable not set</option>`].join('');
@@ -3834,7 +4192,8 @@
     spanSel = [s.ia, s.ib]; routeSel = null; routeRefresh(); spanInView(s);
   });
   $('rbSpan').addEventListener('change', (e) => {
-    const t = e.target; if (t.dataset.rs !== 'cab' || !spanSel) return;
+    const t = e.target; if ((t.dataset.rs === 'ugm' || t.dataset.rs === 'ugcd') && spanSel) { ugSpanSet(spanSel[0], spanSel[1], t.dataset.rs === 'ugm' ? { m: t.value } : { cd: t.value }); return; } // beta 6.7
+    if (t.dataset.rs !== 'cab' || !spanSel) return;
     const k = linkIdx(spanSel[0], spanSel[1]); if (k < 0) return;
     const runs = runsOf(links()[k]); runs[+t.dataset.i] = t.value; setRuns(runs);
   });
@@ -3847,6 +4206,7 @@
     else if (b.dataset.rs === 'del') { runs.splice(+b.dataset.i, 1); setRuns(runs); }
   });
   function setRouteMode(on) {
+    if (!on && xf) { if (xf.proj === S.project) setTimeout(xfFinish, 0); else xfStop(); } // (poles on no cable: Route closed ends the Fix walk; Back to Export?)
     if (!on && fibAdd != null) { // v2.42.24: the cable in the bar finished (one with fewer than 2 points is not kept)
       if (routeProj === S.project) rtFinish(true);
       else { const m = (S.meta || {})[routeProj]; if (m && Array.isArray(m.fibers) && m.fibers.some((f) => f && f.n === fibAdd && !(Array.isArray(f.path) && f.path.length > 1))) { S.meta[routeProj] = { ...m, fibers: m.fibers.filter((f) => !(f && f.n === fibAdd && !(Array.isArray(f.path) && f.path.length > 1))) }; persist(); } }
@@ -3854,11 +4214,12 @@
     routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null; fibSel = null; fibAdd = null; // (v2.42.20)
     if (deskOn() && ppState().open) ppRows(); // v2.42.28: Open waits while a cable is drawn
     fibAt = 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtTools = false; rtPairs = false; rtPend = []; rtPop = null; rtAsked = new Set(); rtDraft = null; rtDraftLayer.clearLayers(); rtMarkLayer.clearLayers(); $('rbPairs').checked = false; // v2.42.21
-    rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; rtSnap0 = null; rtSheet = null; rtDelArm = null; map.getContainer().classList.remove('rt-panning'); // v2.42.22
+    rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; rtSnap0 = null; rtSheet = null; rtDelArm = null; map.getContainer().classList.remove('rt-panning'); $('drawCanvas').classList.remove('rt-panning'); // v2.42.22
     rtGrab = null; rtGrabDead = null; lpClear(); rtGrabFx.clearLayers(); rtGrabLayer.clearLayers(); document.body.classList.remove('rt-grabbing'); // (grab the cable)
     $('routeBar').hidden = true; $('rtBar').hidden = !on; $('rtPop').hidden = true; rtHint(''); $('routeBtn').setAttribute('aria-pressed', String(on)); $('routeFitBtn').hidden = !on; if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles(); rtApplyMode(); if (on) rtTip(); // (v2.42.22: the map stays where it is; ⛶ shows the whole route)
+    if (!on && drwEd) drwEdEnd(); // beta 6.7: Route ended on the Drawing (Done): its Edit route too
   }
   function routeTap(id) {
     const tapped = points.find((p) => p.id === id);
@@ -3902,14 +4263,47 @@
      fiber details, Link in capture order and Clear. Proposed cables are the app's three; an existing cable any size (cores). */
   const SNAP_CH = ['auto', 5, 10, 15, 20, 25], EX_SIZES = [12, 24, 48, 72, 96, 144, 288];
   const snapPref = () => (SNAP_CH.includes(S.routeSnap) ? S.routeSnap : 'auto');
-  function mPerPx() { try { const c = map.getSize().divideBy(2), a = map.containerPointToLatLng(c), b = map.containerPointToLatLng(c.add([100, 0])); return map.distance(a, b) / 100 || 1; } catch (e) { return 1; } }
+  function mPerPx() { if (drwEd && drw && drw.view) return (window.devicePixelRatio || 1) / drw.view.sc; /* beta 6.7: the Drawing's metres a pixel (Edit route: Auto snap by its zoom) */ try { const c = map.getSize().divideBy(2), a = map.containerPointToLatLng(c), b = map.containerPointToLatLng(c.add([100, 0])); return map.distance(a, b) / 100 || 1; } catch (e) { return 1; } }
   const snapM = () => { const v = snapPref(); return v === 'auto' ? Math.max(5, Math.min(25, Math.round(24 * mPerPx()))) : v; };
   const snapLbl = () => (snapPref() === 'auto' ? `Auto ${snapM()} m` : `${snapPref()} m`);
   const exCores = (f) => (+f.cores >= 2 ? Math.round(+f.cores) : 12);
   const fibCabShort = (f) => (f.ex ? `Existing ${exCores(f)}C` : CAB[f.cab] ? CAB[f.cab].short : 'cable not set');
   const fibCabName = (f) => (f.ex ? `Existing ${exCores(f)}C (drawn only)` : CAB[f.cab] ? CAB[f.cab].label : 'Cable not set');
-  /** The next new fiber's cable: the project's cable (proposed), or an existing cable of its size. */
-  const nextSpec = () => { const m = pmeta(); return { cab: cableSel() || 'L12', ex: !!m.fibEx, cores: +m.fibCores >= 2 ? Math.round(+m.fibCores) : 12 }; };
+  /* beta 6.7 (the owner: "allow a selection by the user … what is the conduit using same as the CEF (32mm, 50mm, 114.3mm, 1run or 2run)?
+     also hdd is machine drill by default and airblown fiber is used by default but for non airblown, it should be Trench (open, shallow
+     w/ concrete or w/out)"): how a new UG cable (a RUN) is laid, and its conduit. f.ugm: 'hdd' (machine drilled), 'open', 'shc' / 'sh'
+     (shallow trench with / without concrete) or 'micro' (micro trench); unset: HDD for air-blown fiber, open trench for a conventional
+     UG cable. f.cd: '32', '50' or '114.3' mm, f.cdr: 1 or 2 runs; unset: the CEF plan's, 2 runs of 114.3 mm. The PMI and the GEO sheets'
+     BOQ count each UG span by the first new UG cable on it (dxftpl). */
+  const UG_METHODS = [['hdd', 'HDD (drilled)', 'HDD, machine drilled'], ['open', 'Open trench', 'Open trench'], ['shc', 'Shallow, concrete', 'Shallow trench with concrete'], ['sh', 'Shallow, no concrete', 'Shallow trench without concrete'], ['micro', 'Micro trench', 'Micro trench']];
+  const UG_CDS = ['32', '50', '114.3'];
+  const ugDefM = (cab) => (CAB[cab] && CAB[cab].fam === 'convug' ? 'open' : 'hdd');
+  const ugOf = (f) => ({ m: UG_METHODS.some(([k]) => k === f.ugm) ? f.ugm : ugDefM(f.cab), cd: UG_CDS.includes(String(f.cd)) ? String(f.cd) : '114.3', cr: +f.cdr === 1 ? 1 : 2 });
+  const ugTxt = (u) => `${UG_METHODS.find(([k]) => k === u.m)[2]}, ${u.cr} run${u.cr > 1 ? 's' : ''} of ${u.cd} mm conduit`;
+  /** The next new fiber's cable: the project's cable (proposed), or an existing cable of its size (beta 6.7: a UG cable's method and conduit as set for it, else the defaults). */
+  const nextSpec = () => { const m = pmeta(); return { cab: cableSel() || 'L12', ex: !!m.fibEx, cores: +m.fibCores >= 2 ? Math.round(+m.fibCores) : 12, ugm: m.fibUgm || '', cd: m.fibCd || '', cdr: +m.fibCdr || 0 }; };
+  /* beta 6.7 (the owner: "a RUN that is partly drilled and partly trenched must be settable per span"): a span's own way, over its RUN's:
+     f.ugs[spanKey] = { m?, cd?, cr? } on the RUN that counts the span (its first new UG RUN). The override is the span's (the stretch
+     between the two points): the span is counted once, however many UG cables share it, so it applies to all of them. Undo, the save and
+     Share carry it with the RUN. */
+  function ugRunsOn(a, b, F) { const k = spanKey(a, b); return (F || fibers()).filter((f) => !f.ex && isUG(f.cab) && f.path.some((x, i) => i && spanKey(f.path[i - 1], x) === k)).sort((x, y) => x.n - y.n); }
+  function ugSpanOwn(a, b, F) { const k = spanKey(a, b); for (const f of ugRunsOn(a, b, F)) if (f.ugs && f.ugs[k]) return f.ugs[k]; return null; }
+  /** How the span a–b is laid: its own setting over its first new UG RUN's ({ m, cd, cr, n: that RUN, own: set on the span }), or null. */
+  function ugSpanOf(a, b, F) {
+    const R = ugRunsOn(a, b, F); if (!R.length) return null; const u = ugOf(R[0]), o = ugSpanOwn(a, b, F) || {};
+    return { ...u, ...(UG_METHODS.some(([k]) => k === o.m) ? { m: o.m } : {}), ...(UG_CDS.includes(String(o.cd)) ? { cd: String(o.cd), cr: +o.cr === 1 ? 1 : 2 } : {}), n: R[0].n, own: !!(o.m || o.cd), base: u };
+  }
+  /** Set (or clear: '') the span's own method ({ m }) or conduit ({ cd: '2x114.3' }), with Undo. */
+  function ugSpanSet(a, b, ch) {
+    const F = fibers(), R = ugRunsOn(a, b, F); if (!R.length) return; const k = spanKey(a, b), snap = routeSnap(), was = ugSpanOf(a, b, F), cur = { ...(ugSpanOwn(a, b, F) || {}) };
+    if ('m' in ch) { if (ch.m) cur.m = ch.m; else delete cur.m; }
+    if ('cd' in ch) { if (ch.cd) { const [r, c] = String(ch.cd).split('x'); cur.cd = c; cur.cr = +r === 1 ? 1 : 2; } else { delete cur.cd; delete cur.cr; } }
+    R.forEach((f) => { if (f.ugs && f.ugs[k]) { f.ugs = { ...f.ugs }; delete f.ugs[k]; if (!Object.keys(f.ugs).length) delete f.ugs; } }); // (one place: the RUN that counts it)
+    if (cur.m || cur.cd) R[0].ugs = { ...(R[0].ugs || {}), [k]: cur };
+    const now = ugSpanOf(a, b, F); if (JSON.stringify([was.m, was.cd, was.cr, was.own]) === JSON.stringify([now.m, now.cd, now.cr, now.own])) { routeRefresh(); return; }
+    routeUndo.push(snap); setRoute(null, F); routeRefresh(); toast(`Span ${fibName(a)} → ${fibName(b)}: ${now.own ? ugTxt(now) : `as RUN ${now.n} (${ugTxt(now)})`}`, 3500);
+  }
+  const ugNew = (sp) => (!sp.ex && isUG(sp.cab) ? { ...(sp.ugm ? { ugm: sp.ugm } : {}), ...(sp.cd ? { cd: sp.cd } : {}), ...(sp.cdr ? { cdr: sp.cdr } : {}) } : {}); // (only what was set: unset follows the cable type)
   const setNext = (o) => { S.meta[S.project] = { ...pmeta(), ...o }; persist(); };
   const nextFibN = (F) => (F || fibers()).reduce((m, f) => Math.max(m, f.n), 0) + 1;
   const xyOf = (lat0) => { const k = Math.cos(lat0 * Math.PI / 180) * 111320; return (p) => ({ x: p.lon * k, y: p.lat * 110574 }); };
@@ -3982,7 +4376,7 @@
     const q = rtSheet || {}, F = fibers(), sp = nextSpec(), snap = routeSnap(); rtSheetClose();
     if (how === 'cap' && !q.from && !q.seq) { captureCables(sp); return; }
     const n = nextFibN(F), path = q.seq && q.seq.length > 1 ? q.seq.slice() : q.from ? [q.from] : [];
-    routeUndo.push(snap); F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path, fromSt: '', toSt: '' });
+    routeUndo.push(snap); F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), ...ugNew(sp), path, fromSt: '', toSt: '' }); // (beta 6.7: + a UG cable's method and conduit)
     setRoute(!sp.ex && path.length > 1 ? linksFor(path, sp.cab) : null, F); rtStart(n, 'end', snap); fibTouched = path.length > 1; rtPenSet(); routeRefresh(path);
     toast(path.length > 1 ? `RUN ${n} · ${fibCabShort(sp)}: ${path.length} points. Go on drawing, or ✓ Finish` : path.length ? `RUN ${n} · ${fibCabShort(sp)} from ${fibName(path[0])}: tap the next pole, or drag along them` : `RUN ${n} · ${fibCabShort(sp)}: tap the pole or site it starts at, or drag along the poles`, 3500);
   }
@@ -3996,7 +4390,7 @@
     routeUndo.push(routeSnap()); let L2 = links(), n = nextFibN(F); const have = new Set(L2.map((l) => spanKey(l[0], l[1]))), made = [];
     chains.forEach((path) => {
       if (!sp.ex) path.slice(1).forEach((b, i) => { const k = spanKey(path[i], b); if (!have.has(k)) { have.add(k); L2 = L2.concat([linkWith(path[i], b, sp.cab)]); } });
-      F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path, fromSt: '', toSt: '' }); made.push(n); n++; });
+      F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), ...ugNew(sp), path, fromSt: '', toSt: '' }); made.push(n); n++; });
     setRoute(L2, F); routeRefresh();
     toast(`${made.length === 1 ? `RUN ${made[0]}` : `RUN ${made[0]}–${made[made.length - 1]}`} made along the capture order (${chains.reduce((t, c) => t + c.length - 1, 0)} spans): each stops where the next pole is farther than ${pol().autoGap || 120} m. Check branches and street corners.`, 5000);
   }
@@ -4043,6 +4437,14 @@
     done({ fibers: F }); LOG.info('route.migrate', { runs: out.length, spans: free.length });
     return out.length ? { n: out.length, a: n - out.length, z: n - 1 } : 0;
   }
+  /** beta 6.8: once each time a project is opened: a RUN's step with no span (a pole deleted on the cable before beta 6.8: the map drew
+      it joined, the Drawing and the plan cut it) is saved as a span of its cable, so every export and every phone the route is shared
+      with has it. (effLinks reads it as a span all the same; an approved project is not changed on opening.) Returns how many. */
+  function routeHeal() {
+    const proj = S.project, m = (S.meta || {})[proj]; if (!proj || !m || m.approval || isAcc() || pointsLost) return 0;
+    const gone = m.gone || {}, add = runGaps(links(), fibers(), new Set(points.filter((p) => p.project === proj).map((p) => p.id)), (id) => !!gone[id]); if (!add.length) return 0; // (over a deleted point; not over one still to come)
+    setLinks(links().concat(add)); LOG.info('route.heal', { spans: add.length }); return add.length;
+  }
   /* v2.42.24: a new closure's size follows the largest proposed cable that starts, ends or passes at it (the smallest closure that
      takes it: 12C, 24C, 48C, 72C, 144C, 288C), as the route changes, until its size is chosen by hand (then it stays). A size set before
      v2.42.24 was chosen by hand: it stays. An existing closure keeps its size. boq.cloAuto: the size is the app's. */
@@ -4088,6 +4490,7 @@
     setTimeout(() => { if (S.project !== proj) return; let k = 0;
       try { k = routeMigrate(); } catch (e) { LOG.warn('route.migrate', errInfo(e)); }
       if (k) { renderPoles(); toast(`This project's spans are now cables: ${k.n === 1 ? `RUN ${k.a}` : `${k.n} cables, RUN ${k.a}–${k.z}`}, one for each stretch. See them in Route → Cables.`, 6000); }
+      { let h = 0; try { h = routeHeal(); } catch (e) { LOG.warn('route.heal', errInfo(e)); } if (h) { renderPoles(); if (!k) toast(`Cable joined again where a pole had been deleted: ${h} span${h === 1 ? '' : 's'} added`, 4500); } } // beta 6.8
       if (typeof cloSync === 'function') cloSync('open').then((x) => { if (x && S.project === proj) renderPoles(); }).catch((e) => LOG.warn('clo.sync', errInfo(e)));
     }, 0);
   }
@@ -4215,22 +4618,26 @@
       finger (the RUN in the bar, or lit, before another 6 px off on a shared span). null: nothing (the press goes on as before). */
   function grabAt(c, touch) {
     const R = lastR; if (!rtGrabOk() || !R || !R.fib || !R.fib.list.length) return null;
-    const bonus = (f) => (f.n === fibAdd ? 7 : f.n === fibSel ? 5 : 0), id = rtHit(c, touch ? 24 : 14);
+    const bonus = (f) => (f.n === fibAdd ? 7 : f.n === fibSel ? 5 : 0), id = rtHit(c, touch ? 24 : 14), sf = rtSurf();
+    if (id != null && sf === RT_DRW) { const p = points.find((x) => x.id === id); if (p && DRW_MOVE(p)) return { kind: 'site', id }; } // beta 6.7: on the Drawing, a tower, OLT or ODC held is moved
     if (id != null) {
       const g = R.fib.list.filter((f) => { const i = f.path.indexOf(id); return i > 0 && i < f.path.length - 1; }).sort((x, y) => bonus(y) - bonus(x) || x.n - y.n)[0];
       return g ? { kind: 'pole', n: g.n, id } : null; // (an end, or a pole on no cable: its own tap and line, as before)
     }
     const z = map.getZoom(), o = map.getPixelOrigin(), reach = touch ? 16 : 9; let best = null;
-    R.fib.list.forEach((f) => { if (f.path.length < 2) return; const cp = fibPx(R, f, z).map((q) => map.layerPointToContainerPoint(q.subtract(o)));
-      for (let j = 1; j < cp.length; j++) { const d = grabSegD(c, cp[j - 1], cp[j]); if (d <= reach && (!best || d - bonus(f) < best.s)) best = { s: d - bonus(f), n: f.n, a: f.path[j - 1], b: f.path[j] }; } });
+    const cpOf = sf === RT_MAP ? (f) => fibPx(R, f, z).map((q) => map.layerPointToContainerPoint(q.subtract(o))) : (f) => f.path.map((x) => { const p = R.fib.by.get(x); return p && (!sf.vis() || sf.vis().has(x)) ? sf.pt([p.lat, p.lon]) : null; }); // (beta 6.7: the Drawing's points)
+    R.fib.list.forEach((f) => { if (f.path.length < 2) return; const cp = cpOf(f);
+      for (let j = 1; j < cp.length; j++) { if (!cp[j - 1] || !cp[j]) continue; const d = grabSegD(c, cp[j - 1], cp[j]); if (d <= reach && (!best || d - bonus(f) < best.s)) best = { s: d - bonus(f), n: f.n, a: f.path[j - 1], b: f.path[j] }; } });
     return best && { kind: 'span', n: best.n, a: best.a, b: best.b };
   }
   /** Pick up a span (g.a → g.b) or a pole (g.id) of RUN g.n. False when the cable is not as it was drawn (nothing picked up). */
   function grabStart(g, pid, type, c) {
-    const f = rtGrabOk() ? fibers().find((x) => x.n === g.n) : null; if (!f) return false; let A, B;
-    if (g.kind === 'span') { const j = f.path.findIndex((x, k) => k > 0 && String(f.path[k - 1]) === String(g.a) && String(x) === String(g.b)); if (j < 1) return false; A = f.path[j - 1]; B = f.path[j]; }
-    else { const i = f.path.indexOf(g.id); if (i <= 0 || i >= f.path.length - 1) return false; A = f.path[i - 1]; B = f.path[i + 1]; }
-    rtGrab = { kind: g.kind, n: f.n, id: g.kind === 'pole' ? g.id : null, A, B, path: f.path.slice(), pid, type, c, tid: null, v: '' };
+    if (!rtGrabOk()) return false; let A = null, B = null, n = null, path = [], nb = null;
+    if (g.kind === 'site') { if (!points.some((x) => x.id === g.id)) return false; nb = siteNb(g.id); } // beta 6.7: a tower, OLT or ODC on the Drawing: its cables follow it
+    else { const f = fibers().find((x) => x.n === g.n); if (!f) return false; n = f.n; path = f.path.slice();
+      if (g.kind === 'span') { const j = f.path.findIndex((x, k) => k > 0 && String(f.path[k - 1]) === String(g.a) && String(x) === String(g.b)); if (j < 1) return false; A = f.path[j - 1]; B = f.path[j]; }
+      else { const i = f.path.indexOf(g.id); if (i <= 0 || i >= f.path.length - 1) return false; A = f.path[i - 1]; B = f.path[i + 1]; } }
+    rtGrab = { kind: g.kind, n, id: g.kind === 'span' ? null : g.id, A, B, path, nb, pid, type, c, c0: c, tid: null, v: '', sf: rtSurf() };
     lpClear(); rtPress = null; rtEdge = null; map.dragging.disable(); document.body.classList.add('rt-grabbing'); rtTipSeen();
     if (rtPop) { rtPop = null; renderRtPop(); } $('toast').hidden = true; // (the last message is old now: the hint says what letting go does)
     try { if (type !== 'mouse' && navigator.vibrate) navigator.vibrate(15); } catch (e) { /* optional */ }
@@ -4238,9 +4645,10 @@
   }
   function grabMove(c) { if (!rtGrab) return; rtGrab.c = c; if (!rtGq) rtGq = requestAnimationFrame(grabShow); }
   const grabTarget = (g) => rtHit(g.c, g.type === 'mouse' ? 22 : 36); // the pole under (or nearest) the finger
-  /** What letting go here does: { k: on | already | none (a span); off | stay | swap | already (a pole), t: the hint }. */
+  /** What letting go here does: { k: on | already | none (a span); off | stay | swap | already (a pole); move | stay (a site), t: the hint }. */
   function grabVerdict(g, tid) {
     const nm = fibName, on = tid != null && g.path.includes(tid);
+    if (g.kind === 'site') return g.c0 && g.c.distanceTo(g.c0) > 6 ? { k: 'move', t: `Move ${nm(g.id)} here` } : { k: 'stay', t: `${nm(g.id)}: drag it where it stands` };
     if (g.kind === 'span') return tid == null ? { k: 'none', t: `RUN ${g.n}: drop it on a pole` } : on ? { k: 'already', t: `${nm(tid)} is already on RUN ${g.n}` } : { k: 'on', t: `Put ${nm(tid)} on RUN ${g.n}` };
     if (tid === g.id) return { k: 'stay', t: `${nm(g.id)} stays on RUN ${g.n}` };
     if (tid == null) return { k: 'off', t: `Take ${nm(g.id)} off RUN ${g.n}` };
@@ -4249,6 +4657,7 @@
   /** While dragging: the span (or the two either side of the pole) bent to the finger, or to the pole it would go to (ringed). */
   function grabShow() {
     rtGq = 0; const g = rtGrab; rtGrabFx.clearLayers(); if (!g) return;
+    if (g.sf === RT_DRW) { g.tid = g.kind === 'site' ? null : grabTarget(g); const v = grabVerdict(g, g.tid); g.v = v.k; rtHint(v.t); drawDrawing(); return; } // beta 6.7: on the Drawing, drawn there (drwEdPaint)
     const tid = grabTarget(g), v = grabVerdict(g, tid), by = new Map(routePts().map((p) => [p.id, p])), ll = (id) => { const p = by.get(id); return p ? [p.lat, p.lon] : null; };
     g.tid = tid; g.v = v.k; const fin = map.containerPointToLatLng(g.c), col = fibColor({ n: g.n }), A = ll(g.A), B = ll(g.B), mid = v.k === 'on' || v.k === 'swap' ? ll(tid) : v.k === 'stay' ? ll(g.id) : [fin.lat, fin.lng];
     if (A && B && mid) L.polyline(v.k === 'off' ? [A, B] : [A, mid, B], { pane: 'routePane', color: col, weight: 5, opacity: 0.95, dashArray: '9 7', lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(rtGrabFx);
@@ -4260,7 +4669,9 @@
   /** Let go (cancel: Esc, a second finger, the touch taken away: nothing changes). */
   function grabEnd(cancel) {
     const g = rtGrab; rtGrab = null; cancelAnimationFrame(rtGq); rtGq = 0; rtEdge = null; rtGrabFx.clearLayers(); document.body.classList.remove('rt-grabbing'); rtHint(''); rtGestAt = Date.now(); rtApplyMode();
+    if (g && g.sf === RT_DRW) drawDrawing();
     if (!g) return; if (cancel) { rtHint('Nothing changed', 1500); return; }
+    if (g.kind === 'site') { drwSiteMove(g); return; } // beta 6.7
     grabDrop(g, grabTarget(g));
   }
   function grabDrop(g, tid) {
@@ -4277,6 +4688,8 @@
     toast(`${msg}${still.length ? `; ${still.join('; ')}` : ''} (Undo takes it back)`, 4500);
   }
   function lpClear() { if (rtLp) { clearTimeout(rtLp.t); rtLp = null; } }
+  /** beta 6.7: the points a point is linked to (its spans, and the cables through it), to draw them following it while it is moved. */
+  function siteNb(id) { const out = new Set(); links().forEach((l) => { if (l[0] === id) out.add(l[1]); else if (l[1] === id) out.add(l[0]); }); fibers().forEach((f) => f.path.forEach((x, i) => { if (x !== id) return; if (i > 0) out.add(f.path[i - 1]); if (i < f.path.length - 1) out.add(f.path[i + 1]); })); return [...out]; }
   /* ================= v2.42.22: ✎ Draw or ✋ Move =================
      ✎ Draw (Route opens in it; kept on this phone): one finger (the left button) draws, from anywhere. The line goes to the fiber in the
      bar, from its end (from the end to where the line starts: straight); from the fiber's other end it goes on from there; from a point
@@ -4286,7 +4699,7 @@
      zooms. ✋ Move: the map as usual; a tap on a pole shows its options in the bar. Route tools (⋯) and linking by pairs: as before (the
      map moves; the pins' own taps). ＋ Closure / ＋ Dummy NAP: the map zooms in on the pole; a second tap on it adds it. */
   const rtDrawing = () => routeMode && rtPenOn() && !rtTools && !rtPairs && !rtConf && !isAcc();
-  function rtApplyMode() { const d = rtDrawing(); if (d) map.dragging.disable(); else map.dragging.enable(); map.getContainer().classList.toggle('rt-pen', d); }
+  function rtApplyMode() { const d = rtDrawing(); if (d) map.dragging.disable(); else map.dragging.enable(); map.getContainer().classList.toggle('rt-pen', d); $('drawCanvas').classList.toggle('rt-pen', d && drwEd); }
   function rtSetPen(on, ids) { if (rtPenOn() !== on) { S.routePen = on; persist(); } routeSel = null; if (!on) fibStartAt = null; rtPop = null; rtApplyMode(); routeRefresh(ids); if (on) rtTip(); }
   function rtTip() { // once on a phone: how to draw and move the map
     if (!routeMode || !rtPenOn() || S.routeTip) return; const e = $('rtHint'), fine = !!(window.matchMedia && matchMedia('(pointer: fine)').matches); clearTimeout(rtHintT);
@@ -4294,7 +4707,7 @@
     $('rtTipOk').addEventListener('click', rtTipSeen);
   }
   function rtTipSeen() { const e = $('rtHint'); if (!e.classList.contains('tip')) return; S.routeTip = true; persist(); rtHint(''); }
-  const rtHit = (c, r) => { let best = null; routePts().forEach((p) => { const d = map.latLngToContainerPoint([p.lat, p.lon]).distanceTo(c), rr = elemOf(p) === 'Pole' ? r : r + 8; if (d <= rr && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // (a site, ODC, ODF or box: its icon is bigger)
+  const rtHit = (c, r) => { const sf = rtSurf(), vis = sf.vis(); let best = null; routePts().forEach((p) => { if (vis && !vis.has(p.id)) return; const d = sf.pt([p.lat, p.lon]).distanceTo(c), rr = elemOf(p) === 'Pole' ? r : r + 8; if (d <= rr && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // (a site, ODC, ODF or box: its icon is bigger)
   const rtNear = (ll, m) => { let best = null; routePts().forEach((p) => { const d = map.distance(ll, [p.lat, p.lon]); if (d <= m && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // the point nearest a line's start, within the snap's reach
   /** ✋ Move: a tap on a pole: its options in the bar (again: closed). */
   function rtHandTap(id) { const t = points.find((p) => p.id === id); if (t && !ROUTE_ELS.includes(elemOf(t))) return; rtPop = null; spanSel = null; const was = routeSel; routeSel = routeSel === id ? null : id; routeRefresh([was, id]); }
@@ -4302,7 +4715,7 @@
   function rtTapAny(id) { if (rtConf) { rtConfTap(id); return; } if (rtTools && !rtPairs && fibAdd == null) { rtHandTap(id); return; } if (rtTools || rtPairs || rtPenOn()) routeTap(id); else rtHandTap(id); } // (Route tools: the pole's spans, as before)
   function rtLive(t) { const e = $('rtLive'); if (e) e.textContent = t; }
   function rtBegin(s) { // s: where the line starts. What it does to the fiber in the bar (another end, a branch) is done when it ends: a pinch changes nothing
-    const F = fibers(), su = snapM(), kH = rtHit(map.latLngToContainerPoint(s), 26); let A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, f = null, at = fibAt, id = null, fin = null;
+    const F = fibers(), su = snapM(), kH = rtHit(rtSurf().pt(s), 26); let A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, f = null, at = fibAt, id = null, fin = null;
     const kS = A ? kH : kH || rtNear(s, 2 * su); // (with a fiber in the bar, only a start on a pole counts: its other end, its middle)
     if (A && A.path.length && kS && A.path.includes(kS)) { const e0 = A.path[0], e1 = A.path[A.path.length - 1], end = fibAt === 'start' ? e0 : e1;
       if (kS !== end) { if (A.path.length > 1 && (kS === e0 || kS === e1)) at = kS === e0 ? 'start' : 'end'; else { fin = A.n; A = null; } } } // its other end: from there; its middle: a branch (the fiber is finished)
@@ -4317,16 +4730,17 @@
   }
   function rtAddPt(latlng) {
     const d = rtDraft; if (!d) return; const q = { lat: latlng.lat, lon: latlng.lng }, last = d.ll[d.ll.length - 1];
-    if (last && map.latLngToContainerPoint([last.lat, last.lon]).distanceTo(map.latLngToContainerPoint(latlng)) < 3) return;
+    if (last && rtSurf().pt([last.lat, last.lon]).distanceTo(rtSurf().pt(latlng)) < 3) return;
     d.ll.push(q); d.trail.setLatLngs(d.ll.map((x) => [x.lat, x.lon]));
     if (!rtPq) rtPq = requestAnimationFrame(() => { rtPq = 0; if (!rtDraft) return; const seq = snapSeq(rtDraft.id, rtDraft.ll, rtDraft.su), by = new Map(routePts().map((p) => [p.id, p]));
       rtDraft.prev.setLatLngs(seq.map((x) => by.get(x)).filter(Boolean).map((p) => [p.lat, p.lon])); rtDraft.rings.clearLayers();
       seq.forEach((x) => { const p = by.get(x); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 13, color: rtDraft.col, weight: 3, fill: false, interactive: false }).addTo(rtDraft.rings); });
-      rtLive(`✎ ${rtDraft.f != null ? `RUN ${rtDraft.f}` : 'New cable'} · ${seq.length} point${seq.length === 1 ? '' : 's'}`); });
+      rtLive(`✎ ${rtDraft.f != null ? `RUN ${rtDraft.f}` : 'New cable'} · ${seq.length} point${seq.length === 1 ? '' : 's'}`); rtDraft.seq = seq; if (drwEd) drawDrawing(); }); // (beta 6.7: on the Drawing, drawn there)
+    if (drwEd) drawDrawing();
   }
-  function rtDrop() { rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (routeMode) renderRtBar(lastR || routeModel()); }
+  function rtDrop() { rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (routeMode) renderRtBar(lastR || routeModel()); if (drwEd) drawDrawing(); }
   function rtStrokeEnd() {
-    const d = rtDraft; rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers();
+    const d = rtDraft; rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (drwEd) drawDrawing();
     if (!d) return; if (d.fin != null && fibAdd === d.fin) rtFinish(); // a line from the middle of the fiber in the bar: it is finished, a branch starts
     const seq = snapSeq(d.id, d.ll, d.su), F = fibers(), f = d.f != null ? F.find((x) => x.n === d.f) : null;
     if (f) {
@@ -4339,79 +4753,263 @@
     if (seq.length < 2) { toast(`No pole within ${d.su} m of the line`, 2200); routeRefresh(); return; }
     rtOpenSheet({ seq, from: seq[0] }); // v2.42.24: which new cable this line is (its type first)
   }
-  (() => { // the gestures on the map in Route
-    const mc = map.getContainer(), cpt = (e) => { const r = mc.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); };
+  /* beta 6.7: Route's gestures on a surface: the map, or the Drawing's canvas while its Edit route is on (one surface in use at a time,
+     one state). A surface: el; on(): Route is edited there now; ll(c) / pt(ll): the spot of a point of it (CSS px) / the point of a
+     spot; panBy([dx, dy]); room(): the px its bar takes { r: at the right, b: at the foot }; vis(): the ids drawn on it (null: all);
+     handle(e, c): the cable handle pressed ({ n, a, b }) or null; pins: its points have taps of their own (the map's Leaflet pins). */
+  const RT_MAP = { name: 'map', el: map.getContainer(), pins: true, on: () => routeMode && !isAcc() && !drwEd,
+    ll: (c) => map.containerPointToLatLng(c), pt: (ll) => map.latLngToContainerPoint(ll), panBy: (o) => map.panBy(o, { animate: false }), vis: () => null,
+    room: () => { const bar = $('rtBar'), on = !!bar && !bar.hidden, side = on && deskOn(), mc = map.getContainer(); // (2.44.4: on a computer the bar is a panel down the right side, over the map, not along its foot)
+      return { r: side ? Math.max(0, mc.getBoundingClientRect().right - bar.getBoundingClientRect().left) : 0, b: on && !side ? bar.getBoundingClientRect().height + 92 : 0 }; },
+    handle: (e) => { const gh = e.target && e.target.closest ? e.target.closest('.rt-grab') : null; return gh ? { n: +gh.dataset.n, a: gh.dataset.a, b: gh.dataset.b } : null; } };
+  const RT_DRW = { name: 'drawing', el: $('drawCanvas'), pins: false, on: () => routeMode && !isAcc() && drwEd && !!drw && !!drw.view,
+    ll: (c) => { const d = window.devicePixelRatio || 1, v = drw.view, cv = $('drawCanvas'), q = C.utmInverse(v.cx + (c.x * d - cv.width / 2) / v.sc, v.cy - (c.y * d - cv.height / 2) / v.sc, drw.zone, !!drw.south); return L.latLng(q[0], q[1]); },
+    pt: (ll) => { const d = window.devicePixelRatio || 1, la = ll.lat != null ? ll.lat : ll[0], lo = ll.lng != null ? ll.lng : ll.lon != null ? ll.lon : ll[1], u = C.utmForward(la, lo, drw.zone, la < 0), p = drwPx([u.E, u.N]); return L.point(p[0] / d, p[1] / d); },
+    panBy: (o) => { const d = window.devicePixelRatio || 1; drw.view.cx += o[0] * d / drw.view.sc; drw.view.cy -= o[1] * d / drw.view.sc; drawDrawing(); },
+    vis: () => { if (!drw) return null; if (!drw.visIds) drw.visIds = new Set(drw.items.map((it) => it.p.id)); return drw.visIds; }, // (the points on the Drawing: not those hidden from the exports)
+    room: () => { const w = $('drawWrap'), bar = [$('rtBar'), $('routeBar')].find((b) => b && !b.hidden && w.contains(b)); if (!bar) return { r: 0, b: 0 }; const W = w.getBoundingClientRect(), r = bar.getBoundingClientRect();
+      return deskOn() ? { r: Math.max(0, W.right - r.left), b: 0 } : { r: 0, b: Math.max(0, W.bottom - r.top) + 8 }; },
+    handle: (e, c) => (drw && drw.edH ? drw.edH.find((h) => Math.hypot(h.x - c.x, h.y - c.y) <= h.r) || null : null) };
+  function rtSurf() { return drwEd ? RT_DRW : RT_MAP; } // the surface Route is on
+  function rtGest(sf) { // the gestures on a surface in Route
+    const mc = sf.el, cpt = (e) => { const r = mc.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); }, mine = (o) => !!o && o.sf === sf;
     mc.addEventListener('pointerdown', (e) => {
-      if (!routeMode || isAcc()) return;
+      if (!sf.on()) return;
       if (e.pointerType !== 'mouse' && e.isPrimary) { rtPtrs.clear(); rtMulti = false; } // a new touch: a finger whose lift was lost is forgotten
       rtPtrs.add(e.pointerId);
       if (e.pointerType !== 'mouse' && rtPtrs.size > 1) { rtMulti = true; lpClear(); if (rtGrab) grabEnd(true); if (rtPress) { rtPress = null; rtEdge = null; if (rtDraft) rtDrop(); } return; } // two fingers: the map's (Leaflet's pinch); the line just begun is dropped (a cable picked up: put back)
       if (rtMulti || rtGrab) return;
-      if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || (e.button === 0 && rtSpace && rtDrawing()))) { rtMpan = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, btn: e.button, moved: false }; mc.classList.add('rt-panning'); e.preventDefault(); return; }
+      if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || (e.button === 0 && rtSpace && rtDrawing()))) { rtMpan = { sf, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, btn: e.button, moved: false }; mc.classList.add('rt-panning'); e.preventDefault(); return; }
       if (e.button > 0) return;
-      const gh = e.target && e.target.closest ? e.target.closest('.rt-grab') : null; // grab the cable: a handle picks up its span at once
-      if (gh && grabStart({ kind: 'span', n: +gh.dataset.n, a: gh.dataset.a, b: gh.dataset.b }, e.pointerId, e.pointerType, cpt(e))) { e.preventDefault(); e.stopPropagation(); return; }
-      const c = cpt(e); rtPress = { pid: e.pointerId, s: c, c, moved: false, draw: rtDrawing(), type: e.pointerType };
+      const c = cpt(e), gh = sf.handle(e, c); // grab the cable: a handle picks up its span at once
+      if (gh && grabStart({ kind: 'span', n: gh.n, a: gh.a, b: gh.b }, e.pointerId, e.pointerType, c)) { e.preventDefault(); e.stopPropagation(); return; }
+      rtPress = { sf, pid: e.pointerId, s: c, c, moved: false, draw: rtDrawing(), type: e.pointerType };
       if (rtPress.draw) e.preventDefault();
       lpClear(); const g = grabAt(c, e.pointerType !== 'mouse'); // a long press on a cable, or on a pole one goes through, picks it up
-      if (g) { const pid = e.pointerId; rtLp = { pid, t: setTimeout(() => { const p = rtPress; rtLp = null; if (!p || p.pid !== pid || p.moved || rtMulti || rtDraft) return; grabStart(g, pid, p.type, p.c); }, RT_LP_MS[g.kind]) }; }
+      if (g) { const pid = e.pointerId; rtLp = { pid, t: setTimeout(() => { const p = rtPress; rtLp = null; if (!p || p.pid !== pid || p.moved || rtMulti || rtDraft) return; grabStart(g, pid, p.type, p.c); }, RT_LP_MS[g.kind === 'site' ? 'pole' : g.kind]) }; }
     }, true);
     window.addEventListener('pointermove', (e) => {
-      if (rtMpan && e.pointerType === 'mouse') { if (!e.buttons) { up(e, true); return; } // (let go outside the window)
-        map.panBy([rtMpan.x - e.clientX, rtMpan.y - e.clientY], { animate: false }); rtMpan.x = e.clientX; rtMpan.y = e.clientY; if (Math.hypot(e.clientX - rtMpan.x0, e.clientY - rtMpan.y0) > 4) rtMpan.moved = true; return; }
-      if (rtGrab && e.pointerId === rtGrab.pid) { if (rtGrab.type === 'mouse' && !e.buttons) { up(e, true); return; } const c = cpt(e); grabMove(c); edgeAt(c); return; } // grab the cable: the span bends to the finger
-      if (!rtPress || e.pointerId !== rtPress.pid) return;
+      if (mine(rtMpan) && e.pointerType === 'mouse') { if (!e.buttons) { up(e, true); return; } // (let go outside the window)
+        sf.panBy([rtMpan.x - e.clientX, rtMpan.y - e.clientY]); rtMpan.x = e.clientX; rtMpan.y = e.clientY; if (Math.hypot(e.clientX - rtMpan.x0, e.clientY - rtMpan.y0) > 4) rtMpan.moved = true; return; }
+      if (mine(rtGrab) && e.pointerId === rtGrab.pid) { if (rtGrab.type === 'mouse' && !e.buttons) { up(e, true); return; } const c = cpt(e); grabMove(c); edgeAt(c); return; } // grab the cable: the span bends to the finger
+      if (!mine(rtPress) || e.pointerId !== rtPress.pid) return;
       if (rtPress.type === 'mouse' && !e.buttons) { up(e); return; }
       const c = cpt(e); rtPress.c = c;
-      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; lpClear(); if (rtPress.draw) rtBegin(map.containerPointToLatLng(rtPress.s)); }
+      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; lpClear(); if (rtPress.draw) rtBegin(sf.ll(rtPress.s)); }
       if (!rtPress.draw || !rtDraft) return;
-      rtAddPt(map.containerPointToLatLng(c)); edgeAt(c);
+      rtAddPt(sf.ll(c)); edgeAt(c);
     }, true);
     function edgeAt(c) {
-      const W = mc.clientWidth, H = mc.clientHeight, M = 34, bar = $('rtBar'), on = !!bar && !bar.hidden, side = on && deskOn(); // (2.44.4: on a computer the bar is a panel down the right side, over the map, not along its foot)
-      const bw = side ? Math.max(0, mc.getBoundingClientRect().right - bar.getBoundingClientRect().left) : 0, bh = on && !side ? bar.getBoundingClientRect().height + 92 : 0;
-      const dx = c.x < M ? -1 : c.x > W - bw - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - bh - M ? 1 : 0; // near an edge the map moves that way (the part of the map the bar leaves)
+      const W = mc.clientWidth, H = mc.clientHeight, M = 34, room = sf.room();
+      const dx = c.x < M ? -1 : c.x > W - room.r - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - room.b - M ? 1 : 0; // near an edge the map moves that way (the part of the map the bar leaves)
       rtEdge = dx || dy ? [dx, dy] : null; if (rtEdge && !rtEdgeRaf) rtEdgeRaf = requestAnimationFrame(edgeTick);
     }
     function edgeTick() { rtEdgeRaf = 0; if (!rtEdge) return; // (a line drawn, or a cable picked up)
-      if (rtGrab) { map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); grabMove(rtGrab.c); }
-      else if (rtPress && rtDraft) { map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); rtAddPt(map.containerPointToLatLng(rtPress.c)); }
+      if (mine(rtGrab)) { sf.panBy([rtEdge[0] * 7, rtEdge[1] * 7]); grabMove(rtGrab.c); }
+      else if (mine(rtPress) && rtDraft) { sf.panBy([rtEdge[0] * 7, rtEdge[1] * 7]); rtAddPt(sf.ll(rtPress.c)); }
       else return;
       rtEdgeRaf = requestAnimationFrame(edgeTick); }
     const up = (e, cancel) => {
       rtPtrs.delete(e.pointerId);
-      if (rtGrab && e.pointerId === rtGrab.pid) { if (!rtPtrs.size) rtMulti = false; rtPress = null; grabEnd(!!cancel); return; } // grab the cable: let go
+      if (mine(rtGrab) && e.pointerId === rtGrab.pid) { if (!rtPtrs.size) rtMulti = false; rtPress = null; grabEnd(!!cancel); return; } // grab the cable: let go
       if (e.pointerId === rtGrabDead) { rtGrabDead = null; rtGestAt = Date.now(); } // (the button let go after Esc: not a click on a pole)
       if (rtLp && rtLp.pid === e.pointerId) lpClear();
-      if (rtMpan && e.pointerType === 'mouse') { const m = rtMpan; rtMpan = null; mc.classList.remove('rt-panning'); rtGestAt = Date.now(); if (m.btn === 2 && !m.moved && !cancel && rtDrawing()) rtUndo(); return; } // ✎ a right-click: undo
+      if (mine(rtMpan) && e.pointerType === 'mouse') { const m = rtMpan; rtMpan = null; mc.classList.remove('rt-panning'); rtGestAt = Date.now(); if (m.btn === 2 && !m.moved && !cancel && rtDrawing()) rtUndo(); return; } // ✎ a right-click: undo
       if (!rtPtrs.size) rtMulti = false;
-      if (!rtPress || e.pointerId !== rtPress.pid) return;
+      if (!mine(rtPress) || e.pointerId !== rtPress.pid) return;
       const p0 = rtPress; rtPress = null; rtEdge = null;
       if (cancel) { if (rtDraft) rtDrop(); return; }
       if (p0.moved) { if (p0.draw) { rtGestAt = Date.now(); rtStrokeEnd(); } return; }
-      if (rtTools || rtPairs) return; // Route tools, linking by pairs: the pins' own taps, as before
+      if (sf.pins) { // the map: in Route tools and linking by pairs, the pins' own taps, as before
+        if (rtTools || rtPairs) return;
+        const id = rtHit(p0.s, p0.type === 'mouse' ? 14 : 24);
+        if (id || p0.draw || rtConf) rtGestAt = Date.now(); // (✋ a tap off the poles: a span's own tap)
+        if (id) rtTapAny(id); return; }
+      rtGestAt = Date.now(); // beta 6.7, the Drawing: its points have no taps of their own; a tower to place; a cable tapped (✋, Route tools) shows its spans
+      if (drwSiteArm) { drwSitePlace(sf.ll(p0.s)); return; }
       const id = rtHit(p0.s, p0.type === 'mouse' ? 14 : 24);
-      if (id || p0.draw || rtConf) rtGestAt = Date.now(); // (✋ a tap off the poles: a span's own tap)
-      if (id) rtTapAny(id);
+      if (id) rtTapAny(id); else if ((!p0.draw || rtTools) && !rtConf && !rtPairs) drwTapCable(p0.s);
     };
     window.addEventListener('pointerup', (e) => up(e), true); window.addEventListener('pointercancel', (e) => up(e, true), true);
-    mc.addEventListener('contextmenu', (e) => { if (routeMode) e.preventDefault(); }); // (✎: a right-click undoes, on its release above)
-    mc.addEventListener('touchmove', (e) => { if ((rtDrawing() || rtGrab) && e.cancelable) e.preventDefault(); }, { passive: false }); // ✎: a finger's moves are the line's from the start (no scroll begins), so a second finger's pinch is still the map's
-    const spaceOk = (t) => !(t && t.closest && t.closest('#rtBar, #rtPop, #routeBar, section.sheet, [role=dialog], dialog')) && !document.querySelector('section.sheet:not([hidden])');
+    mc.addEventListener('contextmenu', (e) => { if (sf.on() || (sf === RT_MAP && routeMode)) e.preventDefault(); }); // (✎: a right-click undoes, on its release above)
+    mc.addEventListener('touchmove', (e) => { if (sf.on() && (rtDrawing() || rtGrab) && e.cancelable) e.preventDefault(); }, { passive: false }); // ✎: a finger's moves are the line's from the start (no scroll begins), so a second finger's pinch is still the map's
+  }
+  rtGest(RT_MAP); rtGest(RT_DRW);
+  (() => { // the keys in Route (on the map, or on the Drawing in its Edit route)
+    const spaceOk = (t) => !(t && t.closest && t.closest('#rtBar, #rtPop, #routeBar, [role=dialog], dialog')) && (drwEd ? stack[stack.length - 1] === 'drawing' : !(t && t.closest && t.closest('section.sheet')) && !document.querySelector('section.sheet:not([hidden])'));
+    const spaceCls = (on) => [RT_MAP.el, RT_DRW.el].forEach((el) => el.classList.toggle('rt-spacepan', on && el === rtSurf().el));
     document.addEventListener('keydown', (e) => {
       if (!routeMode || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
-      if (e.key === ' ' && spaceOk(e.target)) { if (!rtSpace) { rtSpace = true; mc.classList.add('rt-spacepan'); } e.preventDefault(); return; } // Space + drag moves the map (a focused map button is not pressed)
-      if (e.key === 'Escape') { if (rtGrab) { rtGrabDead = rtGrab.pid; grabEnd(true); return; } if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; rtSheetClose(); renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
+      if (e.key === ' ' && spaceOk(e.target)) { if (!rtSpace) { rtSpace = true; spaceCls(true); } e.preventDefault(); return; } // Space + drag moves the map (a focused map button is not pressed)
+      if (e.key === 'Escape') { if (rtGrab) { rtGrabDead = rtGrab.pid; grabEnd(true); return; } if (drwSiteArm) { drwSiteArm = null; rtHint(''); return; } if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; rtSheetClose(); renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
       if (e.key === 'Enter' && rtConf && !(e.target && e.target.closest && e.target.closest('button'))) { e.preventDefault(); rtConfirm(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); rtUndo(); }
     });
-    document.addEventListener('keyup', (e) => { if (e.key === ' ' && rtSpace) { rtSpace = false; mc.classList.remove('rt-spacepan'); e.preventDefault(); } });
-    window.addEventListener('blur', () => { rtSpace = false; mc.classList.remove('rt-spacepan'); });
-    map.on('movestart', () => { if (rtPop && rtPop !== 'newcab') { rtPop = null; renderRtPop(); } }); // (v2.42.24: the New cable sheet stays)
+    document.addEventListener('keyup', (e) => { if (e.key === ' ' && rtSpace) { rtSpace = false; spaceCls(false); e.preventDefault(); } });
+    window.addEventListener('blur', () => { rtSpace = false; spaceCls(false); });
+    map.on('movestart', () => { if (rtPop && rtPop !== 'newcab' && !drwEd) { rtPop = null; renderRtPop(); } }); // (v2.42.24: the New cable sheet stays; beta 6.7: the hidden map moving under the Drawing closes nothing)
   })();
+  /* ================= beta 6.7: Edit the route on the Drawing =================
+     The owner: "add on the Drawing what is only on the map's editors: the fiber route, and the tower / OLT / ODC location; the user is
+     tired of going back to the map and then the Drawing to check the cable". ✎ on the Drawing (its tools, lower right) turns Route on
+     right there: the Route bar (✋ / ✎, ＋ New cable, the cable in the bar, ↶, Done; on a computer a panel at the Drawing's right) sits
+     on the Drawing, and Route's own code does the work there (rtGest on RT_DRW): one finger draws a cable along the poles, two fingers
+     move and zoom the Drawing, a tap puts a pole on the cable in the bar or takes it off, the white dots and a long press grab a cable,
+     the New cable sheet asks its type. Each change is saved as on the map, and the Drawing is drawn anew at once (the plan as it will
+     export). ＋ Tower · OLT · ODC: a tap where it stands, then its record for its name (as the map's ＋ pin); a long press on a tower,
+     OLT or ODC drags it to its place. ↶ takes back each. Done, ✎ again or Back ends it. */
+  const DRW_MOVE = (p) => { const el = elemOf(p); return el === 'Site' || el === 'ODC'; }; // what a long press moves on the Drawing
+  const drwEdHome = new Map(); let drwEdQ = 0;
+  function drwEdById(id) { if (!drw) return null; if (!drw.byId) drw.byId = new Map(drw.items.map((it) => [String(it.p.id), it])); return drw.byId.get(String(id)) || null; }
+  function drwEditSet(on) {
+    if (!!on === drwEd) return;
+    if (!on) { if (drwEdWas) { drwEdEnd(); routeRefresh(); } else setRouteMode(false); return; } // (Route on the map before: it stays on, back on the map)
+    if (!drw || !drawOn()) return;
+    { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // (an accepted task, as the map's route button)
+    if (routePts().length < 2) { toast('Capture at least two poles first'); return; }
+    drwEdWas = routeMode; drwEd = true; drwSiteArm = null; drwSiteWait = null; drw.sel = null; drw.edSig = drwEdSig();
+    const w = $('drawWrap'); ['routeBar', 'rtPop', 'rtBar', 'rtHint'].forEach((id) => { const el = $(id); drwEdHome.set(id, { p: el.parentNode, nx: el.nextSibling }); w.appendChild(el); }); // (in the Drawing: a record opened over it covers them)
+    $('drawing').classList.add('drwedit'); $('drawEdit').setAttribute('aria-pressed', 'true'); drwEdUi(); LOG.info('draw.edit', { on: true });
+    if (!routeMode) setRouteMode(true); else { rtTools = false; routeRefresh(); }
+    rtApplyMode(); drawDrawing(); drwEdTip();
+  }
+  function drwEdEnd() {
+    if (!drwEd) return; drwEd = false; drwSiteArm = null; drwSiteWait = null; cancelAnimationFrame(drwEdQ); drwEdQ = 0;
+    if (rtGrab) grabEnd(true); if (rtDraft) rtDrop(); rtPress = null; rtMpan = null; lpClear();
+    drwEdHome.forEach((h, id) => { const el = $(id); if (h.nx && h.nx.parentNode === h.p) h.p.insertBefore(el, h.nx); else h.p.appendChild(el); }); drwEdHome.clear();
+    $('drawing').classList.remove('drwedit'); $('drawEdit').setAttribute('aria-pressed', 'false'); RT_DRW.el.classList.remove('rt-panning', 'rt-pen'); rtHint(''); LOG.info('draw.edit', { on: false });
+    if (drw) { drw.selRun = null; drw.edH = []; if (!$('drawing').hidden) { setWhat(deskOn() && S.drwWhatDesk !== false, false); $('drawHint').hidden = !!S.drawHintOff; drawDrawing(); } }
+    rtApplyMode();
+  }
+  function drwEdUi() { if (!drwEd) return; setWhat(false, false); $('drawHint').hidden = true; $('drawInfo').hidden = true; }
+  /** What the Drawing is drawn from: the route (its time), the records (how many, the latest change, where they are), the Undo steps. */
+  function drwEdSig() { const P = projPoints(); let mx = '', s = 0; P.forEach((p) => { const u = String(p.updated || ''); if (u > mx) mx = u; s += (+p.lat || 0) + (+p.lon || 0); }); return `${pmeta().linksAt || ''}|${P.length}|${mx}|${s.toFixed(7)}|${routeUndo.length}`; }
+  /** After Route redrew (a change, or only a tap): the Drawing drawn anew where it looks when what it shows changed, else again. */
+  function drwEdSoon() {
+    if (drwEdQ) return; drwEdQ = requestAnimationFrame(() => { drwEdQ = 0; if (!drwEd || !drw) return;
+      if (drwSiteWait && !stack.includes('editor')) { const w = drwSiteWait; drwSiteWait = null; const nw = projPoints().filter((p) => !w.ids.has(p.id) && (DRW_MOVE(p) || elemOf(p) === 'Pole')); if (nw.length === 1) { routeUndo.push({ add: nw[0].id }); renderRtBar(lastR || routeModel());
+        if (elemOf(nw[0]) === 'Pole') { const id = nw[0].id; setTimeout(() => guard(() => ppOnCable(id, w.tol || 8), 'Not put on the cable'), 0); } } } // (its record saved: ↶ takes it off again; beta 6.8: a proposed pole on a span: on its cable?)
+      const sig = drwEdSig(); if (sig === drw.edSig) { drawDrawing(); return; }
+      const old = drw, view = old.view ? { ...old.view } : null; openDrawing(true, view); if (!drw || drw === old) return;
+      if (view) drw.view = view; drw.labels = old.labels; drw.mapKind = old.mapKind; drw.under = old.under; drw.underKey = old.underKey; drw.edSig = sig;
+      $('drawLabels').setAttribute('aria-pressed', String(drw.labels)); drwEdUi(); drawDrawing(); });
+  }
+  /** ✋ (or Route tools) on the Drawing: a cable tapped, as a span tapped on the map: its spans and runs in Route tools, its cable lit. */
+  function drwTapCable(c) {
+    if (!drw) return; const d = window.devicePixelRatio || 1, t = [c.x * d, c.y * d], seg = (a, b) => { const vx = b[0] - a[0], vy = b[1] - a[1], u = Math.max(0, Math.min(1, ((t[0] - a[0]) * vx + (t[1] - a[1]) * vy) / (vx * vx + vy * vy || 1))); return Math.hypot(a[0] + vx * u - t[0], a[1] + vy * u - t[1]); };
+    let sp = null; drw.spans.forEach((x) => { const dd = seg(drwPx(x.a), drwPx(x.b)); if (dd < 16 * d && (!sp || dd < sp.dd)) sp = { dd, x }; });
+    if (!sp) return; let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((L0) => { for (let k = 1; k < L0.length; k++) { const dd = seg(L0[k - 1], L0[k]); if (dd < 16 * d && (!bc || dd < bc.dd)) bc = { dd, n }; } }));
+    spanSel = [sp.x.sp.ia, sp.x.sp.ib]; routeSel = null; rtTools = true; if (fibAdd == null && bc) fibSel = bc.n; routeRefresh();
+  }
+  /** Paints on the Drawing what Route shows on the map: the end the cable in the bar goes on from, the poles it passes, a line being
+      drawn and the poles it snaps to, the cable handles (white dots, clear of every point's own tap), what is being dragged. */
+  function drwEdPaint(g, d) {
+    drw.edH = []; if (!routeMode) return;
+    const P = (id) => { const it = drwEdById(id); return it ? drwPx(it.xy) : null; }, LP = (la, lo) => { const u = C.utmForward(la, lo, drw.zone, la < 0); return drwPx([u.E, u.N]); };
+    const ring = (p, r, col, w, dash) => { if (!p) return; g.save(); g.strokeStyle = col; g.lineWidth = w * d; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.beginPath(); g.arc(p[0], p[1], r * d, 0, 2 * Math.PI); g.stroke(); g.restore(); };
+    const line = (pts, col, w, dash, al) => { const q = pts.filter(Boolean); if (q.length < 2) return; g.save(); g.globalAlpha = al == null ? 1 : al; g.strokeStyle = col; g.lineWidth = w * d; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.beginPath(); q.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); g.restore(); };
+    const dot = (p, col, r) => { if (!p) return; g.save(); g.fillStyle = '#fff'; g.strokeStyle = col; g.lineWidth = 3 * d; g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 4 * d; g.beginPath(); g.arc(p[0], p[1], r * d, 0, 2 * Math.PI); g.fill(); g.shadowBlur = 0; g.stroke(); g.restore(); };
+    const R = lastR, F = R && R.fib ? R.fib : null, A = fibAdd != null && F ? F.list.find((f) => f.n === fibAdd) : null, G = rtGrab && rtGrab.sf === RT_DRW ? rtGrab : null;
+    if (A && A.path.length && !G) ring(P(fibAt === 'start' ? A.path[0] : A.path[A.path.length - 1]), 17, fibColor(A), 3.5); // the end it goes on from (draw from it)
+    if (A && !rtDraft && !G) fibPasses(A, F.by).forEach((id) => ring(P(id), 13, '#e8590c', 2, [3, 3])); // the poles it passes: a tap puts one on
+    if (routeSel) ring(P(routeSel), 15, '#17202a', 3);
+    if (fibStartAt != null) ring(P(fibStartAt), 16, '#1b3a6b', 3, [5, 4]);
+    if (rtConf) { ring(P(rtConf.id), 24, '#1c7ed6', 3); }
+    if (rtSheet && rtSheet.seq && rtSheet.seq.length > 1) line(rtSheet.seq.map(P), fibColor({ n: nextFibN() }), 6, [10, 7], 0.85); // the New cable sheet: the poles drawn
+    const n = rtGrabN(), gf = n != null && F && !rtDraft && !G ? F.list.find((f) => f.n === n) : null;
+    if (gf) { const hr = grabR(), tapR = rtCoarse() ? 24 : 14, pts = drw.items.map((it) => ({ q: drwPx(it.xy), r: (tapR + (it.el === 'Pole' ? 0 : 8) + hr + 2) * d }));
+      for (let j = 1; j < gf.path.length; j++) { const a = P(gf.path[j - 1]), b = P(gf.path[j]); if (!a || !b) continue; let at = null;
+        for (const t of [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74]) { const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; if (pts.every((p) => Math.hypot(p.q[0] - q[0], p.q[1] - q[1]) >= p.r)) { at = q; break; } }
+        if (!at) continue; dot(at, fibColor(gf), 7); drw.edH.push({ x: at[0] / d, y: at[1] / d, r: hr, n: gf.n, a: gf.path[j - 1], b: gf.path[j] }); } }
+    if (rtDraft) { line(rtDraft.ll.map((q) => LP(q.lat, q.lon)), rtDraft.col, 3, null, 0.45); const sq = (rtDraft.seq || []).map(P); line(sq, rtDraft.col, 6, [10, 7], 0.9); sq.forEach((p) => ring(p, 13, rtDraft.col, 3)); }
+    if (G) { const fin = [G.c.x * d, G.c.y * d], col = G.kind === 'site' ? '#1c7ed6' : fibColor({ n: G.n });
+      if (G.kind === 'site') { (G.nb || []).forEach((id) => line([P(id), fin], '#495057', 3, [8, 6], 0.9)); ring(P(G.id), 15, '#868e96', 2.5, [3, 3]); dot(fin, col, 11); }
+      else { const v = G.v, mid = v === 'on' || v === 'swap' ? P(G.tid) : v === 'stay' ? P(G.id) : fin;
+        line(v === 'off' ? [P(G.A), P(G.B)] : [P(G.A), mid, P(G.B)], col, 5, [9, 7], 0.95);
+        if (G.kind === 'pole') ring(P(G.id), 14, '#868e96', 2.5, [3, 3]);
+        if (G.tid != null) ring(P(G.tid), 19, v === 'already' ? '#c92a2a' : v === 'stay' ? col : '#2f9e44', 4);
+        dot(fin, col, G.kind === 'pole' ? 11 : 9); } }
+  }
+  /** ＋ Tower · OLT · ODC on the Drawing: which, then a tap where it stands; its record opens for its name (as the map's ＋ pin).
+      beta 6.8: and a proposed pole (no photo: "it will only be plotted during plan drawing"); tapped on a cable's span, it is offered
+      onto that cable once its record is saved (ppOnCable). */
+  async function drwSiteAsk() {
+    const pp = ppStatus(), ppL = pp === 'New' ? 'New pole' : 'Proposed pole';
+    const k = await ask('Add on the Drawing', `${pp ? `A ${ppL.toLowerCase()}, a tower` : 'A tower'}, an OLT or an ODC: pick it, then tap the Drawing where it stands${pp ? ' (a pole: on the cable\'s line, to put it on that cable)' : ''}. Its record opens for its name and colour (a photo is optional). To move a tower, an OLT or an ODC later, hold it, then drag it.`, [
+      ...(pp ? [{ label: ppL, value: 'Pole' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
+    if (!k || !drwEd) return; drwSiteArm = { el: k === 'Pole' ? 'Pole' : k === 'ODC' ? 'ODC' : 'Site', kind: k };
+    rtHint(k === 'Pole' ? `Tap the Drawing where the ${pp === 'New' ? 'new' : 'proposed'} pole goes (on a cable: on its line). Esc: cancel` : `Tap the Drawing where the ${k === 'ODC' ? 'ODC' : k === 'OLT' ? 'OLT' : 'tower'} stands (Esc: cancel)`);
+  }
+  function drwSitePlace(ll) {
+    const a = drwSiteArm; drwSiteArm = null; rtHint(''); if (!a || !ll) return;
+    const d = window.devicePixelRatio || 1, tol = drw && drw.view ? Math.min(25, Math.max(3, 20 * d / drw.view.sc)) : 8; // (beta 6.8: a pole tapped within 20 px of a cable's span: on it)
+    drwSiteWait = { ids: new Set(points.map((p) => p.id)), tol }; LOG.info('draw.site.add', { el: a.el, k: a.kind });
+    openEditor({ mode: 'new', element: a.el, siteKind: a.el === 'Site' ? a.kind : '', ...(a.el === 'Pole' ? ppRec() : {}), lat: ll.lat, lon: ll.lng, source: 'map', takenAt: new Date().toISOString(), note: a.el === 'Pole' ? 'Placed on the Drawing · no photo needed' : 'Placed on the Drawing · photo optional' }).catch((e) => { LOG.warn('draw.site.add', errInfo(e)); drwSiteWait = null; });
+  }
+  /** A tower, OLT or ODC let go where it was dragged on the Drawing: its record's place (pin adjusted), with ↶. */
+  async function drwSiteMove(g) {
+    const p = points.find((x) => x.id === g.id); if (!p) return; const to = RT_DRW.ll(g.c), dm = haversine(p, { lat: to.lat, lon: to.lng });
+    if (g.v !== 'move' || dm < 0.5) { rtHint('Nothing changed', 1500); return; }
+    { const lk = tmHooks.locked ? tmHooks.locked(p.id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    const prev = JSON.parse(JSON.stringify(p)), rec = { ...p, lat: +to.lat.toFixed(7), lon: +to.lng.toFixed(7), adjusted: true, updated: new Date().toISOString(), updatedBy: byLine() };
+    try { await dbPut('points', rec); } catch (e) { toast('Could not save: try again', 3500); return; }
+    const i = points.findIndex((x) => x.id === p.id); if (i >= 0) points[i] = rec; changedAfterApproval(rec.project, 'record'); routeUndo.push({ rec: prev });
+    renderPoles(); toast(`${recName(rec) || elemOf(rec)} moved ${fmtLen(dm)} (Undo puts it back)`, 3500);
+  }
+  /** ↶ of a tower, OLT or ODC placed on the Drawing: off again (its record, its spans and cables, as Delete in its record). */
+  async function drwSiteUnadd(id) {
+    const rec = points.find((p) => p.id === id); if (!rec) return;
+    await dbDel('points', id); await deletePhotosIfUnused(allPids(rec), new Set([id])); points = points.filter((p) => p.id !== id);
+    if (links().some(([x, y]) => x === id || y === id) || fibers().some((f) => f.path.includes(id))) { const q = routeDrop(new Set([id]), links(), fibers()); setRoute(q.l, q.f); } // (beta 6.8: a cable through it stays joined)
+    S.meta = S.meta || {}; const m = { ...(S.meta[rec.project] || {}) }; m.gone = { ...(m.gone || {}), [id]: new Date().toISOString() }; S.meta[rec.project] = m; persist(); // (its deletion goes with the next share)
+    changedAfterApproval(rec.project, 'delete'); toast(`${recName(rec) || elemOf(rec)} taken off again`, 2500);
+  }
+  /** beta 6.8: ↶ of a record deleted in Route: the record and its photos back, its spans and cables as they were before (the span made
+      to keep a cable joined goes again); its deletion is no longer passed on at the next share. */
+  async function rtUndel(k) {
+    for (const ph of k.ph || []) await dbPut('photos', ph);
+    await dbPut('points', k.rec); points = points.filter((p) => p.id !== k.rec.id).concat([k.rec]);
+    S.meta = S.meta || {}; const m = { ...(S.meta[k.rec.project] || {}) }, g = { ...(m.gone || {}) }; delete g[k.rec.id]; m.gone = g; S.meta[k.rec.project] = m; persist();
+    if (k.route) setRoute(k.route.l, k.route.f);
+    changedAfterApproval(k.rec.project, 'record'); toast(`${recName(k.rec) || elemOf(k.rec)} is back, with its spans and cables`, 3000);
+  }
+  function drwEdTip() { // once on this phone: what Edit route does on the Drawing (after the first-time tip of Route)
+    if (S.drwEdTip) return; const go = (k) => { if (!drwEd || S.drwEdTip || k > 40) return; if (!$('rtHint').hidden || !$('toast').hidden) { setTimeout(() => go(k + 1), 500); return; }
+      S.drwEdTip = true; persist(); rtHint('Editing on the Drawing: one finger draws a cable along the poles, two fingers move it. Hold a cable, a pole or a tower to drag it. Done when finished', 7000); };
+    setTimeout(() => go(0), 400);
+  }
+  $('drawEdit').addEventListener('click', () => drwEditSet(!drwEd));
+  /* ================= beta 6.7: Street View by dragging the little man =================
+     The owner: "Street View at the pin works but is not user friendly: an icon where I can drop the man on the street". The little man
+     on the map's column of buttons (and in the Drawing's tools): drag him onto a street and let go: Google Street View opens there, by
+     the same free link as the record's Street View (streetViewUrl: no key, no cost). While dragged he walks under the finger, with
+     "Drop on a street"; a tap on him says how; Esc, or letting go off the map, opens nothing. */
+  function svPegInit(btn, where) { // where(x, y): the spot (L.latLng) under a point of the page, or null (off the map / the Drawing)
+    const peg = $('svPeg'), lbl = peg.querySelector('span'); let pg = null;
+    const stop = () => { pg = null; peg.hidden = true; document.body.classList.remove('svdrag'); };
+    btn.addEventListener('pointerdown', (e) => { if (e.button > 0) return; e.preventDefault(); try { btn.setPointerCapture(e.pointerId); } catch (x) { /* (no capture) */ } pg = { pid: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false }; });
+    btn.addEventListener('pointermove', (e) => {
+      if (!pg || e.pointerId !== pg.pid) return;
+      if (!pg.moved) { if (Math.hypot(e.clientX - pg.x0, e.clientY - pg.y0) < 8) return; pg.moved = true; peg.hidden = false; document.body.classList.add('svdrag'); $('toast').hidden = true; } // (the last message is old now)
+      const ok = !!where(e.clientX, e.clientY); peg.style.transform = `translate(${e.clientX}px,${e.clientY}px)`; peg.classList.toggle('ok', ok); lbl.textContent = ok ? 'Drop on a street' : 'Drop him on the map';
+    });
+    const end = (e, cancel) => {
+      if (!pg || e.pointerId !== pg.pid) return; const p = pg; stop();
+      if (!p.moved) { if (!cancel) toast('Street View: drag the little man onto a street and let go. Google Street View opens there (in Google Maps)', 4500); return; }
+      const ll = cancel ? null : where(e.clientX, e.clientY); if (!ll) { toast('Nothing opened: drop him on a street', 2500); return; }
+      LOG.info('sv.peg', { on: btn.id }); openExternal(streetViewUrl(ll.lat, ll.lng)); toast('Street View opens in Google Maps (where Google has none here, the map)', 3500);
+    };
+    btn.addEventListener('pointerup', (e) => end(e)); btn.addEventListener('pointercancel', (e) => end(e, true));
+    btn.addEventListener('click', (e) => e.preventDefault()); btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('keydown', (e) => { if (pg && e.key === 'Escape') { stop(); toast('Nothing opened', 1500); } });
+  }
+  svPegInit($('svPegBtn'), (x, y) => { const t = document.elementFromPoint(x, y), m = $('map'); if (!t || !m.contains(t) || (t.closest && t.closest('.leaflet-control, button, .round'))) return null; const r = m.getBoundingClientRect(); return map.containerPointToLatLng(L.point(x - r.left, y - r.top)); });
+  svPegInit($('drawPeg'), (x, y) => { const t = document.elementFromPoint(x, y), cv = $('drawCanvas'); if (t !== cv || !drw || !drw.view) return null; const r = cv.getBoundingClientRect(); return RT_DRW.ll(L.point(x - r.left, y - r.top)); });
   async function rtUndo() {
     if (!routeUndo.length || rtDraft || rtConf || rtGrab) return; const u = routeUndo.pop(); rtPend = [];
     if (u && u.rec) { try { await dbPut('points', u.rec); const i = points.findIndex((x) => x.id === u.rec.id); if (i >= 0) points[i] = u.rec; rtAsked.delete(u.rec.id); } catch (e) { toast('Could not undo the closure', 3000); } }
+    else if (u && u.add) { try { await drwSiteUnadd(u.add); } catch (e) { toast('Could not undo: try again', 3000); } } // beta 6.7: a tower, OLT or ODC placed on the Drawing (beta 6.8: or a proposed pole)
+    else if (u && u.del) { try { await rtUndel(u.del); } catch (e) { toast('Could not undo: try again', 3000); } } // beta 6.8: a record deleted in Route
     else if (Array.isArray(u)) setLinks(u); else setRoute(u.l, u.f);
     if (fibAdd != null && !fibers().some((f) => f.n === fibAdd)) { fibAdd = null; fibSel = null; }
     renderPoles();
@@ -4485,6 +5083,7 @@
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
         h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
+        if (drwEd && !rtPairs) { const pp = ppStatus(); h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add ${pp ? `a ${pp === 'New' ? 'new' : 'proposed'} pole, ` : ''}a tower, an OLT or an ODC: tap the Drawing where it stands">＋ ${pp ? 'Pole · ' : ''}Tower · OLT · ODC</button><div class="rt-meta grow">Hold a site or ODC to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole)
       }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
@@ -4500,26 +5099,39 @@
     const picker = (sp, pre) => `<div class="rt-seg" role="group" aria-label="Proposed or existing cable">${opt(`${pre}kind`, 'p', 'Proposed', !sp.ex)}${opt(`${pre}kind`, 'e', 'Existing', sp.ex)}</div>`
       + (!sp.ex ? CAB_GROUPS.map(([g, t]) => `<div class="lbl2">${hEsc(t)}</div><div class="rt-opts">${Object.entries(CAB).filter(([, c]) => c.fam === g).map(([k, c]) => opt(`${pre}cab`, k, c.short, sp.cab === k, c.label)).join('')}</div>`).join('') // v2.42.24: by family
         : `<div class="lbl">EXISTING CABLE SIZE</div><div class="rt-opts">${EX_SIZES.map((c) => opt(`${pre}cores`, c, `${c}C`, sp.cores === c)).join('')}<span class="rt-other"><input id="${pre}CoreIn" type="number" inputmode="numeric" min="2" max="1728" placeholder="Other" aria-label="Other size, in cores" value="${EX_SIZES.includes(sp.cores) ? '' : sp.cores}"><button class="ib" type="button" data-coreset="${pre}">C ✓</button></span></div><p class="rt-note">Existing: drawn dashed on the map, the Drawing and the DXF with its size; left out of the BOQ, the cable lengths, the loops and the hardware.</p>`);
+    // beta 6.7: a new UG cable: how it is laid and its conduit (the defaults marked: HDD for air-blown fiber, open trench for conventional UG; 2 runs of 114.3 mm)
+    const ugBlock = (sp, pre) => { if (sp.ex || !isUG(sp.cab)) return ''; const u = ugOf({ cab: sp.cab, ugm: sp.ugm, cd: sp.cd, cdr: sp.cdr }), d = ugDefM(sp.cab);
+      return `<div class="lbl">LAID BY</div><div class="rt-opts" role="group" aria-label="How the UG cable is laid">${UG_METHODS.map(([k, t, l]) => opt(`${pre}ugm`, k, `${t}${k === d ? ' ·' : ''}`, u.m === k, `${l}${k === d ? ' (the default for this cable)' : ''}`)).join('')}</div>`
+        + `<div class="lbl">CONDUIT (AS THE CEF PLAN)</div><div class="rt-opts" role="group" aria-label="Conduit size">${UG_CDS.map((c) => opt(`${pre}cd`, c, `${c} mm`, u.cd === c, `${c} mm conduit`)).join('')}</div><div class="rt-opts" role="group" aria-label="Conduit runs">${[1, 2].map((r) => opt(`${pre}cdr`, r, r === 1 ? '1 run' : '2 runs', u.cr === r)).join('')}</div>`
+        + `<p class="rt-note">${hEsc(ugTxt(u))}. The default (·) for ${d === 'hdd' ? 'air-blown fiber: HDD' : 'a conventional UG cable: open trench'}, 2 runs of 114.3 mm. Counted so in the PMI and each sheet's BOQ; a trenched cable's road crossings are HDD.</p>`; };
     let h = '';
-    if (rtPop === 'cab') h = `<div class="lbl">CABLE OF RUN ${f.n} · THE WHOLE CABLE</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}`;
+    if (rtPop === 'cab') h = `<div class="lbl">CABLE OF RUN ${f.n} · THE WHOLE CABLE</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}${ugBlock(f, 'f')}`;
     else if (rtPop === 'newcab') { const q = rtSheet || {}, sp = nextSpec(), cap = !q.from && !q.seq; // v2.42.24: the New cable sheet
-      h = `<div class="lbl">NEW CABLE · RUN ${nextFibN()}${q.seq ? ` · ALONG THE ${q.seq.length} POLES DRAWN` : q.from ? ` · FROM ${hEsc(fibName(q.from).toUpperCase())}` : ''}</div>${picker(sp, 'n')}`
+      h = `<div class="lbl">NEW CABLE · RUN ${nextFibN()}${q.seq ? ` · ALONG THE ${q.seq.length} POLES DRAWN` : q.from ? ` · FROM ${hEsc(fibName(q.from).toUpperCase())}` : ''}</div>${picker(sp, 'n')}${ugBlock(sp, 'n')}`
         + (cap ? `<div class="rt-how" role="radiogroup" aria-label="How"><label><input type="radio" name="rtHow" value="draw"${q.how !== 'cap' ? ' checked' : ''}> Draw it on the map: tap the poles, or drag along them</label><label><input type="radio" name="rtHow" value="cap"${q.how === 'cap' ? ' checked' : ''}> Follow the capture order: the poles in the order you surveyed them (a RUN for each stretch)</label></div>` : '')
         + `<div class="rt-acts rt-end"><button class="ib" type="button" data-ns="cancel">Cancel</button><button class="ib primary" type="button" data-ns="start" id="rtSheetStart">${q.seq ? 'Save this cable' : 'Start'}</button></div>`; }
     else if (rtPop === 'snap') h = snaps;
     else if (rtPop === 'new') h = `<div class="lbl">NEXT FIBER · CABLE</div>${picker(nextSpec(), 'n')}`;
     el.innerHTML = h; el.hidden = false; el.classList.toggle('rtsheet', rtPop === 'newcab'); // (v2.42.24: the New cable sheet: taller, its buttons always in sight)
   }
+  /** beta 6.7: the UG cable in the bar: how it is laid, its conduit (ch: { ugm } | { cd } | { cdr }), with Undo. */
+  function rtSetUg(ch) {
+    const F = fibers(), f = fibAdd != null ? F.find((x) => x.n === fibAdd) : null; if (!f || f.ex || !isUG(f.cab)) return;
+    const was = ugTxt(ugOf(f)); routeUndo.push(routeSnap()); Object.assign(f, ch); const now = ugTxt(ugOf(f));
+    if (now === was) { routeUndo.pop(); renderRtPop(); return; }
+    setRoute(null, F); fibTouched = true; toast(`RUN ${f.n}: ${now}`, 3000); renderRtPop(); routeRefresh();
+  }
   /** The whole fiber's cable: proposed (its cable; spans on each step) or existing (any size; drawn only, no spans of its own). */
   function rtSetCable(ch, n0) {
     const n = n0 != null ? n0 : fibAdd; if (n == null) return; /* (v2.42.24: or a cable in the list) */ const F = fibers(), f = F.find((x) => x.n === n); if (!f) return;
     const was = fibCabName(f), wasEx = !!f.ex; let L2 = null;
     const nf = { ...f, ...ch }; if (fibCabName(nf) === was && !!nf.ex === wasEx) { rtPop = null; renderRtPop(); return; }
-    routeUndo.push(routeSnap()); Object.assign(f, ch); if (f.ex) f.cores = exCores(f); else delete f.cores;
+    routeUndo.push(routeSnap()); const fam0 = ugDefM(f.cab); Object.assign(f, ch); if (f.ex) f.cores = exCores(f); else delete f.cores;
+    if ('cab' in ch && ugDefM(f.cab) !== fam0) delete f.ugm; // (beta 6.7: air-blown ↔ conventional UG: its method back to that cable's default)
     if (f.ex && !wasEx) { const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x))), mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); L2 = links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
     else if (!f.ex) L2 = linksFor(f.path, f.cab);
     setRoute(L2, F); if (n0 == null) fibTouched = true; toast(`RUN ${f.n}: ${was} → ${fibCabName(f)}, the whole cable`, 3000);
-    if (ch.ex === undefined || 'cab' in ch || 'cores' in ch) rtPop = null; routeRefresh();
+    if ((ch.ex === undefined || 'cab' in ch || 'cores' in ch) && !('cab' in ch && !f.ex && isUG(f.cab))) rtPop = null; routeRefresh(); // (beta 6.7: a UG cable picked: its method and conduit in view)
   }
   $('rtBar').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return; if (e.detail) b.blur(); // (a pointer's click: Space stays the map's; the keyboard keeps its focus)
@@ -4532,6 +5144,7 @@
     if (a === 'finish') { rtFinish(); return; }
     if (a === 'cancel') { rtCancel(); return; } // v2.42.24
     if (a === 'newcab') { rtOpenSheet({}); return; }
+    if (a === 'site') { drwSiteAsk(); return; } // beta 6.7: on the Drawing
     if (a === 'tools') { rtTools = !rtTools; if (rtTools && fibAdd != null) fibSel = fibAdd; const w = routeSel; if (!rtTools && rtPenOn()) routeSel = null; routeRefresh([w]); return; } // (v2.42.22: the route check's rings with it)
     if (a === 'fib' && g) { rtActivate(g.n, 'end'); routeRefresh(); return; }
     if (a === 'askno') { const q = rtPend.shift(); if (q) rtAsked.add(q.id); routeRefresh(); return; }
@@ -4552,11 +5165,13 @@
     if (d.snap != null) { S.routeSnap = d.snap === 'auto' ? 'auto' : +d.snap; persist(); toast(`Snap: ${snapLbl()}`, 1800); if (rtPop === 'snap') rtPop = null; renderRtBar(lastR || routeModel()); return; }
     if (d.fkind) { rtSetCable({ ex: d.fkind === 'e' }); rtPop = 'cab'; renderRtPop(); return; }
     if (d.fcab) { rtSetCable({ ex: false, cab: d.fcab }); return; }
+    if (d.fugm || d.fcd || d.fcdr) { rtSetUg(d.fugm ? { ugm: d.fugm } : d.fcd ? { cd: d.fcd } : { cdr: +d.fcdr }); return; } // beta 6.7
+    if (d.nugm || d.ncd || d.ncdr) { setNext(d.nugm ? { fibUgm: d.nugm } : d.ncd ? { fibCd: d.ncd } : { fibCdr: +d.ncdr }); renderRtPop(); return; } // beta 6.7: the next UG cable's
     if (d.fcores) { rtSetCable({ ex: true, cores: +d.fcores }); return; }
     const ready = () => { fibNew = false; rtPop = null; routeRefresh(); }; // (v2.42.22: the next line or tap with no fiber in the bar starts it)
     if (d.nkind) { setNext({ fibEx: d.nkind === 'e' }); renderRtPop(); return; }
     if (d.ns) { if (d.ns === 'start') { const r = el0.querySelector('input[name="rtHow"]:checked'); rtSheetStart(r ? r.value : 'draw'); } else { rtSheetClose(); routeRefresh(); } return; } // v2.42.24: the New cable sheet
-    if (d.ncab) { setNext({ cable: d.ncab, fibEx: false }); renderCableSel(); if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
+    if (d.ncab) { setNext({ cable: d.ncab, fibEx: false, ...(ugDefM(d.ncab) !== ugDefM(cableSel()) ? { fibUgm: '' } : {}) }); renderCableSel(); /* (beta 6.7: air-blown ↔ conventional: the method back to its default) */ if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
     if (d.ncores) { setNext({ fibEx: true, fibCores: +d.ncores }); if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
     if (d.coreset) { const inp = $(`${d.coreset}CoreIn`), v = Math.round(+inp.value); if (!(v >= 2 && v <= 1728)) { toast('Type the number of cores, 2 to 1728', 2500); inp.focus(); return; }
       if (d.coreset === 'f') rtSetCable({ ex: true, cores: v }); else { setNext({ fibEx: true, fibCores: v }); if (rtPop === 'newcab') renderRtPop(); else ready(); } }
@@ -4629,7 +5244,6 @@
     gpsLayer.clearLayers();
     L.circle([fix.lat, fix.lon], { radius: fix.acc, color: '#1c7ed6', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(gpsLayer);
     L.circleMarker([fix.lat, fix.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#1c7ed6', fillOpacity: 1, interactive: false }).addTo(gpsLayer);
-    if (!again) gpsRefineTick(); // beta 5.9: a photo taken with an old, poor or no fix gets this one if it is better
     shutterState();
     if (typeof visitGpsTick === 'function') visitGpsTick();
   }
@@ -4639,90 +5253,53 @@
     gpsPolling = true;
     try { navigator.geolocation.getCurrentPosition((p) => { gpsPolling = false; onFix(p); }, () => { gpsPolling = false; }, { enableHighAccuracy: true, maximumAge: 0, timeout: ms || 8000 }); } catch (e) { gpsPolling = false; }
   }
-  /* beta 5.9: a survey photo is never lost to the GPS. The shutter takes it at once, with the best fix there is. When that fix is
-     old (no update within GPS_WINDOW_MS of the shutter), not accurate (over GPS_GOOD_M) or missing, the app keeps listening for
-     REFINE_MS after the shutter and uses a better fix that arrives meanwhile: an old fix gives way to a fresh one within
-     GPS_GOOD_M (or as good as it), a poor one to a more accurate one, none to any. A fix within GPS_GOOD_M ends the listening (the
-     pin does not creep after that, as since v2.30). The pin moves with it only while the user has not touched the record's map:
-     a pin placed by hand always stays. PAT, cleanup and FAT photos keep a strict rule instead (gpsNear, GPS_ACC_WINDOW_MS). */
-  const GPS_GOOD_M = 15, REFINE_MS = 20000, GPS_OLD_MAX_MS = 120000;
-  let gref = null; // the photo whose fix is being refined: { at (its shutter), until, gps (the best so far), done }
+  /* beta 6.7 (owner: "do not accept if not the latest gps location. 5 second max"): every photo that needs a location, survey or PAT,
+     cleanup and FAT, is kept only with a fix that reached the phone within GPS_WINDOW_MS of the shutter (see gpsNear). The beta 5.9
+     rule (a survey photo kept with an older fix, refined in the 20 s after the shutter) is gone. A fix's age still counts from when
+     it reached the phone (rx), not from its own time: some phones' GPS clock is a few seconds off. */
   const gpsAgeMs = () => (fix ? Date.now() - fix.rx : Infinity);
-  /** The fix at the shutter with its age then (s); null with none (or one over 2 minutes old: the pin is placed by hand). */
-  function gpsAtShot(at) {
-    if (!fix || at - fix.rx > GPS_OLD_MAX_MS) return null;
-    return { lat: fix.lat, lon: fix.lon, acc: fix.acc, alt: fix.alt, age: Math.max(0, Math.round((at - fix.rx) / 1000)) };
-  }
-  const gpsNeedsRefine = (g) => !g || g.age * 1000 > GPS_WINDOW_MS || !(g.acc <= GPS_GOOD_M);
-  function gpsRefineStart(at, g) {
-    gpsRefineEnd();
-    gref = { at, until: at + REFINE_MS, gps: g, done: !gpsNeedsRefine(g) };
-    if (gref.done) return;
-    gref.tm = setTimeout(gpsRefineEnd, REFINE_MS + 50);
-    LOG.info('gps.refine', { age: g ? g.age : null, acc: g && Number.isFinite(g.acc) ? Math.round(g.acc) : null });
-    startGps(); gpsPoll(REFINE_MS);
-  }
-  function gpsRefineEnd() {
-    const r = gref; if (!r || r.done) return;
-    r.done = true; clearTimeout(r.tm);
-    LOG.info('gps.refine.end', { refined: !!(r.gps && r.gps.ref), acc: r.gps && Number.isFinite(r.gps.acc) ? Math.round(r.gps.acc) : null });
-    gpsRefineApply(r, null);
-  }
-  function gpsRefineTick() {
-    const r = gref; if (!r || r.done || !fix) return;
-    if (Date.now() > r.until) { gpsRefineEnd(); return; }
-    if (fix.rx <= r.at) return; // only a fix that came after the shutter
-    const c = r.gps, a = fix.acc;
-    const better = !c || (c.age * 1000 > GPS_WINDOW_MS && c.ref == null ? a <= GPS_GOOD_M || a <= c.acc : a < c.acc);
-    if (!better) return;
-    r.gps = { lat: fix.lat, lon: fix.lon, acc: a, alt: fix.alt, age: c ? c.age : null, acc0: c ? (c.acc0 != null ? c.acc0 : c.acc) : null, ref: Math.max(1, Math.round((fix.rx - r.at) / 1000)) };
-    LOG.info('gps.refined', { age: r.gps.age, ref: r.gps.ref, acc: Math.round(a) });
-    gpsRefineApply(r, r.gps);
-    if (a <= GPS_GOOD_M) gpsRefineEnd();
-  }
-  /** A better fix (g), or the end of the listening (g null), goes to the photo: still in the camera, or in its record. */
-  function gpsRefineApply(r, g) {
-    if (camPending && camPending.shotAt === r.at) {
-      if (g) { camPending.gps = g; shotDraftGps(camPending); if (!$('camera').hidden) toast(`Location refined: GPS ±${fmtAcc(g.acc)}`, 1600); }
-      return;
-    }
-    if (ed && ed.shotAt === r.at && ed.mode === 'new' && !ed.restored) edGpsRefined(g);
-  }
   const fmtAcc = (a) => `${a < 10 ? a.toFixed(1) : Math.round(a)} m`;
-  /** The line about a photo's fix (empty when it was fresh). live: its refining may still go on. */
-  function gpsNoteOf(g, live) {
+  /** The line about the fix of a record taken in beta 5.9–6.6 with an old fix, or one refined after the shutter (gpsAge, gpsRef);
+      empty for a fresh one, so for every photo taken since beta 6.7. Shown on the record's map, for information. */
+  function gpsNoteOf(g) {
     const ago = (s) => (s >= 90 ? `${Math.round(s / 60)} min` : `${s} s`);
-    if (!g) return live ? 'No GPS at the shutter yet: waiting for a fix…' : 'No GPS at the shutter: drag the map to place the pin';
-    if (g.ref != null) return g.age == null ? `No GPS at the shutter: fix found ${g.ref} s later` : g.age * 1000 > GPS_WINDOW_MS ? `GPS ${ago(g.age)} old at the shutter, refined ${g.ref} s later` : `GPS ${g.acc0 != null ? `±${fmtAcc(g.acc0)}` : 'not accurate'} at the shutter, refined ${g.ref} s later`;
-    if (g.age != null && g.age * 1000 > GPS_WINDOW_MS) return live ? `GPS ${ago(g.age)} old at the shutter: waiting for a fresh fix…` : `GPS was ${ago(g.age)} old: check the pin`;
+    if (!g) return '';
+    if (g.ref != null) return g.age == null ? `No GPS at the shutter: fix found ${g.ref} s later` : g.age * 1000 > GPS_WINDOW_MS ? `GPS ${ago(g.age)} old at the shutter, refined ${g.ref} s later` : `GPS refined ${g.ref} s after the shutter`;
+    if (g.age != null && g.age * 1000 > GPS_WINDOW_MS) return `GPS was ${ago(g.age)} old at the shutter`;
     return '';
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopGps(); else startGps(); });
 
   /* ================= camera ================= */
-  /* Capture rules: a photo is checked for blur and exposure, and the painted Pole ID inside the guide box is read. GPS (beta 5.9):
-     a fix is fresh when it reached the phone within GPS_WINDOW_MS of the shutter. A survey photo is kept whatever the GPS (its fix
-     is refined after the shutter, see gpsRefineStart); a PAT, cleanup or FAT photo (and a visit's) needs a fix that reached the
-     phone within GPS_ACC_WINDOW_MS of the shutter, else it waits up to GPS_WAIT_MS for one and is refused without it. */
-  const GPS_WINDOW_MS = 5000, GPS_ACC_WINDOW_MS = 15000, GPS_WAIT_MS = 5300;
+  /* Capture rules: a photo is kept only if a GPS update reached the phone within GPS_WINDOW_MS of the shutter (beta 6.7: survey, PAT,
+     cleanup, FAT and visits alike; by when it arrived, beta 5.9), waiting up to GPS_WAIT_MS for one; then it is checked for blur and
+     exposure, and the painted Pole ID inside the guide box is read. */
+  const GPS_WINDOW_MS = 5000, GPS_WAIT_MS = 5300;
   /* ================= beta 3.5: several photos per pin =================
      Photos per pin (1–4, 2 by default): after photo 1 the camera offers the next ones, up to that many; Done stops at any time.
      Photo 2 is the pole ID close-up by default (the old ID step): the green shutter keeps it as Pole tag and the ID is read from it.
      The record's first photo is the main one (stored under the record's id, as before); the others are listed in its photos, each
-     with its label. A field partner's phone takes his coordinator's setting for the projects the coordinator sends (Set by). */
+     with its label. A field partner's phone takes his coordinator's setting for the projects the coordinator sends (Set by).
+     beta 6.7 (owner: "by default the app should capture one then displays that photo to add a model or edit some text"): photos per
+     pin is how many the camera takes one after the other, 1 by default: after photo 1 the record opens with the photo full size (model,
+     box, text), on its Photo/Model tab. More
+     photos come from + Add photo in the record, up to PH_PIN_MAX a pin (a tower, OLT or ODC: PH_SITE_N), whatever that setting is;
+     in PAT, cleanup and FAT the as-found, after and verification photos of a defect likewise. The setting is S.phN, written only by a
+     tap on Settings → Camera → Photos per pin: a phone with none stored never chose (the old default 2 was never stored) and now gets
+     1; a phone with one stored keeps it, 2 included. */
   const PH_DOC_DEF = { report: 'all', compl: 'all', defpdf: 'all', kmz: 'all', zip: 'main', ai: 'all' };
-  const PH_DOCS = [['report', 'Photo report · PDF'], ['compl', 'Completion report · PDF'], ['defpdf', 'Deficiency list and rectification · PDF'], ['kmz', 'Google Earth · KMZ balloon'], ['zip', 'Geotagged photos · ZIP'], ['ai', 'Photos for AI training · ZIP'], ['dxf', 'AutoCAD · DXF and plan PDF']];
+  const PH_DOCS = [['report', 'Photo report'], ['compl', 'Completion report'], ['defpdf', 'Deficiency List and progress of the fixes (PDF)'], ['kmz', 'Google Earth map (KMZ) balloon'], ['zip', 'Photos with their locations (ZIP)'], ['ai', 'Photos for teaching the app (ZIP)'], ['dxf', 'Plan drawing and its PDF']]; // (beta 6.7, UX step 3: the Export rows' names)
   function phSetOf(name) {
     const P = name ? pmeta(name).phSet : null, T = name && typeof tmTeam === 'function' ? tmTeam(name) : null;
-    if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp !== false, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true };
-    return { n: S.phN || 2, idp: S.phIdp === true, docs: S.phDocs || {}, by: '', locked: false }; // (2.44.5: the pole ID close-up as photo 2 is off unless turned on)
+    if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp === true && P.idpV === 2, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true }; // (beta 5.0: only a coordinator who ticked it since 2.44.5)
+    return { n: S.phN || 1, idp: S.phIdp === true, docs: S.phDocs || {}, by: '', locked: false }; // (2.44.5: the pole ID close-up as photo 2 is off unless turned on; beta 6.7: 1 photo unless chosen)
   }
-  const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 2));
+  const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 1));
   const phIdp = (name) => phN(name) >= 2 && phSetOf(name || S.project).idp;
-  const PH_SITE_N = 10; // 2.44.5: a tower, OLT or ODC keeps up to 10 photos (poles: the photos per pin above)
-  const phNOf = (el, name) => (el === 'Site' || el === 'ODC' ? Math.max(PH_SITE_N, phN(name)) : phN(name));
+  const PH_SITE_N = 10, PH_PIN_MAX = 4; // 2.44.5: a tower, OLT or ODC keeps up to 10 photos (beta 6.7: any other pin up to 4, with + Add photo)
+  const phNOf = (el) => (el === 'Site' || el === 'ODC' ? PH_SITE_N : PH_PIN_MAX);
   const phDoc = (k, name) => (k === 'dxf' ? 'main' : phSetOf(name || S.project).docs[k] || PH_DOC_DEF[k] || 'all');
-  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp === true, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
+  const phMine = () => ({ n: S.phN || 1, idp: S.phIdp === true, idpV: 2, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
   const phOf = (r, k) => { const L = photosOf(r); return phDoc(k, r.project) === 'main' ? L.slice(0, 1) : L; }; // a record's photos for a document
   let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
   let photoOpts = null; // still-photo size: phones with 48–200 MP sensors are asked for about 12 MP (photos are kept at 2048 px anyway)
@@ -4743,22 +5320,26 @@
   /** v2.19: the ID scan after each photo is set apart for surveys and for PAT / cleanup / FAT (where the ID is optional). */
   // v2.21: in PAT, cleanup and FAT the photo is of the defect: no ID scan after it unless turned on (Scan ID in the record stays)
   const readIdOn = () => (isAcc() ? S.readIdAcc === true : S.readId !== false);
-  const gpsFresh = (win) => !!fix && gpsAgeMs() <= (win || GPS_WINDOW_MS) && gpsErr !== 1;
-  /** beta 5.9: the strict GPS rule: PAT, cleanup and FAT photos, and the photos of a visit. */
-  const gpsStrict = () => isAcc() || camTarget === 'vfix' || camTarget === 'vverify';
-  /** Shutter colour: green = a fresh fix (within 5 s; in PAT, cleanup and FAT within 15 s); amber (survey) = the photo is kept and
-      its location refined after the shot (GPS old, not accurate or none yet); red (PAT, cleanup, FAT) = no fresh fix: the photo
-      waits for one and is refused without it; white while scanning an ID. Busy (a ring) from the press until the photo is kept. */
+  const gpsFresh = () => !!fix && gpsAgeMs() <= GPS_WINDOW_MS && gpsErr !== 1;
+  /** beta 6.7: why the shutter is red, on the line over it ('' while the GPS is fresh). */
+  function gpsWhy() {
+    if (gpsErr === 1) return 'Location is off: turn it on for G-eSAA to take photos';
+    if (!fix) return 'No GPS fix yet: wait for the green shutter';
+    if (gpsFresh()) return '';
+    const s = Math.round(gpsAgeMs() / 1000);
+    return `No GPS update for ${s >= 90 ? `${Math.round(s / 60)} min` : `${s} s`}: wait for the green shutter`;
+  }
+  /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked (beta 6.7: survey, PAT, cleanup and FAT
+      alike; the reason shows over the shutter, and a press waits up to 5 s for a fresh fix, else the photo is not kept); white while
+      scanning an ID. Busy (a ring) from the press until the photo is kept (beta 5.9). */
   function shutterState() {
     const b = $('shutter'); if (!b) return;
-    const ph2 = camTarget === 'newid' && camPending && camPending.ph, more = camTarget === 'newmore'; // beta 3.5
-    const strict = gpsStrict(), st = ph2 || more ? 'ok' : scanStep() ? 'scan' : strict ? (gpsFresh(GPS_ACC_WINDOW_MS) ? 'ok' : 'bad') : gpsFresh() && fix.acc <= GPS_GOOD_M ? 'ok' : 'wait';
+    const ph2 = camTarget === 'newid' && camPending && camPending.ph, add = camTarget === 'add' && ed && !ed.acc, more = camTarget === 'newmore' || add; // beta 3.5 (beta 5.0: + Add photo needs no GPS: the pin has its place)
+    const st = ph2 || more ? 'ok' : scanStep() ? 'scan' : gpsFresh() ? 'ok' : 'bad';
     b.className = st; b.classList.toggle('busy', b.getAttribute('aria-busy') === 'true');
-    b.setAttribute('aria-label', ph2 ? 'Take photo 2 (Pole tag) and read the ID' : more ? `Take photo ${camPending ? camPending.k : ''}` : st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)'
-      : strict ? 'Take photo (waiting for a fresh GPS fix: this photo needs one)'
-      : camTarget !== 'new' ? 'Take photo (GPS not fresh)'
-      : gpsErr === 1 ? 'Take photo (location is off: the pin is placed by hand)' : !fix || gpsAgeMs() > GPS_OLD_MAX_MS ? 'Take photo (no GPS yet: the location is added if a fix comes, else the pin is placed by hand)'
-      : gpsFresh() ? 'Take photo (GPS not accurate yet: the location is refined after the photo)' : 'Take photo (GPS not fresh: the location is refined after the photo)');
+    b.setAttribute('aria-label', ph2 ? 'Take photo 2 (Pole tag) and read the ID' : more ? `Take photo ${add ? 2 + (ed.photos || []).length : camPending ? camPending.k : ''}` : st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)'
+      : gpsErr === 1 ? 'Take photo (location is off: the photo is not kept without a GPS fix)' : 'Take photo (no fresh GPS fix: the photo waits up to 5 seconds for one, and is not kept without it)');
+    const w = $('camGpsWhy'); if (w) { const t = st === 'bad' ? gpsWhy() : ''; if (w.textContent !== t) w.textContent = t; w.hidden = !t; }
   }
   /** beta 5.9: the press is seen at once: a white flash over the picture, a short buzz, and the shutter busy until the photo is kept. */
   function shutterFlash() {
@@ -4782,9 +5363,9 @@
     $('idGuide').hidden = !on;
     setOrientUi();
     $('idGuideText').textContent = S.idOrient === 'v' ? 'Vertical ID inside the box' : `Fit the ${idWord()} inside the box`;
-    const ph2 = camTarget === 'newid' && camPending && camPending.ph, more = camTarget === 'newmore', N = phN(); // beta 3.5: photo 2 (the ID close-up), photos 3–4
+    const ph2 = camTarget === 'newid' && camPending && camPending.ph, add = camTarget === 'add' && ed && !ed.acc, more = camTarget === 'newmore' || add, N = phN(); // beta 3.5: photo 2 (the ID close-up), photos 3–4 (beta 5.0: + Add photo: the next ones, up to the pin's limit)
     $('scanPrompt').hidden = !(on || more);
-    $('scanTitle').textContent = more ? `Photo ${camPending ? camPending.k : 2} of ${N} · detail` : ph2 ? `Photo 2 of ${N} · pole ID` : camTarget === 'newid' ? 'Photo kept · scan the ID' : 'Scan the ID';
+    $('scanTitle').textContent = add ? `Photo ${2 + (ed.photos || []).length} of ${phNOf(ed.element || 'Pole')} · detail` : more ? `Photo ${camPending ? camPending.k : 2} of ${N} · detail` : ph2 ? `Photo 2 of ${N} · pole ID` : camTarget === 'newid' ? 'Photo kept · scan the ID' : 'Scan the ID';
     $('scanSkip').hidden = !(camTarget === 'newid' || more); $('scanSkip').textContent = ph2 || more ? 'Done' : 'Skip';
     $('scanSkip').setAttribute('aria-label', ph2 || more ? 'Done: save with the photos taken' : 'Skip the ID scan');
     ['orientH', 'orientV', 'scanHelp'].forEach((id) => { $(id).hidden = more; });
@@ -4801,11 +5382,11 @@
   function camGpsTick() {
     shutterState();
     if (!fix) return;
-    const age = gpsAgeMs() / 1000, stale = age * 1000 > (gpsStrict() ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
+    const age = gpsAgeMs() / 1000, stale = age * 1000 > GPS_WINDOW_MS;
     $('camGpsDot').className = 'dot ' + (stale ? 'poor' : quality(fix.acc));
     $('camGpsText').textContent = `GPS ±${fmtAcc(fix.acc)} · ${age < 1.5 ? 'now' : age >= 90 ? `${Math.round(age / 60)} min ago` : `${Math.round(age)} s ago`}`;
     // Some phones report rarely while standing still: ask for a new fix so the shutter can turn green (and a photo just taken gets it).
-    if (age > 2.5 && (!scanStep() || (gref && !gref.done))) gpsPoll(8000);
+    if (age > 2.5 && !scanStep()) gpsPoll(8000);
   }
   // a tap on H or V fixes the box's shape for this scan (otherwise it turns by itself to fit the ID, v2.16)
   $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); finderStop(); showGuide(); finder.manual = true; });
@@ -4892,7 +5473,8 @@
   }
   async function openCamera(target) {
     camTarget = target || 'new'; camPending = null; camSeq++; finder.manual = false; photoReadNext = false; // the box turns by itself until H / V is tapped
-    openSheet('camera'); startGps();
+    const overPhoto = pvOpen; if (overPhoto) { pvOpen = false; hidePhotoView(); } // beta 6.7: the photo shown full size (after one photo) closes for the camera, which takes its place in the history
+    openSheet('camera', overPhoto); startGps();
     $('camMsg').hidden = true; $('camTorch').hidden = true; $('qualBox').hidden = true; camCheck(false);
     showGuide();
     if ((camTarget === 'new' && readIdOn()) || camTarget === 'scan') ocrWarm();
@@ -4961,8 +5543,7 @@
         const q = p.q || (p.qp ? await p.qp : null);
         if (q && q.flags && q.flags.length) { draftClear(); toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
         await Promise.all((p.more || []).map((m) => m.qp)).catch(() => {}); // beta 5.9: photos 2… checked in the background (one that failed has been taken out)
-        if (p.shotAt && gref && gref.at === p.shotAt) p.gps = gref.gps; // (the best fix so far)
-        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, shotAt: p.shotAt || 0, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null, ph2: !!p.ph, idAt: p.idAt || '', more: p.more || [] }); // (beta 3.5: photo 2 and the photos after it)
+        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null, ph2: !!p.ph, idAt: p.idAt || '', more: p.more || [] }); // (beta 3.5: photo 2 and the photos after it)
       }, 0);
     }
   }
@@ -4977,10 +5558,10 @@
     try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { toast('Flashlight not supported'); }
   });
 
-  /** A fix that reached the phone within win ms before the shot, or one that comes within GPS_WAIT_MS after it (beta 5.9: by
-      when it arrived, not by its own time); null without one. Used by PAT, cleanup and FAT photos (win: GPS_ACC_WINDOW_MS). */
-  function gpsNear(shotAt, win) {
-    const W = win || GPS_WINDOW_MS, ok = (f) => !!f && f.rx >= shotAt - W && gpsErr !== 1;
+  /** A fix that reached the phone within GPS_WINDOW_MS before the shot, or one that comes within GPS_WAIT_MS after it (beta 5.9: by
+      when it arrived, not by its own time); null without one: the photo is not kept (beta 6.7: every photo with a location). */
+  function gpsNear(shotAt) {
+    const W = GPS_WINDOW_MS, ok = (f) => !!f && f.rx >= shotAt - W && gpsErr !== 1;
     const out = () => ({ lat: fix.lat, lon: fix.lon, acc: fix.acc, alt: fix.alt, age: Math.max(0, Math.round((shotAt - fix.rx) / 1000)) });
     if (ok(fix)) return Promise.resolve(out());
     camCheck('Checking GPS…');
@@ -5377,8 +5958,6 @@
       if (camTarget === 'scan') { const crop = grabGuideCrop(), live = liveResult(); finderStop(); await closeSheet(); if (live) applyLiveRead(live); else scanResult(crop); return; }
       if (camTarget === 'newid') { if (camPending) { camPending.crop = grabGuideCrop(); camPending.live = liveResult(); } finderStop(); await closeSheet(); return; }
       shutterFlash(); // beta 5.9: the press is seen and felt at once
-      const strict = gpsStrict(), gps0 = gpsAtShot(shotAt); // beta 5.9: the fix at the shutter (a survey photo's is refined after it)
-      if (camTarget === 'new' && !strict) gpsRefineStart(shotAt, gps0);
       let blob = null;
       LOG.step('photo.take', { target: camTarget, still: !!imageCapture, opts: photoOpts, mem: memMB() });
       if (imageCapture) {
@@ -5407,19 +5986,20 @@
         showGuide(); toast(`Photo ${p.k - 1} kept`, 1500);
         return;
       }
-      perf.capture = Date.now() - shotAt;
-      let gps = null;
-      if (strict || camTarget === 'cef') { // PAT, cleanup, FAT and visits: a fix within 15 s of the shutter, or the photo is refused; a CEF plan's site photo: a fresh fix, else none
-        const tg = Date.now(); gps = await gpsNear(shotAt, strict ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
-        LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0, strict });
-        if (!alive()) return;
-        if (!gps && strict) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for G-eSAA, then take it again.' : `Photo not saved: GPS has not updated in the last ${GPS_ACC_WINDOW_MS / 1000} seconds. PAT, cleanup and FAT photos need a fresh fix: wait for the green shutter, then take it again.`, 6500); return; }
-        if (!gps) toast('No fresh GPS fix: the photo is kept without its location', 3500);
-      } else { // beta 5.9: a survey photo is kept with the best fix there is (refined after the shot when it is old, poor or missing)
-        gps = gref && gref.at === shotAt ? gref.gps : gps0;
-        LOG.info('photo.gps', { ms: 0, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0, refine: !!(gref && gref.at === shotAt && !gref.done) });
-        if (camTarget === 'new' && gref && gref.at === shotAt && !gref.done) toast(!gps ? (gpsErr === 1 ? 'Photo kept · location is off: place the pin by hand' : 'Photo kept · no GPS yet: listening for a fix') : gps.age * 1000 > GPS_WINDOW_MS ? `Photo kept · GPS ${gps.age} s old: refining the location` : `Photo kept · GPS ±${fmtAcc(gps.acc)}: refining the location`, 2600);
+      if (camTarget === 'add' && ed && !ed.acc) { // beta 5.0: + Add photo of a survey pin: added, and the camera stays open for the next one (no GPS wait: the pin has its place)
+        const e0 = ed, pid = addEdPhoto(blob, photoMeta(gpsFresh() ? fix : null, new Date(shotAt).toISOString())); // beta 5.9: checked in the background (a photo that fails is taken out again)
+        withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] })).then((q) => addChecked(e0, pid, q));
+        const N = phNOf(ed.element || 'Pole'), k = 1 + (ed.photos || []).length;
+        LOG.info('photo.add', { k, of: N });
+        if (k >= N) { await closeSheet(); toast(`${k} photos — tap Save to keep them`, 2500); return; }
+        showGuide(); toast(`Photo ${k} kept · take the next or tap Done`, 1800);
+        return;
       }
+      perf.capture = Date.now() - shotAt;
+      const tg = Date.now(), gps = await gpsNear(shotAt); // beta 6.7: a fix from the last 5 s (or one within 5 s after the press), else the photo is not kept
+      LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0 });
+      if (!alive()) return;
+      if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for G-eSAA, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
       const tq = Date.now(), takenAt = new Date(shotAt).toISOString();
       const qp = withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] })).then((q) => {
         perf.check = Date.now() - tq; perf.px = q.w ? `${q.w}×${q.h}` : '';
@@ -5428,7 +6008,7 @@
       });
       const multi = camTarget === 'new' && phN() >= 2; // beta 3.5: photo 2 next (the ID close-up in a survey), then up to photos per pin
       if (camTarget === 'new' && (multi || readIdOn())) { // aim at the ID straight away; the photo is checked meanwhile
-        const pend = { blob, gps, takenAt, shotAt, source: 'camera', qp };
+        const pend = { blob, gps, takenAt, source: 'camera', qp };
         if (multi && !isAcc() && phIdp()) { pend.ph = true; enterIdStep(pend); } else if (multi) enterMore(pend, 2); else enterIdStep(pend);
         qp.then((q) => {
           pend.q = q;
@@ -5443,7 +6023,7 @@
       if (!alive()) return;
       if (q.flags.length) { await refusePhoto(blob, q); return; }
       await closeSheet();
-      gotPhoto(blob, gps, 'camera', { q, takenAt, shotAt });
+      gotPhoto(blob, gps, 'camera', { q, takenAt });
     } finally { camBusy = false; shutterBusy(false); camCheck(false); LOG.done('photo.take'); shutterState(); }
   });
   /** beta 5.9: photo 2… failed its check after the camera went on: it is dropped (and asked for again while the camera is still at it). */
@@ -5475,16 +6055,10 @@
     if (camTarget === 'scan') { if (stack[stack.length - 1] === 'camera') await closeSheet(); scanResult(await centerCrop(f)); return; }
     const back = Date.now(), inCam = () => stack[stack.length - 1] === 'camera', seq = camSeq;
     if (back - (f.lastModified || 0) > MAX_PHOTO_AGE_MS) { toast('Photo not used: it was not taken just now. Photos must be taken live, so their location can be checked.', 6000); return; }
-    // the phone camera app pauses this app: the fix comes right after returning (beta 5.9: a survey photo is kept and its fix refined, see gpsRefineStart)
-    const strict = gpsStrict(), refine = camTarget === 'new' && !strict;
-    let gps = null;
-    if (refine) { gpsRefineStart(back, gpsAtShot(back)); gps = gref.gps; }
-    else if (strict || camTarget === 'cef') gps = await gpsNear(back, strict ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
-    else gps = gpsAtShot(back);
+    const gps = await gpsNear(back); // the phone camera app pauses this app, so the fix is taken right after returning (beta 6.7: within 5 s, as every photo)
     if (seq !== camSeq) return; // camera closed while waiting
-    if (!gps && strict) { toast(`Photo not used: no GPS update within ${GPS_ACC_WINDOW_MS / 1000} seconds. Stay in the open and take it again.`, 5500); return; }
+    if (!gps) { toast('Photo not used: no GPS update within 5 seconds. Stay in the open and take it again.', 5500); return; }
     const q = await checkQuality(f).catch(() => ({ flags: ['error'] }));
-    if (refine && gref && gref.at === back) gps = gref.gps; // (a fix may have come during the check)
     if (seq !== camSeq) return;
     if (q.flags.length) {
       if (inCam()) await refusePhoto(f, q);
@@ -5493,9 +6067,9 @@
     }
     prepImages(f);
     const takenAt = new Date(Math.min(back, f.lastModified || back)).toISOString();
-    if (camTarget === 'new' && readIdOn() && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, shotAt: back, source: 'camera' }); return; }
+    if (camTarget === 'new' && readIdOn() && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, source: 'camera' }); return; }
     if (inCam()) await closeSheet();
-    gotPhoto(f, gps, 'camera', { q, takenAt, shotAt: back });
+    gotPhoto(f, gps, 'camera', { q, takenAt });
   });
   /** For a scan taken with the phone camera app: the band where the guide box would be. */
   async function centerCrop(blob) {
@@ -5544,7 +6118,7 @@
       toast(ed.mapPin || ed.mode === 'edit' && !ed.hadPhoto ? 'Photo added — tap Save to keep it' : 'Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), shotAt: x.shotAt || 0, q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, ph2: !!x.ph2, idAt: x.idAt || '', more: x.more || [], noDef: camTarget === 'nodef' });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, ph2: !!x.ph2, idAt: x.idAt || '', more: x.more || [], noDef: camTarget === 'nodef' });
   }
 
   /* ================= reading the painted Pole ID (offline OCR) ================= */
@@ -5981,6 +6555,7 @@
         const lines = [];
         if (has('id')) lines.push([title, `700 ${Math.round(fs * 1.25)}px sans-serif`]);
         if (has('coords')) lines.push([`${own ? 'Taken at ' : ''}${P.lat.toFixed(7)}, ${P.lon.toFixed(7)}${Number.isFinite(P.accuracy) ? `   ±${P.accuracy.toFixed(1)} m` : ''}${P.adjusted ? '  (pin adjusted)' : ''}`, `${fs}px monospace`]);
+        if (has('addr')) { const a = o.addr != null ? o.addr : await stampAddr(p); const t = a || (has('coords') ? '' : `${P.lat.toFixed(6)}, ${P.lon.toFixed(6)}`); if (t) lines.push([t, `${fs}px sans-serif`]); } // beta 6.4: the address (road, barangay, city), else the coordinates
         if (has('utm')) lines.push([`UTM ${S.zone}N   E ${u.E.toFixed(2)}   N ${u.N.toFixed(2)}`, `${fs}px monospace`]);
         const who = (meta && meta.by) || p.by || '';
         const last = [has('time') ? fmtTime(when) : '', has('by') && who ? who : '', has('project') ? p.project : ''].filter(Boolean).join('   ·   ');
@@ -5999,6 +6574,20 @@
     if (im.close) im.close();
     return C.insertExif(bytes, { lat: P.lat, lon: P.lon, alt: P.alt, accuracy: P.accuracy,
       description: title.replace(/\s+·\s+/g, ' | '), title: recName(p), date: new Date(when), artist: exporterLine(' | ') });
+  }
+  /* beta 6.4: the address of a record for the photo stamps: its road (within 60 m), barangay and city / municipality from the road packs on
+     this phone (as the photo report's LOCATION), '' where no pack covers it. Worked out once for the whole project, kept a minute
+     (an export's photos one after the other), and anew at each export. */
+  var addrCache = null;
+  async function stampAddr(p) {
+    if (!p || !Number.isFinite(+p.lat) || !Number.isFinite(+p.lon)) return '';
+    const fresh = addrCache && addrCache.proj === p.project && Date.now() - addrCache.at < 60000 && (addrCache.map.has(p.id) || addrCache.ids.has(p.id));
+    if (!fresh) {
+      const list = points.filter((q) => q.project === p.project && Number.isFinite(+q.lat) && Number.isFinite(+q.lon));
+      let map = new Map(); try { map = await poleLocations(list, true); } catch (e) { LOG.warn('stamp.addr', errInfo(e)); }
+      addrCache = { proj: p.project, at: Date.now(), map, ids: new Set(list.map((q) => q.id)) };
+    }
+    return addrCache.map.get(p.id) || '';
   }
   /** File name for an exported photo per the naming setting. */
   function photoFileName(p, label) {
@@ -6193,25 +6782,11 @@
     pinMap.panTo([ed.gps.lat + (c.lat - ed.gps.lat) * t, ed.gps.lon + (c.lng - ed.gps.lon) * t]);
     toast(`The pin can move up to ${fmtDist(PIN_LIMIT_M)} from where the photo was taken`, 3000);
   }
-  /** beta 5.9: a better fix for the photo just taken (see gpsRefineStart), or g null: the listening ended. The fix is the record's GPS;
-      the pin goes with it only while the user has not touched the record's map (a pin placed by hand stays: Reset to GPS uses the
-      new fix). Replaces editorGpsUpdate, which followed the GPS with no time limit. */
-  function edGpsRefined(g) {
-    if (g) {
-      const touched = ed.userMoved || ed.dragged;
-      ed.gps = { ...g }; drawEdGps();
-      if (!touched && pinMap) { pinMap.setView([g.lat, g.lon], pinMap.getZoom(), { animate: false }); ed.userMoved = false; } // (the zoom stays: the map does not jump in or out)
-      else toast(`GPS refined to ±${fmtAcc(g.acc)}. Your pin stays where you put it; Reset to GPS moves it to the new fix.`, 4500);
-      $('edAcc').textContent = `GPS ±${g.acc.toFixed(1)} m`;
-      updateCoordBox(); scheduleDraft();
-    }
-    edGpsNote();
-  }
-  /** The record's line about its fix at the shutter (beta 5.9): shown on the record's map, under the coordinates. */
+  /** The record's line about its fix at the shutter: a record taken in beta 5.9–6.6 with an old fix, or one refined after the shutter,
+      says so on its map, for information (beta 6.7: a new photo always has a fix from the last 5 s, so it has no line). */
   function edGpsNote() {
     const el = $('pinGpsNote'); if (!el) return;
-    const g = ed && ed.gps, live = !!(ed && ed.shotAt && gref && gref.at === ed.shotAt && !gref.done);
-    const t = !ed || ed.acc || ed.mapPin ? '' : ed.shotAt ? gpsNoteOf(g, live) : g && (g.age != null || g.ref != null) ? gpsNoteOf(g, false) : '';
+    const g = ed && ed.gps, t = !ed || ed.acc || ed.mapPin ? '' : gpsNoteOf(g);
     el.textContent = t; el.hidden = !t; $('coordBox').classList.toggle('gpsnote', !!t);
   }
   function updateCoordBox() {
@@ -6272,8 +6847,7 @@
     ensurePinMap();
     const acc = isAcc();
     if (o.blob) idle(() => prepImages(o.blob), 3000); // made while the ID is checked; the camera is closed by now (beta 5.9: once the record is drawn)
-    const sg = o.shotAt && gref && gref.at === o.shotAt ? gref.gps : undefined; // beta 5.9: a photo just taken: the best fix so far (it may be refined still)
-    ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: (sg !== undefined ? sg : o.gps) || null, shotAt: o.shotAt || 0, newBlob: o.blob || null,
+    ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
       takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc, boq: JSON.parse(JSON.stringify(o.boq || {})), hadPhoto: !!(o.blob || o.storedBlob) };
     // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
@@ -6303,7 +6877,7 @@
       ed.siteKind = o.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37: a site is a tower or an OLT
     }
     // v2.42.17: a survey record in tabs (status, element, type and ID on top); PAT, cleanup and FAT records on one page as before
-    edLayout(!acc); edTab = 'details'; $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
+    edLayout(!acc); edTab = !acc && o.mode === 'new' && o.blob && !o.restore ? 'photo' : 'details'; // beta 6.7: a photo just taken: the record opens on it (Photo/Model), to add a model or text $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
     $('editor').querySelector('.edbody').scrollTop = 0;
     $('svColorBox').hidden = acc; if (!acc) renderPinColors();
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
@@ -6353,9 +6927,8 @@
       const same = pinDeskSame(start); // beta 4.1: on a computer, on the main map's own view
       pinMap.invalidateSize(same ? { animate: false, pan: false } : undefined);
       setTimeout(() => $('editor').classList.add('pmready'), same && same.wait ? same.wait : 50); if (!same) $('editor').classList.add('pmsolid');
-      const at = o.lat == null && ed.gps ? ed.gps : start; // (beta 5.9: a fix refined since the record opened)
-      if (same) pinMap.setView([at.lat, at.lon], same.z, { animate: false });
-      else if (at) pinMap.setView([at.lat, at.lon], 19, { animate: false });
+      if (same) pinMap.setView([start.lat, start.lon], same.z, { animate: false });
+      else if (start) pinMap.setView([start.lat, start.lon], 19, { animate: false });
       else { const c = map.getCenter(); pinMap.setView(c, Math.max(map.getZoom(), 16), { animate: false }); }
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef(); drawPinOthers();
     });
@@ -6366,11 +6939,22 @@
     foldSum(); // v2.22: after the ID and element are set
     idPadSync(); edRefreshSoon(); // v2.42.17
     draftStart(!!o.restore); // v2.21: kept safe until saved
-    if (photoReadNext && o.mode === 'new' && !acc && o.blob) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
+    const readNow = !!(photoReadNext && o.mode === 'new' && !acc && o.blob);
+    if (readNow) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
     else if (o.live) applyLiveRead(o.live);
     else if (o.crop && o.idShot) readIdShot(o.crop, o.idShot); // v2.19: the ID photo
     else if (o.crop) runOcrFor(o.crop, true);
     else if (o.mode === 'new' && !o.poleId && !acc) setTimeout(() => { const f = $('poleId'); f.classList.add('nudge'); setTimeout(() => f.classList.remove('nudge'), 2600); }, 250); // v2.30: no keyboard over the map: check the pin, then tap the ID
+    // beta 6.7 (owner: "capture one then displays that photo to add a model or edit some text"): one photo a pin (the default), the
+    // photo just taken opens full size with its tools (model, box, FOC, text); × or Back shows the record, on its Photo/Model tab
+    if (o.mode === 'new' && !acc && o.blob && o.source === 'camera' && !o.restore && !readNow && !o.crop && !o.live && !o.idShot && phN() === 1) {
+      const e0 = ed;
+      setTimeout(() => {
+        if (ed !== e0 || pvOpen || editorSaving || stack[stack.length - 1] !== 'editor') return;
+        $('edPhoto').click(); if (!pvOpen) return;
+        $('pvHint').textContent = 'Add a model, a box or text to the photo, or close it (×) to place the pin and fill in the record';
+      }, 350);
+    }
   }
   /* ================= v2.21: an unsaved record is kept safe =================
      While a record is open, what it holds (the photo, the form, the pin, the deficiencies and their photos) is kept as a draft on
@@ -6389,11 +6973,6 @@
       try { await dbPut('photos', { id: 'draft~new', clean: p.blob }); localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); }
       catch (e) { LOG.warn('draft.fail', errInfo(e)); if (shotDraftBlob === p.blob) { shotDraftBlob = null; if (ed && draftBlobs.new === p.blob) { delete draftBlobs.new; scheduleDraft(); } } } // (not kept: the record's draft writes it)
     });
-  }
-  /** beta 5.9: a fix refined while the camera is still open goes into the shot draft (only its text: the photo is not written again). */
-  function shotDraftGps(p) {
-    if (ed || !p || shotDraftBlob !== p.blob) return;
-    draftChain = draftChain.then(() => { try { const st = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); if (st && st.shot) { st.gps = p.gps || null; localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); } } catch (e) { /* private window */ } });
   }
   function draftState() {
     if (!ed) return null;
@@ -6567,6 +7146,7 @@
       : lock === 'carried' ? '🔒 From the PAT: the ID, place and PAT items stay as recorded. Tag each item as fixed, add photos and remarks.' : '';
     if (lock) $('edTrash').hidden = true;
     if (lock === 'closed' && ed) $('edHint').textContent = 'The pin stays where it was saved'; // beta 3.3: no "Drag the map…" when nothing can move
+    renderEdXHide(); // (a pole hidden from the exports: Show in exports)
   }
 
   /* ---------- red box / pole model on a survey photo (v2.13; pole model v2.14; editable marks v2.15) ---------- */
@@ -6600,7 +7180,8 @@
     if (!ed || ed.acc) { $('boxInfo').hidden = true; $('edZoom').classList.remove('pp'); return; }
     const n = (ed.marks || []).length, legacy = ed.legacyBoxes || 0, pp = proposedPole(), hasPole = (ed.marks || []).some((m) => m.k === 'pole') || ed.legacyPole;
     const txt = n ? `▭ ${n} mark${n === 1 ? '' : 's'} on the photo · tap the photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of the photo)` : ''}`
-      : legacy ? `▭ ${legacy} mark${legacy === 1 ? '' : 's'} on the photo` : pp && !hasPole ? '⊥ Tap the photo to place the model pole where the new pole goes' : '';
+      : legacy ? `▭ ${legacy} mark${legacy === 1 ? '' : 's'} on the photo` : pp && !hasPole ? '⊥ Tap the photo to place the model pole where the new pole goes'
+      : ed.newBlob || ed.srcBlob ? '✎ Tap the photo to add a model, a box or text' : ''; // (beta 6.7)
     $('boxInfo').textContent = txt; $('boxInfo').hidden = !txt;
     $('edZoom').classList.toggle('pp', !!(pp && !hasPole)); $('edZoom').textContent = pp && !hasPole ? '⊥' : '⤢';
   }
@@ -7268,9 +7849,9 @@
     // beta 4.3 (MarkT): with one owner in the list a new pole starts with it (a tap takes it off again, and it stays off); with more, the user chooses
     if (keys.includes('owner') && ed.mode === 'new' && !ed.ownerOne) { ed.ownerOne = true; if (!ed.boq.owner) { const L = ownerChoices(); if (L.length === 1) { ed.boq.owner = L[0]; ed.ownerOnly = true; } } }
     const own = edLoopOwn(), hwNow = edHw(); // v2.42.18: the cable hardware from the route (12C, telco arm)
-    const hwRow = (h) => { const r = document.createElement('div'); r.className = 'boqrow'; r.dataset.k = 'hw'; const t = document.createElement('span'); t.className = 'lbl'; t.textContent = hasTelcoArm(edLoopRec()) ? 'HARDWARE FOR THE CABLE · TELCO ARM' : 'HARDWARE FOR THE CABLE · FROM THE ROUTE'; r.appendChild(t);
+    const hwRow = (h) => { const r = document.createElement('div'); r.className = 'boqrow'; r.dataset.k = 'hw'; const t = document.createElement('span'); t.className = 'lbl'; t.textContent = hasTelcoArm(edLoopRec()) ? `HARDWARE FOR THE CABLE · ${armName(edLoopRec()).toUpperCase()}` : 'HARDWARE FOR THE CABLE · FROM THE ROUTE'; r.appendChild(t);
       const ch = document.createElement('div'); ch.className = 'chips'; h.items.forEach(([i, q, sz]) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = `${sz.split(' · ')[0]}: ${i} ×${q}`; c.setAttribute('aria-pressed', 'true'); c.disabled = true; ch.appendChild(c); }); r.appendChild(ch);
-      const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? 'A telco arm: no pole clamps for the cable, also at an end or a corner; the guys\u2019 clamps are the pole owner\u2019s. Counted in the BOQ and the quantities.' : 'Light cable 12C on this pole: 2 retractors and 2 span clamps (1 + 1 at its end); no pole clamps for the 12C, its guys or its arm. Counted in the BOQ and the quantities.'; r.appendChild(n); return r; };
+      const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? `${armName(edLoopRec()).replace(/^./, (c) => c.toUpperCase())} on the pole: no pole clamps for the cable, also at an end or a corner; the guys\u2019 clamps are the pole owner\u2019s. Counted in the BOQ and the quantities.` : 'Light cable 12C on this pole: 2 retractors and 2 span clamps (1 + 1 at its end); no pole clamps for the 12C, its guys or its arm. Counted in the BOQ and the quantities.'; r.appendChild(n); return r; };
     const shown = keys.filter((k) => !(boxC && (k === 'clo' || k === 'cloSt'))), host = (k) => (!tabs ? rows : ACC_KEYS.has(k) ? $('boqRowsAcc') : UG_KEYS.has(k) ? $('boqRowsUg') : rows);
     box.hidden = !shown.filter((k) => host(k) === rows).length; rows.innerHTML = ''; $('boqRowsAcc').innerHTML = ''; $('boqRowsUg').innerHTML = '';
     ed.boq = ed.boq || {};
@@ -7325,7 +7906,7 @@
         rows.appendChild(row); return;
       }
       if (k === 'clamp' && hwNow && hwNow.noClamp) { // (2.44.9: also when a clamp type was given) // v2.42.18: no pole clamp on this pole: no size
-        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '2px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? 'Not needed: no pole clamp for the cable on a telco arm.' : 'Not needed: no pole clamp on this pole (Light cable 12C only).';
+        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '2px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? `Not needed: no pole clamp for the cable on the ${armName(edLoopRec())}.` : 'Not needed: no pole clamp on this pole (Light cable 12C only).';
         row.appendChild(n); rows.appendChild(row); return;
       }
       if (k === 'mloop') { // v2.42.18: the loop and its length: 10, 12, 15 or 20 m (by default the cable's)
@@ -7479,14 +8060,14 @@
       const q = document.createElement('b'); q.textContent = String(d.qty); q.setAttribute('aria-label', `${d.qty} pc${d.qty === 1 ? '' : 's'}`); // compact chip (v2.15): Transformer − 1 + ×
       // at 1 pc the minus removes the item (×), so each chip needs only two buttons
       if (ro) row.append(t, q);
-      else row.append(t, mk(d.qty > 1 ? '−' : '×', d.qty > 1 ? `One ${d.item} less` : `Remove ${d.item}`, () => { if (d.qty > 1) d.qty -= 1; else ed.details.splice(i, 1); renderDetails(); }), q,
+      else row.append(t, mk(d.qty > 1 ? '−' : '×', d.qty > 1 ? `One ${d.item} less` : `Remove ${d.item}`, () => { const arm = !!armOnPole({ details: [d] }); if (d.qty > 1) d.qty -= 1; else ed.details.splice(i, 1); renderDetails(); if (arm && !ed.acc) renderBoq(); }), q, // (beta 6.3: an arm taken off: the hardware again)
         mk('+', `One ${d.item} more`, () => { d.qty = Math.min(99, d.qty + 1); renderDetails(); }));
       box.appendChild(row);
     });
     const sel = $('svDetailAdd'), have = new Set((ed.details || []).map((d) => d.item));
     sel.innerHTML = '<option value="">+ Add detail</option>';
     const elec = (ed.element || 'Pole') === 'Pole' && ELEC_TYPES.has(typePrefix(ed.type)); // v2.42.1: an electric pole: Transformer and Telco arm only
-    (elec ? ELEC_DETAIL_ITEMS : detailItems().concat((S.myDetails || []).filter((x) => !detailItems().includes(x)))).filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x)));
+    [...new Set([...(elec ? ELEC_DETAIL_ITEMS : detailItems()), ...EXIST_ARM_ITEMS, ...(elec ? [] : S.myDetails || [])])].filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x))); // (beta 6.3: + the existing arms)
     if (!elec) sel.add(new Option('Other…', '__other'));
     sel.hidden = elec && sel.options.length < 2; // both added: nothing left to add
   }
@@ -7501,7 +8082,7 @@
     ed.details = ed.details || [];
     const have = ed.details.find((d) => d.item.toLowerCase() === v.toLowerCase());
     if (have) have.qty = Math.min(99, have.qty + 1); else ed.details.push({ item: v, qty: 1 });
-    renderDetails();
+    renderDetails(); if (!ed.acc && armOnPole({ details: [{ item: v }] })) renderBoq(); // (beta 6.3: an arm on the pole: no pole clamps, its hardware)
   });
 
   function nextPhotoLabel() {
@@ -7595,7 +8176,7 @@
         mk('Mark rectified', () => { d.status = 'Rectified'; d.fixedAt = new Date().toISOString(); d.fixedStage = stage; d.fixedBy = byLine(); renderDefs(); });
       } else if (stt === 'Rectified') {
         mk('Retake after photo', () => { ed.afterFor = d.id; ed.afterMore = false; openCamera('after'); });
-        if (d.afterPid && defPh(d, 'after').length < phN()) mk('+ After photo', () => { ed.afterFor = d.id; ed.afterMore = true; openCamera('after'); }); // beta 3.5: one more
+        if (d.afterPid && defPh(d, 'after').length < PH_PIN_MAX) mk('+ After photo', () => { ed.afterFor = d.id; ed.afterMore = true; openCamera('after'); }); // beta 3.5: one more
         if (insp && stage === 'FAT') { // v2.42.4: fixes are accepted at the FAT only (in the cleanup a contractor could verify its own fix)
           mk('Verify', () => { d.status = 'Verified'; d.verifiedAt = new Date().toISOString(); d.verifiedBy = byLine(); d.verifyStage = stage; renderDefs(); }, 'primary');
           mk('Verify with photo', () => { ed.verifyFor = d.id; ed.verifyMore = false; openCamera('verify'); });
@@ -7606,7 +8187,7 @@
           }, 'danger');
         } else if (d.fixedBy === byLine() || !d.afterPid) mk('Reopen', () => { defPh(d, 'after').forEach((y) => { if (ed.pending[y.pid]) delete ed.pending[y.pid]; else ed.removed.push(y.pid); }); undoFix(d); renderDefs(); }); // v2.42.4: not a rejection (beta 3.5: its photos)
       } else if (stt === 'Verified' && insp && stage === 'FAT') {
-        if (d.verifyPid && defPh(d, 'verify').length < phN()) mk('+ Verification photo', () => { ed.verifyFor = d.id; ed.verifyMore = true; openCamera('verify'); }); // beta 3.5: one more
+        if (d.verifyPid && defPh(d, 'verify').length < PH_PIN_MAX) mk('+ Verification photo', () => { ed.verifyFor = d.id; ed.verifyMore = true; openCamera('verify'); }); // beta 3.5: one more
         mk('Undo verification', () => { defPh(d, 'verify').forEach((y) => { if (ed.pending[y.pid]) delete ed.pending[y.pid]; else ed.removed.push(y.pid); }); undoAccept(d); renderDefs(); }); // v2.42.4: its photo goes too (beta 3.5: all of them)
       }
       if (insp && (d.stage || 'PAT') === stage) mk('Remove', () => {
@@ -7897,7 +8478,7 @@
   }
   /** beta 3.5: the defect form's “As found photos · 2 of 2”: MAIN first, × on each, a label under the others, + Add photo up to the limit. */
   function renderDefPhotos() {
-    const box = $('defPhotos'), N = phN(), on = !!(defDraft && defDraft.blob) && (N >= 2 || (defDraft.more || []).length > 0);
+    const box = $('defPhotos'), N = PH_PIN_MAX, on = !!(defDraft && defDraft.blob); // (beta 6.7: + Add photo up to 4, whatever the photos the camera takes in a row)
     box.hidden = !on; $('defPhHead').hidden = !on; $('defPhotoPrev').closest('.row').hidden = on; box.innerHTML = '';
     if (!on) return;
     const all = [{ blob: defDraft.blob, label: 'Defect', main: true }].concat((defDraft.more || []).map((m, i) => ({ ...m, i })));
@@ -8040,14 +8621,16 @@
     if (ed.lock) { toast(ed.lockMsg || 'This record is from a completed PAT and cannot be deleted', ed.lockMsg ? 6500 : 4500); return; }
     const idv = $('poleId').value.trim(), what = ed.acc ? 'element' : (ed.element || 'Pole') === 'Pole' ? 'pole' : (ed.element || '').toLowerCase();
     const name = idv && !/[-_]$/.test(idv) ? idv : `this ${what}`;
-    const go = await ask(`Delete ${name}?`, `The record and its ${ed.acc || (ed.photos || []).length ? 'photos' : 'photo'} are removed from this phone. This can't be undone.`, [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }]);
+    const un = routeMode && !ed.acc && ed.mode === 'edit', thru = !ed.acc && fibers().some((f) => !f.ex && f.path.indexOf(ed.id) > 0 && f.path.indexOf(ed.id) < f.path.length - 1); // beta 6.8: in Route (on the map or the Drawing) ↶ brings it back; a cable through it
+    const go = await ask(`Delete ${name}?`, `The record and its ${ed.acc || (ed.photos || []).length ? 'photos' : 'photo'} are removed from this phone. ${un ? 'Undo (↶) in Route brings it back, with its spans and cables.' : 'This can\'t be undone.'}${thru ? ' The cable through it stays joined, from the point before it to the point after it.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }]);
     if (!go || !ed) return;
     const id = ed.id, rec = points.find((p) => p.id === id);
+    const keep = un && rec && !isAcc(rec.project) ? { rec: JSON.parse(JSON.stringify(rec)), ph: (await Promise.all(allPids(rec).map((pid) => dbGet('photos', pid).catch(() => null)))).filter(Boolean), route: routeSnap() } : null; // (its photos kept for ↶)
     await dbDel('points', id);
     if (rec) await deletePhotosIfUnused(allPids(rec).concat(Object.keys(ed.pending || {})), new Set([id]));
     points = points.filter((p) => p.id !== id);
-    if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
-    if (fibers().some((f) => f.path.includes(id))) setRoute(null, fibers().map((f) => ({ ...f, path: f.path.filter((x) => x !== id) }))); // v2.42.20: off its fibers (the neighbours are flagged until linked)
+    if (links().some(([x, y]) => x === id || y === id) || fibers().some((f) => f.path.includes(id))) { const q = routeDrop(new Set([id]), links(), fibers()); setRoute(q.l, q.f); } // beta 6.8: off its spans and cables; a cable that passed it stays joined (v2.42.20 to beta 6.7: cut there, "flagged until linked")
+    if (keep) routeUndo.push({ del: keep });
     if (rec && !isAcc(rec.project)) { S.meta = S.meta || {}; const m = { ...(S.meta[rec.project] || {}) }; m.gone = { ...(m.gone || {}), [id]: new Date().toISOString() }; S.meta[rec.project] = m; persist(); } // v2.42.18: the deletion goes with the next share
     if (rec) changedAfterApproval(rec.project, 'delete'); // v2.42.5
     if (rec && !points.some((p) => p.project === rec.project) && S.meta && S.meta[rec.project] && (S.meta[rec.project].cid || S.meta[rec.project].creditM)) { const m = { ...S.meta[rec.project] }; delete m.cid; delete m.creditM; S.meta[rec.project] = m; persist(); } // v2.42.6: its last record deleted: a new survey for the credits
@@ -8174,7 +8757,7 @@
     clearTimeout(slow);
     // saved: refreshing the screens must not turn a successful save into an error
     busy(false);
-    const wasNew = ed.mode === 'new';
+    const wasNew = ed.mode === 'new', ppNew = wasNew && ed.mapPin && (ed.element || 'Pole') === 'Pole' && !drwEd ? ed.id : null; // (beta 6.8: a proposed pole placed on the map; on the Drawing: drwEdSoon)
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
     editorSaving = false;
     if (ed) ed.closeOK = true; // saved: the draft goes
@@ -8182,6 +8765,7 @@
     if (wasNew) map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17));
     if (genId) toast(`No ID entered: saved as ${poleId}, a generic number. Change it when the ID is known (open the pin).`, 5000);
     else toast(wasNew ? `${poleId} saved` : 'Changes saved');
+    if (ppNew) setTimeout(() => guard(() => ppOnCable(ppNew, 15), 'Not put on the cable'), 600); // beta 6.8: on a span: on its cable?
   }
   /** beta 5.9: after a Save, the pins and the list are drawn again in the frame after the record closed. */
   function savedRedraw() {
@@ -8558,9 +9142,9 @@
   function revokeListUrls() { listUrls.forEach((u) => URL.revokeObjectURL(u)); listUrls = []; }
   async function renderList() {
     revokeListUrls();
-    const q = $('listSearch').value.trim().toUpperCase(), acc = isAcc();
+    const q = $('listSearch').value.trim().toUpperCase(), acc = isAcc(), xh = acc ? new Set() : xHiddenIds();
     $('listFilter').hidden = !acc;
-    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.nap2Id, p.closureId, p.status, p.remarks, detailsText(p.details), boqText(p)].join(' ').toUpperCase().includes(q))
+    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.nap2Id, p.closureId, p.status, p.remarks, detailsText(p.details), boqText(p), xh.has(p.id) ? 'not exported' : ''].join(' ').toUpperCase().includes(q)) // (beta 6.2: "not exported" finds the hidden ones)
       && (!acc || listFilter === 'all' || recStatus(p) === listFilter));
     const counts = {}; projPoints().forEach((p) => { if (p.poleId !== NPT) counts[p.poleId] = (counts[p.poleId] || 0) + 1; }); // v2.42.4: NPT (no pole tag) repeats by design
     const box = $('listItems'); box.innerHTML = '';
@@ -8618,6 +9202,7 @@
         const el = elemOf(p), tags = el === 'Pole' ? `<span class="tag">${C.xmlEsc(p.poleType || '—')}</span>${p.status === 'Proposed' || p.status === 'New' ? `<span class="tag" style="background:${p.status === 'Proposed' ? '#e03131' : '#17202a'};color:#fff">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}`
           : `<span class="tag" style="background:${SV_COLORS[el] || '#495057'};color:#fff">${C.xmlEsc(el)}</span>${p.status ? `<span class="tag">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}${p.closureId ? `<span class="tag">closure ${C.xmlEsc(p.closureId)}</span>` : ''}`;
         s.innerHTML = `${tags}${(Array.isArray(p.marks) ? p.marks.filter((m) => m.k === 'box').length + Math.max(0, (p.boxes || 0) - p.marks.length) : p.boxes) ? '<span class="tag" style="background:#e03131;color:#fff">red box</span>' : ''}${[...new Set((p.models || []).map((k) => MODEL_TAG[k] || k))].map((t) => `<span class="tag" style="background:#e03131;color:#fff">${t}</span>`).join('')}${p.adjusted ? '<span class="tag adj">pin adjusted</span>' : ''}${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
+        if (xh.has(p.id)) s.insertAdjacentHTML('beforeend', '<span class="tag xoff" title="Left out of the exports: Show in exports, in the record">not exported</span>'); // (Hide, at Export)
         const more = [boqText(p), detailsText(p.details, ' · '), p.remarks].filter(Boolean).join(' — ');
         if (more) { const s3 = document.createElement('span'); s3.className = 's'; s3.textContent = more; info.append(s3); }
       }
@@ -8653,7 +9238,7 @@
     const m = pmeta(), pts = projPoints(), n = pts.length, ex = m.exports || {}, cat = taskCat();
     const last = pts.reduce((t, p) => (p.updated > t ? p.updated : t), '');
     const fresh = (kinds) => kinds.some((k) => ex[k] && ex[k] > last);
-    const go = { cef: () => closeAll().then(() => cefHooks.open && cefHooks.open()), cefx: () => closeAll().then(() => cefHooks.open && cefHooks.open(null, { tab: 'export' })), capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => { exportPick = isAcc() ? 'doPdf' : 'doKmz'; $('exportBtn').click(); }), backup: () => closeAll().then(() => { exportPick = 'doBackup'; $('exportBtn').click(); }),
+    const go = { cef: () => closeAll().then(() => cefHooks.open && cefHooks.open()), cefx: () => closeAll().then(() => cefHooks.open && cefHooks.open(null, { tab: 'export' })), capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => { exportPick = wfExportKey(); $('exportBtn').click(); }), /* beta 6.7 (UX step 3): As-Plan and As-Built the Plan drawing, Audit the Google Earth map, acceptance the Deficiency List */ backup: () => closeAll().then(() => { exportPick = 'doBackup'; $('exportBtn').click(); }),
       route: () => closeAll().then(() => { if (!routeMode) setRouteMode(true); }), form: () => { $('curMore').open = true; $('mSite').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('mSite').focus(); },
       fat: () => $('startFat').click(), share: () => guard(sharePackage), next: () => closeAll().then(() => { const t = nextTarget(); if (t) openVisit(t.r.id, true); else toast('No pin left to visit'); }) };
     const steps = [];
@@ -8667,8 +9252,10 @@
         steps.push({ t: 'Site, ODF / ODC and POI', s: `${tick(g.site)} site · ${tick(g.odf)} ODF / ODC · ${tick(g.poi)} POI (closure or handhole)${g.nap ? ` · ${g.nap} NAP` : ''} · needed to complete`, done: g.site && g.odf && g.poi, go: 'capture', label: 'Capture' });
       } else steps.push({ t: purpose === 'Audit' ? 'Audit the network elements' : 'Site, ODC / ODF, NAP and closures as built', s: others ? svCountText(pts) : purpose === 'Audit' ? 'Closures, NAP, ODF, handholes… with remarks on what you find' : 'Photo of the site, ODC / ODF, NAP and closures used in the build', done: others > 0, go: 'capture', label: 'Capture' });
       steps.push({ t: 'Link the route', s: !R.spans.length ? 'Tap the route button: link in capture order, then fix branches' : `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${R.long} over ${pol().maxSpan} m · ${R.off} not linked`, done: routePts().length > 1 && R.spans.length > 0 && R.off === 0 && !R.long, go: 'route', label: 'Route' });
-      steps.push({ t: 'Export for design', s: fresh(['kmz', 'dxf', 'csv']) ? 'KMZ / DXF / CSV made after the last change' : 'KMZ for Google Earth, DXF for AutoCAD, CSV, photos', done: n > 0 && fresh(['kmz', 'dxf', 'csv']), go: 'export', label: 'Export' });
-      steps.push({ t: 'Back up the project', s: fresh(['backup']) ? `Backup made ${fmtTime(ex.backup)}` : 'Export → Backup, keep the ZIP on Drive or a PC', done: n > 0 && fresh(['backup']), go: 'backup', label: 'Backup' });
+      // beta 6.7 (UX step 3; critic): As-Plan and As-Built: the plan drawing (its template ZIP or One PDF: planAt; the simple DXF: dxf); Audit: the Google Earth map (or the DXF, the CSV)
+      if (BOQ_PURPOSES.includes(purpose)) { const pl = (!!m.planAt && m.planAt > last) || fresh(['dxf']); steps.push({ t: 'Export the plan drawing', s: pl ? 'Plan drawing made after the last change' : 'Export → Plan drawing: AutoCAD files (ZIP) or One PDF to print', done: n > 0 && pl, go: 'export', label: 'Export' }); }
+      else steps.push({ t: 'Export the Google Earth map', s: fresh(['kmz', 'dxf', 'csv']) ? 'KMZ / DXF / CSV made after the last change' : 'Export → Google Earth map (KMZ), the plan drawing or the pole list', done: n > 0 && fresh(['kmz', 'dxf', 'csv']), go: 'export', label: 'Export' });
+      steps.push({ t: 'Back up the project', s: fresh(['backup']) ? `Backup made ${fmtTime(ex.backup)}` : 'Export → Backup of the project; keep the ZIP on Drive or a PC', done: n > 0 && fresh(['backup']), go: 'backup', label: 'Backup' });
     } else if (cat === 'PAT') {
       const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open').length;
       const formOk = !!(m.site && m.contractor && (m.vendorRep || (S.user && S.user.name))); // the Globe representative is optional (v2.10)
@@ -8742,7 +9329,7 @@
     const btn = $('wfNext'), pm = pmeta();
     if (pm.completedAt && ['PAT', 'Cleanup'].includes(W.cat)) { btn.hidden = true; return; } // v2.22: the next stage's buttons take over
     if (W.next) { btn.hidden = false; btn.textContent = `Next: ${W.next.t}`; btn.onclick = () => W.go[W.next.go](); }
-    else { btn.hidden = false; btn.textContent = W.cat === 'Survey' ? 'All done — export again after changes' : 'All done'; btn.onclick = () => W.go.export(); }
+    else { btn.hidden = false; btn.textContent = W.cat === 'Survey' ? 'All done — export again after changes' : 'All done'; btn.onclick = () => closeAll().then(() => $('exportBtn').click()); } // (beta 6.7, UX step 3: Export on the row used last)
   }
   const PURPOSE_LABEL = { 'CEF-plan': 'CEF-Plan', 'As-plan': 'As-Plan Creation', 'As-built': 'As-Built Creation', Audit: 'Audit', PAT: 'PAT', Cleanup: 'Defect Rectification', FAT: 'FAT' };
   const STAGE_LABEL = { survey: 'Survey', PAT: 'PAT', Cleanup: 'Defect Cleanup', FAT: 'FAT' };
@@ -8776,7 +9363,7 @@
     $('curNotes').value = m.notes || '';
     { const sh = m.shares, up = (m.updates || []).slice(-4).reverse(), L = []; // v2.42.18: Share: the last one from this phone, the updates received
       if (sh && sh.n && !acc) L.push(`Shared by you: update ${sh.n}${sh.full ? ' (the whole project)' : ''} · ${fmtTime(sh.at)}`);
-      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}${x.cef ? `, ${x.cef}` : ''}`));
+      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}${x.cef ? `, ${x.cef}` : ''}${x.spl ? `, ${x.spl}` : ''}`));
       $('curUpdates').hidden = !L.length; $('curUpdates').textContent = L.join('\n'); }
     $('curSite').hidden = !m.taskId; $('curSite').textContent = m.taskId ? [`Site: ${m.site || ''}`, m.contractor && `Vendor: ${m.contractor}`, ...(m.siteExtra || []).filter(([k]) => /^(region|territory)$/i.test(String(k).trim())).map(([k, v]) => `${k}: ${v}`), `ID: ${m.taskId}`].filter(Boolean).join(' · ') : '';
     const sfOf = (name) => { const F = siteFieldsOf(name); return (F.length ? F : sfBlank()).map((x) => x.slice()); }; // v2.42.19: a project with none: typed in
@@ -8801,7 +9388,7 @@
       });
       ['mSite', 'mContractor', 'mVendorRep', 'mGlobe', 'mDate'].forEach((id) => { $(id).disabled = patClosed(); }); // the signed form stays as it was (v2.16)
       $('accActs').hidden = m.stage === 'FAT'; renderShareWarn('shareWarn');
-      $('sendPatLbl').textContent = m.stage === 'Cleanup' ? 'Share cleanup KMZ · for the FAT' : 'Share PAT KMZ · for defect cleanup / FAT';
+      $('sendPatLbl').textContent = m.stage === 'Cleanup' ? 'Hand on: Share the cleanup KMZ' : 'Hand on: Share the PAT KMZ'; // (beta 6.7, UX step 3: as Export's Hand on row)
       renderStageActs(m);
     }
     if (!acc) $('accActs').hidden = true;
@@ -8955,9 +9542,9 @@
     const Wh = { label: 'The whole project', value: 'full' }, X = { label: 'Cancel', value: '' };
     let text, btns;
     if (!since) { text = `The first share of this project is the whole project: after that, Share offers only the changes.\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
-    else if (!ch.length && !gone && !route && !(cefHooks.changed && cefHooks.changed(name, since))) { text = `Nothing changed since your last share (update ${sh.n}, ${fmtTime(since)}).\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
+    else if (!ch.length && !gone && !route && !(cefHooks.changed && cefHooks.changed(name, since)) && !(splHooks.changed && splHooks.changed(name, since))) { text = `Nothing changed since your last share (update ${sh.n}, ${fmtTime(since)}).\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
     else {
-      const what = [ch.length - nNew && `${pl(ch.length - nNew, 'record')} changed`, nNew && `${nNew} new`, gone && `${gone} deleted`, route && 'the route', cefHooks.changed && cefHooks.changed(name, since) && 'the CEF plan', nph && pl(nph, 'photo')].filter(Boolean).join(' · ');
+      const what = [ch.length - nNew && `${pl(ch.length - nNew, 'record')} changed`, nNew && `${nNew} new`, gone && `${gone} deleted`, route && 'the route', cefHooks.changed && cefHooks.changed(name, since) && 'the CEF plan', splHooks.changed && splHooks.changed(name, since) && 'the splicing details', nph && pl(nph, 'photo')].filter(Boolean).join(' · ');
       text = `Only the changes · for your team leader: ${what}, since your last share (update ${sh.n}, ${fmtTime(since)}). This is update ${n}.\n\n${whole}`;
       btns = [{ label: 'Only the changes · for your team leader', value: 'delta', primary: true }, Wh, X];
     }
@@ -9176,7 +9763,7 @@
     const newer = meta.points.filter((p) => loc.has(p.id) && String(loc.get(p.id).updated || '') > String(p.updated || '')).length, nNew = meta.points.filter((p) => !loc.has(p.id)).length - delHere;
     const G = (meta.meta && meta.meta.gone) || {}, del = Object.entries(G).filter(([id, t]) => loc.has(id) && String(loc.get(id).updated || '') <= String(t)).length;
     const route = !!(meta.meta && meta.meta.links && meta.meta.linksAt), nph = new Set(meta.points.flatMap(allPids)).size, chg = meta.points.length - nNew - newer - delHere; // (beta 3.3: the route in the file: merged per sender)
-    const what = [chg && `${pl(chg, 'record')} changed`, nNew && `${nNew} new`, del && `${del} deleted`, route && 'the route', nph && pl(nph, 'photo'), cefHooks.count && cefHooks.count(meta.meta, proj) && 'the CEF plan'].filter(Boolean).join(' · ') || 'Nothing new for this phone';
+    const what = [chg && `${pl(chg, 'record')} changed`, nNew && `${nNew} new`, del && `${del} deleted`, route && 'the route', nph && pl(nph, 'photo'), cefHooks.count && cefHooks.count(meta.meta, proj) && 'the CEF plan', splHooks.count && splHooks.count(meta.meta, proj) && 'the splicing details'].filter(Boolean).join(' · ') || 'Nothing new for this phone';
     const miss = !U.full && here && U.n > last + 1 ? U.n - last - 1 : 0;
     const warn = [
       !U.full && !here && `“${proj}” is not on this phone and this file has only its changes: ask ${first} to share The whole project.`,
@@ -9226,7 +9813,7 @@
     if (m.completedAt && S.team && !isAdmin() && !(await adminApproves(`Reopening the completed project “${S.project}”`))) return;
     const ok = m.completedAt
       ? await ask('Undo complete?', `The task is no longer marked complete${col ? `, and the ${col} is cleared in the online sheet` : ''}.${pat ? ' The PAT is unlocked: its elements and items can be changed and removed again.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Undo', value: true, primary: true }])
-      : await ask(pat ? 'Complete and lock the PAT?' : 'Mark the task complete?', `Today is recorded as the completion date${col ? ` (${col} in the online sheet)` : ''}. You can also export the completion report (Export → Completion report).${pat ? `\n\nThe PAT is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}` : ''}`, [{ label: 'Cancel', value: false }, { label: pat ? 'Complete and lock' : 'Mark complete', value: true, primary: true }]);
+      : await ask(pat ? 'Complete and lock the PAT?' : 'Mark the task complete?', `Today is recorded as the completion date${col ? ` (${col} in the online sheet)` : ''}. The Completion report does this too (Export › Completion report).${pat ? `\n\nThe PAT is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}` : ''}`, [{ label: 'Cancel', value: false }, { label: pat ? 'Complete and lock' : 'Mark complete', value: true, primary: true }]);
     if (!ok) return;
     if (pat) LOG.info('pat.lock', { on: !m.completedAt, admin: isAdmin() });
     markComplete(!m.completedAt, 'tagged'); renderProjects(); renderPoles();
@@ -9374,7 +9961,7 @@
       sub: 'Each punchlist item as found, rectified and verified (the photos taken so far), with the item, element and time burned into each photo.' }],
       line: `${parts.join(' · ')} (from page 2)${noneTxt}`, missing: 0 };
   }
-  $('doCompletion').addEventListener('click', () => guard(async () => {
+  $('doCompletion').addEventListener('click', () => xguard(async () => {
     const pts = projPoints(), acc = isAcc();
     if (!pts.length && !pmeta().completedAt) { toast(`Nothing recorded yet: capture at least one ${acc ? 'element' : 'pole'} before the task can be completed.`, 5000); return; } // v2.22
     if (!pmeta().completedAt) {
@@ -9382,6 +9969,7 @@
       // v2.16: the report completes the task, and completing a PAT locks it: asked first
       if (taskCat() === 'PAT' && patNoDefects()) { await completeNoDefects(); if (!pmeta().completedAt) return; } // v2.23: no defects: PAT and FAT done
       else if (taskCat() === 'FAT') { if (!(await completeFat('report'))) return; } // v2.42.5: the FAT is completed with the inspector's approval QR
+      else if (taskCat() !== 'PAT' && !(await ask('Finish the task?', `The completion report marks “${S.project}” complete${progressFields(S.project).some(([f]) => f === 'surveyDone') ? ' and sends today\u2019s date to the online sheet' : ''}. It can be undone in Projects (Undo complete).`, [{ label: 'Cancel', value: false }, { label: 'Finish and make the report', value: true, primary: true }]))) return; // beta 6.7 (UX step 3): asked first, as in a PAT
       else if (taskCat() === 'PAT' && !(await ask('Complete and lock the PAT?', `The completion report marks the PAT complete. It is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Complete and lock', value: true, primary: true }]))) return;
       markComplete(true, 'report');
     }
@@ -9535,7 +10123,20 @@
   /** Remembers which outputs were made from this project and when, for the workflow checklist. */
   function noteExport(kind, project) {
     S.meta = S.meta || {}; const m = { ...pmeta(project || S.project) }; m.exports = { ...(m.exports || {}), [kind]: new Date().toISOString() }; S.meta[project || S.project] = m; persist();
+    xMetaSoon(); // beta 6.7 (UX step 3 fixes)
   }
+  /** beta 6.7 (UX step 3; critic): the plan drawing made (the template ZIP, its One PDF): the next step Export the plan drawing is done.
+      Kept beside the export kinds (the ZIP stays 'zip', the One PDF 'pdf'), so the completion report's list of exports is unchanged. */
+  function notePlan() { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), planAt: new Date().toISOString() }; persist(); xMetaSoon(); }
+  /* beta 6.7 (UX step 3 fixes; review): a file made with Export open: its badges anew (★ Next step moves on from the Plan drawing to
+     Back up the project once the plan is made) and the Completion report's button (Make the report again once complete). Once, after
+     the export noted what it made. */
+  let xMetaT = 0;
+  function xMetaSoon() {
+    if (xMetaT) return;
+    xMetaT = setTimeout(() => { xMetaT = 0; if ($('export').hidden || !stack.includes('export')) return; try { xBadges(xNextKey()); complRender(); } catch (e) { LOG.warn('export.badges', errInfo(e)); } }, 0);
+  }
+  let xBtnKey = '', xResKey = ''; // beta 6.7 (UX step 3 fixes; review): the row whose button was pressed; the row the file in Your file is ready came from ('*': Several at once)
   let xCollect = null; // v2.28: while exporting several formats at once, the files are gathered here
   let resultInside = null; // v2.42.28: the plan's files in plain words, shown with the result
   function offerResult(blob, name) {
@@ -9546,14 +10147,18 @@
     noteExport(kind);
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
     $('resultCredit').textContent = creditNote; $('resultCredit').hidden = !creditNote; creditNote = ''; // v2.42.7: what this export used
-    $('resultBox').hidden = false;
+    $('resultBox').hidden = false; $('resSteps').hidden = true; $('resSteps').open = false;
     { const ins = resultInside; resultInside = null; $('resultInsideBox').hidden = !ins; $('resultInsideBox').open = false; $('resultInside').innerHTML = ins ? ins.map(([ic, n, t]) => `<div><span class="ic">${ic}</span><span><b>${C.xmlEsc(n)}</b><small>${C.xmlEsc(t)}</small></span></div>`).join('') : '';
       if (ins) { // v2.43: folded to one line (the files are listed when it is opened)
         const n = (k) => ins.filter((x) => x[0] === k).length;
-        $('resultInsideSum').textContent = `What's in the ZIP: ${[n('DXF') ? `${n('DXF')} DXF` : '', n('PDF') ? `${n('PDF')} PDF` : '', n('JPG') ? 'photos' : '', n('CEF') ? 'CEF plans' : '', n('TXT') ? 'README' : ''].filter(Boolean).join(' · ')}`;
+        $('resultInsideSum').textContent = /\.pdf$/i.test(name) ? `What's in the PDF: ${ins.filter((x) => !x[3]).map((x) => x[1]).join(' · ')}${ins.some((x) => x[3]) ? ` · not in it: ${ins.filter((x) => x[3]).map((x) => x[1]).filter((v, i, a) => a.indexOf(v) === i).join(', ')}` : ''}` // beta 4.6: the One PDF, its parts in order (x[3]: a plan not in it, said too)
+          : `What's in the ZIP: ${[n('DXF') ? `${n('DXF')} DXF` : '', n('PDF') ? `${n('PDF')} PDF` : '', n('JPG') ? 'photos' : '', n('CEF') ? 'CEF plans' : '', n('TXT') ? 'README' : ''].filter(Boolean).join(' · ')}`;
       } }
     $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
     $('resShare').hidden = false; // v2.30: always offered; a browser that cannot share this kind of file says what to do instead
+    // beta 6.7 (UX step 3 fixes; review): Your file is ready stays under the row it came from (the row whose button made it, else the open
+    // row; Several at once: at the foot), not under whichever row is opened next (a CSV under Make the Google Earth map)
+    { const oc = document.querySelector('#export .xcard.xopen'); xResKey = xMany ? '*' : xBtnKey || (oc ? xKey(oc) : '*'); xBtnKey = ''; if (!$('export').hidden) xLayout(); }
     $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   $('resSave').addEventListener('click', async () => {
@@ -9572,20 +10177,59 @@
     setTimeout(() => URL.revokeObjectURL(u), 60000);
     toast('Saved to Downloads');
   });
-  $('resShare').addEventListener('click', () => { if (lastResult) guard(() => shareFile(lastResult.blob, lastResult.name, lastResult.blob.type)); }); // v2.30: one send path for every Share button
-  /* Export screen: one format at a time, picked from the Format dropdown (the last choice is kept per Survey / acceptance). */
+  $('resShare').addEventListener('click', () => {
+    if (!lastResult) return;
+    if (NATIVE) { guard(() => shareFile(lastResult.blob, lastResult.name, lastResult.blob.type)); return; } // v2.30: one send path for every Share button
+    /* beta 6.7 (UX step 3; UX spec §1.6): on the website, Your file is ready is the one box: Share… opens the phone's share sheet straight
+       from the tap; a browser that cannot hand this file to another app shows the 3 steps here, behind ⓘ. The Ready to send panel
+       (sendSheet) stays for every Share outside Export: Projects, Share several projects, Hand on, the CEF and splicing hand-offs. */
+    const r = lastResult, file = new File([r.blob], r.name, { type: r.blob.type || 'application/octet-stream' }), ext = (r.name.split('.').pop() || '').toLowerCase();
+    const can = !!(navigator.share && navigator.canShare && (() => { try { return navigator.canShare({ files: [file] }); } catch (e) { return false; } })());
+    const steps = (why) => { $('resStepsWhy').textContent = why; $('resStepsName').textContent = r.name; $('resSteps').hidden = false; $('resSteps').open = true; try { $('resSteps').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* old WebView */ } };
+    if (!can) { steps(`This browser cannot pass a .${ext} file straight to another app: send it in 3 steps`); return; }
+    navigator.share({ files: [file], title: r.name }).catch((e) => {
+      if (e && e.name === 'AbortError') return; // the user closed the share sheet
+      LOG.warn('web.share.fail', { name: e && e.name, msg: String(e && e.message).slice(0, 120) });
+      steps(`The share sheet refused this file (${(e && (e.name || e.message)) || 'unknown reason'}): send it in 3 steps`);
+    });
+  });
+  /* ---- beta 6.7 (UX step 3; the owner: "make the Export button user friendly, intuitive and easy to understand by the non-technical
+     users"): one screen, "What do you need?". Each .xcard is a row named by its purpose under a plain heading (data-group; in a PAT,
+     cleanup or FAT data-group-acc when it differs); its head is the row button. One row is open at a time: the project's next step when
+     that step is an export (★ Next step), else the row used last (S.xLast, survey / acceptance / CEF-Plan), else the first. An open row
+     shows You get, a few choices, More options and its own button, sticky at the foot. Several at once (one ZIP) turns the rows into
+     ticks (#xMultiList keeps them, as before: a change there still opens the row, or Several at once for two or more); the last set
+     is offered again (Again, S.xMulti). Nothing that makes a file changed. ---- */
   let exportPick = null;
-  const xKey = (card) => card.querySelector('button[id^="do"]').id;
-  function exportCards() { return [...document.querySelectorAll('#export .xcard')].filter((c) => { const g = c.closest('#accExports, #surveyExports'); return (!g || !g.hidden) && (c.id !== 'boqCard' || boqOn()) && (c.id !== 'prCard' || !isAcc()); }); } // (beta 3.5: the Photo report: surveys) // v2.26.1: the BOQ in As-Plan and As-Built only
+  const xKey = (card) => { const b = card.querySelector(':scope > button[id^="do"], :scope > #xShare'); return b ? b.id : ''; };
+  const xMode = () => (isAcc() ? 'acc' : S.project && isCefProj() ? 'cef' : 'survey');
+  function exportCards() {
+    const acc = isAcc(), cef = !acc && !!S.project && isCefProj();
+    return [...document.querySelectorAll('#export .xcard')].filter((c) => {
+      const g = c.closest('#accExports, #surveyExports'); if ((g && g.hidden) || c.hidden) return false;
+      if (c.id === 'cefCard') return cef; // (a CEF-Plan project: its CEF plan and its backup; the owner, UX spec §7.4)
+      if (cef) return xKey(c) === 'doBackup';
+      if (xKey(c) === 'doRectPdf' && taskCat() === 'PAT') return false; // (beta 6.7, UX step 3: Progress of the fixes: in a cleanup and a FAT)
+      return (c.id !== 'boqCard' || boqOn()) && (c.id !== 'prCard' || !acc); // (beta 3.5: the Photo report: surveys) // v2.26.1: the BOQ in As-Plan and As-Built only
+    });
+  }
   const xName = (c) => c.querySelector('.head b').textContent;
   const xTicked = () => [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value);
-  /** v2.41: the formats are ticked in one list (the Format dropdown is gone): one ticked shows its card with its own Export button,
-      several show their cards (their options) and one button for a ZIP with them all. The last choice is kept (survey / acceptance). */
+  const xCard = (key) => (key ? [...document.querySelectorAll('#export .xcard')].find((c) => xKey(c) === key) || null : null);
+  const xSolo = (c) => !!c && 'solo' in c.dataset; // (the Hand on and CEF plan rows make no file here: not in Several at once)
+  /** beta 6.7 (UX step 3): the ticks of before (S.xPick) read once: the first is the row used last, two or more the Again set. */
+  function xMigrate() {
+    if (!S.xPick) return;
+    const L = { ...(S.xLast || {}) }, M = { ...(S.xMulti || {}) };
+    ['survey', 'acc'].forEach((m) => { const v = S.xPick[m], a = (Array.isArray(v) ? v : v ? [v] : []).filter((x) => typeof x === 'string'); if (a.length && !L[m]) L[m] = a[0]; if (a.length > 1 && !M[m]) M[m] = a; });
+    S.xLast = L; S.xMulti = M; delete S.xPick; persist();
+  }
+  xMigrate();
   /* ---- v2.43 beta 2.1: what the plan drawing reads from this phone that is not downloaded yet: the road pack of the project's
      region (its roads, and the barangays and cities of the RoW table) and an offline map of its area (the vicinity map). Each says
      what is missing and opens Maps at that download. ---- */
   function planNeeds(name) {
-    const pts = points.filter((p) => p.project === (name || S.project) && Number.isFinite(p.lat) && Number.isFinite(p.lon));
+    const xh = xHiddenIds(name || S.project), pts = points.filter((p) => p.project === (name || S.project) && !xh.has(p.id) && Number.isFinite(p.lat) && Number.isFinite(p.lon)); // (beta 6.2: not the poles hidden from the exports)
     if (!pts.length) return null;
     const inB = (b, p) => Array.isArray(b) && b[0] <= p.lon && p.lon <= b[2] && b[1] <= p.lat && p.lat <= b[3];
     const done = Object.values(S.packs || {}).filter((k) => k && k.done && !k.short && !k.damaged && k.bbox);
@@ -9603,6 +10247,7 @@
         H.push(`<div class="r"><span class="ic" aria-hidden="true">🛣</span><span class="tx"><b>${e(nm)}</b> is not on this phone. Without it ${tpl ? 'the barangay and city / municipality table stays blank, and ' : ''}the roads come from the internet (none without signal).</span><button class="btn sm primary" type="button" data-need="roads" data-region="${e(rg)}">Get the roads</button></div>`);
       });
     }
+    if (tpl && !S.dxfSeed && !seedBusy) H.push(`<div class="r"><span class="ic" aria-hidden="true">📐</span><span class="tx"><b>No company template on this phone</b>${seedId() ? ': your admin shares it. Get it now (once: it stays on this phone), or the plan drawing gets it first.' : ': the plan is drawn on it. Ask your admin to share it, or load the file they sent you.'}</span><button class="btn sm primary" type="button" data-need="tpl">Get it</button></div>`); // beta 6.7 (UX step 3)
     if (N && N.map && tpl) H.push(`<div class="r"><span class="ic" aria-hidden="true">🗺</span><span class="tx"><b>The offline map of this area</b> is not on this phone. The vicinity map then needs the internet${navigator.onLine === false ? ' (offline now: it is drawn from the roads only)' : '; without signal it is drawn from the roads only'}.</span><button class="btn sm" type="button" data-need="map">Download the map</button></div>`);
     box.innerHTML = H.length ? `<p class="hd">Not downloaded yet for this drawing</p>${H.join('')}` : '';
     box.hidden = !H.length;
@@ -9629,32 +10274,184 @@
     target.classList.add('guide'); target.scrollIntoView({ block: 'center' });
     LOG.info('plan.need.guide', { what, region, found });
   }
-  $('dxfNeed').addEventListener('click', (ev) => { const b = ev.target.closest('[data-need]'); if (b) guard(() => mapsGuide(b.dataset.need, b.dataset.region || ''), 'Maps not opened'); });
+  $('dxfNeed').addEventListener('click', (ev) => { const b = ev.target.closest('[data-need]'); if (!b) return;
+    if (b.dataset.need === 'tpl') { if (seedId()) { $('dxfTplGet').click(); return; } openStyle('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psTpl')), 120); return; } // beta 6.7 (UX step 3): the template, as Plan style › Plan file › Get the template does
+    guard(() => mapsGuide(b.dataset.need, b.dataset.region || ''), 'Maps not opened'); });
   $('dxfRoads').addEventListener('change', () => { try { renderDxfNeed(); } catch (e) { /* not shown */ } });
-  function showExport(pick) {
-    renderDxfTpl(); // v2.30
-    try { renderDxfNeed(); } catch (e) { LOG.warn('plan.need', errInfo(e)); } // v2.43 beta 2.1
-    const cards = exportCards(), acc = isAcc(), keys = cards.map(xKey), kept = (S.xPick || {})[acc ? 'acc' : 'survey'];
-    const keep = (Array.isArray(kept) ? kept : kept ? [kept] : []).filter((k) => keys.includes(k));
-    const want = pick && keys.includes(pick) ? [pick] : keep.length ? keep : keys.slice(0, 1);
-    const box = $('xMultiList'); box.innerHTML = '';
-    cards.forEach((c) => { const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = xKey(c); cb.checked = want.includes(cb.value); l.append(cb, document.createTextNode(xName(c))); box.appendChild(l); });
-    $('boqCardText').textContent = svPurpose() === 'As-built' && !acc // v2.26.1
-      ? 'What was built, by size, against the As-Plan (its KMZ as this project\u2019s reference): planned, built and the difference, with the IDs, the planned elements not found and what was built outside the plan. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.'
-      : 'What the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.';
-    applyXPick();
+  /* ---- beta 6.7 (UX step 3): the rows, their groups and badges, which one is open, Several at once ---- */
+  const XGH = { client: 'For the client or office', photos: 'Photos', lists: 'Lists and quantities', finish: 'Finish and keep', team: 'For the app team', handon: 'Hand on to the next stage', forms: 'Forms and reports', mapphotos: 'Map and photos' };
+  const XGROUPS = { survey: ['client', 'photos', 'lists', 'finish', 'team'], acc: ['handon', 'forms', 'mapphotos', 'finish', 'team'], cef: ['client', 'finish'] };
+  const XFOLDED = new Set(['team']); // For the app team (Photos for teaching the app: not needed for the task): folded
+  let xMany = false, xTeamOpen = false;
+  const xGroupOf = (c) => (isAcc() && c.dataset.groupAcc) || c.dataset.group || '';
+  /** The headings of the groups (made once, in the body). */
+  function xHeads() {
+    const body = $('export').querySelector('.body'), H = {};
+    Object.keys(XGH).forEach((g) => {
+      let h = body.querySelector(`:scope > .xgh[data-gh="${g}"]`);
+      if (!h) {
+        h = document.createElement(XFOLDED.has(g) ? 'button' : 'div'); h.className = 'xgh'; h.dataset.gh = g;
+        if (XFOLDED.has(g)) { h.type = 'button'; h.setAttribute('aria-expanded', 'false'); h.addEventListener('click', () => { xTeamOpen = h.getAttribute('aria-expanded') !== 'true'; xLayout(); }); }
+        else { h.setAttribute('role', 'heading'); h.setAttribute('aria-level', '3'); }
+        body.insertBefore(h, $('xOther'));
+      }
+      H[g] = h;
+    });
+    return H;
+  }
+  /** The rows in their groups: CSS order (the body is a flex column; the cards stay where they are), the headings, the fold; the Ready
+      box under the row it came from. */
+  function xLayout() {
+    const cards = exportCards(), shown = new Set(cards), H = xHeads(), groups = XGROUPS[xMode()] || [];
+    document.querySelectorAll('#export .xcard').forEach((c) => { c.classList.toggle('xoff', !shown.has(c)); c.style.order = ''; c.classList.remove('xfold'); });
+    Object.values(H).forEach((h) => { h.hidden = true; });
+    groups.forEach((g, gi) => {
+      const mine = cards.filter((c) => xGroupOf(c) === g); if (!mine.length) return;
+      const h = H[g], fold = XFOLDED.has(g) && !xMany, open = !fold || xTeamOpen || mine.some((c) => c.classList.contains('xopen'));
+      h.hidden = false; h.style.order = String(10 + gi * 100); h.textContent = fold ? `${XGH[g]} (${mine.length})` : XGH[g];
+      if (fold) h.setAttribute('aria-expanded', String(open));
+      mine.forEach((c, i) => { c.style.order = String(12 + gi * 100 + i * 2); c.classList.toggle('xfold', !open); });
+    });
+    // Your file is ready: under the row it came from (xResKey; beta 6.7 UX step 3 fixes), at the foot when that row is folded or not shown
+    const oc = document.querySelector('#export .xcard.xopen'), rc = xResKey ? xCard(xResKey) : oc, at = !xMany && rc && shown.has(rc) && !rc.classList.contains('xfold') && rc.style.order ? rc : null;
+    $('resultBox').style.order = at ? String(+at.style.order + 1) : '';
+  }
+  /** The row of the project's next step when that step is an export ('' otherwise). */
+  const wfExportKey = () => (isAcc() ? 'doPdf' : drawOn() ? 'doDxf' : 'doKmz');
+  function xNextKey() {
+    let W = null; try { W = workflowModel(); } catch (e) { return ''; }
+    const n = W && W.next; if (!n) return '';
+    return { export: wfExportKey(), backup: 'doBackup', complete: 'doCompletion', share: 'xShare', cef: 'doCef', cefx: 'doCef' }[n.go] || '';
+  }
+  /** beta 6.8 (UX step 6; reviewer): does an export of this project use credits (credits on, not the sample, not free, not acceptance)?
+      The Uses credits badge and the One PDF hint ask the same. */
+  function xCredits() { const c0 = creditOf(); return !isAcc() && !pmeta().sample && !creditFree() && !!(c0 && c0.on); }
+  /** The One PDF hint: credits only where the badge says so; the splicing lock only when the project has splicing details. */
+  function xOneHint() {
+    const el = $('xOneHint'); if (!el) return; const name = S.project, spl = !!name && !isAcc() && !!splCables(name) && spliceStarted(name);
+    el.textContent = ['Only the drawing shown on the Drawing.', xCredits() ? 'Uses credits, as the plan drawing does.' : '', spl ? 'The first one locks the splicing fibers as issued.' : ''].filter(Boolean).join(' ');
+  }
+  /** The badges: ★ Next step; Uses credits (credits on, a project that is not the sample or free); Finishes the task; Locks the PAT; Marks it sent. */
+  function xBadges(next) {
+    const acc = isAcc(), cat = taskCat(), cr = xCredits(); try { xOneHint(); } catch (e) { LOG.warn('export.onehint', errInfo(e)); }
+    document.querySelectorAll('#export .xcard').forEach((c) => {
+      const k = xKey(c), want = (c.dataset.badge || '').split(/\s+/), B = [];
+      if (k && k === next) B.push(['next', '★ Next step']);
+      if ((want.includes('credits') || k === 'doCompletion') && cr) B.push(['credits', 'Uses credits']); // (the completion report: the KMZ in it)
+      if (want.includes('finish')) B.push(['finish', 'Finishes the task']);
+      if ((want.includes('finish') || want.includes('lock')) && cat === 'PAT') B.push(['lock', 'Locks the PAT']);
+      if (want.includes('sent')) B.push(['sent', 'Marks it sent']);
+      const box = c.querySelector('.xbadges'); if (box) box.innerHTML = B.map(([cl, t]) => `<span class="xbadge ${cl}">${t}</span>`).join('');
+    });
+  }
+  /** The ticks of #xMultiList (one per row that makes a file), ids ticked. */
+  function xBoxes(ids) {
+    const box = $('xMultiList'), cards = exportCards().filter((c) => !xSolo(c)), keys = cards.map(xKey).join(',');
+    if (box.dataset.keys !== keys) {
+      box.innerHTML = ''; box.dataset.keys = keys;
+      cards.forEach((c) => { const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = xKey(c); l.append(cb, document.createTextNode(xName(c))); box.appendChild(l); });
+    }
+    box.querySelectorAll('input').forEach((cb) => { cb.checked = ids.includes(cb.value); });
+  }
+  function xRemember(k) { if (!k) return; const m = xMode(); if ((S.xLast || {})[m] === k) return; S.xLast = { ...(S.xLast || {}), [m]: k }; persist(); }
+  /** Brings a row to the top of the sheet (its head; a row near the top: the sheet from its top, What do you need? in view). */
+  function xScrollTo(c, smooth) {
+    const body = $('export').querySelector('.body');
+    requestAnimationFrame(() => { const first = exportCards().filter((x) => x.offsetParent).sort((a, b2) => a.getBoundingClientRect().top - b2.getBoundingClientRect().top)[0] === c; // (the first row: What do you need? stays in view)
+      const t = c.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 8, top = first || t < body.clientHeight * 0.3 ? 0 : t;
+      if (smooth && body.scrollTo) body.scrollTo({ top, behavior: 'smooth' }); else body.scrollTop = top; });
+  }
+  /** Opens one row and closes the others ('' : none open). */
+  function xOpen(key, how) {
+    how = how || {}; const c = xCard(key);
+    document.querySelectorAll('#export .xcard').forEach((x) => { const on = x === c; x.classList.toggle('xopen', on); const h = x.querySelector(':scope > .head'); if (h && !xMany) h.setAttribute('aria-expanded', String(on)); });
+    xBoxes(c ? [key] : []);
+    if (c && XFOLDED.has(xGroupOf(c))) xTeamOpen = true;
+    xLayout();
+    if (c && how.scroll !== false) xScrollTo(c, how.smooth);
+    if (c && how.focus) requestAnimationFrame(() => { const h = c.querySelector(':scope > .head'); if (h && !$('export').hidden) try { h.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } }); // (critic: the focus on the row that opens)
+  }
+  /** Several at once: every row a tick (its head), the ticked rows open with their names and choices, their own buttons hidden; one
+      button for a ZIP with them all. */
+  function xManyOn(ids) {
+    xMany = true; $('export').classList.add('xmode'); $('xModeBar').hidden = false; $('xGoBox').hidden = false; if ($('export').classList.contains('plan')) { $('export').classList.add('planall'); $('xOther').hidden = true; } // (from Export plan: every row)
+    document.querySelectorAll('#export .xcard').forEach((x) => { x.classList.remove('xopen'); const h = x.querySelector(':scope > .head'); if (h) { h.setAttribute('role', 'checkbox'); h.removeAttribute('aria-expanded'); } });
+    xBoxes(ids); applyXPick(); xLayout(); xAgainRender();
+    $('export').querySelector('.body').scrollTop = 0;
+    try { $('xOneAtATime').focus({ preventScroll: true }); } catch (e) { /* old WebView */ }
+  }
+  function xManyOff(key) {
+    if (xMany) { xMany = false; $('export').classList.remove('xmode'); $('xModeBar').hidden = true; } $('xGoBox').hidden = true;
+    document.querySelectorAll('#export .xcard').forEach((x) => { x.classList.remove('xmany'); const h = x.querySelector(':scope > .head'); if (h) { h.removeAttribute('role'); h.removeAttribute('aria-checked'); } });
+    dxfOutRender(); xOpen(key || '', { focus: true }); xAgainRender();
   }
   function applyXPick() {
-    const ids = xTicked(), many = ids.length > 1, shown = new Set(exportCards());
-    document.querySelectorAll('#export .xcard').forEach((c) => { const b = c.querySelector('button[id^="do"]'), on = !!b && shown.has(c) && ids.includes(b.id); c.classList.toggle('xoff', !on); c.classList.toggle('xmany', on && many); });
-    $('xGoBox').hidden = ids.length === 1; $('xMultiGo').disabled = !ids.length;
-    $('xMultiGo').textContent = ids.length ? `Export ${ids.length} formats (one ZIP)` : 'Tick a format above';
-    $('xMultiInfo').hidden = !many;
+    const ids = xTicked(), shown = new Set(exportCards()), n = ids.length;
+    document.querySelectorAll('#export .xcard').forEach((c) => { const on = xMany && shown.has(c) && ids.includes(xKey(c)); c.classList.toggle('xmany', on); const h = c.querySelector(':scope > .head'); if (h && xMany) h.setAttribute('aria-checked', String(on)); });
+    $('xMultiGo').disabled = n < 2; $('xMultiGo').textContent = n >= 2 ? `Make ${n} files (one ZIP)` : n === 1 ? 'Tick one more' : 'Tick two or more';
+    if (xMany && n >= 2) { S.xMulti = { ...(S.xMulti || {}), [xMode()]: ids }; persist(); }
+    dxfOutRender();
   }
-  $('xMultiList').addEventListener('change', () => { S.xPick = { ...(S.xPick || {}), [isAcc() ? 'acc' : 'survey']: xTicked() }; persist(); applyXPick(); });
+  /** Several at once (one ZIP)… and Again: the last set (shown when one is kept). */
+  function xAgainRender() {
+    const many = exportCards().filter((c) => !xSolo(c)), keys = many.map(xKey), set = ((S.xMulti || {})[xMode()] || []).filter((k) => keys.includes(k)), b = $('xAgain');
+    b.hidden = set.length < 2 || xMany; if (!b.hidden) b.textContent = `Again: ${set.map((k) => xName(xCard(k))).join(' + ')} (one ZIP)`;
+    $('xManyBtn').hidden = many.length < 2; $('xFoot').hidden = $('xManyBtn').hidden && b.hidden;
+  }
+  /** The project's line of the Completion report: its button (again, once complete) and what it does in this kind of task. */
+  function complRender() {
+    const m = pmeta(), cat = taskCat();
+    $('doCompletion').textContent = m.completedAt ? 'Make the report again' : 'Finish the task and make the report';
+    $('complGet').textContent = cat === 'PAT' ? 'page 1 with the sign-off, then the photos of each deficiency. This also completes and locks the PAT, and sends the date to the online sheet.'
+      : cat === 'FAT' ? 'page 1 with the sign-off and the inspector’s approval (it needs the inspector’s approval QR), then the photos of each deficiency. This also marks the FAT complete.'
+        : cat === 'Cleanup' ? 'page 1 with the sign-off, then the photos of each item as found and fixed. This also marks the cleanup complete.'
+          : 'page 1 with the sign-off, then the photos and the BOQ. This also marks the task complete and sends the date to the online sheet.';
+  }
+  function showExport(pick, opts) {
+    opts = opts || {};
+    renderDxfTpl(); // v2.30
+    try { renderDxfNeed(); } catch (e) { LOG.warn('plan.need', errInfo(e)); } // v2.43 beta 2.1
+    if (xMany) xManyOff(''); // (Export always opens one row at a time)
+    xTeamOpen = false;
+    const cards = exportCards(), acc = isAcc(), keys = cards.map(xKey), next = xNextKey(), last = (S.xLast || {})[xMode()];
+    xBadges(next); complRender();
+    $('boqCardText').textContent = svPurpose() === 'As-built' && !acc // v2.26.1
+      ? 'what was built, by size, against the As-Plan (its KMZ as this project’s reference): planned, built and the difference, with the IDs, the planned elements not found and what was built outside the plan. The same BOQ is in the Completion report and in Route and span lengths.'
+      : 'what the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and span lengths.';
+    const want = pick && keys.includes(pick) ? pick : next && keys.includes(next) ? next : last && keys.includes(last) ? last : keys[0] || '';
+    if (pick && keys.includes(pick)) xRemember(pick);
+    dxfOutRender(); xOpen(want, { focus: !opts.noFocus }); xAgainRender();
+  }
+  /** beta 6.7 (UX step 3 fixes; review): Export on top again after a screen opened over it (Look › Change ›: Plan settings and its Drawing
+      style; Get the roads: Maps; the CEF editor, the splicing details): what they change is shown anew. Before, the Look line still said
+      "Your own · 1 change: Pole labels: Standard" after Tidy was chosen there. The open row, the ticks and the scroll stay. */
+  function xBackOn() {
+    if ($('export').hidden) return;
+    try { renderDxfTpl(); renderDxfNeed(); xBadges(xNextKey()); complRender(); } catch (e) { LOG.warn('export.back', errInfo(e)); }
+  }
+  // a row's head: opens it (closes the others), or closes it; in Several at once, its tick
+  $('export').addEventListener('click', (e) => {
+    const h = e.target.closest && e.target.closest('#export .xcard > .head'); if (!h) return;
+    const c = h.parentElement, k = xKey(c); if (!k) return;
+    if (xMany) { const cb = $('xMultiList').querySelector(`input[value="${k}"]`); if (cb) { cb.checked = !cb.checked; applyXPick(); } return; }
+    if (c.classList.contains('xopen')) { xOpen('', { scroll: false }); return; }
+    xRemember(k); xOpen(k, { smooth: true });
+  });
+  // the row used: kept (the bar's Export opens on it next time); not while Several at once makes its files. beta 6.7 (UX step 3 fixes):
+  // the row whose button was pressed (a tap, Show me, the next step, the tests' click()) is where Your file is ready goes
+  $('export').addEventListener('click', (e) => { if (xCollect) return; const b = e.target.closest && e.target.closest('#export .xcard > button:not(.head)'); if (!b) return; xBtnKey = xKey(b.parentElement); if (e.isTrusted) xRemember(xBtnKey); }, true);
+  $('xMultiList').addEventListener('change', () => { // (the tests tick here: one ticked opens its row, two or more open Several at once)
+    const ids = xTicked();
+    if (xMany) { applyXPick(); return; }
+    if (ids.length > 1) xManyOn(ids); else if (ids.length === 1) { xRemember(ids[0]); xOpen(ids[0]); }
+  });
+  $('xManyBtn').addEventListener('click', () => { const oc = document.querySelector('#export .xcard.xopen'), k = oc && !xSolo(oc) ? xKey(oc) : ''; xManyOn(k ? [k] : []); });
+  $('xAgain').addEventListener('click', () => { const keys = exportCards().filter((c) => !xSolo(c)).map(xKey); xManyOn(((S.xMulti || {})[xMode()] || []).filter((k) => keys.includes(k))); });
+  $('xOneAtATime').addEventListener('click', () => { const ids = xTicked(); xManyOff(ids[0] || (S.xLast || {})[xMode()] || ''); });
+  $('xOther').addEventListener('click', () => { $('export').classList.add('planall'); $('xOther').hidden = true; xLayout(); }); // Export plan: the other rows too
   $('xMultiGo').addEventListener('click', async () => {
     const ids = [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value);
-    if (ids.length < 2) { toast('Tick two or more formats (one format: use its own Export button below)', 4000); return; }
+    if (ids.length < 2) { toast('Tick two or more (one file: Back to one at a time, then its own button)', 4000); return; }
     xCollect = []; const failed = [];
     try {
       for (const id of ids) {
@@ -9670,24 +10467,247 @@
       if (failed.length) toast(`In the ZIP: ${files.length} file${files.length === 1 ? '' : 's'}. Not made: ${failed.join(', ')} (see the message above)`, 7000);
     } else toast(`No file was made${failed.length ? `: ${failed.join(', ')}` : ''}`, 6000); }
   });
+  /* ================= Poles on no cable, at Export =================
+     Export (any way in: the bar, Export the plan, Projects → Export DXF…, the next-step button, the tutorial) first looks at the survey
+     open: a pole on no RUN's path (existing cables too) is on no cable. A pole whose only spans are on no RUN counts too: Route check
+     flags those spans ("on no cable: put a cable on them, or unlink"). Sites and towers, OLT, ODC, ODF, handholes, manholes, service
+     boxes and the pins on a pole are not asked about. Nothing is asked in a project with no cable at all, in a PAT, cleanup or FAT, in a
+     CEF-Plan project (it exports from its plan), in a task the coordinator accepted (view only), or for a Backup. Three answers:
+       Fix    the map goes to each pole in turn, in Route: the pole ringed and picked, the RUN nearest it lit with its handles (drag one
+              onto the pole; Put on RUN n in the bar when the cable passes close). A bar at the top: "1 of 3 · CC-0012", ◀ ▶, Hide, Done.
+              A pole put on a cable moves it to the next by itself; at the end, or Done, Back to Export.
+       Hide   the record is left out of every export that draws, lists or counts points (xHide on the record, xScope) while it is on no
+              cable. Its pin is faded, its record and the Records list say so, and Show in exports in its record takes it back.
+       Leave  exported as it is. The poles left are kept with the project (xLeft): the same poles never ask again, a new one does. */
+  var xHid = null, xf = null, xGo = false, xfLayer = null; // the hidden poles (on no cable) as drawn; the Fix walk; Export answered (on to it once)
+  function onCableIds(name) { return new Set(fibers(name).filter((f) => f.path.length > 1).flatMap((f) => f.path.map(String))); }
+  /** The records left out of the exports: hidden (xHide) and on no cable (a hidden pole put on a cable is exported). */
+  function xHiddenIds(name) { const nm = name || S.project, on = onCableIds(nm); return new Set(points.filter((p) => p.project === nm && p.xHide && !on.has(String(p.id))).map((p) => p.id)); }
+  /** The poles on no cable in a survey with cables (not the hidden ones), in capture order. [] where nothing is asked. */
+  function loosePoles(name) {
+    const nm = name || S.project; if (!nm || isAcc(nm) || (cefHooks.isCef && cefHooks.isCef(nm))) return [];
+    const on = onCableIds(nm); if (!on.size) return [];
+    return points.filter((p) => p.project === nm && elemOf(p) === 'Pole' && !p.xHide && !on.has(String(p.id)) && Number.isFinite(+p.lat) && Number.isFinite(+p.lon)).sort((a, b) => (a.created < b.created ? -1 : 1));
+  }
+  /** At Export: the poles on no cable not left as they are before (null: nothing to ask). */
+  function looseNew() {
+    if (tmHooks.locked && tmHooks.locked()) return null; // (an accepted task: view only, exported as it is)
+    const L = loosePoles(), ids = new Set(L.map((p) => String(p.id))), x0 = (pmeta().xLeft || []).map(String), left = new Set(x0.filter((id) => ids.has(id))), N = L.filter((p) => !left.has(String(p.id)));
+    if (left.size < x0.length && S.meta && S.meta[S.project]) { S.meta[S.project] = { ...pmeta(), xLeft: [...left] }; persist(); } // (one left as it was is on a cable now, or gone: taken off it, it asks again)
+    return N.length ? N : null;
+  }
+  /** Run an export (an export button's work) with the hidden records left out of projPoints(); the map is drawn again after it when
+      something drew it meanwhile (without them). */
+  function xScope(fn) {
+    return async (...a) => {
+      if (xOmit) return fn(...a); // (inside one already)
+      xOmit = isAcc() ? new Set() : xHiddenIds(); xOmitDraw = false; addrCache = null; // (beta 6.4: the photo stamps' addresses anew)
+      try { return await fn(...a); } finally { const d = xOmitDraw && xOmit.size; xOmit = null; xOmitDraw = false; if (d) renderPoles(); }
+    };
+  }
+  function xguard(fn, label) { return guard(xScope(fn), label); }
+  /** fn() as an export sees it (a count on the Export screen): at once, the hidden records left out. */
+  function xNow(fn) { if (xOmit) return fn(); xOmit = isAcc() ? new Set() : xHiddenIds(); try { return fn(); } finally { xOmit = null; } }
+  /** Hide (on) or show again (off) records: saved at once (Show in exports, in the record, takes a Hide back). Returns how many changed. */
+  async function xHideSet(ids, on) {
+    let n = 0; const now = new Date().toISOString();
+    for (const id of ids) {
+      const p = points.find((x) => x.id === id); if (!p || !!p.xHide === on) continue;
+      const lk = tmHooks.locked ? tmHooks.locked(id, 'edit') : ''; if (lk) { toast(lk, 6500); break; }
+      const rec = { ...p, updated: now, updatedBy: byLine() }; if (on) rec.xHide = true; else delete rec.xHide;
+      try { await dbPut('points', rec); } catch (e) { toast('Could not save: try again', 3500); break; }
+      const i = points.findIndex((x) => x.id === id); if (i >= 0) points[i] = rec; n++;
+    }
+    if (n) { changedAfterApproval(S.project, 'record'); renderPoles(); renderEdXHide();
+      if (stack.includes('drawing') && drw && drw.project === S.project) openDrawing(true, drw.view ? { ...drw.view } : null); } // (beta 6.2: the Drawing under the record, drawn anew where it was)
+    return n;
+  }
+  /** beta 6.2: recs without the records hidden from the exports (of any project: Photos for AI training, All projects). */
+  function xNotHidden(recs) { const on = new Map(), hid = (p) => { if (!p.xHide) return false; if (!on.has(p.project)) on.set(p.project, onCableIds(p.project)); return !on.get(p.project).has(String(p.id)); }; return recs.filter((p) => !hid(p)); }
+  /** beta 6.2: the Drawing's chip: how many poles are hidden from the exports (so not on the plan); a tap opens the one, or the Records
+      list of them (its search "not exported"), where each opens with Show in exports. */
+  function drwXHid() {
+    const b = $('drawXHid'); if (!b) return; const ids = isAcc() ? [] : [...xHiddenIds()], n = ids.length; b.hidden = !n; if (!n) return;
+    const one = n === 1 ? points.find((p) => p.id === ids[0]) : null, t = one ? `${looseName(one)} is hidden from the exports, so not on the plan: open its record` : `${n} poles are hidden from the exports, so not on the plan: list them`;
+    b.querySelector('span').textContent = `${n} hidden (not exported)`; b.setAttribute('aria-label', t); b.title = t;
+  }
+  $('drawXHid').addEventListener('click', () => { const ids = [...xHiddenIds()]; if (!ids.length) return; if (ids.length === 1) { openEditorFor(ids[0]); return; } $('listSearch').value = 'not exported'; renderList(); openSheet('list'); });
+  function xLeave(ids) { // Leave: these poles are not asked about again (those of before that are still on no cable stay)
+    const L = new Set(loosePoles().map((p) => String(p.id))), keep = (pmeta().xLeft || []).map(String).filter((id) => L.has(id));
+    S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), xLeft: [...new Set(keep.concat(ids.map(String)))] }; persist();
+  }
+  function looseName(p) { return (p && (recName(p) || p.poleId)) || '(no ID)'; }
+  /** The question: Fix, Hide or Leave (✕, Esc, Back: no export). pick / pl: what Export was opened for (a card; Export the plan). */
+  async function looseAsk(N, pick, pl) {
+    const n = N.length, ids = N.map((p) => p.id), it = n === 1 ? 'it' : 'them';
+    const go = () => { exportPick = pick; planExport = pl; xGo = true; $('exportBtn').click(); };
+    LOG.info('export.loose', { n });
+    // beta 6.7 (UX step 3): Fix now · Leave them out of the files · Export as they are (were Fix, Hide, Leave); the same three answers
+    const v = ask(`${n} pole${n === 1 ? '' : 's'} on no cable`, N.slice(0, 6).map(looseName).join(' · ') + (n > 6 ? ` +${n - 6} more` : ''), [
+      { label: `Fix now: put ${it} on a cable, one at a time on the map`, caption: 'Fix now', sub: 'on the map', value: 'fix', primary: true, tile: true, icon: 'i-wrench' },
+      { label: `Leave ${it} out of the files: not exported`, caption: `Leave ${it} out of the files`, sub: 'not exported', value: 'hide', tile: true, icon: 'i-eyeoff' },
+      { label: `Export ${it} as ${n === 1 ? 'it is' : 'they are'}, on no cable`, caption: n === 1 ? 'Export as it is' : 'Export as they are', sub: 'on no cable', value: 'leave', tile: true, icon: 'i-check' },
+      { label: 'Cancel', value: null, x: true }]);
+    requestAnimationFrame(() => { const b = $('askBox').querySelector('.btn.tile.primary'); if (b && !$('askBox').hidden) b.focus({ preventScroll: true }); });
+    const a = await v;
+    if (a === 'leave') { xLeave(ids); go(); }
+    else if (a === 'hide') { const k = await xHideSet(ids, true); if (k) toast(`${k === 1 ? looseName(N[0]) : `${k} poles`} left out of the files (Show in exports, in ${k === 1 ? 'its' : 'each'} record, takes ${k === 1 ? 'it' : 'one'} back)`, 5000); go(); }
+    else if (a === 'fix') xfStart(ids, pick, pl);
+  }
+  /* ---- Fix: the walk ---- */
+  function xfOn(id) { return onCableIds().has(String(id)); }
+  function xfStart(ids, pick, pl) {
+    xfStop(); closeAll().then(() => {
+      if (!routeMode) $('routeBtn').click(); // (its own checks: an accepted task, fewer than two poles)
+      if (!routeMode) return;
+      xf = { ids: ids.slice(), i: 0, pick, pl, proj: S.project, on0: false, t: 0, adv: 0 };
+      document.body.classList.add('xfix'); $('xfBar').hidden = false;
+      xfGo(0);
+      rtHint('Drag the cable’s ○ onto the ringed pole, or hold the cable, then drag', 6000);
+      requestAnimationFrame(() => $('xfBar').focus({ preventScroll: true }));
+    });
+  }
+  function xfStop() {
+    if (xf) { clearTimeout(xf.t); clearTimeout(xf.adv); } xf = null;
+    $('xfBar').hidden = true; document.body.classList.remove('xfix'); if (xfLayer) xfLayer.clearLayers();
+  }
+  /** The RUN nearest the pole (existing cables too) and its span there: the one lit, whose handles show. */
+  function xfNear(p) {
+    const by = new Map(routePts().map((q) => [q.id, q])), xy = xyOf(p.lat), Q = xy(p); let best = null;
+    fibers().forEach((f) => { for (let k = 1; k < f.path.length; k++) { const A = by.get(f.path[k - 1]), B = by.get(f.path[k]); if (!A || !B) continue; const d = projOn(Q, [xy(A), xy(B)]).d; if (!best || d < best.d) best = { d, n: f.n, a: A, b: B }; } });
+    return best;
+  }
+  /** The part of the map no bar or panel covers (screen pixels). */
+  function xfOpen() {
+    const mr = $('map').getBoundingClientRect(), o = { l: mr.left, t: mr.top, r: mr.right, b: mr.bottom }, fb = $('xfBar').getBoundingClientRect();
+    if (!$('xfBar').hidden && fb.height) o.t = Math.max(o.t, fb.bottom + 8);
+    ['rtBar', 'routeBar'].forEach((id) => { const e = $(id); if (!e || e.hidden || !e.offsetWidth) return; const pr = e.offsetParent ? e.offsetParent.getBoundingClientRect() : { left: 0, top: 0 }; // (where it stands, not where its slide-in is)
+      if (deskOn()) o.r = Math.min(o.r, pr.left + e.offsetLeft); else o.b = Math.min(o.b, pr.top + e.offsetTop); });
+    return o;
+  }
+  /** The pole in the middle of the open map, zoomed in so the cable near it is in view (its handle is on the span's middle). */
+  function xfView(p, nr) {
+    const o = xfOpen(), mr = $('map').getBoundingClientRect(), w = Math.max(120, o.r - o.l - 48), h = Math.max(120, o.b - o.t - 48);
+    let z = 18;
+    if (nr) z = map.getBoundsZoom(L.latLngBounds([nr.a, nr.b].flatMap((q) => [[q.lat, q.lon], [2 * p.lat - q.lat, 2 * p.lon - q.lon]])), false, L.point(Math.max(0, mr.width - w), Math.max(0, mr.height - h)));
+    z = Math.max(17, Math.min(19, map.getMaxZoom() || 19, z));
+    const sz = map.getSize(), c = map.project([p.lat, p.lon], z).subtract(L.point((o.l + o.r) / 2 - mr.left - sz.x / 2, (o.t + o.b) / 2 - mr.top - sz.y / 2)); // (the view's middle is the map's own: its size as Leaflet has it)
+    map.setView(map.unproject(c, z), z, { animate: false });
+  }
+  function xfRing(p) {
+    if (!xfLayer) xfLayer = L.layerGroup().addTo(map); xfLayer.clearLayers(); if (!p) return;
+    L.circleMarker([p.lat, p.lon], { radius: 22, color: '#f08c00', weight: 3, fill: false, interactive: false, className: 'target-ring' }).addTo(xfLayer);
+    L.circleMarker([p.lat, p.lon], { radius: 15, color: '#f08c00', weight: 3, fill: false, interactive: false }).addTo(xfLayer);
+  }
+  /** Go to pole i of the walk: ringed and picked (its options in the bar), the RUN nearest it lit with its handles. */
+  function xfGo(i) {
+    if (!xf) return; clearTimeout(xf.adv); xf.adv = 0;
+    xf.ids = xf.ids.filter((id) => points.some((p) => p.id === id && p.project === xf.proj)); if (!xf.ids.length) { xfFinish(); return; } // (one deleted meanwhile)
+    xf.i = Math.max(0, Math.min(xf.ids.length - 1, i)); const id = xf.ids[xf.i], p = points.find((x) => x.id === id), nr = xfNear(p);
+    xf.on0 = xfOn(id);
+    if (fibAdd == null && !rtTools) { const was = routeSel; routeSel = id; spanSel = null; rtPop = null; fibSel = nr ? nr.n : fibSel; routeRefresh([was, id]); }
+    xfView(p, nr); xfRing(p); xfRender();
+  }
+  function xfRender() {
+    if (!xf) return; const id = xf.ids[xf.i], p = points.find((x) => x.id === id), nm = looseName(p), on = xfOn(id), hid = !on && !!(p && p.xHide);
+    $('xfNow').innerHTML = `${xf.i + 1} of ${xf.ids.length} · <b>${hEsc(nm)}</b>${on ? ' <span class="ok">✓ on a cable</span>' : hid ? ' <span class="off">left out</span>' : ''}`;
+    $('xfPrev').disabled = xf.i === 0; $('xfNext').disabled = xf.i >= xf.ids.length - 1;
+    const hb = $('xfHide'); hb.hidden = on; hb.querySelector('use').setAttribute('href', hid ? '#i-eye' : '#i-eyeoff'); hb.querySelector('span').textContent = hid ? 'Put back' : 'Leave out'; // (beta 6.7, UX step 3: were Hide, Show)
+    hb.setAttribute('aria-label', hid ? `Put ${nm} back in the files` : `Leave ${nm} out of the files`); hb.title = hb.getAttribute('aria-label');
+  }
+  function xfSoon() { if (xf && !xf.t) xf.t = setTimeout(xfCheck, 0); }
+  /** After each change to the route: the pole now on a cable moves the walk to the next pole on no cable (a moment later). */
+  function xfCheck() {
+    if (!xf) return; xf.t = 0; if (xf.proj !== S.project) { xfStop(); return; }
+    const id = xf.ids[xf.i], now = xfOn(id);
+    if (now && !xf.on0) { xf.on0 = true; const p = points.find((x) => x.id === id); if (p && p.xHide) xHideSet([id], false); clearTimeout(xf.adv); xf.adv = setTimeout(xfNextOpen, 1300); }
+    else if (!now) { xf.on0 = false; if (xf.adv) { clearTimeout(xf.adv); xf.adv = 0; } } // (Undo: it stays)
+    xfRender();
+  }
+  /** The next pole of the walk still on no cable and not hidden (after this one, round to the first), else the end. */
+  function xfNextOpen() {
+    if (!xf) return; xf.adv = 0; const n = xf.ids.length;
+    for (let k = 1; k <= n; k++) { const j = (xf.i + k) % n, id = xf.ids[j], p = points.find((x) => x.id === id); if (p && !p.xHide && !xfOn(id)) { xfGo(j); return; } }
+    xfFinish();
+  }
+  /** The end (every pole on a cable or hidden), Done, or Route closed: Back to Export? */
+  async function xfFinish() {
+    if (!xf) return; const X = xf; xfStop();
+    const on = X.ids.filter(xfOn).length, hid = X.ids.filter((id) => !xfOn(id) && (points.find((p) => p.id === id) || {}).xHide).length, rest = X.ids.length - on - hid;
+    const v = await ask(rest ? 'Back to Export?' : 'Done. Back to Export?', [on ? `${on} put on a cable` : '', hid ? `${hid} left out` : '', rest ? `${rest} still on no cable` : ''].filter(Boolean).join(' · '),
+      [{ label: 'Not now', value: false }, { label: 'Export', value: true, primary: true, icon: 'i-export' }]);
+    if (!v || S.project !== X.proj) return;
+    if (routeMode) setRouteMode(false);
+    exportPick = X.pick; planExport = X.pl; $('exportBtn').click();
+  }
+  $('xfPrev').addEventListener('click', () => { if (xf) xfGo(xf.i - 1); });
+  $('xfNext').addEventListener('click', () => { if (xf) xfGo(xf.i + 1); });
+  $('xfDone').addEventListener('click', () => xfFinish());
+  $('xfHide').addEventListener('click', async () => {
+    if (!xf) return; const id = xf.ids[xf.i], p = points.find((x) => x.id === id); if (!p) return; const on = !p.xHide;
+    if (!(await xHideSet([id], on)) || !xf) return;
+    if (!on) { xfRender(); toast(`${looseName(p)} is back in the files`, 2500); return; }
+    toast(`${looseName(p)} left out of the files`, 2500); xfNextOpen();
+  });
+  /** The record: "Hidden from the exports" with Show in exports (a survey record hidden and on no cable). */
+  function renderEdXHide() {
+    const box = $('edXHide'); if (!box) return;
+    const p = ed && ed.mode === 'edit' ? points.find((x) => x.id === ed.id) : null;
+    box.hidden = !(p && !isAcc(p.project) && p.xHide && !onCableIds(p.project).has(String(p.id)));
+  }
+  $('edXShow').addEventListener('click', async () => { const id = ed && ed.id, p = points.find((x) => x.id === id); if (!p) return; if (await xHideSet([id], false)) toast(`${looseName(p)} is in the exports again`, 2500); });
   $('exportBtn').addEventListener('click', () => {
-    if (cefHooks.isCef && cefHooks.isCef()) { planExport = false; exportPick = null; cefHooks.open(null, { tab: 'export' }); return; } // v2.44: a CEF-Plan project exports from its plan
-    const pl0 = planExport; planExport = false; // v2.42.28: Export the plan (from the Drawing)
-    const n = projPoints().length, acc = isAcc();
-    $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}`;
+    // beta 6.7 (UX step 3; the owner, UX spec §7.4): a CEF-Plan project opens Export too: its CEF plan row (open, starred) and its backup
+    if (xGo) xGo = false; // (poles on no cable: answered)
+    else if (exportPick !== 'doBackup' && !isAcc()) { const N = looseNew(); if (N) { const pick = exportPick, pl = planExport; exportPick = null; planExport = false; looseAsk(N, pick, pl); return; } } // a pole on no cable: Fix now, Leave them out or Export as they are first
+    if (xf) xfStop(); // (Export opened during the Fix walk)
+    const pl0 = planExport; planExport = false; // v2.42.28: Export plan (from the Drawing)
+    const acc = isAcc(), cef = !acc && isCefProj(), hidN = acc ? 0 : xHiddenIds().size, n = projPoints().length - hidN;
+    $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : cef ? `CEF plan “${S.project}”` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}${hidN ? ` · ${hidN} hidden (not exported)` : ''}`;
     $('accExports').hidden = !acc; $('surveyExports').hidden = acc; $('namingRow').hidden = acc; // acceptance photos are named after the form items
     const stg = pmeta().stage || 'PAT';
     $('xShareBox').hidden = !acc || stg === 'FAT';
-    if (acc && stg !== 'FAT') { $('xShareLbl').textContent = stg === 'Cleanup' ? 'Share cleanup KMZ' : 'Share PAT KMZ'; $('xShareFor').textContent = stg === 'Cleanup' ? 'for the FAT' : 'for defect cleanup / FAT'; renderShareWarn('xShareWarn'); }
+    if (acc && stg !== 'FAT') { // beta 6.7 (UX step 3): Hand on to the next stage
+      const cl = stg === 'Cleanup'; $('xShareName').textContent = cl ? 'Hand on to the FAT inspector' : 'Hand on to the cleanup team and the FAT'; $('xShareLbl').textContent = cl ? 'Share the cleanup KMZ' : 'Share the PAT KMZ';
+      $('xShareFor').textContent = cl ? 'One KMZ with the fixed items, for the FAT inspector' : 'One locked KMZ with every defect, for the cleanup team and the FAT';
+      $('xShareGet').textContent = cl ? 'one KMZ with every item, fixed and open, and its photos, sent through the share sheet; the FAT phone opens it in G-eSAA.' : 'one locked KMZ with every defect and its photos, sent through the share sheet. An unfinished PAT is completed and locked first (you are asked).';
+      $('xShareBox').dataset.find = cl ? 'Hand on to the FAT inspector' : 'Hand on to the cleanup team and the FAT'; $('xShareBox').dataset.tut = cl ? 'cleanup' : 'patdone'; renderShareWarn('xShareWarn'); // (beta 6.7, UX step 5 fixes: its ? opens the cleanup's step)
+    }
+    $('bkName').textContent = `${fileBase()}_BACKUP.zip`; $('bkMbx').hidden = !(mbxOn() && !acc && !pmeta().sample); // beta 6.7 (UX step 3): the backup's name; the team mailbox
     $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; syncExpUi(); syncPhDocUi(); // (beta 3.5: All / Main)
     { const o = S.prOpt || {}; if (o.per) $('prPer').value = o.per; if (o.num) $('prNum').value = o.num; if (o.by) $('prBy').value = o.by; if (o.loc) $('prLoc').value = o.loc; } // beta 3.5
+    const pl = pl0 && !acc && !cef; // v2.42.28: Export plan (from the Drawing): the Plan drawing row, the others under Other exports ›
+    $('export').classList.toggle('plan', pl); $('export').classList.remove('planall'); $('export').classList.toggle('side', pl && deskOn() && stack.includes('drawing')); if ($('export').classList.contains('side')) document.body.classList.add('drwside');
     showExport(exportPick); exportPick = null; renderCredit(); creditNote = ''; // v2.42.6 (v2.42.7: a new export, no old note)
-    const pl = pl0 && !acc; // v2.42.28: Export the plan (from the Drawing): the DXF card only
-    $('export').classList.toggle('plan', pl); $('export').classList.toggle('side', pl && deskOn() && stack.includes('drawing')); if ($('export').classList.contains('side')) document.body.classList.add('drwside');
-    $('exportTitle').textContent = pl ? 'Export the plan' : 'Export';
+    $('xOther').hidden = !pl || exportCards().length < 2;
+    $('exportTitle').textContent = 'Export';
     $('sigEdit').hidden = true; $('sigChange').textContent = 'Change'; $('sigChange').setAttribute('aria-expanded', 'false');
-    $('resultBox').hidden = true; $('resultInsideBox').hidden = true; openSheet('export');
+    $('resultBox').hidden = true; $('resultInsideBox').hidden = true; $('resSteps').hidden = true; xBtnKey = ''; xResKey = ''; openSheet('export');
   });
+  /* beta 6.7 (UX step 3): under the Backup button: Restore a backup… (#doRestore, the same restoreZip), Send the project to your team
+     leader (Projects › Share: its own file, bundleZip, not this backup), Send through the team mailbox, Several projects in one file. */
+  $('bkShare').addEventListener('click', () => guard(() => shareProject(S.project)));
+  $('bkMbx').addEventListener('click', () => { if (mbxOn()) openMbxSend(S.project, mbxModeOf(S.project)); });
+  $('bkMany').addEventListener('click', () => $('bulkShareBtn').click());
+  $('doCef').addEventListener('click', () => closeAll().then(() => cefHooks.open && cefHooks.open(null, { tab: 'export' }))); // a CEF-Plan project: the CEF editor on Check and export
+  /** beta 6.7 (UX step 3): Plan drawing › What to make: AutoCAD files (ZIP) or One PDF to print (S.exp.planOut). The One PDF needs the
+      Drawing (not an Audit) and the company template; Several at once puts the AutoCAD files in its ZIP. */
+  const planOut = () => (S.exp.planOut === 'onepdf' ? 'onepdf' : 'files');
+  function dxfOutRender() {
+    const card = $('dxfCard'), seg = $('dxfOut'); if (!card || !seg) return;
+    const tpl = dxfMode() === 'tpl', can = drawOn() && !isAcc(), one = can && tpl && planOut() === 'onepdf' && !xMany;
+    card.dataset.out = one ? 'onepdf' : 'files'; seg.hidden = !can;
+    $('dxfDescTpl').hidden = !tpl || one; $('dxfDescSimple').hidden = tpl; $('dxfDescOne').hidden = !one; // beta 6.7 (UX step 3 fixes; review): You get: the One PDF when it is chosen
+    seg.querySelectorAll('.chip').forEach((b) => { const on = b.dataset.v === (one ? 'onepdf' : 'files'); b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; if (b.dataset.v === 'onepdf') { b.setAttribute('aria-disabled', String(!tpl)); b.title = tpl ? '' : 'Needs the company template'; } });
+    const t = xMany ? 'Several at once: the AutoCAD files go in the ZIP (the One PDF is made one at a time).' : can && !tpl ? 'One PDF to print needs the company template: tap it to get it.' : '';
+    $('dxfOutNote').textContent = t; $('dxfOutNote').hidden = !t;
+  }
+  $('dxfOut').addEventListener('click', (e) => {
+    const b = e.target.closest('.chip'); if (!b || xMany) return;
+    if (b.dataset.v === 'onepdf' && dxfMode() !== 'tpl') { $('xOnePdf').click(); return; } // (it says what it needs and opens Plan settings)
+    S.exp.planOut = b.dataset.v === 'onepdf' ? 'onepdf' : 'files'; persist(); dxfOutRender(); renderOneBox();
+  });
+  $('dxfOut').addEventListener('keydown', (e) => { if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; e.preventDefault(); const b = $('dxfOut').querySelector(`[data-v="${planOut() === 'onepdf' ? 'files' : 'onepdf'}"]`); if (b) { b.click(); const n = $('dxfOut').querySelector('[aria-checked="true"]'); if (n) n.focus(); } }); // (a radio group: the arrows move the choice)
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
   /** v2.42.4: each record's photo file name as the Photos export names it (by the naming setting, numbered when the same), '' without a photo. */
   function photoNames(pts, have) {
@@ -9841,6 +10861,7 @@
       b.classList.toggle('low', left != null && left <= 0);
       b.title = c.unl ? `Unlimited credits${c.until ? ` until ${c.until}` : ''}` : `Your credits: 1 credit = 1 m of survey route, used by KMZ and DXF exports, once per project. As of ${fmtTime(c.at)}.`;
     });
+    try { if (!$('xOneBox').hidden) xOneHint(); } catch (e) { /* (beta 6.8, UX step 6: the One PDF hint as the badge) */ }
     const el = $('creditInfo'); if (!el) return;
     el.hidden = !on || isAcc();
     if (el.hidden) return;
@@ -9858,7 +10879,7 @@
     if (im.close) im.close();
     return new Uint8Array(await (await toBlob(cv, 0.85)).arrayBuffer());
   }
-  $('doKmz').addEventListener('click', () => guard(async () => {
+  $('doKmz').addEventListener('click', () => xguard(async () => {
     const pts = needPoints(); if (!pts) return;
     if (!(await creditGate('kmz'))) return; // v2.42.6
     offerResult(await surveyKmzBlob(pts), fileBase() + '.kmz');
@@ -9912,7 +10933,7 @@
     return { bytes, name, title, short, sha256: sha, mb: (bytes.length / 1048576).toFixed(2), desc: `${title} (${name})` };
   }
 
-  $('doDxf').addEventListener('click', () => guard(async () => {
+  $('doDxf').addEventListener('click', () => xguard(async () => {
     const pts = needPoints(); if (!pts) return;
     if (!(await creditGate('dxf'))) return; // v2.42.6
     if (dxfMode() === 'tpl') { await exportPlanDxf(pts); return; } // v2.30
@@ -9986,8 +11007,8 @@
     ['dxfPhotos', 'dxfPhotoW', 'setSym'].forEach((k) => { const el = $(k); const row = el && (el.closest('.opt2') || el.closest('label')); if (row) row.hidden = tpl; });
     const el = $('dxfTplInfo'); el.classList.toggle('ok', !!info && !stale && !seedBusy);
     el.textContent = seedBusy ? 'Getting the plan template from your admin…'
-      : info ? `✓ Plan template ready on this phone (${info.name})${stale ? ' — your admin has shared a newer one: tap Update' : ''}. Tap Export DXF.`
-        : id ? 'Your admin has shared the plan template. Tap Get the template (once: it stays on this phone), or just tap Export DXF.'
+      : info ? `✓ Plan template ready on this phone (${info.name})${stale ? ' — your admin has shared a newer one: tap Update' : ''}. Export → Plan drawing uses it.`
+        : id ? 'Your admin has shared the plan template. Tap Get the template (once: it stays on this phone), or just make the plan drawing (Export → Plan drawing).'
           : 'No plan template yet. Ask your admin to share it, or load the template file they sent you.';
     $('dxfTplGet').hidden = !id || (!!info && !stale); $('dxfTplGet').disabled = !!seedBusy;
     $('dxfTplGet').textContent = stale ? 'Update the template' : 'Get the template';
@@ -9997,7 +11018,8 @@
     $('dxfTplLoad').hidden = !!id && pol().userTpl !== true; // v2.41: the admin's template only, unless the admin lets users load their own
     $('dxfTplBox').querySelector('.dxflogo').hidden = !tpl; if (tpl) renderLogo(); // v2.34
     renderDxfMarks(); // v2.40 (v2.42.28: the card in both kinds of DXF)
-    if (!$('planSet').hidden) renderPlanSet();
+    if (!$('drwStyle').hidden) renderPlanSet(); // (beta 6.7, UX step 4: Plan style)
+    dxfOutRender(); // beta 6.7 (UX step 3 fixes): You get follows What to make (the AutoCAD ZIP or the One PDF)
   }
   $('dxfMode').addEventListener('change', () => { S.exp.dxfMode = $('dxfMode').value; persist(); renderDxfTpl(); });
   /* v2.40: which points of the plan get their photo or number. v2.41: by group: the electric poles together (concrete, wood, steel),
@@ -10011,20 +11033,20 @@
       local coop, Converge, PLDT / other): a proposed or new pole is Globe's (GT); an existing pole goes by its owner (BOQ) when one is
       set (the power company: electric; PLDT, Converge, Globe…: that owner), else by its type (concrete, wood, steel: electric). Before,
       a concrete pole owned by PLDT or Converge, and a proposed pole, were counted as electric poles. */
-  const ownKey = (own) => { const o = String(own || '').trim(); if (!o) return ''; if (/electric|coop|power/i.test(o)) return 'ELEC'; if (/globe/i.test(o)) return 'GT';
+  const ownKey = (own) => { const o = String(own || '').trim(); if (!o) return ''; if (/electric|coop|power/i.test(o)) return 'ELEC'; if (/globe|bayan/i.test(o)) return 'GT'; /* (beta 6.7: Bayantel is Globe's) */
     const u = o.toUpperCase().replace(/[^A-Z0-9]+/g, ''), t = poleTypes().find((x) => x.n.toUpperCase().replace(/[^A-Z0-9]+/g, '') === u || x.p === u); return t ? (ELEC_TYPES.has(t.p) ? 'ELEC' : t.p) : u.slice(0, 20); };
   function markKey(p) {
     const el = elemOf(p);
     if (el === 'Pole') {
       if (p.status === 'Proposed' || p.status === 'New') return 'GT';
-      const t = typePrefix(p.poleType); if (t === 'GT') return 'GT';
+      const t = typePrefix(p.poleType); if (t === 'GT' || t === 'BT') return 'GT'; // (beta 6.7: a Bayantel pole is Globe's own)
       const o = ownKey(p.boq && p.boq.owner); if (o === 'ELEC' && p.boq.ownerName) return `ELEC:${String(p.boq.ownerName).toUpperCase().slice(0, 30)}`; if (o) return o; // v2.42.18: by the coop's name
       return ELEC_TYPES.has(t) ? 'ELEC' : t || '_none';
     }
     return el === 'NAP' || el === 'Closure' ? null : `el:${el}`;
   }
   const ownName = (k) => prefixType(k) || (k.length <= 5 ? k : k.charAt(0) + k.slice(1).toLowerCase()); // PLDT; Converge
-  function markName(k) { if (k.startsWith('ELEC:')) return `${k.slice(5)} poles (electric)`; return k === 'ELEC' ? 'Electric poles (the power company\'s)' : k === 'GT' ? 'Globe poles (GT and proposed)' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? MARK_EL_NAME[k.slice(3)] || k.slice(3) : `${ownName(k)} poles (${k})`; }
+  function markName(k) { if (k.startsWith('ELEC:')) return `${k.slice(5)} poles (electric)`; return k === 'ELEC' ? 'Electric poles (the power company\'s)' : k === 'GT' ? 'Globe poles (GT, Bayantel and proposed)' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? MARK_EL_NAME[k.slice(3)] || k.slice(3) : `${ownName(k)} poles (${k})`; }
   function markShort(k) { if (k.startsWith('ELEC:')) return k.slice(5); return k === 'ELEC' ? 'electric' : k === 'GT' ? 'Globe' : k === '_none' ? 'no type' : k.startsWith('el:') ? (MARK_EL_NAME[k.slice(3)] || k.slice(3)).replace(/ \(.*\)$/, '') : k; }
   function noMarkOf() { // v2.41: the v2.40 choices still count (CC, WP, SP → electric; Other points → every element)
     const by = S.exp.dxfNoMarkBy || {}, raw = Array.isArray(by[S.project]) ? by[S.project] : [], out = new Set();
@@ -10133,7 +11155,7 @@
     if (!$('numBox')) return;
     const c = numCfg(); $('numProject').checked = c.mode === 'project'; $('numOwner').checked = c.mode === 'owner'; $('numKeep').checked = c.keep; $('numRenum').checked = !c.keep;
     const st = (pmeta().nums || {})[c.mode] || {}, n = Object.keys(st).length;
-    $('numInfo').textContent = `${c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1; one drawing per owner is clearest.' : 'One number per point, 1, 2, 3… along the cable.'} ${c.keep ? (n ? `${n} numbers given so far: a point added later takes the next one.` : 'Given at the first export, then kept.') : 'Given again at each export.'} Table · CSV has them in its first column (no).`;
+    $('numInfo').textContent = `${c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1; one drawing per owner is clearest.' : 'One number per point, 1, 2, 3… along the cable.'} ${c.keep ? (n ? `${n} numbers given so far: a point added later takes the next one.` : 'Given at the first export, then kept.') : 'Given again at each export.'} The Pole list for the RTA (CSV) has them in its first column (no).`;
   }
   /* ---- v2.42.28: What to export. A row for every point, each pole owner (and each kind of other point: ODF, sites, handholes…),
      and any put together on one drawing; a column for photos, numbers, both. Each tick is one drawing of the export: S.exp.dxfRows,
@@ -10154,7 +11176,8 @@
   const rowShort = (r) => `${mxRowName(r)} · ${MX_SHORT[r.mode]}`;
   /** The table's rows: every point, this project's groups (poles first, then the other points), then the rows of drawings set
       before or put together (groups of other projects among them: "none here"). */
-  function mxGroups() {
+  function mxGroups() { return xNow(mxGroups0); } // (beta 6.2: as exported, without the hidden poles)
+  function mxGroups0() {
     const pts = projPoints(), { cnt, keys } = markGroups(pts), total = keys.reduce((t, k) => t + cnt.get(k), 0), out = [], seen = new Set();
     const add = (k, kind) => { if (seen.has(k)) return; seen.add(k); const p = mxPtsOf(k), n = k === '*' ? total : k === '_nil' ? 0 : rowSel({ pts: p, mode: 'photo' }, pts).ids.length; out.push({ k, pts: p, n, kind, name: mxRowName({ pts: p }) }); };
     add('*', 'all'); keys.filter((k) => !k.startsWith('el:')).forEach((k) => add(k, 'pole')); keys.filter((k) => k.startsWith('el:')).forEach((k) => add(k, 'el'));
@@ -10163,7 +11186,8 @@
     return out;
   }
   let mxMix = null; // the groups being put together on one drawing (+ Several on one drawing)
-  function mxRender() {
+  function mxRender() { xNow(mxRender0); } // (beta 6.2: its counts and Whole project 1–n as exported)
+  function mxRender0() {
     const box = $('mxGrid'); if (!box) return;
     const G = mxGroups(), R = dxfRows(), { keys } = markGroups(), sel = rowIdx(), at = new Map(R.map((r, i) => [`${mxKeyOf(r.pts, keys)}\u0002${r.mode}`, i]));
     let h = '<span class="mxh" aria-hidden="true"></span>' + ROW_MODES.map((m) => `<span class="mxh">${mxIcon(m)}${MX_SHORT[m]}</span>`).join(''), shown = '';
@@ -10175,7 +11199,7 @@
     });
     box.innerHTML = h; box._g = G;
     $('mxN').textContent = `${R.length} drawing${R.length === 1 ? '' : 's'}`;
-    $('mxGo').textContent = R.length === 1 ? 'Export' : `Export ${R.length} drawings`;
+    $('mxGo').textContent = 'Done';
     const mk = keys;
     $('mxMix').innerHTML = mxMix
       ? `<div class="mxmix"><span class="lbl">ON ONE DRAWING</span><div class="chips">${mk.map((k) => `<button type="button" class="chip small" data-k="${C.xmlEsc(k)}" aria-pressed="${mxMix.has(k)}">${C.xmlEsc(chipName(k))}</button>`).join('')}</div><div class="row"><button type="button" class="btn small primary" id="mxMixAdd"${mxMix.size >= 2 ? '' : ' disabled'}>Add the row</button><button type="button" class="lnkbtn" id="mxMixNo">Cancel</button></div></div>`
@@ -10183,7 +11207,7 @@
     const c = numCfg(), np = projPoints().filter((p) => markKey(p)).length;
     $('mxNumP').setAttribute('aria-pressed', String(c.mode === 'project')); $('mxNumO').setAttribute('aria-pressed', String(c.mode === 'owner'));
     $('mxNumP').textContent = `Whole project${np ? `, 1–${np}` : ''}`;
-    $('mxNumInfo').textContent = c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1, on its drawing and in Table · CSV (column no).' : 'One count along the cable, the same in Table · CSV (column no).';
+    $('mxNumInfo').textContent = c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1, on its drawing and in the Pole list for the RTA (column no).' : 'One count along the cable, the same in the Pole list for the RTA (column no).';
   }
   /** The table's place: What to export on the Drawing, or the DXF card for a survey without the Drawing (Audit). */
   function mxHome(inCard) {
@@ -10215,7 +11239,7 @@
   /** Once in a project, the first numbers for a pole owner: each owner's from 1 (one RTA list each), or one count for the project. */
   async function askOwnerNums() {
     setNumCfg({ asked: true });
-    const v = await ask('Number each owner’s poles from 1?', 'For one RTA list per pole owner: each owner’s poles 1, 2, 3… on its drawing and in Table · CSV (column no). Or one count along the cable for the whole project, as now. You can change it later, under this table or in Plan settings.',
+    const v = await ask('Number each owner’s poles from 1?', 'For one RTA list per pole owner: each owner’s poles 1, 2, 3… on its drawing and in the Pole list for the RTA (column no). Or one count along the cable for the whole project, as now. You can change it later, under this table or in Plan style.',
       [{ label: 'Whole project', value: 'project' }, { label: 'Each owner from 1', value: 'owner', primary: true }]);
     if (v === 'owner') { setNumCfg({ mode: 'owner' }); renderNums(); mxChanged(); toast('Numbers: each pole owner’s from 1', 3000); }
   }
@@ -10243,14 +11267,19 @@
   function renderDxfMarks() {
     renderSig(); renderNums();
     if (!$('dxfFiles')) return;
-    const tpl = dxfMode() === 'tpl', R = dxfRows(), pts = projPoints(), np = pts.filter((p) => elemOf(p) === 'Pole').length, RM = routeModel(), info = S.dxfSeed, stale = seedStale();
-    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan settings › Template and logo)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan settings › Template and logo.'];
+    const tpl = dxfMode() === 'tpl', R = dxfRows(), pts = xNow(projPoints), np = pts.filter((p) => elemOf(p) === 'Pole').length, RM = xNow(routeModel), info = S.dxfSeed, stale = seedStale(); // (what the export makes: not the poles hidden from it)
+    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan style › Plan file)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan style › Plan file.'];
     $('dxfSum').innerHTML = `<span class="nm">${C.xmlEsc(S.project || '')}</span><span class="mt">${C.xmlEsc([pu === 'As-built' ? 'As-Built' : pu === 'As-plan' ? 'As-Plan' : pu, `${np} pole${np === 1 ? '' : 's'}`, `${RM.spans.length} span${RM.spans.length === 1 ? '' : 's'}`, fmtLen(RM.total)].filter(Boolean).join(' · '))}</span><span class="${st[0]}">${C.xmlEsc(st[1])}</span>`;
-    $('dxfFiles').hidden = !tpl; $('dxfFilesLbl').hidden = !tpl; $('dxfWhat').hidden = !tpl || !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl; $('dxfCefRow').hidden = !tpl || !(cefHooks.plansN && cefHooks.plansN(S.project)); // (beta 4.1: shown when the project holds a CEF plan)
+    $('dxfFilesBox').hidden = !tpl; $('dxfWhatRow').hidden = !tpl; $('dxfWhat').hidden = !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl; $('dxfCefRow').hidden = !tpl || !(cefHooks.plansN && cefHooks.plansN(S.project)); // (beta 4.1: shown when the project holds a CEF plan)
+    // beta 6.7 (UX step 3): Drawings (1 · Every point · Photo) and Look (the company standard, or what differs from it)
+    $('dxfWhatV').textContent = `${R.length} · ${R.slice(0, 2).map(rowShort).join(', ')}${R.length > 2 ? ` +${R.length - 2}` : ''}`;
+    { const D = tpl ? plStdDiff() : []; $('dxfLookV').textContent = !tpl ? 'Simple drawing: points and photos' : D.length ? `Your own · ${D.length} change${D.length === 1 ? '' : 's'}: ${D.map(([k, v]) => `${k}: ${v}`).join(' · ')}` : 'Company standard ✓'; }
     const inCard = tpl && !drawOn() && !isAcc(); mxHome(inCard); if (inCard) mxRender(); // no Drawing (an Audit survey): the table here
-    $('dxfFilesLbl').textContent = R.length === 1 ? '1 DRAWING' : `${R.length} DRAWINGS · ONE DXF EACH${S.exp.dxfPdf ? ' AND ONE PDF' : ''}`;
+    $('dxfFilesLbl').textContent = R.length === 1 ? 'FILES IN THE ZIP · 1 DRAWING' : `FILES IN THE ZIP · ${R.length} DRAWINGS · ONE DXF EACH${S.exp.dxfPdf ? ' AND ONE PDF' : ''}`;
     $('dxfFiles').innerHTML = R.map((r, i) => { const n = r.pts.includes('*') ? null : rowSel(r, pts).ids.length; return `<div class="dxffile"><span class="n">${i + 1}</span><span>${C.xmlEsc(mxRowName(r))}${n != null ? ` <small>${n}</small>` : ''}</span><span class="m">${mxIcon(r.mode)}${MX_SHORT[r.mode]}</span></div>`; }).join('');
-    $('doDxf').textContent = tpl && R.length > 1 ? `Export ${R.length} drawings` : 'Export DXF';
+    $('doDxf').textContent = tpl && R.length > 1 ? `Make ${R.length} plan drawings` : 'Make the plan drawing'; // beta 6.7 (UX step 3): worded like the row
+    renderDxfLbl(tpl); // beta 4.7
+    if (splHooks.need) splHooks.need(); // beta 4.6: the CEF plan and the splicing details still to make
     sigLine();
   }
   ['numProject', 'numOwner'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', () => { setNumCfg({ mode: $('numOwner').checked ? 'owner' : 'project', asked: true }); renderNums(); if (drw) drawSeqSoon(); renderPlanSet(); if (!$('drawWhatBox').hidden) mxRender(); }); });
@@ -10258,7 +11287,7 @@
   /** The names on the sheet in one line (Change opens the four fields). */
   function sigLine() {
     const L = [['design', 'Design Engineer'], ['project', 'Project Engineer'], ['head', 'Project Manager'], ['cse', 'CSE Lead']], set = L.filter(([k]) => String(S.sig[k] || '').trim()), blank = L.length - set.length;
-    $('sigLine').innerHTML = (set.length ? set.map(([k, l]) => `<span><small>${l}</small><b>${C.xmlEsc(String(S.sig[k]).trim())}</b></span>`).join('') : '<span>None yet</span>')
+    $('sigLine').innerHTML = `<b>${set.length} of ${L.length} filled</b>` + (set.length ? `<small>${set.map(([k, l]) => `${l}: ${C.xmlEsc(String(S.sig[k]).trim())}`).join(' · ')}</small>` : '') // beta 6.7 (UX step 3): Names on the sheet · 2 of 4 filled
       + `<small>${blank ? `${blank === L.length ? 'All' : blank} left blank, to sign by hand` : 'All four set'}${String(S.sig.cse || '').trim() ? '' : '. The CSE Lead comes from the online sheet when it has one'}.</small>`;
     // beta 4.3 (MarkT): the three names of the CEF sheets are here too (the CEF editor has the same ones under Check and export): shown when the project holds a CEF plan
     const cefOn = !!(cefHooks.plansN && cefHooks.plansN(S.project)); if ($('sigCefBox')) $('sigCefBox').hidden = !cefOn;
@@ -10306,35 +11335,311 @@
   SIG_CEF.forEach(([id, k]) => { const el = $(id); if (!el) return; el.addEventListener('input', () => { cefSetSign({ ...cefSign(), [k]: el.value }); }); el.addEventListener('change', () => { renderSig(); sigLine(); }); });
   /* v2.42.28: the DXF card's links: What to export (on the Drawing) and Plan settings */
   $('dxfWhat').addEventListener('click', () => { const under = stack.includes('drawing'); closeSheet().then(() => { if (!under) { if (!drawOn()) { toast('The Drawing is for As-Plan and As-Built surveys'); return; } openDrawing(); } if (!$('drawing').hidden) setWhat(true, deskOn()); }); });
-  $('dxfSetBtn').addEventListener('click', () => openPlanSet());
+  $('dxfSetBtn').addEventListener('click', () => openStyle('basic')); // beta 6.7 (UX step 4): Look · Change › opens Plan style › Basic
   $('dxfPdf').addEventListener('change', () => setTimeout(renderDxfMarks, 0));
+  /* beta 4.7: Pole labels on the plan: Standard (each pole's details and coordinates turned with the cable, as before) or Tidy (one
+     straight label per pole: tag · type, then its clamps, owner and lat/long in smaller text), on the company template only; kept with the export settings */
+  function renderDxfLbl(tpl) {
+    const row = $('dxfLblRow'); if (!row) return;
+    const v = S.exp.dxfLabels === 'tidy' ? 'tidy' : 'std'; // (beta 6.7, UX step 4: Plan style › Basic; with the Simple drawing greyed, not hidden)
+    row.querySelectorAll('.chip').forEach((b) => { const on = b.dataset.v === v; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
+    $('dxfLblSub').textContent = v === 'tidy' ? 'Tidy: one block per pole, nothing on top of anything, finer sheets where crowded.' : 'Standard: each pole\u2019s details beside it, turned along the cable, as before.'; // (beta 4.8; beta 6.7, UX step 4: one line)
+  }
+  $('dxfLbl').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b || !b.dataset.v) return; plLabels(b.dataset.v); }); // (beta 6.7, UX step 4: the preview, the company standard and the greyed rows follow)
+  $('dxfLbl').addEventListener('keydown', (e) => { if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; e.preventDefault(); plLabels(S.exp.dxfLabels === 'tidy' ? 'std' : 'tidy'); const b = $('dxfLbl').querySelector('[aria-checked="true"]'); if (b) b.focus(); }); // (a radio group: the arrows move the choice)
   SIG_IDS.forEach(([id]) => { const el = $(id); if (el) el.addEventListener('input', () => sigLine()); });
-  /* ---- v2.42.28: Plan settings: how every drawing of the plan export looks and is numbered, in one place: Drawing style, clamp types
-     on the plan (the CA button of the Drawing before), pole numbers, the loops in the PMI cable lengths, the template and logo, the
-     kind of DXF and its options. On a computer, over the Drawing, it opens beside the plan. */
+  /* ---- beta 6.7 (UX step 4; the owner: "PLAN Settings ... see if it overlaps with the design style or it can be merge with design style.
+     Design Style: make this settings simpler, more intuitive and easy to catch by non-technical users"): Plan style, Plan settings (v2.42.28)
+     and Drawing style (v2.41) in one screen: the company standard (PL_STD), Basic (Pole labels, Pole number colours, Photos on the plan and
+     their stamp, Clamp types, 20 m loops at boxes, BOQ table on each map sheet, Pole numbers in this project) and Advanced (12 sections,
+     folded; the one opened shows its part of the plan in the preview). Every control kept its id and its stored key: nobody's setting
+     changes by itself. On a computer, over the Drawing, it opens beside the plan (✎ ends first). ---- */
   function renderPlanSet() {
     if (!$('psCA')) return;
-    const ca = S.exp.dxfClampType !== false, c = numCfg(), tpl = dxfMode() === 'tpl';
-    $('psCA').checked = ca; $('psCASum').textContent = ca ? 'On: the type before the size (CA 8-10, GCA, 2A, DEG, RL)' : 'Off: the sizes only (the types stay in the BOQ, KMZ and CSV)';
-    $('psNumSum').textContent = `${c.mode === 'owner' ? 'Each owner from 1 (one RTA list each)' : 'Whole project, along the cable'} · ${c.keep ? 'kept once given' : 'renumbered at each export'}`;
-    $('psLoopSum').textContent = S.exp.pmiLoops !== false ? 'Counted in total, aerial and underground' : 'The spans only';
-    $('psTplSum').textContent = !tpl ? 'Not used by the simple DXF' : seedBusy ? 'Getting it from your admin…' : S.dxfSeed ? `✓ ${S.dxfSeed.name}${seedStale() ? ' · a newer one is shared' : ''}` : seedId() ? 'Shared by your admin: got at the first export' : 'No template on this phone yet';
-    $('psKindSum').textContent = `${tpl ? 'On the company plan template' : 'Simple: points and photos at UTM'} · UTM ${S.zone}N`;
+    const ca = S.exp.dxfClampType !== false, tpl = dxfMode() === 'tpl', noProj = !S.project;
+    $('psCA').checked = ca; $('psCASum').textContent = ca ? 'For example CA 8-10. Off: the sizes only.' : 'Off: the sizes only (the types stay in the BOQ, KMZ and CSV).';
+    // Pole numbers in this project (critic: Plan style opened from Settings with no project: said, and its choices off)
+    ['numProject', 'numOwner', 'numKeep', 'numRenum'].forEach((id) => { $(id).disabled = noProj; });
+    $('psNumSum').textContent = noProj ? 'Open a project to set its pole numbers.' : 'Each owner from 1 gives one RTA list per owner. Saved in this project.';
+    $('psLoopSum').textContent = S.exp.pmiLoops !== false ? 'On: counted in the total, aerial and underground lengths.' : 'Off: the spans only.';
+    $('psBoxLoop').checked = plStyle().cab.boxLoops; $('psBoxLoopSum').textContent = 'Beside handholes, manholes, service boxes, ODFs. Counted in the tables either way.';
+    $('psTplSum').textContent = !tpl ? 'not used by the Simple drawing' : seedBusy ? 'getting it from your admin…' : S.dxfSeed ? `✓ ${S.dxfSeed.name}${seedStale() ? ' · a newer one is shared' : ''}` : seedId() ? 'shared by your admin: got at the first export' : 'none on this phone yet';
+    $('psKindSum').textContent = tpl ? 'Company plan' : 'Simple';
+    renderDxfLbl(tpl);
+    // the banners: no template on this phone (Get it); the Simple drawing (Basic's look is the company plan's: greyed, no company standard card)
+    $('plBanTpl').hidden = !tpl || !!S.dxfSeed; $('plBanTplGet').textContent = seedId() ? 'Get it' : 'Load it ›'; $('plBanTplGet').disabled = !!seedBusy;
+    $('plBanSimple').hidden = tpl;
+    $('plBasic').querySelectorAll('.plb:not(#psNum)').forEach((r) => r.classList.toggle('dim', !tpl));
+    planStdRender(tpl);
   }
-  function openPlanSet() {
-    if (toSheet('planSet')) return;
-    renderDxfTpl(); syncExpUi(); renderNums(); renderPlanSet();
-    const side = stack.includes('drawing') && deskOn(); $('planSet').classList.toggle('side', side); if (side) document.body.classList.add('drwside');
-    openSheet('planSet');
+  /** The company standard in words, from PL_STD (one place: flipping it there changes this). */
+  const plStdText = () => [PL_STD.dxfLabels === 'tidy' ? 'Tidy labels' : 'Standard labels', PL_STD.rtaOn ? 'owner colours' : 'one number colour', `photos ${phName(PL_STD.photoSize)}${PL_STD.photoStamp === 'off' ? '' : `, stamped ${PL_STD.photoStamp === 'addr' ? 'lat-long + address' : 'lat-long'}`}`, PL_STD.dxfClampType ? 'clamp types' : 'clamp sizes only', ...(PL_STD.boxLoops ? ['20 m loops written'] : []), ...(PL_STD.dxfBoqGrid ? ['BOQ table on each sheet'] : [])].join(' · ');
+  function planStdRender(tpl) {
+    const box = $('psStd'); if (!box) return; const D = plStdDiff();
+    box.hidden = !tpl; box.classList.toggle('off', D.length > 0); // (critic: the Simple drawing has none of these: no card)
+    $('psStdT').innerHTML = D.length ? `<b>Your own: ${D.length} change${D.length === 1 ? '' : 's'} from the company standard</b>${C.xmlEsc(D.map(([k, v]) => `${k}: ${v}`).join(' · '))}` : `<b>✓ Company standard</b>${C.xmlEsc(plStdText())}`;
+    $('psStdUse').hidden = !D.length;
   }
-  $('psStyle').addEventListener('click', () => openStyle());
-  $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderPlanSet(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
-  ['pmiLoops', 'dxfMode', 'setZone'].forEach((id) => $(id).addEventListener('change', () => setTimeout(renderPlanSet, 0)));
+  /** Use company standard: the PL_STD keys only (the Basic look); the Advanced choices and the project's numbers stay. */
+  function useStd() {
+    const P = plStyle();
+    S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid;
+    S.plStyle = { ...P, num: { ...P.num, rta: { ...P.num.rta, on: PL_STD.rtaOn } }, photo: { ...P.photo, size: PL_STD.photoSize, stamp: PL_STD.photoStamp }, cab: { ...P.cab, boxLoops: PL_STD.boxLoops } };
+    persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Company standard ✓ (your Advanced choices are kept)', 2500);
+  }
+  $('psStdUse').addEventListener('click', useStd);
+  /** Pole labels Tidy or Standard (Basic, and the Switch of a greyed row). */
+  function plLabels(v) { S.exp.dxfLabels = v === 'tidy' ? 'tidy' : 'std'; persist(); renderStyle(); }
+  /* critic: a setting that does nothing in the current mode stays, greyed, with its reason and a Switch (never hidden): [is it greyed,
+     the reason, the button, what it does]. A row lists its groups in data-dim; the first one that applies is said. */
+  const PL_DIM = {
+    clamp: [() => S.exp.dxfClampType === false, 'Only with Clamp types beside each pole', 'Switch on', () => { S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }],
+    tidy: [() => S.exp.dxfLabels !== 'tidy', 'Only with Tidy labels', 'Switch to Tidy', () => plLabels('tidy')],
+    notidy: [() => S.exp.dxfLabels === 'tidy', 'Not used with Tidy labels', 'Switch to Standard', () => plLabels('std')],
+    cltidy: [() => S.exp.dxfLabels === 'tidy', 'Not used with Tidy labels: the clamp types are in the pole block', 'Switch to Standard', () => plLabels('std')], // beta 6.8 (UX step 6; reviewer): Tidy writes them as the block's second line (no box, no frame, the block's size)
+    clpos: [(P) => P.clamp.place === 'label', 'Not used with “In the pole label”', 'Use a small box', () => setPl('clamp', 'place', 'tag')],
+    cab: [(P) => !P.cab.on, 'Only with the cable name on', 'Switch on', () => setPl('cab', 'on', true)],
+    auto: [(P) => !P.crowd.auto, 'Only with Fit automatically', 'Switch', () => setPl('crowd', 'auto', true)],
+    tower: [(P) => P.site.move === 'point', 'Only with Move it aside', 'Switch', () => setPl('site', 'move', 'auto')],
+    vicarea: [(P) => !P.vic.area, 'Only when the project area circle is shown', 'Show it', () => setPl('vic', 'area', true)],
+    rta: [(P) => !P.num.rta.on, 'Only with Pole number colours: By pole owner', 'Switch', () => rtaSet(plStyle().num.rta.cats, true)],
+  };
+  let plDimN = 0;
+  function plDims(P) {
+    $('drwStyle').querySelectorAll('[data-dim]').forEach((row) => {
+      const g = row.dataset.dim.split(' ').find((k) => PL_DIM[k] && PL_DIM[k][0](P)), ctl = row.querySelectorAll(':scope > .seg, :scope > .sws, :scope > input, :scope > .stauto, :scope > .rtalist');
+      row.classList.toggle('dim', !!g);
+      let w = row.querySelector(':scope > .dimwhy');
+      if (!g) { if (w) w.hidden = true; ctl.forEach((c) => { c.removeAttribute('aria-disabled'); c.removeAttribute('aria-describedby'); }); return; }
+      if (!w) {
+        w = document.createElement('div'); w.className = 'dimwhy'; w.id = `plWhy${++plDimN}`; w.innerHTML = '<span></span><button type="button" class="btn sm"></button>';
+        w.lastChild.addEventListener('click', () => { const D = PL_DIM[w.dataset.g]; if (D) D[3](); });
+        const lb = row.querySelector(':scope > .lbl'); if (lb) lb.after(w); else row.prepend(w);
+      }
+      const D = PL_DIM[g]; w.hidden = false; w.dataset.g = g; w.firstChild.textContent = D[1]; w.lastChild.textContent = D[2];
+      ctl.forEach((c) => { c.setAttribute('aria-disabled', 'true'); c.setAttribute('aria-describedby', w.id); });
+    });
+  }
+  /** Each Advanced section, closed, says what it is set to (e.g. Pole numbers: Keep · owner colours on · key Off). */
+  function plSums(P) {
+    const on = (b) => (b ? 'on' : 'off'), c = numCfg(), set = (id, t) => { const d = $(id), x = d && d.querySelector(':scope > summary .secsum'); if (x) x.textContent = t; };
+    set('stNum', `${S.project ? `${c.keep ? 'Keep the numbers' : 'Renumber at each export'} · ` : ''}owner colours ${on(P.num.rta.on)} · key ${{ off: 'Off', boq: 'under the BOQ tables', sheet: 'on the LEGENDS sheet' }[P.num.rta.legend]}`);
+    set('stPole', `Pole ID ${{ auto: 'Auto', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · sizes ${[P.pole.idH, P.pole.ownH, P.pole.llH, P.span.h].some(Boolean) ? 'your own' : 'Auto'}`);
+    set('stId', `${P.id.bold ? 'Bold' : 'Normal'} · ${mmOf(P.id.h)} mm high`); // (beta 6.8, UX step 6: mm on the printed sheet, as its row)
+    set('stCl', S.exp.dxfClampType === false ? 'Clamp types off (Basic)' : S.exp.dxfLabels === 'tidy' ? 'In the pole block (Tidy labels)' : `${{ label: 'In the pole label', tag: 'Small box (tag)', callout: 'Box with a line (callout)' }[P.clamp.place]}${P.clamp.place !== 'label' ? ` · side ${{ auto: 'Auto', up: 'above', down: 'below', left: 'left', right: 'right' }[P.clamp.pos]}` : ''}`);
+    set('stRoute', `${P.cab.route === 'straight' ? 'Straight from point to point' : 'Follows the road'} · name ${on(P.cab.on)}`);
+    set('stPh', `${phName(P.photo.size)} · ${phTidyMm(P.photo.size)} mm · near its pole ${P.photo.near} mm`);
+    set('stCrowd', P.crowd.auto ? 'Fit automatically' : 'Leave as they are');
+    set('stLm', `Icons ${on(P.crowd.icons)} · names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]}`);
+    set('stSite', `Name ${{ on: 'on the tower', top: 'top', side: 'side', bottom: 'bottom' }[P.site.name]} · ${P.site.move === 'point' ? 'kept at its point' : 'moved aside'} · ODF ${P.odf.place === 'auto' ? 'Auto' : P.odf.place}`);
+    set('stVic', `Zoom ${on(P.vic.zoom)} · circle ${P.vic.area ? 'shown' : 'hidden'}`);
+    set('stGrid', `Split ${P.grid.split ? `1/${P.grid.split}` : 'Auto'} · sheet name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}`);
+    set('stFile', `${dxfMode() === 'tpl' ? (S.dxfSeed ? 'Company template ✓' : 'Company plan, no template yet') : 'Simple drawing'} · UTM ${S.zone}N · loops in the PMI ${on(S.exp.pmiLoops !== false)}`);
+  }
+  /** An Advanced section by its id (stNum…) or the tutorial's part (numbers, sheets, file…); null for none. */
+  const plSec = (k) => { if (!k) return null; const d = $(k) || $(TUT_PLPART[k] || ''); return d && d.matches('#plAdv details.stsec') ? d : null; };
+  /** Basic or Advanced (and the section asked opened): the preview follows (Basic: the street; Advanced: the open section's part). keep:
+      the scene stays (a label tapped on the preview). The tab used last is kept (S.plTab), as the section opened last (S.plOpen). */
+  function plTab(t, sec, keep) {
+    const adv = t === 'advanced';
+    [['plTabB', !adv], ['plTabA', adv]].forEach(([id, on]) => { $(id).setAttribute('aria-selected', String(on)); $(id).tabIndex = on ? 0 : -1; });
+    $('plBasic').hidden = adv; $('plAdv').hidden = !adv;
+    if (S.plTab !== (adv ? 'advanced' : 'basic')) { S.plTab = adv ? 'advanced' : 'basic'; persist(); }
+    const d = adv ? plSec(sec) : null; if (d && !d.open) d.open = true;
+    if (!keep) { const o = d || (adv ? [...$('plAdv').querySelectorAll('details.stsec[open]')].pop() : null); DSP.setScene(o && o.dataset.scene ? o.dataset.scene.split(' ')[0] : 'street'); }
+    return d;
+  }
+  /** Plan style: tab 'basic' or 'advanced' (else the one used last), sec: an Advanced section (its id or part) to open and show. top
+      (beta 6.7, UX step 5 fixes, round 2): no section brought into view (the one opened last stays as it is): Find a setting's turn. */
+  function openStyle(tab, sec, top) {
+    const t = tab === 'advanced' || tab === 'basic' ? tab : sec ? 'advanced' : S.plTab === 'advanced' ? 'advanced' : 'basic', s2 = sec || (t === 'advanced' && !top ? S.plOpen : '');
+    if (toSheet('drwStyle')) { const d = plTab(t, s2); setTimeout(() => { if (d) DSP.toRow(d); }, 0); return; }
+    renderDxfTpl(); syncExpUi(); renderNums();
+    const side = stack.includes('drawing') && deskOn(); if (side && drwEd) drwEditSet(false); $('drwStyle').classList.toggle('side', side); if (side) document.body.classList.add('drwside'); // (beside the plan it would cover ✎'s route bar: ✎ ends first)
+    DSP.reset(); if ($('plFindQ').value) { $('plFindQ').value = ''; plFindRender(); } plFindReset(); const d = plTab(t, s2); renderStyle(); DSP.render(); openSheet('drwStyle'); // (beta 6.7, UX step 5: Find a setting empty at each opening)
+    setTimeout(() => { const bd = $('drwStyle').querySelector('.dsbody'); if (bd) bd.scrollTop = 0; DSP.onScroll(); if (d) DSP.toRow(d); }, 0); // (from the top, the preview large; a section asked: in view)
+  }
+  /** v2.42.28's Plan settings: Plan style › Basic (the old name kept for the tests and the tutorial's planset). */
+  function openPlanSet() { openStyle('basic'); }
+  ['plTabB', 'plTabA'].forEach((id) => $(id).addEventListener('click', () => { const adv = id === 'plTabA', d = plTab(adv ? 'advanced' : 'basic', adv ? S.plOpen : ''); if (d) setTimeout(() => DSP.toRow(d), 0); }));
+  // the tabs from the keyboard (critic; ARIA tabs): the arrows go to the other tab, Home to Basic, End to Advanced; the tab chosen has focus
+  document.querySelector('#drwStyle .pltabs').addEventListener('keydown', (e) => {
+    const k = e.key; if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(k)) return; e.preventDefault();
+    const adv = k === 'End' ? true : k === 'Home' ? false : $('plAdv').hidden; plTab(adv ? 'advanced' : 'basic', adv ? S.plOpen : ''); $(adv ? 'plTabA' : 'plTabB').focus();
+  });
+  $('plRtaLink').addEventListener('click', () => { plTab('advanced', 'stNum'); setTimeout(() => DSP.toRow($('stRtaRow')), 0); }); // Owner colours and key ›
+  $('plBanTplGet').addEventListener('click', () => { if (seedId()) { $('dxfTplGet').click(); return; } plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psTpl')), 0); });
+  $('plBanSimpleGo').addEventListener('click', () => { plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psKind')), 0); });
+  $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderStyle(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
+  ['pmiLoops', 'dxfMode', 'setZone', 'dxfBoqGrid', 'dxfRoads'].forEach((id) => $(id).addEventListener('change', () => setTimeout(() => { if (!$('drwStyle').hidden) renderStyle(); }, 0)));
+  $('psBoxLoop').addEventListener('change', () => { setPl('cab', 'boxLoops', $('psBoxLoop').checked); toast($('psBoxLoop').checked ? 'The 20 m loops at boxes and ODF entrances are written on the plan' : 'The loops at boxes and ODF entrances: counted, not written', 2500); }); // beta 6.7: one setting (S.plStyle.cab.boxLoops)
+  $('goPlanStyle').addEventListener('click', () => openStyle()); // Settings › Exports and files › Plan style ›
+  /* the one-time note (critic: never a dialog; only on a phone that had the old screens: a new install has S.plNotice set at start; not
+     under automation, where it could cover what a test taps: force, the tests' own check of it) */
+  function plNoticeShow(force) { if (S.plNotice && !force) return; if (!force && navigator.webdriver) return; S.plNotice = 1; persist(); $('drawPlNote').hidden = false; }
+  $('drawPlNoteShow').addEventListener('click', () => { $('drawPlNote').hidden = true; openStyle('basic'); });
+  $('drawPlNoteOk').addEventListener('click', () => { $('drawPlNote').hidden = true; });
+  // beta 6.8 (UX step 6; reviewer): the note is put away by the first touch on the plan (pan, zoom, the Legend, a tool), as OK
+  $('drawWrap').addEventListener('pointerdown', (e) => { const n = $('drawPlNote'); if (!n.hidden && !n.contains(e.target)) n.hidden = true; }, true);
+  /* ---- beta 6.7 (UX step 5; spec §5 step 5; the owner: "Ensure every new feature to be on [the tutorial] to search it if needed"):
+     Find a setting. Every row of Plan style carries its label (data-find; data-findx in Colours and sizes and the Simple drawing's
+     own fields): the index is made from them once, and GESAA_TUTORIAL.settings ranks it with the Tutorial's word rules (other
+     spellings, endings, short words at the start of a word). Plan style's Find a setting box lists them; the Tutorial's search
+     shows the best ones first as "Setting · Sheet split (Tidy) · Plan style › Map sheets", Show me. A result opens its tab and
+     section (and its Colours and sizes) and marks the row, as a label tapped on the preview does. ---- */
+  let plIdx = null;
+  /** [{ label, where, text, el, tab, sec, main, when, need, why, how }]: the rows of Plan style (Basic and Advanced) by their label, in
+      the screen's order. need, why, how (beta 6.7, UX step 5 fixes; data-findneed, -findwhy, -findhow): a row the other choices hide
+      (the Simple drawing's own rows while the company plan is made): the row that shows it (Kind of drawing), when it is used, what to do. */
+  function plIndex() {
+    if (plIdx) return plIdx;
+    const words = (el) => { // its text nodes, a space between (chips side by side: Auto 1/1 1/2, not Auto1/11/2), less its help, reasons, values and rows
+      const c = el.cloneNode(true); c.querySelectorAll('details.help, .dimwhy, .findwhy, output, .secsum, .qhelp, .nopv, [data-find], [data-findx]').forEach((x) => x.remove());
+      const w = document.createTreeWalker(c, NodeFilter.SHOW_TEXT), out = []; while (w.nextNode()) out.push(w.currentNode.nodeValue); return out.join(' ').replace(/\s+/g, ' ').trim();
+    };
+    plIdx = [...$('drwStyle').querySelectorAll('[data-find], [data-findx]')].filter((el) => el.closest('#plBasic, #plAdv')).map((el) => {
+      const isSec = el.matches('details.stsec'), sec = isSec ? el : el.closest('details.stsec'), basic = !!el.closest('#plBasic'), nd = el.closest('[data-findneed]');
+      const where = ['Plan style', isSec ? 'Advanced' : basic ? 'Basic' : sec ? sec.dataset.find : '', el.closest('details.stcs') ? 'Colours and sizes' : ''].filter(Boolean).join(' › ');
+      return { label: el.dataset.find || el.dataset.findx, where, text: isSec ? '' : words(el), el, tab: basic ? 'basic' : 'advanced', sec: sec ? sec.id : '', main: basic,
+        when: /\btidy\b/.test(el.dataset.dim || '') ? 'Tidy' : el.closest('#dxfSimpleOpts') ? 'Simple drawing' : '', // (main: a Basic choice; when: Sheet split (Tidy) works with Tidy: GESAA_TUTORIAL.settings)
+        need: nd ? nd.dataset.findneed : '', why: nd ? nd.dataset.findwhy || '' : '', how: nd ? nd.dataset.findhow || '' : '', offIf: nd ? nd.dataset.findoff || '' : '' };
+    });
+    return plIdx;
+  }
+  /** beta 6.7 (UX step 5 fixes; reviewer): the row is hidden by the other choices (the Simple drawing's own rows while the company plan
+      is made: renderDxfTpl). A closed section or the other tab does not count: the row is opened. beta 6.7 (UX step 5 fixes, round 2;
+      reviewer): told by the setting itself (data-findoff: PL_OFF), not by the screen: renderDxfTpl sets the screen only when Plan style
+      or Export opens, so right after launch the Tutorial's search read the Simple drawing's rows as shown. The screen still tells for a
+      row with no data-findoff. */
+  const PL_OFF = { tpl: () => dxfMode() === 'tpl' }; // (data-findoff="tpl": hidden while Kind of drawing is the company plan)
+  const plOff = (e) => { if (e.offIf && PL_OFF[e.offIf]) return PL_OFF[e.offIf](); for (let x = e.el; x && !x.matches('#plBasic, #plAdv'); x = x.parentElement) if (x.hidden) return true; return false; };
+  /** Where a row is, and when it is used if it is hidden now: Plan style › Plan file · only with the Simple drawing (beta 6.7). */
+  const plWhere = (r) => (r.off && r.e.why ? `${r.e.where} · ${r.e.why}` : r.e.where);
+  /** The settings for q, the best first: [{ e (the row), score, label (words in its label), strong (every word in its label or place),
+      off (hidden now: plOff; of equal scores, the rows that can be used now first) }]. */
+  function plFind(q) {
+    const T = window.GESAA_TUTORIAL, I = plIndex(); if (!T || !T.settings) return [];
+    return T.settings(q, I).map((r) => ({ ...r, e: I[r.i], off: plOff(I[r.i]) })).sort((a, b) => b.score - a.score || a.off - b.off || a.i - b.i);
+  }
+  const PL_FIND_N = 8;
+  function plFindRender() {
+    const inp = $('plFindQ'), box = $('plFindRes'), n = $('plFindN'), q = inp.value.trim(), T = window.GESAA_TUTORIAL, Q = q && T && T.query ? T.query(q) : null;
+    box.innerHTML = '';
+    if (!q) { box.hidden = true; n.textContent = ''; return; }
+    const R = Q ? plFind(q) : [];
+    n.textContent = R.length ? `${R.length} setting${R.length === 1 ? '' : 's'} found${R.length > PL_FIND_N ? `: the best ${PL_FIND_N}` : ''}. Tap one to go to it.` : `No setting called “${q}”.`;
+    R.slice(0, PL_FIND_N).forEach((r) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'plfr';
+      const x = document.createElement('b'); tutRich(x, r.e.label, Q.mark); const w = document.createElement('small'); w.textContent = plWhere(r); if (r.off) w.className = 'off';
+      b.append(x, w); b.addEventListener('click', () => plFindGo(r.e)); box.appendChild(b);
+    });
+    const t = document.createElement('button'); t.type = 'button'; t.className = 'linkbtn plfrtut'; t.textContent = `Search the Tutorial for “${q}” ›`;
+    t.addEventListener('click', () => { $('tutQ').value = q; openTutorial(); }); box.appendChild(t);
+    box.hidden = false;
+  }
+  let plMarkT = 0, plPend = null; // (plPend: beta 6.7, UX step 5 fixes: the row asked for, hidden by Kind of drawing; marked once it shows)
+  /** beta 6.7 (UX step 5 fixes): the note in the row marked in place of a hidden one (why, what to do), read with its control
+      (aria-describedby); plWhy() takes it away. */
+  function plWhy(row, text, ctl) {
+    const old = $('plFindWhy');
+    if (old) { document.querySelectorAll('[aria-describedby~="plFindWhy"]').forEach((c) => { const v = c.getAttribute('aria-describedby').split(' ').filter((x) => x && x !== 'plFindWhy').join(' '); if (v) c.setAttribute('aria-describedby', v); else c.removeAttribute('aria-describedby'); }); old.remove(); }
+    if (!row || !text) return;
+    const n = document.createElement('small'); n.id = 'plFindWhy'; n.className = 'findwhy'; n.setAttribute('role', 'status'); n.textContent = text; row.appendChild(n);
+    if (ctl) ctl.setAttribute('aria-describedby', [ctl.getAttribute('aria-describedby'), 'plFindWhy'].filter(Boolean).join(' '));
+  }
+  /** The row found: its section and Colours and sizes opened, marked (orange, for 9 s) and brought in under the preview; focus on it.
+      o (beta 6.7, UX step 5 fixes): note, a line shown in the row; focus, the control to focus instead of the row. */
+  function plMark(el, o) {
+    const root = $('drwStyle'); if (!el || root.hidden) return;
+    for (let d = el.parentElement && el.parentElement.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) if (!d.open) d.open = true;
+    if (el.matches('details') && !el.open) el.open = true;
+    if (!el.getClientRects().length) { const s = el.closest('details.stsec'); if (s) el = s; } // (beta 6.7, UX step 5 fixes: a row still hidden: its section, never nothing)
+    root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); el.classList.add('sthl');
+    plWhy(o && o.note ? el : null, o && o.note, o && o.focus);
+    DSP.toRow(el); setTimeout(() => { if (el.classList.contains('sthl') && !root.hidden) DSP.toRow(el); }, 350); // (again once the preview has folded or not)
+    const f = (o && o.focus) || (el.matches('details') ? el.querySelector(':scope > summary') : el); if (!f.matches('summary, button, input, select, a') && !f.hasAttribute('tabindex')) f.tabIndex = -1;
+    try { f.focus({ preventScroll: true }); } catch (x) { /* an old browser */ }
+    clearTimeout(plMarkT); plMarkT = setTimeout(() => el.classList.remove('sthl'), 9000);
+  }
+  /** A setting found (in Plan style or the Tutorial): Plan style opens on its tab and section (over the screen the Tutorial was opened
+      on), the row marked. A row the other choices hide (beta 6.7, UX step 5 fixes; reviewer: Photo width, FOC % while the company plan
+      is made): the row that shows it (Kind of drawing) is marked instead, with why and what to do; once it is changed, the row. */
+  async function plFindGo(e) {
+    if (!e || !e.el) return;
+    while (['tutTopic', 'tutorial'].includes(tutTop())) await closeSheet();
+    $('plFindQ').value = ''; plFindRender(); plFindReset(); // (beta 6.7, UX step 5 fixes, round 2: no mark or note left from before)
+    const need = e.need && plOff(e) ? $(e.need) : null; // (from the setting itself: right after launch too, before renderDxfTpl has run)
+    if (need) {
+      const ns = need.closest('details.stsec'), name = e.when && e.label.endsWith(`(${e.when})`) ? e.label.slice(0, -(e.when.length + 2)).trim() : e.label;
+      openStyle(need.closest('#plBasic') ? 'basic' : 'advanced', ns ? ns.id : ''); plPend = e;
+      setTimeout(() => plMark(need, { note: `${name}: ${e.why}. ${e.how}`.trim(), focus: need.querySelector('select, input, button') }), 80);
+      return;
+    }
+    plPend = null; openStyle(e.tab, e.sec);
+    setTimeout(() => plMark(e.el), 80);
+  }
+  /** beta 6.7 (UX step 5 fixes): the Tutorial's More ›: Plan style (over the screen the Tutorial was opened on), Find a setting
+      with the same words, every setting found listed. */
+  async function plFindIn(q) {
+    while (['tutTopic', 'tutorial'].includes(tutTop())) await closeSheet();
+    // (beta 6.7, UX step 5 fixes, round 2; reviewer: Plan style used last on Advanced reopened its section and scrolled to it, the list
+    // asked for 900 px or more above the screen: here, the tab used last but no section brought in, nothing marked, and from the top)
+    plFindReset(); openStyle(undefined, '', true); $('plFindQ').value = q; plFindRender();
+    setTimeout(() => { // (beta 6.7, UX step 5 fixes: focus on the first setting found, not lost to the page; no keyboard opened)
+      const root = $('drwStyle'); if (root.hidden) return; const bd = root.querySelector('.dsbody'), f = $('plFindRes').querySelector('.plfr') || $('plFindQ');
+      for (let k = 0; k < 2; k++) { if (bd) bd.scrollTop = 0; DSP.onScroll(); } // (beta 6.7 round 2: Find a setting and its results under the preview; twice: a folded preview unfolding at the top moves the list down by as much)
+      try { f.focus({ preventScroll: true }); } catch (x) { /* an old browser */ }
+      const shown = (el) => { const r = el.getBoundingClientRect(), b = bd ? bd.getBoundingClientRect() : { top: 0, bottom: innerHeight }, pc = $('dsPrevCol'), pb = pc && bd && bd.clientWidth < 720 ? pc.getBoundingClientRect().bottom : b.top; // (narrow: the preview over the list, as DSP.toRow)
+        return r.height > 0 && r.top >= Math.max(b.top, pb) - 1 && r.bottom <= b.bottom + 1; };
+      if (bd && !(shown($('plFindBox')) && shown(f))) DSP.toRow($('plFind')); // (beta 6.7 round 2: the box and its first result in view, never under the preview or the footer)
+    }, 60);
+  }
+  /** Plan style opened afresh: no note, nothing asked, nothing marked (beta 6.7, UX step 5 fixes; round 2: the orange mark too). */
+  function plFindReset() { plPend = null; plWhy(null); clearTimeout(plMarkT); $('drwStyle').querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); }
+  $('dxfMode').addEventListener('change', () => { // (beta 6.7, UX step 5 fixes: after renderDxfTpl's own: the row asked for is shown now: marked; or the note goes)
+    const e = plPend; plPend = null; if (!e || $('drwStyle').hidden) { plWhy(null); return; }
+    if (!plOff(e)) setTimeout(() => plMark(e.el), 60); else plWhy(null);
+  });
+  $('plFindQ').addEventListener('input', plFindRender);
+  $('plFindQ').addEventListener('keydown', (e) => {
+    const first = $('plFindRes').querySelector('.plfr');
+    if (e.key === 'Enter') { e.preventDefault(); if (first) first.click(); }
+    else if (e.key === 'ArrowDown' && first) { e.preventDefault(); first.focus(); }
+    else if (e.key === 'Escape' && $('plFindQ').value) { e.preventDefault(); $('plFindQ').value = ''; plFindRender(); } // (else Esc closes the panel, as before)
+  });
+  $('plFindRes').addEventListener('keydown', (e) => { // the arrows go through the results; Esc back to the box
+    const B = [...$('plFindRes').querySelectorAll('button')], k = B.indexOf(document.activeElement); if (k < 0) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const j = k + (e.key === 'ArrowDown' ? 1 : -1); if (j < 0) $('plFindQ').focus(); else if (B[j]) B[j].focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); $('plFindQ').focus(); }
+  });
+  /* beta 6.7 (UX step 5): the ? of each Export row (in its You get line) and of each Plan style section (beside its title, open): the
+     tutorial step that says the row's label (GESAA_TUTORIAL.help; data-tut: the topic tried first, then words of its own; a section:
+     the step that also says the most of its rows), opened over the screen: Back comes back to it. */
+  function qhelpFor(el) {
+    const T = window.GESAA_TUTORIAL; if (!T || !T.help) return null;
+    const tut = (el.closest('#export') && isAcc() && el.dataset.tutacc) || el.dataset.tut; // (beta 6.7, UX step 5 fixes: a row a PAT, cleanup or FAT shares with a survey: its acceptance step)
+    const [topic, ...more] = String(tut || '').split(' ').filter(Boolean), rows = el.matches('details.stsec') ? [...el.querySelectorAll('[data-find]')].map((x) => x.dataset.find) : [];
+    return T.help([el.dataset.find, ...rows, ...(more.length ? [more.join(' ')] : [])], { topic, admin: tutAdmin() });
+  }
+  function qhelpOpen(el) {
+    const h = qhelpFor(el), t = h && tutTopics().find((x) => x.id === h.id);
+    LOG.info('qhelp', { row: el.dataset.find, topic: h ? h.id : '', step: h ? h.step + 1 : 0 });
+    if (!t) { $('tutQ').value = el.dataset.find || ''; openTutorial(); return; }
+    openTutTopic(t, null, h.step);
+  }
+  document.querySelectorAll('#export .xcard[data-find], #drwStyle details.stsec[data-find]').forEach((el) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'qhelp'; b.textContent = '?';
+    const named = () => { b.setAttribute('aria-label', `Help: ${el.dataset.find} (opens its step in the Tutorial)`); b.title = `How it works: ${el.dataset.find}`; };
+    named(); new MutationObserver(named).observe(el, { attributes: true, attributeFilter: ['data-find'] }); // (beta 6.7, UX step 5 fixes: a label changed at run time, as a cleanup's Hand on to the FAT inspector)
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); qhelpOpen(el); });
+    if (el.matches('details')) el.querySelector(':scope > summary').after(b);
+    else { const g = el.querySelector(':scope > .xget'); if (g) g.prepend(b); else el.querySelector(':scope > .head').after(b); }
+  });
   /** Export the plan: the Export screen with the DXF card only, over the Drawing (beside it on a computer). */
   let planExport = false;
   /** An open screen brought back to the top (the ones above it closed): true when it was open. */
   function toSheet(id) { if (!stack.includes(id)) return false; if (stack[stack.length - 1] !== id) closeSheet().then(() => toSheet(id)); return true; }
-  function openPlanExport() { if (toSheet('export')) return; exportPick = 'doDxf'; planExport = true; $('exportBtn').click(); }
+  function openPlanExport() { if (toSheet('export')) return; if (drwEd && deskOn()) drwEditSet(false); exportPick = 'doDxf'; planExport = true; $('exportBtn').click(); } // (beta 6.7, UX step 3; critic: on a computer the docked panel would cover ✎'s route bar: ✎ ends first)
   $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
   $('dxfTplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; busy('Reading the plan template…'); try { await storeSeed(await f.text(), f.name, 'file'); } finally { busy(false); } }, 'Template not loaded'));
   /** v2.31: the admin's template, fetched and kept: the Android app through Android (Google Drive allows it); the website tries the
@@ -10497,6 +11802,30 @@
   const CAB_TITLE = Object.fromEntries(Object.entries(CAB).map(([k, c]) => [k, c.fam === 'light' ? `PROPOSED ${c.cores}C LIGHT CABLE` : c.fam === 'fig8' ? `PROPOSED ${c.cores}C FIGURE 8 FOC` : c.fam === 'conv' ? `PROPOSED ${c.cores}C CONVENTIONAL AE FOC` : c.fam === 'convug' ? `PROPOSED ${c.cores}C CONVENTIONAL UG FOC` : `PROPOSED ${c.cores}C AIR-BLOWN UG FOC`])); // (v2.42.24: every type)
   /** The material code of a pole for the drawing (CC / WP / SP …, or NPT when it has no pole tag). */
   function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
+  /* beta 6.6 (the owner: "for globe, it always uses proposed and existing color since this is the admin company owned poles";
+     "drawing style and PMI must should add automatically the poles RTA"): a Globe pole is no RTA: red when proposed or new, the legend's
+     existing blue when existing, always. Every other pole owner of the project without a category gets one of its own, RTA-<OWNER>, in a
+     colour no other category has (the user may change it, which keeps it, or remove it, which keeps it off). */
+  const RTA_GT = { k: 'gt', text: 'EXISTING POLES', color: 5, fixed: true }, RTA_PROP = { k: 'proposed', text: 'PROPOSED POLES', color: 1, fixed: true };
+  const RTA_AUTO_COLS = ['#ff8000', '#8000ff', '#008080', '#a0522d', '#808000', '#800000', '#00a86b', '#708090']; // (orange, violet, teal, sienna, olive, maroon, jade, slate: none near the legend's red and blue, the standard green, magenta and cyan, or the yellow of the other numbers)
+  /* beta 6.7 (the owner: "treat it like Globe; Bayantel is globe owned"): Globe's own poles: type GT or Bayantel (BT), or owned by Globe or Bayantel */
+  const GLOBE_OWN_RE = /^\s*(globe|bayan)/i;
+  const isGlobePole = (p) => /^(GT|GLOBE|BT)/i.test(matCode(p)) || /globe|bayan/i.test(p.poleType || '') || GLOBE_OWN_RE.test((p.boq && p.boq.owner) || ''); // (its type, or Globe or Bayantel as its owner)
+  /** the categories in force for these points: the user's, then an automatic one for each other owner found, in owner order, each in
+      the next colour no category has (an owner removed keeps its turn, so removing one does not change the others' colours) */
+  function rtaCats(R, pts) {
+    if (!R || !R.on) return []; const cats = R.cats.slice(), has = (ow) => cats.some((x) => x.k === 'owner' && ow.toUpperCase().includes(x.owner.toUpperCase())), off = new Set(R.off.map((x) => x.toUpperCase()));
+    const owners = []; for (const p of pts || []) { if (elemOf(p) !== 'Pole' || ['Proposed', 'New'].includes(p.status) || isGlobePole(p)) continue; const ow = String((p.boq && p.boq.owner) || '').trim(); if (ow && !has(ow) && !owners.some((x) => x.toUpperCase() === ow.toUpperCase())) owners.push(ow); }
+    const used = new Set(cats.map((x) => String(x.color).toLowerCase())); let ci = 0;
+    for (const ow of owners.sort((a, b) => a.toUpperCase().localeCompare(b.toUpperCase()))) { if (has(ow)) continue;
+      while (ci < RTA_AUTO_COLS.length - 1 && used.has(RTA_AUTO_COLS[ci])) ci++; const col = RTA_AUTO_COLS[ci % RTA_AUTO_COLS.length]; ci++; if (off.has(ow.toUpperCase())) continue; // (removed: its turn kept)
+      used.add(col); cats.push({ k: 'owner', owner: ow, text: `RTA-${ow.toUpperCase()}`.slice(0, 32), color: col, auto: true }); }
+    return cats;
+  }
+  /** beta 6.5 (6.6: Globe, the automatic categories): a pole's RTA/JPA category for its number's colour, or null: the PMI's rule. */
+  function rtaCatOf(p, R, cats) { if (!R || !R.on || elemOf(p) !== 'Pole') return null; const C0 = cats || R.cats, nw = ['Proposed', 'New'].includes(p.status);
+    if (isGlobePole(p)) return nw ? C0.find((x) => x.k === 'proposed') || RTA_PROP : RTA_GT; if (nw) return C0.find((x) => x.k === 'proposed') || null;
+    const ow = String((p.boq && p.boq.owner) || '').toUpperCase(); return ow ? C0.find((x) => x.k === 'owner' && ow.includes(x.owner.toUpperCase())) || null : null; }
   /** v2.32: the picture of the VICINITY MAP sheet: the street map in use (tiles already seen on this phone first) over the vicinity
       square, turned to the UTM grid of the drawing, as a JPEG. Null when offline or when too much of the map does not come. */
   async function vicinityJpeg(cE, cN, size, zone, south, progress, source, zCap, ll0) { // (beta 4.2: ll0, the corners as [lat, lon]: top left, top right, bottom left)
@@ -10662,30 +11991,16 @@
     logoGet().then((r) => { const img = $('dxfLogoImg'); if (r) { img.src = `data:${r.type};base64,${r.data}`; img.hidden = false; } else { img.hidden = true; img.removeAttribute('src'); } }).catch(() => {});
   }
   $('dxfLogoSet').addEventListener('click', () => { if (cefHooks.canLogo && !cefHooks.canLogo()) { toast('Company logo: your coordinator sets it', 5000); return; } $('dxfLogoFile').value = ''; $('dxfLogoFile').click(); });
-  $('dxfLogoFile').addEventListener('change', (e) => guard(async () => {
-    const f = e.target.files[0]; if (!f) return; const co = (S.user && S.user.company) || ''; if (!co) throw new Error('Choose your company in Your details first');
-    busy('Preparing the logo…');
-    try {
-      const L = await logoPrepare(f), at = new Date().toISOString();
-      await logoStore({ co, at, ...L });
-      let shared = false;
-      if (S.team && S.team.src && S.team.src.url && navigator.onLine !== false) {
-        busy('Sharing the logo with your company…');
-        try {
-          const j = await cloudRequest({ url: S.team.src.url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'setLogo', company: co, type: L.type, data: L.data, at, ...(keyMode() ? { ckey: S.companyKey } : {}), ...(isAdmin() && S.onlineAdminKey ? { key: S.onlineAdminKey } : {}) }) });
-          shared = !!(j && j.ok); if (!shared) LOG.warn('logo.share', { error: j && j.error });
-        } catch (e2) { LOG.warn('logo.share', errInfo(e2)); }
-      }
-      toast(shared ? `Logo saved and shared with ${co} users` : 'Logo saved on this phone (not shared: the online sheet did not take it)', 4500);
-    } finally { busy(false); }
-  }, 'Logo not saved'));
-  async function exportPlanDxf(pts) {
+  // beta 6.7 (UX step 4): Plan style › Plan file › Company logo runs the same code as Settings › Exports and files › Company logo (one logo)
+  $('dxfLogoFile').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) guard(() => cefLogoSet(f), 'Logo not saved').then(() => renderLogo()); });
+  async function exportPlanDxf(pts, o) {
+    const one = !!(o && o.one); // beta 4.6: One PDF (the plan, the CEF plan, the splicing details): only the plan's sheets are made here, of the drawing the Drawing shows
     if (!window.GeDxfTpl) await loadScript('dxftpl.js');
     const seed = await ensureSeed();
     if (!seed) { if (!seedId()) toast('No plan template yet: ask your admin to share it, or load the template file they sent you', 6000); renderDxfTpl(); return; }
     busy('Preparing the plan drawing…');
     const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
-    const R = routeModel(), Q = surveyQty(pts), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
+    const QC = { loops: [] }, R = routeModel(), Q = surveyQty(pts, QC), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R); // v2.42.16: the maintenance loops the app adds (As-Plan); v2.42.18: the own ones
     const showCT = S.exp.dxfClampType !== false; // v2.40: the plan's options (v2.41: set on the Drawing screen)
     const PLS = plStyle(); // v2.42.21: where the clamp types go, the 12C hardware, the cable labels
@@ -10697,22 +12012,25 @@
       return { id: `row${i + 1}`, tag: rowTag(r), mode: r.mode, ids: MS.ids, no: MS.no, what: r.pts.includes('*') ? 'every pole and the other points (handholes, ODC, site…)' : on.length ? `only ${on.map(markName).join(', ')}` : r.pts.length ? `only ${r.pts.map(markName).join(', ')}: none in this project (no photo or number)` : 'no point (no photo or number)' };
     });
     { const seen = new Map(); SETS.forEach((x) => { const n = (seen.get(x.tag) || 0) + 1; seen.set(x.tag, n); if (n > 1) x.tag = `${x.tag}_${n}`; }); } // two alike: _2
+    if (one && SETS.length > 1) SETS.splice(0, SETS.length, SETS[rowIdx()] || SETS[0]); // (beta 4.6: one drawing in the One PDF; several would repeat the sheets)
     const markSet = new Set(SETS.filter((x) => x.mode !== 'num').flatMap((x) => x.ids)); // the points whose photo some drawing shows
     // v2.31: what the template's pole models show: proposed pole (its ID unless generic) / height / clamp; an existing pole's material
     // and pole tag (electric) or material and ID (telco pole: Globe, Bayantel, or a telco owner); the new arm and guying
     const TELCO_TYPES = new Set(['GT', 'BT']);
     const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p), b = p.boq || {}, pre = typePrefix(p.poleType), own = String(b.owner || '').trim(), generic = !p.poleId || /^P{1,2}-?\d+$/i.test(p.poleId);
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
-        telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: el === 'Pole' && hwOf(p, R).noClamp ? '' : b.clamp || '', /* 2.44.9: the light cable's pole: its retractors and span clamps, no clamp size */
-        armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), // v2.42.1: the plan draws it
+        telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), gtbt: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && isGlobePole(p), /* (beta 6.7: Bayantel's as Globe's) */ /* beta 6.7: an existing Globe or Bayantel pole: a circle filled blue */ label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: el === 'Pole' && hwOf(p, R).noClamp ? '' : b.clamp || '', /* 2.44.9: the light cable's pole: its retractors and span clamps, no clamp size */
+        armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), armText: el === 'Pole' && hasTelcoArm(p) ? armOnPole(p)[2] : '', // v2.42.1: the plan draws it (beta 6.3: with its own name)
         mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id) || (LA.fib && LA.fib.list.has(p.id))), mloopM: el === 'Pole' ? (LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id)[0].len : loopLenAt(p, R, LA, OWN.get(p.id))) : 0,
         mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, mloopR: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.n) : null, /* v2.42.25: each loop's cable (RUN) */ /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
         napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', odfSz: el === 'ODF' ? b.odf || '' : '', odfConn: el === 'ODF' ? b.conn || '' : '', /* v2.42.26 */ ground: groundYes(b), riser: !!b.riser || riserAuto(p), p2pTo: b.p2p || null,
         clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType, hw: el === 'Pole' && showCT && PLS.clamp.hw ? hwShort(p, R) : '', /* v2.42.21: a 12C-only pole's hardware */
-        ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^globe$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
+        ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^(globe|bayantel)$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; /* (beta 6.7: Bayantel's is Globe's own: no owner's name either) */ }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
+    const FX = fibers(); // (beta 6.7: the RUNs, for each UG span's own way)
     const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1), cabLbl: PLS.cab.on ? cabLabelOf(s, PLS.cab.word) : null, runLbls: s.lanes && s.lanes.some((f) => !f.ex) ? null : (s.runs || [s.cable]).map((k, i, all) => runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', all.length > 1 ? i + 1 : 0)) }; // (v2.42.23: each run's own label) // v2.42.18: + the other runs; v2.42.21: its cable label
+      { const g = (s.fibers || []).filter((f) => isUG(f.cab)).sort((x, y) => x.n - y.n)[0], k = g ? null : (s.runs || [s.cable]).find((c) => isUG(c)); if (g || k) { const u = (g && ugSpanOf(s.ia, s.ib, FX)) || ugOf(g || { cab: k }); o.ug = { m: u.m, cd: u.cd, cr: u.cr, n: g ? g.n : 0, ...(u.own ? { own: true } : {}) }; } } // beta 6.7: how a UG span is laid (its own way, else its first new UG cable's method and conduit)
       if (s.lanes && s.lanes.length) { // v2.42.20: the other fibers each in its lane (beside the first fiber's line), an existing one dashed blue; the fibers' tags with the length
         const main = s.fibers.slice().sort((x, y) => x.n - y.n)[0] || null, mi = main ? s.lanes.indexOf(main) : (s.lanes.length - 1) / 2, rest = s.lanes.filter((f) => f !== main);
         Object.assign(o, { more: rest.map((f) => f.cab || ''), moreOff: rest.map((f) => s.lanes.indexOf(f) - mi), moreEx: rest.map((f) => !!f.ex), tags: R.fib.list.length > 1 ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join('+') : '' }); }
@@ -10740,10 +12058,18 @@
     let lmBlocks = null; // v2.35.6: the landmarks' icons as AutoCAD blocks
     if (pois && pois.length && LM) { pois = pois.map((q) => ({ ...q, icon: lmIcon(q.kind, q.detail) })); if (pois.some((q) => q.icon >= 0)) lmBlocks = await loadLandmarkBlocks(); }
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), isNew = (p) => ['Proposed', 'New'].includes(p.status), exist = poles.filter((p) => !isNew(p));
-    const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = (p) => /^(GT|GLOBE)/i.test(matCode(p)) || /globe/i.test(p.poleType || '');
+    const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = isGlobePole; // (beta 6.6: Globe's own poles, as the numbers' colours: its type, or Globe as owner)
     const m1 = (v) => `${(Math.round(v * 10) / 10).toFixed(1)}m`;
-    const pmiL = S.exp.pmiLoops !== false; // v2.42.17: the user's choice (Settings → AutoCAD DXF, or the DXF card): loops in the PMI cable lengths or not
-    const ml = q.MLOOP_LEN || mloopLen(), focBy = (meth) => Object.keys(CAB).filter((k) => CAB[k].method === meth).reduce((t, k) => t + (q[`FOC_${k}`] || 0), 0); // v2.42.16: spans + loops (a pole's, a box's)
+    const pmiL = S.exp.pmiLoops !== false; // v2.42.17: the user's choice (beta 6.7: Plan style › Plan file): loops in the PMI cable lengths or not
+    const ml = q.MLOOP_LEN || mloopLen(); // (beta 6.4: the PMI's cable lengths as the plan writes them, PW below)
+    /* beta 6.4 (the owner: "the bill of quantities shows 30.6m on BOQ but 31m on the drawing… set to accommodate based on the planned
+       drawing"): the plan's PMI and the BOQ table of each GEO sheet count each span as the plan writes its length (whole metres, as its
+       span length text: Math.round, as dxftpl writes it) and each loop as its loop text (its own length), so that the written numbers add
+       up to the tables and the sheets to the PMI. (beta 6.6: the Excel BOQ's survey quantities and the Route and spans Excel the same:
+       spanW, routeW, fibW.) */
+    const spW = (sp) => Math.round(+sp.len || 0), methOf = (k) => (k && CAB[k] ? CAB[k].method : null), PW = { span: 0, foc: 0, AE: 0, UG: 0, sAE: 0, sUG: 0 };
+    R.spans.forEach((sp) => { const L = spW(sp), rs = sp.runs || [sp.cable]; PW.span += L; PW.foc += rs.length * L; rs.forEach((k) => { const m0 = methOf(k); if (m0 === 'AE' || m0 === 'UG') { PW[m0] += L; PW[`s${m0}`] += L; } }); });
+    QC.loops.forEach(([, cab, len]) => { PW.foc += +len || 0; const m0 = methOf(cab); if (m0 === 'AE' || m0 === 'UG') PW[m0] += +len || 0; });
     const cabs = [...new Set(R.spans.flatMap((s) => s.runs || [s.cable]).filter(Boolean))]; // (v2.42.18: every run's)
     const e = exporterInfo();
     // v2.34: the site from the online sheet's project details (name, PLA ID, serial number), for the title sheet and every title block
@@ -10752,6 +12078,13 @@
     const sName = sfm.siteName || m.siteName || (task && task.project) || '', sPla = sfm.plaId || m.plaId || (task && task.site) || '', sSerial = sfm.serial || m.serial || (task && extraOf(task, 'Serial Number')) || ((m.siteExtra || []).find(([k]) => /serial/i.test(k)) || [])[1] || '';
     const known = !!(sName || sPla || sSerial);
     try { cseLeadSync(m); } catch (e) { /* the CSE Lead as kept */ }
+    /* beta 6.6 (the owner: "PMI must should add automatically the poles RTA"): an existing pole (not Globe's) counts in RTA CONVERGE
+       (owner CONVERGE), RTA LOCAL COOP (an electric company, a coop or power), RTA OTHER (PLDT POLE) (PLDT only; before 6.6 every other
+       owner), or a row of its own owner's, RTA <OWNER>, added to the PMI table and to each sheet's BOQ table */
+    const rtaRowOf = (p) => { const ow = own(p); if (!ow) return null; if (/CONVERGE/.test(ow)) return 'PMI_RTA_CONVERGE'; if (/ELECTRIC|COOP|POWER/.test(ow)) return 'PMI_RTA_LOCAL_COOP'; if (/PLDT/.test(ow)) return 'PMI_RTA_OTHER_PLDT'; return `PMI_RTA_X_${ow.replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 24) || 'OWNER'}`; };
+    const rtaPmiVals = { PMI_RTA_CONVERGE: 0, PMI_RTA_LOCAL_COOP: 0, PMI_RTA_OTHER_PLDT: 0 }, pmiExtraRows = [];
+    exist.filter((p) => !gt(p)).forEach((p) => { const k = rtaRowOf(p); if (!k) return; if (!(k in rtaPmiVals)) { rtaPmiVals[k] = 0; pmiExtraRows.push([`RTA ${own(p)}`.slice(0, 40), k]); } rtaPmiVals[k]++; });
+    Object.keys(rtaPmiVals).forEach((k) => { rtaPmiVals[k] = String(rtaPmiVals[k]); });
     const values = {
       EXPORTED_BY: `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' · ')} · ${e.app} · ${todayIso()}`, // v2.42.4: the phone's date (was UTC: the day before until 8 am)
       TITLE_CABLE: cabs.map((k) => CAB_TITLE[k]).join(' / '), COMPANY_NAME: m.contractor || (S.user && S.user.company) || '',
@@ -10759,14 +12092,30 @@
       LOCATION: { PAGING: known ? [sName, sPla].filter(Boolean).join('_') : (m.site || '') }, SITE_ID: { PAGING: known ? sSerial : '' }, // every title block: SITENAME_PLAID, then the serial number
       PROJECT_CODE: sfGet(SF, /project\s*code|network\s*code/i) || ((m.siteExtra || []).find(([k]) => /project\s*code|network\s*code/i.test(k)) || [])[1] || '',
       ...(sfGet(SF, /project\s*(name|type)/i) ? { PROJECT_TYPE: sfGet(SF, /project\s*(name|type)/i) } : {}), // v2.41: the sheet's Project Name (e.g. KV, FOC RELOC) as the project type
-      PMI_TOTAL_CABLE_LENGTH: R.spans.length ? m1(pmiL ? q.FOC_TOTAL || 0 : q.SPAN_TOTAL || 0) : '', PMI_AERIAL_CABLE_LENGTH: R.spans.length ? m1(pmiL ? focBy('AE') : q.SPAN_AE || 0) : '', PMI_UG_CABLE_LENGTH: R.spans.length ? m1(pmiL ? focBy('UG') : q.SPAN_UG || 0) : '',
+      PMI_TOTAL_CABLE_LENGTH: R.spans.length ? m1(pmiL ? PW.foc : PW.span) : '', PMI_AERIAL_CABLE_LENGTH: R.spans.length ? m1(pmiL ? PW.AE : PW.sAE) : '', PMI_UG_CABLE_LENGTH: R.spans.length ? m1(pmiL ? PW.UG : PW.sUG) : '', // (beta 6.4: as the plan writes them; see PW)
       PMI_PROPOSED_POLE: String(poles.filter(isNew).length), PMI_EXISTING_GT_POLE: String(exist.filter(gt).length),
-      PMI_RTA_CONVERGE: String(exist.filter((p) => !gt(p) && /CONVERGE/.test(own(p))).length), PMI_RTA_LOCAL_COOP: String(exist.filter((p) => !gt(p) && /ELECTRIC/.test(own(p))).length),
-      PMI_RTA_OTHER_PLDT: String(exist.filter((p) => !gt(p) && own(p) && !/CONVERGE|ELECTRIC/.test(own(p))).length),
+      ...rtaPmiVals, // beta 6.6: the RTA rows by owner (rtaRowOf): CONVERGE, LOCAL COOP, OTHER (PLDT POLE) and one for each other owner
       // v2.42.12: the names above the signature lines of every title block (the CSE Lead from the online sheet's copy on this phone)
       SIG_DESIGN_ENGINEER: S.sig.design || '', SIG_PROJECT_ENGINEER: S.sig.project || '', SIG_HEAD_CABLE_ENGINEERING: S.sig.head || '', SIG_JUNIOR_ENGINEER: '', SIG_CSE_LEAD: S.sig.cse || '',
       PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
     };
+    /* beta 6.0: the PMI's quantities item by item, each where it is, for the BOQ table of each GEO sheet (dxftpl adds them up by grid
+       cell): a span's length where its length is written on the plan (each run when the PMI counts the runs), a loop at its point, a
+       pole by its kind, a new ODF's fibers, a new closure; the same rules as the PMI table above, so the sheets add up to it. */
+    const pmiItems = (() => {
+      const meth = (k) => (k && CAB[k] ? CAB[k].method : null), out = { spans: [], points: [] };
+      if (R.spans.length) {
+        R.spans.forEach((sp) => { const runs = sp.runs || [sp.cable], L = spW(sp), ae = runs.filter((k) => meth(k) === 'AE').length * L, ug = runs.filter((k) => meth(k) === 'UG').length * L; // (beta 6.4: as its length is written)
+          out.spans.push({ ia: sp.ia, ib: sp.ib, v: { PMI_TOTAL_CABLE_LENGTH: pmiL ? runs.length * L : L, PMI_AERIAL_CABLE_LENGTH: ae, PMI_UG_CABLE_LENGTH: ug } }); });
+        if (pmiL) QC.loops.forEach(([id, cab, len]) => out.points.push({ id, v: { PMI_TOTAL_CABLE_LENGTH: len, ...(meth(cab) === 'AE' ? { PMI_AERIAL_CABLE_LENGTH: len } : meth(cab) === 'UG' ? { PMI_UG_CABLE_LENGTH: len } : {}) } }));
+      }
+      poles.forEach((p) => { const v = {}, ow = own(p); if (isNew(p)) v.PMI_PROPOSED_POLE = 1; else if (gt(p)) v.PMI_EXISTING_GT_POLE = 1; else { const k = rtaRowOf(p); if (k) v[k] = 1; } /* (beta 6.6: rtaRowOf) */ if (Object.keys(v).length) out.points.push({ id: p.id, v }); }); // (each rule of the PMI on its own, as above)
+      pts.filter((p) => elemOf(p) === 'ODF' && isNew(p)).forEach((p) => { const n = parseInt(String((p.boq && p.boq.odf) || ''), 10) || 0; if (n) out.points.push({ id: p.id, v: { PMI_FIBER_TERMINATION: n } }); });
+      const stOf = (p, k) => ((p.boq || {})[k] === 'Existing' ? 'Existing' : 'New'), nClo = (p) => String((p.boq && p.boq.clo) || 'size not set').split(' + ').length;
+      pts.filter((p) => elemOf(p) === 'Closure' || boxClo(p)).filter((p) => (boxClo(p) && p.boq && p.boq.cloSt ? p.boq.cloSt === 'New' : isNew(p) || (p.boq && p.boq.cloSt === 'New')))
+        .concat(poles.filter((p) => (p.closure || p.closureId) && stOf(p, 'cloSt') === 'New')).forEach((p) => out.points.push({ id: p.id, v: { PMI_HYBRID_CLOSURE: nClo(p) } }));
+      return out;
+    })();
     // v2.35: the ROW AREA COVERAGE sheet: the cities / municipalities and barangays the route passes (every 20 m of each span and
     // every point), from the boundaries in a road pack on this phone
     let rowNote = 'no road pack on this phone covers the route, so the table is left blank (Maps → Offline map packs → Roads · your region)';
@@ -10791,9 +12140,13 @@
     // v2.32: the photo of each pole beside it on the drawing (the JPEGs go next to the DXF), and the street map on the vicinity sheet
     // v2.40: the photos of the points chosen for the plan (poles of the chosen types, handholes and the other points), none for numbers only
     const names = uniqueNames(pts), photos = {}, files = [], withPh = pts.filter((p) => markSet.has(p.id));
+    // beta 6.4: Drawing style › Photos on the plan › Stamp on the photos: lat, long and (the road packs') address burned into each photo,
+    // sized to its long side on the sheet (the same JPEGs go in the ZIP, the plan PDF and the One PDF)
+    const PST = PLS.photo.stamp, stampMm = phTidyMm(PLS.photo.size), /* (beta 6.7: Standard prints them at the same steps) */ /* (beta 6.4: Tidy prints the photos at its own steps) */ LOC = PST === 'addr' && withPh.length ? await poleLocations(withPh, true).catch(() => new Map()) : new Map();
     for (let i = 0; i < withPh.length; i++) {
       busy(`Preparing the photos ${i + 1} / ${withPh.length}`, i / withPh.length);
-      const jpg = await pdfJpeg(coverPid(withPh[i]) || withPh[i].id, 800, null, null, 0.8).catch(() => null); if (!jpg) continue;
+      const q = withPh[i], band = PST !== 'off' && Number.isFinite(+q.lat) && Number.isFinite(+q.lon) ? { lat: q.lat, lon: q.lon, addr: PST === 'addr' ? LOC.get(q.id) || '' : '', mm: stampMm } : null;
+      const jpg = await pdfJpeg(coverPid(q) || q.id, 800, null, null, 0.8, band).catch(() => null); if (!jpg) continue;
       let dim; try { dim = window.PoleReports.jpegInfo(jpg); } catch (e) { continue; }
       const file = `${names[withPh[i].id]}.jpg`; photos[withPh[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
     }
@@ -10824,21 +12177,26 @@
     let logo = null;
     try { const lg = await logoGet(); if (lg) { const ext = lg.type === 'image/png' ? 'png' : 'jpg'; logo = { file: `COMPANY_LOGO.${ext}`, px: lg.px, py: lg.py }; files.push({ name: logo.file, data: b64ToBytes(lg.data) }); } } catch (e) { LOG.warn('plan.logo', errInfo(e)); }
     const PS = plStyle(), name = `${fileBase()}_PLAN_UTM${zone}N`, byPt = new Map(pts.map((p) => [String(p.id), p])), many = SETS.length > 1, outs = [];
+    // beta 6.5: each pole number in its RTA/JPA category's colour (number and circle), and the categories on the plan for its legend
+    const rtaC = rtaCats(PS.num.rta, pts), rtaN = new Map(); rows.forEach((r) => { const p = byPt.get(String(r.id)), cat = p ? rtaCatOf(p, PS.num.rta, rtaC) : null; if (!cat) return; /* (beta 6.6: Globe's, the automatic categories) */ r.numCol = jobCols({ c: cat.color }).c; rtaN.set(cat, (rtaN.get(cat) || 0) + 1); });
+    // beta 6.6 (the owner: "under drawing style, let the user decide, off by default"): Drawing style › Loops at boxes and ODF entrances › Written: each such loop the PMI counts, for the plan to write beside its point
+    const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
+    const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
     for (let k = 0; k < SETS.length; k++) { // v2.41: one DXF for each drawing of the export
       const st = SETS[k];
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
-        towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: PLS.site.acol, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, poleStyle: PS.pole, spanStyle: PS.span, /* beta 4.3 */ photoStyle: PS.photo, /* Drawing style › Photos: their size */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
+      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
+        towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
+        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
     // v2.42.9: the sheets as a PDF too (drawn by the app from each DXF), when ticked on the DXF card: for printing, or when the DXF
     // does not open as it should
     const pdfFiles = [];
-    if (S.exp.dxfPdf) {
+    if (S.exp.dxfPdf || one) {
       try {
         if (!window.GeDxfPdf) await loadScript('dxfpdf.js');
         const images = {};
@@ -10846,24 +12204,26 @@
         const deflate = 'CompressionStream' in window ? async (u) => new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer()) : null;
         for (let k = 0; k < outs.length; k++) {
           busy(many ? `The sheets as a PDF (${k + 1} of ${outs.length})…` : 'The sheets as a PDF…', k / outs.length); await sleep(30);
-          const pdf = await window.GeDxfPdf.toPdf(outs[k].out.text, { images, title: outs[k].file.replace(/\.dxf$/i, ''), deflate });
+          const pdf = await window.GeDxfPdf.toPdf(outs[k].out.text, { images, title: outs[k].file.replace(/\.dxf$/i, ''), deflate, colourRuns: S.exp.dxfLabels === 'tidy' }); // (beta 4.7: Tidy labels' two colours)
           pdfFiles.push({ name: outs[k].file.replace(/\.dxf$/i, '_SHEETS.pdf'), data: pdf });
           LOG.info('export.planpdf', { sheets: pdf.report.sheets.length, pictures: pdf.report.pictures, missing: pdf.report.missing.length, mb: +(pdf.length / 1048576).toFixed(2) });
         }
-      } catch (e) { LOG.warn('export.planpdf', errInfo(e)); pdfFiles.length = 0; toast('The PDF of the sheets could not be made: the DXF is in the ZIP', 5000); }
+      } catch (e) { LOG.warn('export.planpdf', errInfo(e)); pdfFiles.length = 0; toast(one ? 'The plan’s sheets could not be made as a PDF: the One PDF has the other plans only' : 'The PDF of the sheets could not be made: the DXF is in the ZIP', 5000); }
     }
     // beta 4.1 (MarkT): also the CEF plans of the project, each in its own folder of the ZIP, when ticked on the DXF card
     const cefFiles = [];
-    if (S.exp.dxfCef !== false && cefHooks.planFiles && cefHooks.plansN && cefHooks.plansN(S.project)) {
-      try { busy('The CEF plans…'); (await cefHooks.planFiles(S.project)).forEach((f) => cefFiles.push(f)); LOG.info('export.plancef', { files: cefFiles.length }); }
-      catch (e) { LOG.warn('export.plancef', errInfo(e)); cefFiles.length = 0; toast('The CEF plans could not be added: the plan is in the ZIP', 5000); }
+    if ((S.exp.dxfCef !== false || one) && cefHooks.planFiles && cefHooks.plansN && cefHooks.plansN(S.project)) {
+      try { busy('The CEF plans…'); (await cefHooks.planFiles(S.project, one ? (n) => /_CEF\.pdf$/i.test(n) : null)).forEach((f) => cefFiles.push(f)); LOG.info('export.plancef', { files: cefFiles.length, one }); } // (the One PDF: each plan's PDF only)
+      catch (e) { LOG.warn('export.plancef', errInfo(e)); cefFiles.length = 0; toast(one ? 'The CEF plans could not be made: the One PDF has the other plans only' : 'The CEF plans could not be added: the plan is in the ZIP', 5000); }
     }
+    if (one) { if (splHooks.onePdf) await splHooks.onePdf(pdfFiles, cefFiles); return; } // beta 4.6: the plan's sheets, the CEF plans, the splicing details in one PDF (no DXF, no ZIP)
     const rp = outs[0].out.report;
     // v2.40: the numbers on the plan, for the README (and an RTA application): number, ID, pole type, position
     const markLinesOf = (MK) => MK.map(([n, id]) => { const p = byPt.get(id) || {}; return `  ${n}  ${p.poleId || '(no ID)'}  ${elemOf(p) === 'Pole' ? p.poleType || 'pole' : elemOf(p)}  ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`; });
-    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}${o.st.mode !== 'num' && o.nPh && o.out.report.photoSize ? `; the photos ${o.out.report.photoSize} m on their long side on this plan (${mmOf(o.out.report.photoSize)} mm)` : ''}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
-    const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF in AutoCAD with File > Open: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF. Do not drag the DXF into an open drawing (it becomes a block there and its pictures are looked for next to that other drawing).'
-      : 'Open the DXF in AutoCAD with File > Open (do not drag it into an open drawing).'; // v2.42.8
+    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}${o.st.mode !== 'num' && o.nPh && o.out.report.photoSize ? `; the photos ${o.out.report.photoSize} m on their long side on this plan (${mmOf(o.out.report.photoSize)} mm)${PST === 'off' ? '' : `, each stamped at its foot with its lat, long${PST === 'addr' ? ` and the road pack's address (road, barangay, city; ${LOC.size ? `found for ${LOC.size} of ${withPh.length}` : 'no road pack covers them: the lat, long only'})` : ''}`}` : ''}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
+    const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the plan by double-clicking the DXF in that folder: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF. Do not drag the DXF into an open drawing (it becomes a block there and its pictures are looked for next to that other drawing).'
+        + ' If the photos still show as empty frames (AutoCAD 2021 or 2022): type -IMAGE, press Enter, type R, press Enter, then press Enter again; every picture is loaded from the DXF\'s folder. Save the plan as a DWG (File > Save As) to keep them.'
+      : 'Open the DXF in AutoCAD with File > Open (do not drag it into an open drawing).'; // v2.42.8 (beta 4.7: the pictures in older AutoCAD)
     const head = many ? [`${outs.length} plan drawings on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres, the same plan with different numbers or photos beside the points:`,
       ...outs.map((o) => `  ${o.file}: ${besideOf(o)}.`), setFirst]
       : [`${outs[0].file} — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`, setFirst, `Beside the points: ${besideOf(outs[0])} (the list is at the end).`];
@@ -10872,13 +12232,13 @@
     head.splice(0, head.length, ...head.filter(Boolean));
     const readme = [...head,
       `Clamp types: ${showCT ? 'on the plan, before the clamp size (e.g. CA 8-10, 2A 10-12)' : 'left off the plan (the clamp size only); they are in the BOQ, the KMZ and the CSV'}.`,
-      `Drawing style: ${plSummary()}.`,
+      `Plan style: ${plSummary()}${S.exp.dxfLabels === 'tidy' ? ' · Pole labels: Tidy (Tidy sets the sizes of the texts, symbols, numbers and photos on the map; the crowded-places rule is for the other labels)' : ''}.`, // (beta 4.7, 4.8)
       `${nLoc > 1 ? `The points are in ${nLoc} places more than 1 km apart: each has its own VICINITY MAP and KEYMAP sheet, and its own GEO sheets (cells named with the place's number first: 1A-1, 2A-1). ` : ''}Vicinity map${nLoc > 1 ? 's' : ''}: ${vicSay.map((t, k) => (nLoc > 1 ? `place ${k + 1}: ${t}` : t)).join('; ')}; the project area circled. Roads and building names are drawn round the route only (the cells of the GEO sheets and 60 m round them), not over the whole vicinity area.`,
       `Title blocks: ${known ? `${[sName, sPla].filter(Boolean).join('_')} / ${sSerial || '(no serial number)'} from the online sheet's project details` : 'no project details from the online sheet: the project\'s location text is used'}; company ${logo ? 'logo COMPANY_LOGO' : 'name (no logo set)'}; title ${m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN'}.`,
       ...(siteFieldsOf().length ? [`Site details (Project details): ${siteFieldsOf().map(([k2, v2]) => `${k2}: ${v2}`).join(' · ')}.`] : []),
       'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
       `Sheets: TITLE, TOC, LEGENDS, ${(rp.vicinities || [{ sheet: 'VICINITY MAP' }]).map((v) => v.sheet).join(', ')}, ROW AREA COVERAGE, ${(rp.vicinities || [0]).map((_, k) => (k ? `KEYMAP (${k + 1})` : 'KEYMAP')).join(', ')}, ${rp.sheets.join(', ')}, PMI.`,
-      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${rp.grid.cell} m (1:1100 on the GEO sheets).`,
+      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Plan style \u203a Map sheets \u203a Sheet split, 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}).`, // (beta 6.0: the scale of a finer Tidy grid; which split)
       `Roads: ${roadsNote}.`,
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
@@ -10887,23 +12247,45 @@
         const entIds = [...OWN.entries()].filter(([, v]) => v === 'entrance').map(([id]) => id), nEntP = entIds.length, nOwn = (q.MLOOP_OWN || 0) - nEntP; // v2.42.18: an entrance loop is counted, not drawn
         const nEnt = entIds.reduce((t, id) => t + (LA.fib && LA.fib.list.has(id) ? LA.fib.list.get(id).length : 1), 0); // (v2.42.24: one for each cable at an entrance, as the quantities count them)
         const nb = q.MLOOP_BOX || 0, onPoles = (q.MLOOP_COUNT || 0) - nb - nEnt, own = nOwn > 0 ? ` (${nOwn} of them with a NAP, an LCP, a hybrid closure, a dummy NAP or a riser: each has its loop)` : '';
-        const box = [...(nb ? [`Handholes, manholes and service boxes: a ${BOX_LOOP_M} m loop each (${nb}), counted in the cable length (PMI, survey quantities, BOQ) and not drawn: a box has its loop.`] : []),
-          ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ) and not drawn.`] : [])];
+        const box = [...(nb ? [`Handholes, manholes and service boxes: a ${BOX_LOOP_M} m loop each (${nb}), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each box (Plan style › 20 m loops at boxes)' : ' and not drawn: a box has its loop'}.`] : []),
+          ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each (Plan style › 20 m loops at boxes)' : ' and not drawn'}.`] : [])];
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
-      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. Trenches and maxcell are not in the survey.',
-      'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE (PROP.POLE / height / clamp), existing electric pole on ELECTRIC POLE (material / pole tag or NPT), telco pole on GT-POLE (material / ID); new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
+      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Plan style › Plan file › Count the loops in the cable lengths (PMI))'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe or Bayantel (or owned by Globe or Bayantel: Globe\'s own, beta 6.7); RTA Converge / local coop / other (PLDT pole) = existing poles by owner (CONVERGE / an electric company, coop or power / PLDT), and an RTA row of its own for each other owner (beta 6.6: added to the PMI table and the BOQ tables)' + (pmiExtraRows.length ? `: ${pmiExtraRows.map((x) => x[0]).join(', ')}` : '') + '; fiber termination = fibers of the new ODFs; hybrid closure = new closures; the UG route (each span once, as its length is written) by how its first new UG cable is laid (beta 6.7: set on the cable in Route; HDD for air-blown fiber and open trench for a conventional UG cable unless set): proposed HDD = the drilled spans whole, and on a trenched span its road crossings (the road\'s width and 3 m each side, as drawn); open trench, micro trench and the shallow trench with or without concrete (rows added to the PMI table when used) = the trenched spans less their road crossings; a span set on its own (Route: tap the span) counts by its own way; maxcell inner duct = the conventional UG cable\'s route, crossings included; proposed conduit (a row for each size and runs used) = the UG route in it, in metres of route; proposed manhole / service box = the new ones.',
+      ...(() => { const U = rp.ugLaid || {}, C0 = rp.ugConduit || {}, nm = { hdd: 'HDD', open: 'open trench', shc: 'shallow trench with concrete', sh: 'shallow trench without concrete', micro: 'micro trench' }; if (!Object.keys(C0).length) return []; // beta 6.7: how each UG cable is laid, and the conduit by size and runs (the PMI has no conduit rows)
+        const F0 = fibers(), runs = F0.filter((f) => !f.ex && isUG(f.cab)).sort((x, y) => x.n - y.n).map((f) => { const own = f.path.slice(1).map((b, i) => [f.path[i], b]).map(([a, b]) => [a, b, ugSpanOf(a, b, F0)]).filter(([, , u]) => u && u.own && u.n === f.n); // (beta 6.7: and its spans laid otherwise)
+          return `RUN ${f.n} (${CAB[f.cab].short}): ${ugTxt(ugOf(f))}${own.length ? `; span${own.length > 1 ? 's' : ''} laid otherwise: ${own.map(([a, b, u]) => `${fibName(a)}–${fibName(b)} ${ugTxt(u)}`).join(', ')}` : ''}`; });
+        return [`Underground route by how it is laid: ${Object.entries(U).map(([k, v]) => `${nm[k] || k} ${(Math.round(v * 10) / 10).toFixed(1)} m`).join(', ')}${Object.keys(U).some((k) => k !== 'hdd') ? ' (a trenched cable\'s road crossings in PROPOSED HDD)' : ''}${runs.length ? ` · ${runs.join(' · ')}` : ''}. Conduit, as the CEF plan (a PROPOSED CONDUIT row for each in the PMI and the sheets' BOQ, in metres of route; the pipe is route × runs): ${Object.entries(C0).map(([k, v]) => { const [r, c] = k.split('x'); return `${r} run${+r > 1 ? 's' : ''} of ${c} mm: ${(+v).toFixed(1)} m of route (${(+v * +r).toFixed(1)} m of pipe)`; }).join('; ')}.`]; })(),
+      ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan style): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split), as its length reads there (whole metres; the PMI too, beta 6.4); a loop, a pole, a new ODF's fibers and a new closure count where their point is, a loop as its length is written; so the written lengths add up to each table and the sheets to the PMI${S.exp.dxfLabels === 'tidy' ? '. Tidy: each span length is written on the GEO sheet that holds the middle of its span, never across a sheet line' : ''}${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 6.0
+      'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (PROP.POLE / height / clamp)') + ', existing electric pole on ELECTRIC POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / pole tag or NPT)') + ', telco pole on GT-POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / ID)') + '; new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), LCPs (1:4 and double, a kind of NAP on its pole), the ODC (G-eSAA's cabinet symbol, layers G-ESAA PROPOSED / EXISTING ODC: the template has no ODC model), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
       ...(() => { const A = routeAdvice(R); return A.length ? [`Route check (${A.length}): ${A.map((a) => a.text).join(' · ')}.`] : []; })(),
+      PS.cab.route === 'straight' ? 'Cables between points (Plan style › Cables): straight from point to point.' : (() => { const g = (k) => outs.reduce((t, o) => { const c = (o.out.report.cableRoute || {})[k]; return c ? { n: t.n + c.spans, f: t.f + c.following, s: t.s + c.straightM, d: t.d + c.drawnM } : t; }, { n: 0, f: 0, s: 0, d: 0 }), A = g('aerial'), U = g('ug'), say = (x, w) => (x.n ? `${w}: ${x.f} of ${x.n} span${x.n > 1 ? 's' : ''} follow a curve${x.f ? `, their lines ${(x.d - x.s).toFixed(1)} m longer in all than straight (${x.s ? (100 * (x.d - x.s) / x.s).toFixed(1) : 0} %)` : ''}` : ''); // beta 6.1
+        if (!outs.some((o) => (o.out.report.cableRoute || {}).roads)) return 'Cables between points (Plan style › Cables): follow the road; this plan has no road lines (no OpenStreetMap roads or road pack for its area), so they are drawn straight from point to point.';
+        return `Cables between points (Plan style › Cables): follow the road. Between two points along the same road (handholes, manholes, service boxes, risers and poles underground; poles aerial) the cable's line follows the road's centre line and its curves, at the cable's own side of the road; a span across a road, round a corner onto another road, along a straight road or away from any road is drawn straight. The span lengths written on the plan and the BOQ stay the surveyed ones${[say(A, 'aerial'), say(U, 'underground')].filter(Boolean).length ? ` (${[say(A, 'aerial'), say(U, 'underground')].filter(Boolean).join('; ')})` : ''}. The app's Drawing screen still draws them straight (it has no road lines; the roads come in when the plan is exported).`; })(),
       `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0} of the ${rp.counts.poisGiven || 0} named in OpenStreetMap round the route (its area and 250 m round it; not written: ${rp.counts.poisOutside || 0} outside the GEO sheets, ${rp.counts.poisNoRoom || 0} with no free room beside them, ${rp.counts.poisDuplicate || 0} repeated names)${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
-      'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
+      S.exp.dxfLabels === 'tidy' ? (() => { const sz = (outs.find((o) => o.out.report.tidy && o.out.report.tidy.sizes) || { out: { report: { tidy: {} } } }).out.report.tidy.sizes, grs = outs.map((o) => (o.out.report.tidy || {}).grid).filter((g) => g && g.n), gN = grs.length ? grs[0].n : 1; // beta 4.7, 4.8: the whole map tidy
+        return 'Pole labels: Tidy. The map is laid out so that nothing sits on anything else. The NAP, loop and closure symbols are drawn at most 0.7 of the width of the street they are on, the numbers\' circles at most as wide as the street. Each pole has one block, turned along the fiber cable that serves it (along its road when no cable passes it) and reading the right way up: its number in its circle (when it is numbered), ' + ({ auto: 'its type over its tag (CC over 123456, as the Standard labels; NPT when it has no tag), on one line (CC-123456) only where the stacked block finds no room', stack: 'its type over its tag (CC over 123456, as the Standard labels; NPT when it has no tag)', line: 'its type and tag on one line (CC-123456; NPT when it has no tag)' }[PS.pole.idForm] || 'its type over its tag') + (() => { const F = outs.map((o) => (o.out.report.tidy || {}).idForm).filter(Boolean), n = F.reduce((t, f) => t + (f.oneLineForRoom || 0), 0), all = F.reduce((t, f) => t + (f.stacked || 0) + (f.oneLine || 0), 0); return PS.pole.idForm === 'auto' && all ? ` (here ${n ? `${n} of ${all} on one line for room: ${F.flatMap((f) => f.which || []).slice(0, 12).join(', ')}${n > 12 ? '\u2026' : ''}` : `all ${all} stacked`})` : ''; })() + ', then, in smaller text, its clamps and 12C hardware, its owner and its latitude and longitude; its photo (' + `${phTidyMm(PS.photo.size)} mm on its long side as printed, Plan style \u203a Photos on the plan` + ') stands upright (square to the sheet) on the side away from the road, near its pole, wherever the block, which keeps the place nearest its pole, leaves room (a quarter smaller, or on its own near the pole, where it has none: listed under Drawing checks): beside the block where the block is by the pole; by the pole itself where the block sits further out with its line (where there is no room near the pole, beside the block, listed under Drawing checks). The block sits beside its pole just past the edge of the road, lined up along the street, or further out with a thin grey line to it, nearer its own pole than any other where it can be; over a road only where no other place is free (listed under Drawing checks). The IDs of the NAPs and closures and the loop lengths are straight labels beside their symbol; span lengths and cable labels run along their cable, inside the street where there is room'
+          + (sz && sz.mm ? `. Every text of the route prints at one of two sizes on the A3 PDF: ${sz.mm[0]} mm (the first line, IDs, loop lengths, numbers) and ${sz.mm[1]} mm (the other lines, span lengths, cable labels); ${(sz.l1 / gN).toFixed(2)} m and ${(sz.sm / gN).toFixed(2)} m high in the drawing` : '')
+          + (grs.length ? `. The grid of the GEO sheets is the same for the whole plan, its cells ${grs.map((g) => `${g.cell} m`).join(', ')} across${gN > 1 ? ` (1/${gN} of the template's), every GEO sheet at ${gN} times the template's scale` : ' (the template\'s)'}${grs[0].mode === 'fixed' ? `: the split chosen in Plan style \u203a Map sheets (1/${gN}), kept even where a label had no free place` : `: Auto (Plan style \u203a Map sheets), the largest grid, 1/1 to 1/4 of the template's cell, at which every label found a free place at these sizes and no GEO sheet has more than two pole blocks over a road or two photos away from their pole${(S.plStyle && S.plStyle.grid && S.plStyle.grid.leaders === 'allow') ? '' : ', and no pole\'s block needs a thin line to its pole (Leader lines: only when there is no other way)'} (those cover nothing else and are listed under Drawing checks; the next finer grid was tried only beyond that: ${grs[0].tried ? grs[0].tried.map((t) => `${t.cell} m, ${t.sheets} sheets: ${t.bad} without a place, ${t.over} over a road (at most ${t.overMax || 0} on a sheet)`).join('; ') : ''})`}; the sheets named by row letter and column number (A-1, B-2 \u2026) as the key map shows them, each sheet's name in its corner under the details, which stay readable over it` : '')
+          + (rp.landmarks && (rp.landmarks.placed || rp.landmarks.namesLeftOut) ? `. Landmark names make room for the pole details: 1.6 mm high on the A3 sheet, a little further or smaller (to 1.3 mm) where the room is short${rp.landmarks.shrunk ? ` (${rp.landmarks.shrunk} drawn smaller, the smallest ${rp.landmarks.smallestMm} mm)` : ''}; a name with no room even then is wrapped onto two or three lines, else shortened with the usual abbreviations (ELEMENTARY SCHOOL → ES, NATIONAL HIGH SCHOOL → NHS, HIGH SCHOOL → HS, ELEMENTARY → ELEM., SCHOOL → SCH., BARANGAY → BRGY., STREET → ST., HOSPITAL → HOSP., CENTER → CTR. and the like; whole words only), else both${[[rp.landmarks.wrapped, 'wrapped'], [rp.landmarks.abbreviated, 'abbreviated'], [rp.landmarks.abbreviatedAndWrapped, 'abbreviated and wrapped']].some(([v]) => v) ? ` (${[[rp.landmarks.wrapped, 'wrapped'], [rp.landmarks.abbreviated, 'abbreviated'], [rp.landmarks.abbreviatedAndWrapped, 'abbreviated and wrapped']].filter(([v]) => v).map(([v, t]) => `${v} ${t}`).join(', ')})` : ''}${rp.landmarks.namesLeftOut ? `; ${rp.landmarks.namesLeftOut} left out (no room even so; their icons kept where they fit)` : ''}` : '') // beta 6.0 (beta 6.1: wrapped, abbreviated)
+          + (outs.some((o) => (o.out.report.notes || []).some((n) => /^(Tidy labels|Tidy photos|Photos with no free place)/.test(n))) ? '. Where no free place was found, the label or photo is listed under Drawing checks above' : '') + '.'; })()
+        : 'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
+      ...(PS.num.rta.on ? [`Pole numbers coloured by RTA/JPA category (Plan style › Pole number colours), number and circle in one colour: ${[...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => `${x.text} ${colName(x.color)} (${rtaN.get(x)})${x.auto ? ', added for its owner' : ''}`).join(', ')}; other poles and points ${colName(PS.num.color)} (${Math.max(0, rows.filter((r) => r.el === 'Pole').length - [...rtaN.values()].reduce((t, v) => t + v, 0))} poles). A proposed or new pole is red, a Globe or Bayantel pole blue when existing (Globe's own, no RTA), the others by their pole owner as the PMI's RTA rows${pmiExtraRows.length ? ` (rows added to the PMI and the BOQ tables: ${pmiExtraRows.map(([lb]) => lb).join(', ')})` : ''}. RTA/JPA LEGEND: ${{ off: 'off (Plan style › Pole numbers › Owner colour key)', boq: 'under the BOQ table on each GEO sheet', sheet: 'on the LEGENDS sheet' }[PS.num.rta.legend]}.`] : []), // beta 6.5 (6.6: Globe, automatic owners, the legend's place)
+      `Loops at handholes, manholes, service boxes and ODF, site and ODC entrances (Plan style \u203a 20 m loops at boxes): counted in the PMI and the BOQ tables; ${PS.cab.boxLoops ? `written on the plan beside each (${boxLoopN} points), so the written numbers add up to the tables` : 'not written on the plan (as before): the tables count them all the same'}.`, // beta 6.6
+      ...(() => { const R0 = outs.map((o2) => o2.out.report), cnt = (k) => R0.reduce((t, r) => t + ((r.counts || {})[k] || 0), 0), cl = R0.reduce((t, r) => t + ((r.closureLabels || {}).labelled || 0), 0), gb = rows.filter((r) => r.gtbt).length, Z = PS.photo.size; // beta 6.7
+        return [`Photos on the plan (Plan style \u203a Photos on the plan): every one printed ${phTidyMm(Z)} mm on its long side (${phName(Z)}) where there is room, else further out with a thin line to its pole; only where there is no place at all is that photo drawn smaller (listed with its size), never left out. The pole comes first, then its details, then its photo.`,
+          ...(gb ? [`Existing Globe and Bayantel poles (${gb}): a circle filled blue, to tell them from the other telco poles.`] : []),
+          ...(cnt('existingArms') ? [`Existing extension arms and 10-pin alley arms on the poles (${cnt('existingArms')}): the template's model of that arm, as a new one, in blue, with its name.`] : []),
+          ...(cl ? [`Proposed closures (${cl}): PROPOSED CLOSURE and the closure's ID in red, with a red arrow to the pentagon.`] : []),
+          `Landmarks (Plan style \u203a Landmarks): icons ${PS.crowd.icons ? 'on' : 'off'}, names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[PS.crowd.marks]}.`]; })(),
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
     { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
-      resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']), ...(cefFiles.length ? [['CEF', `${new Set(cefFiles.map((f) => f.name.split('/')[0])).size} CEF plan folder${new Set(cefFiles.map((f) => f.name.split('/')[0])).size === 1 ? '' : 's'}`, 'The CEF plan of each tower site: its PDF, DXF, KML and photos']] : []),
-        ...(files.length ? [['JPG', `${files.length} picture${files.length === 1 ? '' : 's'}`, 'The photos, the vicinity map and the logo: keep them in the same folder as the drawings, or AutoCAD shows empty boxes']] : []), ['TXT', 'README.txt', 'What the plan holds, with the pole numbers of each drawing']]; }
-    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, ...cefFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
+      resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}${S.exp.dxfLabels === 'tidy' ? 'Pole labels: Tidy. ' : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']), ...(cefFiles.length ? [['CEF', `${new Set(cefFiles.map((f) => f.name.split('/')[0])).size} CEF plan folder${new Set(cefFiles.map((f) => f.name.split('/')[0])).size === 1 ? '' : 's'}`, 'The CEF plan of each tower site: its PDF, DXF, KML and photos']] : []),
+        ...(files.length ? [['JPG', `${files.length} picture${files.length === 1 ? '' : 's'}`, 'Photos, vicinity map, logo: keep them next to the drawings, or AutoCAD shows empty boxes (AutoCAD 2021: see README)']] : []), ['TXT', 'README.txt', 'What the plan holds, with the pole numbers of each drawing']]; }
+    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, ...cefFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`); notePlan(); // beta 6.7 (UX step 3)
     { const A = routeAdvice(R), o0 = outs[0], MK0 = o0.out.report.marks || [];
       toast(`Plan: ${many ? `${outs.length} drawings · ` : ''}${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'}${!many && o0.st.no.size ? ` · numbered: ${o0.st.what} (${MK0.length})` : ''} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}${noPack.length ? ` · no road pack for ${noPack.map(({ region }) => region || 'a place').join(', ')}: its ROW table is blank (see the README)` : ''}`, noPack.length ? 9000 : 5000); }
   }
@@ -10928,13 +12310,13 @@
 
   /* ---- beta 3.5: the Photo report (RTA-like) ---- */
   /** Where each pole is, in words: the nearest named road (within 60 m) of the road pack, its barangay and city / municipality. */
-  async function poleLocations(list) {
+  async function poleLocations(list, keepBusy) { // (beta 6.4: keepBusy: the busy screen of the export stays)
     const out = new Map(); if (!list.length) return out;
     const la = list.map((p) => p.lat), lo = list.map((p) => p.lon), pad = 0.002, bb = [Math.min(...la) - pad, Math.min(...lo) - pad, Math.max(...la) + pad, Math.max(...lo) + pad];
     let A = null, R = null;
     try { A = await adminFromRoadPacks(list.map((p) => ({ lat: p.lat, lon: p.lon }))); } catch (e) { LOG.warn('report.admin', errInfo(e)); }
     try { R = await roadsFromRoadPacks(bb); } catch (e) { LOG.warn('report.roads', errInfo(e)); }
-    busy(false);
+    if (!keepBusy) busy(false);
     const roads = ((R && R.roads) || []).filter((r) => r.name);
     const dSeg = (p, a, b) => { const k = Math.cos(p.lat * Math.PI / 180) * 111320, ax = (a[1] - p.lon) * k, ay = (a[0] - p.lat) * 110540, bx = (b[1] - p.lon) * k, by = (b[0] - p.lat) * 110540, dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
       const t = L2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2)) : 0; return Math.hypot(ax + t * dx, ay + t * dy); };
@@ -10949,7 +12331,7 @@
   // v2.43.1 (beta 3.6): each choice of the Photo report's card is kept as it is made, so the card shows it again when the export screen
   // comes back (after a result) instead of the options of the last report
   ['prPer', 'prNum', 'prBy', 'prLoc'].forEach((id) => $(id).addEventListener('change', () => { S.prOpt = { per: $('prPer').value, num: $('prNum').value, by: $('prBy').value, loc: $('prLoc').value }; persist(); }));
-  $('doPhotoReport').addEventListener('click', () => guard(async () => {
+  $('doPhotoReport').addEventListener('click', () => xguard(async () => {
     const pts = needPoints(); if (!pts) return;
     const poles = pts.filter((p) => elemOf(p) === 'Pole');
     if (!poles.length) { toast('No poles in this project yet'); return; }
@@ -10962,16 +12344,18 @@
     for (let i = 0; i < ord.length; i++) {
       const r = ord[i]; busy(`Preparing photos ${i + 1} / ${ord.length}`, i / ord.length);
       const photos = [];
-      for (const p of phOf(r, 'report').slice(0, 4)) { const jpeg = await pdfJpeg(p.pid, 1100, null, null, 0.82).catch(() => null); if (jpeg) photos.push({ jpeg, label: p.label === 'Photo' ? 'Overview' : p.label || '' }); }
+      for (const p of phOf(r, 'report').slice(0, 12)) { /* beta 5.0: all of them, up to 12 (a tower, OLT or ODC has up to 10) */ const jpeg = await pdfJpeg(p.pid, 1100, null, null, 0.82).catch(() => null); if (jpeg) photos.push({ jpeg, label: p.label === 'Photo' ? 'Overview' : p.label || '' }); }
       const ll = `${r.lat.toFixed(6)}, ${r.lon.toFixed(6)}`;
       items.push({ owner: ownerOf(r), no: o.num === 'plan' ? String(NUM.get(r.id) || '') : String(i + 1), id: r.poleId || '(no ID)', location: locs.get(r.id) || ll, type: [r.poleType, ownerOf(r)].filter(Boolean).join(' · '), coords: ll, date: shortTime(r.takenAt || r.created),
         note: [svStatusLabel(r.status), boqText(r), r.remarks].filter(Boolean).join(' · ').slice(0, 200), photos });
     }
     busy('Building PDF…');
     const groups = o.by === 'owner' ? [...new Set(items.map((x) => x.owner || 'No owner set'))].map((g) => ({ g, items: items.filter((x) => (x.owner || 'No owner set') === g) })) : [{ g: '', items }];
-    const R = window.PoleReports, logos = await formLogos(), files = [], site = pmeta().site || '';
+    const R = window.PoleReports, logos = await formLogos(), files = [], site = pmeta().site || '', SD = siteDetailsOf(); // beta 6.0: the project's details on top
+    const detLine = SD.known ? [['Project Name', SD.proj], ['PLA ID', SD.pla], ['Serial No.', SD.serial], ['Site name', SD.site]].filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' · ') : '';
     for (const G of groups) {
-      const pdf = R.photoReportPdf({ title: 'PHOTO REPORT', sub: `${S.project}${site ? ` · ${site}` : ''}${G.g ? ` · Owner: ${G.g}` : ''} · ${G.items.length} pole${G.items.length === 1 ? '' : 's'}`, perPage: +o.per === 1 ? 1 : 2,
+      const cnt = `${G.g ? `Owner: ${G.g} · ` : ''}${G.items.length} pole${G.items.length === 1 ? '' : 's'}`;
+      const pdf = R.photoReportPdf({ title: 'PHOTO REPORT', sub: detLine || `${S.project}${site ? ` · ${site}` : ''}${G.g ? ` · Owner: ${G.g}` : ''} · ${G.items.length} pole${G.items.length === 1 ? '' : 's'}`, sub2: detLine ? cnt : '', perPage: +o.per === 1 ? 1 : 2,
         items: G.items, footer: `${S.project} · photo report${G.g ? ` · ${G.g}` : ''}`, footer2: exporterLine(), logos });
       files.push({ name: `${fileBase()}_photo_report${G.g ? `_${C.safeName(G.g)}` : ''}.pdf`, blob: new Blob(pdf.output({ title: `${S.project} photo report${G.g ? ` ${G.g}` : ''}` }), { type: 'application/pdf' }) });
     }
@@ -10981,7 +12365,7 @@
     const parts = []; for (const f of files) parts.push({ name: f.name, data: new Uint8Array(await f.blob.arrayBuffer()) });
     offerResult(new Blob(C.makeZipParts(parts), { type: 'application/zip' }), `${fileBase()}_photo_reports.zip`);
   }, 'Photo report not made'));
-  $('doCsv').addEventListener('click', () => guard(async () => {
+  $('doCsv').addEventListener('click', () => xguard(async () => {
     const pts = needPoints(); if (!pts) return;
     const names = photoNames(pts, new Set(await dbKeys('photos'))); // v2.42.4: as the Photos export names them (and none for a record without a photo)
     const NUM = poleNums(projPoints(), routeModel()); // v2.42.18: the pole numbers of the DXF (RTA)
@@ -11110,12 +12494,18 @@
   /** v2.29: the survey quantities the BOQ rules will use, each with a code (the BOQ template's formulas will point at these):
       span lengths by cable type and method, maintenance loops, FOC length with loops, detailed engineering (spans without
       loops), new poles by size and class, arms, guying, ODF, closures, NAPs, poles on each cable, the region. */
-  function surveyQty(pts) {
+  /* beta 6.6 (the owner: "yes always same with the CEF"): every export counts a span as the plan writes its length, whole metres
+     (Math.round, as the span length text), each run: the Survey quantities (Excel BOQ), the Route and spans Excel, the plan's PMI */
+  const spanW = (sp) => Math.round(+(sp && sp.len) || 0);
+  const routeW = (R) => { let total = 0, cable = 0; const by = {}; (R.spans || []).forEach((sp) => { const L = spanW(sp), rs = sp.runs || [sp.cable]; total += L; cable += L * rs.length; rs.forEach((k) => { by[k] = (by[k] || 0) + L; }); }); return { total, cable, by }; };
+  const fibW = (f, R) => { const m = new Map((R.spans || []).map((sp) => [[sp.ia, sp.ib].map(String).sort().join('|'), spanW(sp)])); let t = 0, miss = false; (f.path || []).forEach((id, i) => { if (!i) return; const k = [f.path[i - 1], id].map(String).sort().join('|'); if (m.has(k)) t += m.get(k); else miss = true; }); return miss && !t ? Math.round(+f.len || 0) : t; };
+  function surveyQty(pts, col) { // (beta 6.0: col.loops: each counted loop [point id, cable, length], for the BOQ table of each GEO sheet)
     const rp = pts.filter((p) => ROUTE_ELS.includes(elemOf(p))), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); // v2.42.20: + the fibers
     const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
     const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen();
     keys.forEach((k) => { lenBy[k] = 0; polesBy[k] = new Set(); loopsBy[k] = 0; });
-    R.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { lenBy[k] += sp.len; polesBy[k].add(sp.ia); polesBy[k].add(sp.ib); })); // v2.42.18: each run
+    R.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { lenBy[k] += spanW(sp); polesBy[k].add(sp.ia); polesBy[k].add(sp.ib); })); // v2.42.18: each run (beta 6.6: as the plan writes it)
+    const RW = routeW(R); // beta 6.6
     const cabAt = (id) => { const sp = R.spans.find((x) => x.ia === id || x.ib === id); return sp ? sp.cable : null; };
     let loops = 0, loopsOff = 0, loopM = 0, nBox = 0; const loopMBy = {}; keys.forEach((k) => { loopMBy[k] = 0; });
     // v2.42.16: the loops on poles (the surveyor's, as the plan draws them, and the ones the app adds in an As-Plan) and the one each
@@ -11123,15 +12513,15 @@
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R), LM = loopManSet(pts, R, OWN), onR = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])); // v2.42.18: + NAPs, LCPs, pins, entrances
     pts.forEach((p) => {
       const E = LA.fib && LA.fib.list.get(p.id); // v2.42.20: a point on a fiber: a loop for each fiber there
-      if (E) { E.forEach((e) => { loops++; if (e.why === 'box') nBox++; loopsBy[e.cab] = (loopsBy[e.cab] || 0) + 1; loopMBy[e.cab] = (loopMBy[e.cab] || 0) + e.len; loopM += e.len; }); return; }
+      if (E) { E.forEach((e) => { loops++; if (e.why === 'box') nBox++; loopsBy[e.cab] = (loopsBy[e.cab] || 0) + 1; loopMBy[e.cab] = (loopMBy[e.cab] || 0) + e.len; loopM += e.len; if (col) col.loops.push([p.id, e.cab, e.len]); }); return; }
       const box = UG_BOXES.has(elemOf(p)) && onR.has(p.id); if (!box && !LM.has(p.id) && !LA.has(p.id)) return;
       loops++; if (box) nBox++; const c = LA.has(p.id) ? LA.get(p.id) : cabAt(p.id), m = box ? BOX_LOOP_M : loopLenAt(p, R, LA, OWN.get(p.id)); // v2.42.18: its own length
-      if (c == null) loopsOff++; else { loopsBy[c]++; loopMBy[c] += m; loopM += m; }
+      if (c == null) loopsOff++; else { loopsBy[c]++; loopMBy[c] += m; loopM += m; if (col) col.loops.push([p.id, c, m]); }
     });
     const tag = (k) => (k ? k : 'NOTSET'), nm = (k) => (k ? CAB[k].label : 'cable not set');
-    add('SPAN_TOTAL', r1(R.total), 'm', `All spans (${R.spans.length}), straight pole-to-pole lengths`);
+    add('SPAN_TOTAL', r1(RW.total), 'm', `All spans (${R.spans.length}), straight pole-to-pole lengths, each as the plan writes it (whole metres)`);
     const xr = R.spans.filter((sp) => (sp.runs || []).length > 1); // v2.42.18: spans with more than one run
-    if (xr.length) { add('RUNS_EXTRA', xr.reduce((t, sp) => t + sp.runs.length - 1, 0), 'each', `Other runs (run 2, run 3…) on ${xr.length} span${xr.length === 1 ? '' : 's'}`); add('RUNS_EXTRA_M', r1(R.cableTotal - R.total), 'm', 'Length of the other runs (in SPAN_<cable>, FOC_<cable>, FOC_TOTAL and DE)'); }
+    if (xr.length) { add('RUNS_EXTRA', xr.reduce((t, sp) => t + sp.runs.length - 1, 0), 'each', `Other runs (run 2, run 3…) on ${xr.length} span${xr.length === 1 ? '' : 's'}`); add('RUNS_EXTRA_M', r1(RW.cable - RW.total), 'm', 'Length of the other runs (in SPAN_<cable>, FOC_<cable>, FOC_TOTAL and DE)'); }
     keys.forEach((k) => { if (lenBy[k] || k) add(`SPAN_${tag(k)}`, r1(lenBy[k]), 'm', `Spans with ${nm(k)}`); });
     add('SPAN_AE', r1(keys.filter((k) => k && CAB[k].method === 'AE').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Aerial (AE) spans');
     add('SPAN_UG', r1(keys.filter((k) => k && CAB[k].method === 'UG').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Underground (UG) spans');
@@ -11146,12 +12536,12 @@
     if (svPurpose() === 'As-built') { const need = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), open = pts.filter((p) => need.has(p.id) && elemOf(p) === 'Pole' && !(p.boq && p.boq.mloop) && !OWN.has(p.id)).length; add('MLOOP_UNANSWERED', open, 'each', 'Poles on the route whose maintenance loop was not answered (MLoop or No loop): check them'); }
     keys.forEach((k) => { if (k || loopsBy[k]) add(`MLOOP_${tag(k)}`, loopsBy[k], 'each', `Maintenance loops on ${nm(k)}`); });
     keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + loopMBy[k]), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + loops (each its own length; by default ${isLight(k) ? 10 : ml} m on a pole, ${BOX_LOOP_M} m at a handhole, manhole or service box)`); });
-    add('FOC_TOTAL', r1(R.cableTotal + loopM), 'm', 'All FOC: spans (each run) + loops');
-    add('DE', r1(R.cableTotal), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops (each run)');
+    add('FOC_TOTAL', r1(RW.cable + loopM), 'm', 'All FOC: spans (each run) + loops');
+    add('DE', r1(RW.cable), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops (each run)');
     if (R.fib && R.fib.planned.length) { // v2.42.20: each fiber, its spans and its loops
       add('FIBERS', R.fib.planned.length, 'each', 'Fibers (new cable), each from its start to its end; existing cables drawn on the plan are not counted');
       R.fib.planned.forEach((f) => { const lm = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n).reduce((t, e) => t + e.len, 0) : 0, a = fibEnd(f, 'from', R.fib.by), b = fibEnd(f, 'to', R.fib.by);
-        add(`FIBER_${f.n}`, r1(f.len + lm), 'm', `Fiber ${f.n} · ${CAB[f.cab] ? CAB[f.cab].label : 'cable not set'} · ${a.ref || a.kind} → ${b.ref || b.kind}: spans ${r1(f.len)} m + loops ${r1(lm)} m`); });
+        add(`FIBER_${f.n}`, r1(fibW(f, R) + lm), 'm', `Fiber ${f.n} · ${CAB[f.cab] ? CAB[f.cab].label : 'cable not set'} · ${a.ref || a.kind} → ${b.ref || b.kind}: spans ${r1(fibW(f, R))} m + loops ${r1(lm)} m`); });
     }
     keys.forEach((k) => { if (k || polesBy[k].size) add(`POLES_${tag(k)}`, polesBy[k].size, 'each', `Route points (poles, handholes, ODF…) on ${nm(k)} spans`); });
     add('SPANS_LONG', R.long, 'each', `Spans longer than ${pol().maxSpan || 200} m`);
@@ -11203,8 +12593,8 @@
     LOG.info('export.boq', { records: pts.length, plan: plan ? plan.recs.length : -1 });
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_BOQ.xlsx');
   }
-  $('doBoq').addEventListener('click', () => guard(exportBoq));
-  $('doRouteXlsx').addEventListener('click', () => guard(async () => {
+  $('doBoq').addEventListener('click', () => xguard(exportBoq));
+  $('doRouteXlsx').addEventListener('click', () => xguard(async () => {
     const pts = needPoints(); if (!pts) return;
     const Rt = routeModel();
     if (!Rt.spans.length) { toast('No route yet. Use the route button on the map to link poles.', 4000); return; }
@@ -11216,14 +12606,14 @@
       [lbl('Maximum span setting (m)'), pol().maxSpan || 200],
       [lbl('Angle pole from (°)'), pol().angleDeg || 15],
       [],
-      [lbl('Total route length (m)'), Math.round(Rt.total * 10) / 10],
-      ...(Rt.cableTotal > Rt.total + 0.05 ? [[lbl('Cable on the spans, each run (m)'), Math.round(Rt.cableTotal * 10) / 10]] : []), // v2.42.18
+      [lbl('Total route length (m)'), routeW(Rt).total], // (beta 6.6: each span as the plan writes it)
+      ...(routeW(Rt).cable > routeW(Rt).total ? [[lbl('Cable on the spans, each run (m)'), routeW(Rt).cable]] : []), // v2.42.18
       ...(Rt.fib && Rt.fib.list.length ? [[lbl('Fibers (sheet Fibers)'), `${Rt.fib.planned.length} new${Rt.fib.list.some((f) => f.ex) ? `, ${Rt.fib.list.filter((f) => f.ex).length} existing (drawn only)` : ''}`]] : []), // v2.42.20
       [lbl('Spans'), Rt.spans.length],
       [lbl('Spans longer than maximum'), { v: Rt.long, s: Rt.long ? st.bad : st.good }],
-      [lbl('Average span (m)'), Math.round((Rt.total / Rt.spans.length) * 10) / 10],
-      [lbl('Longest span'), `${longest.from} → ${longest.to}: ${longest.len.toFixed(1)} m`],
-      ...(() => { const by = {}; Rt.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { by[k] = (by[k] || 0) + sp.len; })); return Object.entries(by).map(([k, m]) => [lbl(`${CAB[k] ? `${CAB[k].label} (${CAB[k].method})` : 'Cable not set'} (m)`), { v: Math.round(m * 10) / 10, s: CAB[k] ? st.cell : st.bad }]); })(), // v2.29
+      [lbl('Average span (m)'), Math.round((routeW(Rt).total / Rt.spans.length) * 10) / 10],
+      [lbl('Longest span'), `${longest.from} → ${longest.to}: ${spanW(longest)} m`],
+      ...(() => { const by = routeW(Rt).by; return Object.entries(by).map(([k, m]) => [lbl(`${CAB[k] ? `${CAB[k].label} (${CAB[k].method})` : 'Cable not set'} (m)`), { v: m, s: CAB[k] ? st.cell : st.bad }]); })(), // v2.29
       [],
       [lbl('Poles in project'), pts.filter((p) => elemOf(p) === 'Pole').length],
       [lbl('Other points (site, ODC, ODF, NAP, closures, handholes)'), pts.filter((p) => elemOf(p) !== 'Pole').length],
@@ -11233,10 +12623,10 @@
       [lbl('Junction poles (3+ spans)'), Rt.junction],
       [lbl('Route points not linked'), { v: Rt.off, s: Rt.off ? st.bad : st.cell }],
       [],
-      [{ v: 'Span lengths are straight lines between pole pins, not cable lengths: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
+      [{ v: 'Span lengths are straight lines between pole pins, not cable lengths, in whole metres as the plan writes them: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
     ];
     const spanRows = [['No.', 'From', 'To', 'Run', 'Length (m)', 'Longer than maximum', 'Cable', 'Method', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
-    Rt.spans.forEach((s, i) => (s.fibers && s.fibers.length ? s.fibers.slice().sort((x, y) => x.n - y.n).map((f) => [f.cab, `F${f.n}`]) : (s.runs || [s.cable]).map((k, r) => [k, r + 1])).forEach(([k, run]) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: run, s: st.center }, /* v2.42.20: the fiber (F1, F2…) */ { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
+    Rt.spans.forEach((s, i) => (s.fibers && s.fibers.length ? s.fibers.slice().sort((x, y) => x.n - y.n).map((f) => [f.cab, `F${f.n}`]) : (s.runs || [s.cable]).map((k, r) => [k, r + 1])).forEach(([k, run]) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: run, s: st.center }, /* v2.42.20: the fiber (F1, F2…) */ { v: spanW(s), s: s.long ? st.bad : st.cell }, /* (beta 6.6: as the plan writes it) */
       { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, CAB[k] ? CAB[k].label : { v: 'not set', s: st.bad }, CAB[k] ? CAB[k].method : '', { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]))); // v2.29: cable, method; v2.42.18: a row per run
     const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Pole details', 'Remarks', 'Size (BOQ)'].map((v) => ({ v, s: st.header }))];
     pts.forEach((p, i) => {
@@ -11250,7 +12640,7 @@
       const rows = [['Fiber', 'Side', 'Cable', 'New / existing', 'From', 'Start', 'To', 'End', 'Points', 'Spans', 'Route (m)', 'Loops', 'Loops (m)', 'Cable (m)', 'Way'].map((v) => ({ v, s: st.header }))];
       Rt.fib.list.forEach((f) => { const E = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n) : [], lm = E.reduce((t, e) => t + e.len, 0), a = fibEnd(f, 'from', by), b = fibEnd(f, 'to', by);
         rows.push([`Fiber ${f.n}`, fibSide(f, all, by), f.ex ? `Existing ${exCores(f)}C` : CAB[f.cab] ? CAB[f.cab].label : 'not set', f.ex ? 'Existing (drawn only)' : 'New', /* v2.42.21: an existing cable's size */ `${a.kind === 'Pole' ? '' : `${a.kind} `}${a.ref}`, a.state, `${b.kind === 'Pole' ? '' : `${b.kind} `}${b.ref}`, b.state,
-          f.path.length, f.spans, r1(f.len), f.ex ? '' : E.length, f.ex ? '' : r1(lm), f.ex ? '' : r1(f.len + lm), f.path.map(fibName).join(' → ')]); });
+          f.path.length, f.spans, fibW(f, Rt), f.ex ? '' : E.length, f.ex ? '' : r1(lm), f.ex ? '' : r1(fibW(f, Rt) + lm), f.path.map(fibName).join(' → ')]); });
       return { name: 'Fibers', cols: [9, 7, 22, 18, 22, 9, 22, 9, 7, 7, 10, 7, 10, 10, 70], rows, freezeRow: 1 };
     })();
     const parts = R.buildXlsxParts([
@@ -11293,7 +12683,7 @@
     return out;
   }
   $('doDataset').addEventListener('click', () => guard(async () => {
-    const recs = dsScope === 'all' ? points.slice() : projPoints();
+    const recs = xNotHidden(dsScope === 'all' ? points.slice() : projPoints()); // (beta 6.2: not the poles hidden from the exports, in any project)
     const items = datasetItems(recs);
     if (!items.length) { toast('No labeled photos yet'); return; }
     const files = [], rows = [['file', 'label', 'project', 'element', 'element_id', 'source', 'taken']], counts = {}, n = {};
@@ -11315,7 +12705,7 @@
     toast(`${files.length - 3} photos in ${Object.keys(counts).length} folders`, 3500);
   }));
 
-  $('doPhotos').addEventListener('click', () => guard(async () => {
+  $('doPhotos').addEventListener('click', () => xguard(async () => {
     const pts = needPoints(); if (!pts) return;
     if (isAcc()) {
       const M = accModel(), files = [], list = accPhotoList(M, 'zip');
@@ -11529,13 +12919,14 @@
           await dbDel('points', id); await deletePhotosIfUnused(allPids(cur), new Set([id])); points = points.filter((x) => x.id !== id); delIds.add(id);
         }
         S.meta[proj].gone = mg;
-        if (delIds.size) S.meta[proj].links = (S.meta[proj].links || []).filter(([x, y]) => !delIds.has(x) && !delIds.has(y));
-        if (delIds.size && Array.isArray(S.meta[proj].fibers)) S.meta[proj].fibers = S.meta[proj].fibers.map((f) => ({ ...f, path: (f.path || []).filter((x) => !delIds.has(x)) })); // v2.42.20
+        if (delIds.size) { const q = routeDrop(delIds, S.meta[proj].links || [], Array.isArray(S.meta[proj].fibers) ? S.meta[proj].fibers : []); // v2.42.20 (beta 6.8: a cable through a record deleted there stays joined, as it is there)
+          S.meta[proj].links = q.l; if (Array.isArray(S.meta[proj].fibers)) S.meta[proj].fibers = q.f; }
       }
       if (cefHooks.merge) await cefHooks.merge(z, pre, proj, meta.meta, o); // v2.44: its CEF plans (each taken whole: the one saved later wins)
+      if (splHooks.merge) await splHooks.merge(z, pre, proj, meta.meta, o); // beta 4.6: its splicing details (taken whole: the one saved later wins)
       if (o.update && S.meta[proj]) { // v2.42.18: who sent which update (Projects → Project details)
         const U = o.update, r = { ...(S.meta[proj].recv || {}) }; r[U.sender] = { n: Math.max((r[U.sender] || {}).n || 0, U.n), at: U.at, name: U.from };
-        S.meta[proj].recv = r; o.result = { recs: meta.points.length - kept, kept: kept - goneHere, goneHere, gone: delIds.size, route: routeNew, ...(o.cefSaid ? { cef: o.cefSaid } : {}) };
+        S.meta[proj].recv = r; o.result = { recs: meta.points.length - kept, kept: kept - goneHere, goneHere, gone: delIds.size, route: routeNew, ...(o.cefSaid ? { cef: o.cefSaid } : {}), ...(o.splSaid ? { spl: o.splSaid } : {}) };
         S.meta[proj].updates = [...(S.meta[proj].updates || []), { n: U.n, full: U.full, from: U.from, at: U.at, got: new Date().toISOString(), ...o.result }].slice(-30);
       }
       S.project = proj; persist();
@@ -11616,6 +13007,7 @@
       const mv = (id) => remap.get(id) || id, seen = new Set(), L1 = [], L0 = pmeta(proj).links || [];
       L0.forEach((q) => { const a = mv(q[0]), b = mv(q[1]); if (a === b) return; const k = spanKey(a, b); if (seen.has(k)) return; seen.add(k); L1.push(a === q[0] && b === q[1] ? q : linkWith(a, b, q[2], q[3])); });
       const F0 = fibers(proj), F1 = F0.map((f) => { const p = []; f.path.forEach((id) => { const x = mv(id); if (!p.includes(x)) p.push(x); }); return { ...f, path: p }; });
+      L1.push(...runGaps(L1, F1.filter((f, i) => f.path.join() !== F0[i].path.join()))); // beta 6.8: a cable that skipped a pole folded into another: joined there
       const chF = F0.some((f, i) => f.path.join() !== F1[i].path.join()), chL = L1.length !== L0.length || L1.some((q, i) => q !== L0[i]);
       if (chL || chF) routeWrite(proj, chL ? L1 : null, chF ? F1 : null);
     }
@@ -11797,7 +13189,7 @@
   }));
 
   /** Smaller JPEG for the PDF so a report with hundreds of photos stays shareable. */
-  async function pdfJpeg(pid, maxPx, stampLines, stampColor, quality) {
+  async function pdfJpeg(pid, maxPx, stampLines, stampColor, quality, band) { // (beta 6.4: band: the plan photo's stamp, planStamp)
     const ph = await dbGet('photos', pid).catch(() => null);
     if (!ph || !ph.clean) return null;
     const im = await loadImage(ph.clean), { w, h } = dims(im), sc = Math.min(1, maxPx / Math.max(w, h));
@@ -11810,7 +13202,32 @@
       g.fillStyle = '#fff'; g.textBaseline = 'top';
       stampLines.forEach((t, i) => { g.font = `${i ? '' : '700 '}${fs}px sans-serif`; g.fillText(t, pad * 1.5, cv.height - bandH + pad + i * lh, cv.width - pad * 3); });
     }
+    if (band) planStamp(g, cv.width, cv.height, band);
     return new Uint8Array(await (await toBlob(cv, quality || 0.72)).arrayBuffer());
+  }
+  /** beta 6.4: the caption band of a photo on the plan (Drawing style › Photos on the plan › Stamp on the photos): lat, long (6 decimals)
+      on one line, the address under it (two lines at most, shortened with … past that), white on a dark band at the foot of the
+      photo. Sized to the photo as printed, not to its pixels: the coordinates fill the width (the letters a little narrow), at most
+      2.2 mm high on the A3 sheet and a tenth of the photo's height, so the band keeps to the foot of the photo.
+      b: { lat, lon, addr, mm: the photo's long side on the sheet }. Returns the lines it wrote. */
+  function planStamp(g, W, H, b) {
+    const ll = `${(+b.lat).toFixed(6)}, ${(+b.lon).toFixed(6)}`, sq = 0.86, F = 'Arial, Helvetica, sans-serif';
+    g.font = `700 100px ${F}`; const w100 = g.measureText(ll).width * sq, avail = W * 0.93, pxMm = Math.max(W, H) / Math.max(5, +b.mm || 16);
+    const fs = Math.max(8, Math.min(avail * 100 / w100, 2.2 * pxMm, H * 0.1)), fa = fs * 0.86, lines = [[ll, `700 ${fs}px ${F}`, fs]];
+    const addr = String(b.addr || '').replace(/\s+/g, ' ').trim().replace(/\bStreet\b/g, 'St.').replace(/\bAvenue\b/g, 'Ave.').replace(/\bRoad\b/g, 'Rd.').replace(/\bHighway\b/g, 'Hwy.');
+    if (addr) { // wrapped at the words, two lines at most; the second shortened with … when there is more
+      g.font = `600 ${fa}px ${F}`; const fits = (t) => g.measureText(t).width * sq <= avail, out = []; let cur = '';
+      for (const wd of addr.split(' ')) { const t = cur ? `${cur} ${wd}` : wd; if (fits(t) || !cur) cur = t; else { out.push(cur); cur = wd; } }
+      if (cur) out.push(cur);
+      let L = out.slice(0, 2); if (out.length > 2) L[1] = `${L[1]} ${out.slice(2).join(' ')}`;
+      L = L.map((t) => { if (fits(t)) return t; let x = t; while (x.length > 1 && !fits(`${x}…`)) x = x.slice(0, -1); return `${x.replace(/[ ,]+$/, '')}…`; });
+      L.forEach((t) => lines.push([t, `600 ${fa}px ${F}`, fa]));
+    }
+    const pad = fs * 0.32, bandH = pad * 2 + lines.reduce((t, l) => t + l[2] * 1.16, 0), y0 = H - bandH;
+    g.fillStyle = 'rgba(0,0,0,0.66)'; g.fillRect(0, y0, W, bandH);
+    g.fillStyle = '#fff'; g.textBaseline = 'top'; let y = y0 + pad;
+    lines.forEach(([t, f, h]) => { g.save(); g.font = f; g.translate((W - avail) / 2, y + h * 0.06); g.scale(sq, 1); g.fillText(t, 0, 0); g.restore(); y += h * 1.16; });
+    return lines.map((l) => l[0]);
   }
   const shortTime = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }); };
   const fmtDays = (d) => (d == null ? '' : d < 1 / 24 ? `${Math.max(1, Math.round(d * 1440))} min` : d < 1 ? `${(d * 24).toFixed(1)} h` : `${d.toFixed(1)} days`);
@@ -12010,7 +13427,7 @@
   const effectiveQuality = () => ((S.team ? pol().quality : S.quality) === 'normal' ? 'normal' : 'strict');
   function renderSettingsHome() {
     renderWho(); renderTeamInfo(); cloudSync(false).then(renderCloudInfo);
-    $('camSub').textContent = `${S.phN || 2} photo${(S.phN || 2) === 1 ? '' : 's'} per pin · ${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc === true) !== (S.readId !== false) ? ` (${S.readIdAcc === true ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
+    $('camSub').textContent = `${S.phN || 1} photo${(S.phN || 1) === 1 ? '' : 's'} per pin · ${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc === true) !== (S.readId !== false) ? ` (${S.readIdAcc === true ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
     const packs = Object.values(S.packs || {}).filter((p) => p.done);
     $('mapsSub').textContent = `${streetSource().name}${packs.length ? ` · ${packs.length} offline pack${packs.length === 1 ? '' : 's'}${S.base === 'offline' ? ' (in use)' : ''}` : ' · no offline pack yet'}`;
     const P = pol();
@@ -12033,6 +13450,11 @@
     el.textContent = '';
     const mark = (host, str) => {
       if (str.includes('{site}')) str = str.replace(/\{site\}/g, tutSite() || 'https://<your website>/*'); // after the bold / italic split: its * is not markup
+      if (typeof words === 'function') { // beta 6.7 (UX step 1): the search's own test of a word (GESAA_TUTORIAL.query(q).mark), so the words marked are the words it found
+        if (typeof words.cut === 'function') { words.cut(str).forEach(([x, on]) => { if (!x) return; if (on) { const m = document.createElement('mark'); m.textContent = x; host.appendChild(m); } else host.appendChild(document.createTextNode(x)); }); return; } // (beta 6.8, UX step 6: little man marked only where the whole phrase is)
+        str.split(/([A-Za-z0-9À-ɏ'’-]+)/).forEach((x, i) => { if (!x) return; if (i % 2 && words(x)) { const m = document.createElement('mark'); m.textContent = x; host.appendChild(m); } else host.appendChild(document.createTextNode(x)); });
+        return;
+      }
       if (!words || !words.length) { host.appendChild(document.createTextNode(str)); return; }
       const re = new RegExp(`([\\w'’-]*(?:${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})[\\w'’-]*)`, 'ig'); // the whole word
       str.split(re).forEach((x, i) => { if (!x) return; if (i % 2) { const m = document.createElement('mark'); m.textContent = x; host.appendChild(m); } else host.appendChild(document.createTextNode(x)); });
@@ -12044,42 +13466,74 @@
       const h = document.createElement(bold ? 'b' : 'i'); mark(h, bold ? part.slice(2, -2) : part.slice(1, -1)); el.appendChild(h);
     });
   }
-  const tutHay = (t) => [t.title, t.kw, t.cat, ...t.steps.map((x) => x.t)].join(' ').toLowerCase().replace(/\*/g, '');
-  /** A search word without its ending, so "approve" finds "approval" and "deleting" finds "delete". */
-  const tutStem = (w) => (w.length > 4 ? w.replace(/(ings?|ed|es|s|e|al)$/, '') : w);
+  /** beta 6.7 (UX step 1): a step's text cut to about 110 characters around the first word found, so the snippet shows it. */
+  function tutSnip(text, mark) {
+    const plain = String(text || '').replace(/\*/g, ''); if (plain.length <= 110) return plain;
+    let at = -1; if (typeof mark === 'function' && typeof mark.cut === 'function') { let k = 0; for (const [x, on] of mark.cut(plain)) { if (on) { at = k; break; } k += x.length; } } // (beta 6.8, UX step 6: a phrase found too)
+    else if (typeof mark === 'function') { const re = /[A-Za-z0-9À-ɏ'’-]+/g; let m; while ((m = re.exec(plain))) if (mark(m[0])) { at = m.index; break; } }
+    if (at < 70) return `${plain.slice(0, 108)}…`;
+    const from = plain.lastIndexOf(' ', at - 30) + 1 || at - 30;
+    return `…${plain.slice(from, from + 104)}${from + 104 < plain.length ? '…' : ''}`;
+  }
   function renderTutList() {
-    const adm = tutAdmin(), q = $('tutQ').value.trim().toLowerCase(), words = q.split(/\s+/).filter((w) => w.length > 1).map(tutStem);
+    const adm = tutAdmin(), q = $('tutQ').value.trim(), TUT = window.GESAA_TUTORIAL || {};
+    // beta 6.7 (UX step 1): the search is GESAA_TUTORIAL.search (tutorial.js): ranked by title, kw and steps, with other spellings
+    const Q = q && TUT.search && TUT.query ? TUT.query(q) : null, words = Q ? Q.mark : null;
+    const noWord = !!q && !/[A-Za-z0-9\u00c0-\u024f]/.test(q); // beta 6.8 (UX step 6; reviewer): only symbols ("?!", "--"): No topic for, not the whole list
     if (!adm) tutAudSel = 'user';
     $('tutAud').hidden = !adm;
     [...$('tutAud').children].forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aud === tutAudSel)));
-    $('tutWho').textContent = words.length ? '' : adm ? `You are a user of the admin company${pol().owner ? ` (${pol().owner})` : ''}: the user guide and the admin guide.` : 'How to use G-eSAA. Tap a topic; “Show me” opens the screen and points at the button.';
+    $('tutWho').textContent = words || noWord ? '' : adm ? `You are a user of the admin company${pol().owner ? ` (${pol().owner})` : ''}: the user guide and the admin guide.` : 'How to use G-eSAA. Tap a topic; “Show me” opens the screen and points at the button.';
     const all = tutTopics(), L = $('tutList'); L.innerHTML = '';
     if (!all.length) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = 'The tutorial is not loaded on this phone: open G-eSAA once with internet.'; L.appendChild(p); return; }
-    let list = words.length ? all.filter((t) => words.every((w) => tutHay(t).includes(w))) : all.filter((t) => t.aud === tutAudSel);
-    if (words.length) list = list.map((t, i) => ({ t, i, s: words.filter((w) => t.title.toLowerCase().includes(w)).length })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.t);
+    const byId = new Map(all.map((t) => [t.id, t])), at = new Map();
+    let list = noWord ? [] : all.filter((t) => t.aud === tutAudSel);
+    if (words) list = TUT.search(q, { admin: adm }).filter((r) => byId.has(r.id)).map((r) => { at.set(r.id, r.step); return byId.get(r.id); });
+    // beta 6.7 (UX step 5): the settings of Plan style whose label (or place) says every word, at most 3, first: Show me opens it there.
+    // (beta 6.7, UX step 5 fixes; reviewer: on a small screen or with large text, 3 rows pushed the topics below the screen: there, the best one
+    // only, and More › opens Plan style's Find a setting with the same words)
+    const strong = words && TUT.settings ? plFind(q).filter((r) => r.strong && r.label > 0) : [];
+    const fs = +getComputedStyle(document.documentElement).getPropertyValue('--fs') || 1, room = innerHeight / fs >= 600 ? 3 : 1, sets = strong.slice(0, room);
+    if (sets.length) {
+      const h = document.createElement('div'); h.className = 'tutcat tutsethd'; const ht = document.createElement('span'); ht.textContent = strong.length > sets.length ? 'Settings in Plan style' : strong.length === 1 ? 'A setting in Plan style' : `${strong.length} settings in Plan style`; h.appendChild(ht); // (more: no count, Find a setting lists more, by their hints too)
+      if (strong.length > sets.length) { const a = document.createElement('button'); a.type = 'button'; a.className = 'linkbtn tutsetall'; a.textContent = 'More ›'; a.setAttribute('aria-label', `More settings for “${q}”: Find a setting in Plan style`); a.addEventListener('click', () => plFindIn(q)); h.appendChild(a); }
+      L.appendChild(h);
+      sets.forEach((r) => {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'tutset'; b.dataset.setting = r.e.label;
+        const t = document.createElement('span'); t.className = 't';
+        const k = document.createElement('span'); k.className = 'k'; k.textContent = 'SETTING';
+        const n = document.createElement('b'); tutRich(n, r.e.label, words);
+        const w = document.createElement('small'); w.textContent = plWhere(r); if (r.off) w.className = 'off'; // (beta 6.7, UX step 5 fixes: · only with the Simple drawing)
+        const go = document.createElement('em'); go.textContent = 'Show me ›';
+        t.append(k, n, w); b.append(t, go); b.setAttribute('aria-label', `Setting: ${r.e.label}, in ${plWhere(r)}. Show me`);
+        b.addEventListener('click', () => plFindGo(r.e)); L.appendChild(b);
+      });
+    }
     if (!list.length) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = `No topic for “${q}”. Try another word, e.g. photo, PAT, invite, offline.`; L.appendChild(p); return; }
-    if (words.length) { const h = document.createElement('div'); h.className = 'tutcat'; h.textContent = `${list.length} topic${list.length === 1 ? '' : 's'} found`; L.appendChild(h); }
+    if (words) { const h = document.createElement('div'); h.className = 'tutcat'; h.textContent = `${list.length} topic${list.length === 1 ? '' : 's'} found`; L.appendChild(h); }
     let cat = '';
     const shut = S.tutShut || {};
     list.forEach((t) => {
-      if (!words.length && t.cat !== cat) { // v2.28: each subject folds open or shut
+      if (!words && t.cat !== cat) { // v2.28: each subject folds open or shut
         cat = t.cat; const c0 = cat, n = list.filter((x) => x.cat === c0).length;
         const h = document.createElement('button'); h.type = 'button'; h.className = 'tutcat tutfold'; h.dataset.cat = c0; h.setAttribute('aria-expanded', String(!shut[c0]));
         h.innerHTML = `<span></span><b>${n}</b><em aria-hidden="true">${shut[c0] ? '▸' : '▾'}</em>`; h.firstChild.textContent = c0;
         h.addEventListener('click', () => { S.tutShut = { ...(S.tutShut || {}), [c0]: !(S.tutShut || {})[c0] }; persist(); renderTutList(); });
         L.appendChild(h);
       }
-      if (!words.length && shut[t.cat]) return;
+      if (!words && shut[t.cat]) return;
       const b = document.createElement('button'); b.type = 'button'; b.className = 'tuttopic'; b.dataset.topic = t.id;
-      if (words.length && adm) { const a = document.createElement('span'); a.className = 'aud'; a.textContent = t.aud === 'admin' ? 'ADMIN GUIDE' : 'USER GUIDE'; b.appendChild(a); }
+      if (words && adm) { const a = document.createElement('span'); a.className = 'aud'; a.textContent = t.aud === 'admin' ? 'ADMIN GUIDE' : 'USER GUIDE'; b.appendChild(a); }
       const n = document.createElement('b'); tutRich(n, t.title, words); b.appendChild(n);
-      const hit = words.length ? t.steps.find((x) => words.some((w) => x.t.toLowerCase().replace(/\*/g, '').includes(w))) : null;
-      const sub = document.createElement('span'); const plain = (hit || t.steps[0]).t.replace(/\*/g, ''); tutRich(sub, plain.length > 110 ? `${plain.slice(0, 108)}…` : plain, words); b.appendChild(sub);
-      b.addEventListener('click', () => openTutTopic(t, words));
+      const k = words ? at.get(t.id) : -1, hit = k >= 0 ? t.steps[k] : null; // beta 6.7: the step with the most query words
+      if (hit) b.dataset.step = String(k);
+      const sub = document.createElement('span'); tutRich(sub, tutSnip((hit || t.steps[0]).t, words), words); b.appendChild(sub);
+      b.addEventListener('click', () => openTutTopic(t, words, k));
       L.appendChild(b);
     });
   }
-  function openTutTopic(t, words) {
+  /** at (beta 6.7, UX step 1): the step the search found best: the topic opens on it, marked (tutbest). */
+  function openTutTopic(t, words, at) {
     if (!t) return;
     tutCur = t;
     $('tutTopicTitle').textContent = t.title;
@@ -12088,6 +13542,7 @@
     const ol = $('tutSteps'); ol.innerHTML = '';
     t.steps.forEach((st, i) => {
       const li = document.createElement('li'), d = document.createElement('div'); tutRich(d, st.t, words || []); li.appendChild(d);
+      if (i === at) { li.classList.add('tutbest'); if (words) { li.setAttribute('aria-current', 'step'); li.tabIndex = -1; } } // (beta 6.8, UX step 6: the step found, for a screen reader and the keyboard)
       if (st.go || st.hl) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm show'; b.textContent = 'Show me'; b.addEventListener('click', () => tutStart(t, i)); li.appendChild(b); }
       ol.appendChild(li);
     });
@@ -12095,7 +13550,10 @@
     $('tutPrev').disabled = k <= 0; $('tutNext').disabled = k < 0 || k >= seq.length - 1;
     $('tutPrev').onclick = () => openTutTopic(seq[k - 1]); $('tutNext').onclick = () => openTutTopic(seq[k + 1]);
     if (stack[stack.length - 1] !== 'tutTopic') openSheet('tutTopic');
-    $('tutTopic').querySelector('.body').scrollTop = 0;
+    const bd = $('tutTopic').querySelector('.body'); bd.scrollTop = 0;
+    const li = at > 0 ? ol.children[at] : null; // beta 6.7 (UX step 1): open at the step the search found (the first step: from the top)
+    if (li) bd.scrollTop = Math.max(0, li.getBoundingClientRect().top - bd.getBoundingClientRect().top - 12);
+    const fo = words && at >= 0 ? ol.children[at] : null; if (fo) try { fo.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } // beta 6.8 (UX step 6; reviewer): focus on the step found
   }
   function openTutorial() { renderTutList(); openSheet('tutorial'); }
 
@@ -12104,20 +13562,34 @@
      (whatever screen it opens: camera, record, dialog…); Next › moves on without it; ✕ ends the tour. While a dialog is open
      the tip waits; it never leaves an open record or the camera by itself. */
   const TUT_SCREEN = { map: '', projects: 'projects', newProject: 'newProj', projectDetails: 'projects', records: 'list', export: 'export', settings: 'settings',
-    profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin', planset: 'planSet', team: 'teamSheet', mbxset: 'mbxSetSheet' };
+    profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin', planset: 'drwStyle', planstyle: 'drwStyle', team: 'teamSheet', mbxset: 'mbxSetSheet' };
+  /* beta 6.7 (UX step 1, 4): go 'planstyle' (Plan style; 'planset' is its old name) or 'planstyle:<part>': basic, advanced, or the
+     Advanced section that is the part (opened, its part of the plan in the preview). */
+  const TUT_PLPART = { numbers: 'stNum', details: 'stPole', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
+  const tutGoBase = (go) => String(go || '').split(':')[0];
+  const tutHlEl = (st) => { try { return st && st.hl ? document.querySelector(st.hl) : null; } catch (e) { return null; } };
+  /** beta 6.7 (UX step 4): Plan style's tab and Advanced section for a step: its part, else where its control is. */
+  const tutPlanAt = (go, st) => {
+    const part = String(go || '').split(':')[1] || '', el = tutHlEl(st), sec = TUT_PLPART[part] ? $(TUT_PLPART[part]) : el && el.closest('#plAdv details.stsec');
+    return { tab: part === 'basic' ? 'basic' : part === 'advanced' || sec || (el && el.closest('#plAdv')) ? 'advanced' : 'basic', sec: sec ? sec.id : '' };
+  };
+  const tutPlanOn = (go, st) => { const a = tutPlanAt(go, st); return tutTop() === 'drwStyle' && $(a.tab === 'advanced' ? 'plAdv' : 'plBasic').hidden === false && (!a.sec || $(a.sec).open); };
   const tutTop = () => stack[stack.length - 1] || '';
-  const tutOnScreen = (go) => (go === 'map' ? !stack.length : go === 'projectDetails' ? tutTop() === 'projects' && $('curMore').open : tutTop() === TUT_SCREEN[go]);
+  const tutOnScreen = (go, st) => { const g = tutGoBase(go); return g === 'map' ? !stack.length : g === 'projectDetails' ? tutTop() === 'projects' && $('curMore').open : g === 'planstyle' || g === 'planset' ? tutPlanOn(go, st) : tutTop() === TUT_SCREEN[g]; };
   const tutModal = () => ['askBox', 'pinBox', 'promptBox', 'qrShow', 'busy', 'qrScan'].some((id) => { const e = $(id); return e && !e.hidden; });
   const tutBusyScreen = () => stack.includes('editor') || stack.includes('camera'); // never closed by the tour
   let tutTour = null, tutTimer = 0;
-  async function tutGo(go) {
-    switch (go) {
+  async function tutGo(go, st) {
+    switch (tutGoBase(go)) {
       case 'projects': if (tutTop() !== 'projects') openProjects(); break;
       case 'newProject': if (tutTop() !== 'projects') openProjects(); await tutWait(150); openNewProject(); break;
       case 'projectDetails': if (tutTop() !== 'projects') openProjects(); await tutWait(150); $('curMore').open = true; break;
       case 'records': if (tutTop() !== 'list') $('listBtn').click(); break;
       case 'export': if (tutTop() !== 'export') $('exportBtn').click(); break;
-      case 'planset': if (tutTop() !== 'planSet') openPlanSet(); break; // v2.42.28
+      case 'planset': case 'planstyle': { // v2.42.28; beta 6.7 (UX step 1): planstyle, planstyle:<part>; UX step 4: Plan style's tab and section
+        const a = tutPlanAt(go, st); openStyle(a.tab, a.sec); await tutWait(120); // (a section without a control: its heading just under the preview)
+        break;
+      }
       case 'team': if (tutTop() !== 'teamSheet') { if (tutTop() !== 'settings') { $('settingsBtn').click(); await tutWait(150); } $('goTeam').click(); } break; // v2.43
       case 'mbxset': if (tutTop() !== 'mbxSetSheet') { if (tutTop() !== 'settings') { $('settingsBtn').click(); await tutWait(150); } $('goMbx').click(); } break; // beta 3.4
       case 'settings': if (tutTop() !== 'settings') $('settingsBtn').click(); break;
@@ -12132,17 +13604,35 @@
   async function tutScreen(st) {
     const tour = tutTour; if (!tour) return;
     tour.pending = null;
-    if (!st.go || tutOnScreen(st.go)) return;
+    if (!st.go || tutOnScreen(st.go, st)) return;
     if (tutModal() || tutBusyScreen()) { tour.pending = st; return; }
     // back to the step's base screen when it is open underneath (Settings or Projects), else to the map; then on to the screen
     const base = ['settings', 'profile', 'admin', 'camera', 'exports', 'maps', 'storage', 'log'].includes(st.go) ? 'settings' : ['projects', 'newProject', 'projectDetails'].includes(st.go) ? 'projects' : '';
     if (base && stack.includes(base)) { while (tutTop() !== base) await closeSheet(); } else await closeAll();
-    try { await tutGo(st.go); if (st.go === 'export' && st.hl && !$('export').hidden) { const card = /^#do[A-Za-z]+$/.test(st.hl) ? st.hl.slice(1) : /^#(dxf[A-Za-z]+|sigBox)$/.test(st.hl) ? 'doDxf' : ''; if (card) showExport(card); } } catch (e) { LOG.warn('tut.go', errInfo(e)); }
+    try { await tutGo(st.go, st); if (st.go === 'export' && st.hl && !$('export').hidden) { const card = tutXCard(st) || (/^#do[A-Za-z]+$/.test(st.hl) ? st.hl.slice(1) : /^#(dxf[A-Za-z]+|sigBox)$/.test(st.hl) ? 'doDxf' : ''); if (card) showExport(card); } } catch (e) { LOG.warn('tut.go', errInfo(e)); }
     await tutWait(400);
+  }
+  /** beta 6.7 (UX step 1): the Export card that holds the step's control (its "do…" button id; #prCard, #sigBox… too), or ''. */
+  const tutXCard = (st) => { const el = tutHlEl(st), c = el && el.closest('#export .xcard'), k = c ? xKey(c) : ''; return k && exportCards().includes(c) ? k : ''; }; // (beta 6.7, UX step 3: the row's own button id: doBackup, not the Restore link under it)
+  /** beta 6.7 (UX step 1): on the screen on top, what hides the step's control is opened: its tab (Plan style's Basic | Advanced),
+      its Export card, the closed folds (details: an Advanced section, its Colours and sizes) around it. true: something was opened. */
+  function tutUnfold(el) {
+    const sh = el.closest('section.sheet'); if (!sh || sh.hidden || sh.id !== tutTop()) return false;
+    let did = false;
+    const pane = el.closest('[role="tabpanel"][hidden]'), tab = pane && pane.id ? sh.querySelector(`[role="tab"][aria-controls="${pane.id}"]`) : null; // (Plan style's Basic | Advanced, step 4)
+    if (tab) { tab.click(); did = true; }
+    const xc = el.closest('#export .xcard'), xk = xc ? xKey(xc) : ''; // beta 6.7 (UX step 3): the row is opened (one at a time); Several at once for its ticks and its ZIP button
+    if (xk && exportCards().includes(xc) && !xc.classList.contains('xopen') && !xc.classList.contains('xmany')) { showExport(xk); did = true; }
+    if (!xMany && el.closest('#xMulti, #xGoBox') && sh.id === 'export') { xManyOn([]); did = true; }
+    for (let d = el.closest('details:not([open])'); d; d = d.parentElement ? d.parentElement.closest('details:not([open])') : null) {
+      if (el.tagName !== 'SUMMARY' || el.parentElement !== d) { d.open = true; did = true; } // (a fold's own title shows while it is shut)
+    }
+    return did;
   }
   /** The first control of the step that is on screen (not under another screen), or null. */
   function tutTarget(st) {
     if (!st || !st.hl) return null;
+    const tour = tutTour, cur = !!tour && tour.t.steps[tour.i] === st;
     const onTop = (el) => { // on screen and not under another screen, a fixed footer or a dialog
       const r = el.getBoundingClientRect();
       if (r.bottom < 4 || r.top > innerHeight - 4 || r.right < 0 || r.left > innerWidth) return false;
@@ -12155,10 +13645,11 @@
         const g = el.closest('#admMain > .group.shut'); if (g) { g.classList.remove('shut'); g.querySelector(':scope > h3').setAttribute('aria-expanded', 'true'); }
         const dz = el.closest('details:not([open])'); if (dz) dz.open = true;
       }
+      if (cur && tour.unfolded !== tour.i && tutUnfold(el)) tour.unfolded = tour.i; // beta 6.7: once per step (the user may fold it again)
       if (!el.getClientRects().length || el.closest('[hidden]')) continue;
       if (onTop(el)) return el;
       if (tutTour && tutTour.scrolled !== tutTour.i) { // once per step (the user may scroll away): bring it into view
-        tutTour.scrolled = tutTour.i; el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        tutTour.scrolled = tutTour.i; if (el.closest('#drwStyle .dsctl')) { const r = el.closest('.strow, .psrow, .psstd'), bd = $('drwStyle').querySelector('.dsbody'); DSP.toRow(r && bd && r.getBoundingClientRect().height < bd.clientHeight * 0.4 ? r : el); } else el.scrollIntoView({ block: 'center', inline: 'nearest' }); // (beta 6.7, UX step 4: Plan style: just under its sticky preview)
         if (onTop(el)) return el;
       }
     }
@@ -12174,14 +13665,15 @@
     const tour = tutTour, st = tour && tour.t.steps[tour.i];
     let el = null; try { el = st && st.hl && e.target && e.target.closest ? e.target.closest(st.hl) : null; } catch (x) { el = null; }
     if (!el || !el.matches('button, a, summary, [role="button"], .rowbtn, .chip') || el.disabled) return;
+    if (tour.doneNow) return; // beta 6.8 (UX step 6): done already (the route bar open): this tap undoes it, the step stays
     const at = tour.i; setTimeout(() => { if (tutTour === tour && tour.i === at) tutNext(true); }, 350);
   }
   async function tutStart(t, i) {
     tutEnd();
     while (['tutTopic', 'tutorial'].includes(tutTop())) await closeSheet();
-    tutTour = { t, i, el: null, pending: null, scrolled: -1 };
+    tutTour = { t, i, el: null, pending: null, scrolled: -1, unfolded: -1 };
     document.addEventListener('click', tutTapped, true);
-    await tutScreen(t.steps[i]); tutRender();
+    await tutScreen(t.steps[i]); tutRender(true);
     tutTimer = setInterval(tutTrack, 300);
     LOG.info('tut.tour', { topic: t.id, from: i + 1 });
   }
@@ -12191,14 +13683,19 @@
     const tour = tutTour; if (!tour) return;
     if (tour.i >= tour.t.steps.length - 1) { tutEnd(); toast(`Tutorial: “${tour.t.title}” done`, 3000); return; }
     tour.i++; tour.el = null; tour.pending = null; tour.miss = 0;
-    tutRender(); if (!byTap) await tutScreen(tour.t.steps[tour.i]); if (tutTour === tour) tutTrack();
+    tutRender(!byTap); if (!byTap) await tutScreen(tour.t.steps[tour.i]); if (tutTour === tour) tutTrack();
   }
-  function tutRender() {
+  /** focus (beta 6.8, UX step 6; reviewer): the keyboard's focus goes into the tip (a tour started, Next ›); kept there when it was in it. */
+  function tutRender(focus) {
     const tour = tutTour; if (!tour) return;
     const { t, i } = tour, st = t.steps[i], last = i >= t.steps.length - 1;
     let tip = document.getElementById('tutTip');
-    if (!tip) { tip = document.createElement('div'); tip.id = 'tutTip'; tip.setAttribute('role', 'dialog'); document.body.appendChild(tip); }
-    tip.setAttribute('aria-label', `Tutorial: ${t.title}`); tip.innerHTML = '';
+    if (!tip) {
+      tip = document.createElement('div'); tip.id = 'tutTip'; tip.setAttribute('role', 'dialog'); tip.tabIndex = -1; document.body.appendChild(tip);
+      tip.addEventListener('keydown', (e) => { if (e.key !== 'Escape' || !tutTour) return; e.preventDefault(); e.stopPropagation(); tutEnd(); toast('Tutorial ended', 1500); }); // (beta 6.8, UX step 6: Esc ends the tour)
+    }
+    const had = tip.contains(document.activeElement), hadMini = had && document.activeElement && document.activeElement.classList.contains('tutmin');
+    tip.setAttribute('aria-label', `Show me: step ${i + 1} of ${t.title}`); tip.innerHTML = ''; // (beta 6.8, UX step 6: was "Tutorial: <topic>")
     const head = document.createElement('div'); head.className = 'tuthead';
     const ht = document.createElement('span'); ht.textContent = `${t.title} · step ${i + 1} of ${t.steps.length}`;
     const x = document.createElement('button'); x.type = 'button'; x.className = 'iconbtn tutx'; x.setAttribute('aria-label', 'End the tutorial'); x.textContent = '✕'; x.addEventListener('click', tutEnd);
@@ -12210,6 +13707,7 @@
     const p = document.createElement('div'); p.className = 'tuttext'; tutRich(p, st.t, []); tip.appendChild(p);
     if (st.hl) { const n = document.createElement('p'); n.className = 'hint tutwhen'; n.hidden = true; n.textContent = st.when || 'Not on this screen right now: it shows when it applies.'; tip.appendChild(n); }
     if (st.hl && !last) { const n = document.createElement('p'); n.className = 'hint tutdo'; n.textContent = 'Tap the ringed button to do it, or Next ›'; tip.appendChild(n); }
+    if (st.done) { const n = document.createElement('p'); n.className = 'hint tutdone'; n.hidden = true; n.textContent = st.doneSay || 'Done already: Next ›'; tip.appendChild(n); } // beta 6.8 (UX step 6)
     const row = document.createElement('div'); row.className = 'row';
     const btn = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = `btn sm${cls ? ` ${cls}` : ''}`; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); };
     btn('Back to the tutorial', '', async () => { const tt = tour.t; tutEnd(); if (!tutBusyScreen() && !tutModal()) await closeAll(); openTutorial(); openTutTopic(tt); });
@@ -12217,6 +13715,7 @@
     btn(last ? 'Done' : 'Next ›', 'primary', () => tutNext(false));
     tip.appendChild(row);
     tutTrack();
+    if (focus || had) { const f = hadMini ? tip.querySelector('.tutmin') : tip; try { f.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } } // (focus on the tip: its label is read; Tab goes to its buttons)
   }
   /** Every 0.3 s while the tour runs: the ring follows its control from screen to screen; the tip waits behind dialogs. */
   function tutTrack() {
@@ -12224,7 +13723,9 @@
     const st = tour.t.steps[tour.i], modal = tutModal();
     if (tour.pending && !modal && !tutBusyScreen()) { const pend = tour.pending; tour.pending = null; tutScreen(pend).then(() => tutTrack()); return; }
     tip.style.display = modal ? 'none' : '';
-    const el = modal ? null : tutTarget(st); tour.el = el;
+    // beta 6.8 (UX step 6; reviewer): what the step does is done already (the route bar open): ringed, said, and its hl's tap does not move on
+    const dn = !modal && st.done ? tutTarget({ hl: st.done }) : null; tour.doneNow = !!dn;
+    const el = modal ? null : dn || tutTarget(st); tour.el = el;
     // the app skipped this step's screen (e.g. the pole ID read by itself: the record is already open): on to the next step
     if (!el && !modal && st.hl && !st.go && tour.i < tour.t.steps.length - 1) {
       const nx = tour.t.steps[tour.i + 1];
@@ -12238,14 +13739,25 @@
       const r = el.getBoundingClientRect(), pad = 6;
       Object.assign(spot.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + 2 * pad}px`, height: `${r.height + 2 * pad}px` });
     }
-    const away = !!st.go && !tutOnScreen(st.go); // the step's screen is not open: Open it › (or it opens when a dialog closes)
+    const away = !!st.go && !tutOnScreen(st.go, st); // the step's screen is not open: Open it › (or it opens when a dialog closes)
     const o = tip.querySelector('.tutopen'); if (o) o.hidden = !away || !!tour.pending;
     const w = tip.querySelector('.tutwhen'); if (w) w.hidden = !!el || modal || away;
-    const d = tip.querySelector('.tutdo'); if (d) d.hidden = !el;
+    const d = tip.querySelector('.tutdo'); if (d) d.hidden = !el || !!dn;
+    const dd = tip.querySelector('.tutdone'); if (dd) dd.hidden = !dn;
     if (modal) return;
     const h = tip.offsetHeight;
-    if (el) { const r = el.getBoundingClientRect(), below = r.top + r.height / 2 < innerHeight / 2; tip.style.top = `${below ? Math.min(innerHeight - h - 10, r.bottom + 18) : Math.max(10, r.top - 18 - h)}px`; }
-    else tip.style.top = `${Math.max(10, Math.min(70, innerHeight - h - 10))}px`;
+    if (el) { // beta 6.8 (UX step 6): above or below the ring and what the step keeps clear (keep: the red reason over the shutter), on the side
+      // with room; a ring taller than the room: its first part stays clear (the tip below it), so the tip never covers what it points at
+      let top = el.getBoundingClientRect().top, bot = el.getBoundingClientRect().bottom;
+      if (st.keep) document.querySelectorAll(st.keep).forEach((k) => { if (!k.getClientRects().length || k.closest('[hidden]')) return; const r = k.getBoundingClientRect(); top = Math.min(top, r.top); bot = Math.max(bot, r.bottom); });
+      top = Math.max(0, top); bot = Math.min(innerHeight, bot);
+      const roomA = top - 28, roomB = innerHeight - bot - 28;
+      let y;
+      if (h <= roomB && (roomB >= roomA || h > roomA)) y = bot + 18;
+      else if (h <= roomA) y = top - 18 - h;
+      else { const band = Math.min(bot, top + 64); y = band + 18 + h <= innerHeight - 10 ? band + 18 : roomB >= roomA ? innerHeight - h - 10 : 10; }
+      tip.style.top = `${Math.round(Math.max(10, Math.min(innerHeight - h - 10, y)))}px`;
+    } else tip.style.top = `${Math.max(10, Math.min(70, innerHeight - h - 10))}px`;
   }
   $('tutorialBtn').addEventListener('click', openTutorial);
   $('tutQ').addEventListener('input', renderTutList);
@@ -12259,7 +13771,7 @@
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   /* beta 3.5: Settings → Camera: photos per pin and photos in documents */
   function renderPhSet() {
-    const n = S.phN || 2;
+    const n = S.phN || 1;
     $('setPhN').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === n)));
     $('setPhIdp').checked = S.phIdp === true; $('setPhIdp').disabled = n < 2; $('setPhAuto').checked = S.phAuto !== false; $('setPhAuto').disabled = n < 2 || S.phIdp !== true;
     $('setPhBy').value = S.phBy === 'phone' ? 'phone' : 'co';
@@ -12277,9 +13789,10 @@
   /** Each export card's own All / Main (the same setting as Settings → Camera; a coordinator's, for his projects, shows and is locked). */
   function syncPhDocUi() {
     const L = phSetOf(S.project);
-    document.querySelectorAll('select.phdoc').forEach((sl) => { sl.value = phDoc(sl.dataset.k); sl.disabled = L.locked; sl.title = L.locked ? `Set by ${L.by} for this project` : ''; });
+    document.querySelectorAll('select.phdoc').forEach((sl) => { sl.value = phDoc(sl.dataset.k); sl.disabled = L.locked; sl.title = L.locked ? `Set by ${L.by} for this project` : '';
+      if (sl.closest('#export')) { let h = sl.parentElement.querySelector(':scope > .phdochint'); if (!h) { h = document.createElement('small'); h.className = 'phdochint'; sl.insertAdjacentElement('afterend', h); } h.textContent = L.locked ? `Set by ${L.by} for this project` : 'Default: Settings › Camera'; } }); // beta 6.7 (UX step 3; critic)
     document.querySelectorAll('select.phdoc option[value="all"]').forEach((x) => { const sl = x.closest('select'), k = sl.dataset.k, stage = k === 'defpdf' || !!sl.closest('#accExports'); if (k === 'ai') return;
-      x.textContent = k === 'zip' ? `All (the main one ID.jpg, the others ID_2.jpg… up to ${phN()} a pin)` : stage ? `All photos of each stage (up to ${phN()})` : `All photos of the pin (up to ${phN()})`; });
+      x.textContent = k === 'zip' ? 'All (the main one ID.jpg, the others ID_2.jpg…)' : stage ? 'All photos of each stage' : 'All photos of the pin'; }); // (beta 6.7: no count: + Add photo goes past the photos per pin)
   }
   document.addEventListener('change', (e) => { const sl = e.target; if (!(sl instanceof HTMLSelectElement) || !sl.classList.contains('phdoc')) return; S.phDocs = { ...(S.phDocs || {}), [sl.dataset.k]: sl.value }; persist(); syncPhDocUi(); });
   $('goCamera').addEventListener('click', () => {
@@ -12304,7 +13817,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', 'pmiLoops2', 'pmiLoops', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI, also under Settings)
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', null, 'pmiLoops', 'bool'], ['dxfBoqGrid', null, 'dxfBoqGrid', 'bool'], ['dxfRoads', null, 'dxfRoads', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI; beta 6.7, UX step 4: in Plan style only, its copy under Settings gone; the roads kept)
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {
@@ -12315,7 +13828,7 @@
       if (el.value !== String(S.exp[key])) { S.exp[key] = DEF.exp[key]; el.value = String(S.exp[key]); persist(); } // a value this version no longer offers
     }));
     ['stampFields', 'stampFields2'].forEach((id) => $(id).querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(S.exp.stampFields.includes(c.dataset.v)))));
-    [['setZone', 'setZone2', 'zone'], ['setSym', 'setSym2', 'sym'], ['setTxt', 'setTxt2', 'txt']].forEach(([a, b, key]) => { $(a).value = String(S[key]); $(b).value = String(S[key]); });
+    [['setZone', 'zone'], ['setSym', 'sym'], ['setTxt', 'txt']].forEach(([a, key]) => { const el = $(a); if (el) el.value = String(S[key]); }); // (beta 6.7, UX step 4; critic: S.zone, S.sym, S.txt: Plan style › Plan file only, their Settings copies setZone2, setSym2, setTxt2 gone)
   }
   Object.entries(expIds).forEach(([key, ids]) => ids.forEach(([id, kind]) => {
     const el = $(id); if (!el) return;
@@ -12326,8 +13839,8 @@
     const set = new Set(S.exp.stampFields); if (set.has(c.dataset.v)) set.delete(c.dataset.v); else set.add(c.dataset.v);
     S.exp.stampFields = DEF.exp.stampFields.filter((f) => set.has(f)); persist(); syncExpUi();
   }));
-  [['setZone', 'setZone2']].forEach((ids) => ids.forEach((id) => $(id).addEventListener('change', () => { S.zone = +$(id).value; persist(); syncExpUi(); $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; })));
-  [['setSym', 'sym'], ['setSym2', 'sym'], ['setTxt', 'txt'], ['setTxt2', 'txt']].forEach(([id, key]) => $(id).addEventListener('change', () => { const v = +$(id).value; if (v > 0) { S[key] = v; persist(); } syncExpUi(); }));
+  $('setZone').addEventListener('change', () => { S.zone = +$('setZone').value; persist(); syncExpUi(); $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; });
+  [['setSym', 'sym'], ['setTxt', 'txt']].forEach(([id, key]) => $(id).addEventListener('change', () => { const v = +$(id).value; if (v > 0) { S[key] = v; persist(); } syncExpUi(); }));
   syncExpUi();
   $('goExports').addEventListener('click', () => {
     syncExpUi();
@@ -12338,13 +13851,17 @@
     $('savePreview').textContent = NATIVE ? `Files go to: ${savePath('…').shown.replace(/\/…$/, '/')}` : 'Website version: your browser saves to its Downloads folder.';
     ['setSaveBase', 'setSaveFolder', 'setSaveByProject'].forEach((id) => { $(id).disabled = !NATIVE; });
   }
+  /* beta 6.7 (UX step 4; critic): Reset to defaults resets what this screen shows (the Export rows' defaults: photo copies, stamp and
+     its fields, file names, KMZ, Deficiency List PDF) and the save folder; never the plan's choices (Plan style › Reset…), the drawings
+     of the plan, the One PDF or the zone (they were reset here too before). */
+  const EXP_RESET_KEYS = [...new Set(EXP_PAIRS.filter(([, b]) => b && $(b) && $(b).closest('#setExports')).map(([, , key]) => key))].concat('stampFields'); // (the keys of the controls on this screen)
   $('expReset').addEventListener('click', async () => {
-    if (!(await ask('Reset export settings?', 'Photo size, stamp, file names, KMZ, PDF, Excel and DXF options and the save folder go back to their defaults.', [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
-    S.exp = JSON.parse(JSON.stringify(DEF.exp)); S.zone = DEF.zone; S.sym = DEF.sym; S.txt = DEF.txt;
+    if (!(await ask('Reset these export settings?', 'Photo copies (size, quality), the stamp on the photo files and what it shows, file names, Google Earth (KMZ) and the Deficiency List PDF go back to their defaults, and the save folder too. Plan style (how the plan looks, the template, the UTM zone) is not changed.', [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
+    EXP_RESET_KEYS.forEach((k) => { S.exp[k] = JSON.parse(JSON.stringify(DEF.exp[k])); });
     S.saveBase = DEF.saveBase; S.saveFolder = DEF.saveFolder; S.saveByProject = DEF.saveByProject; persist();
-    syncExpUi(); $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`;
+    syncExpUi();
     $('setSaveBase').value = S.saveBase; $('setSaveFolder').value = S.saveFolder; $('setSaveByProject').checked = true; updateSavePreview();
-    toast('Export settings reset to the defaults', 2500);
+    toast('Export settings reset to the defaults (Plan style unchanged)', 2500);
   });
   $('setSaveBase').addEventListener('change', () => { S.saveBase = $('setSaveBase').value; persist(); updateSavePreview(); });
   $('setSaveFolder').addEventListener('change', () => { S.saveFolder = $('setSaveFolder').value.trim() || 'G-eSAA'; persist(); updateSavePreview(); });
@@ -13036,18 +14553,22 @@
     const btns = buttons || [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }];
     $('askTitle').textContent = title; $('askText').textContent = text || '';
     const row = $('askBox').querySelector('.row'); row.innerHTML = '';
-    const stack = btns.length > 2; row.classList.toggle('stack', stack); // v2.19: three or more choices are listed one under another, Cancel last
+    const tiles = btns.some((b) => b.tile); row.classList.toggle('tiles', tiles); $('askBox').querySelector('.panel').classList.toggle('hasx', btns.some((b) => b.x)); // beta 4.6: big icon tiles (a caption under each), a quiet ✕
+    const stack = btns.length > 2 && !tiles; row.classList.toggle('stack', stack); // v2.19: three or more choices are listed one under another, Cancel last
     const list = stack ? btns.filter((b) => b.label !== 'Cancel').concat(btns.filter((b) => b.label === 'Cancel')) : btns;
     return new Promise((res) => {
       let mine = null; const done = (v) => { $('askBox').hidden = true; if (askEsc === mine) askEsc = null; res(v); };
       list.forEach((b) => {
         const el = document.createElement('button'); el.type = 'button'; el.className = `btn grow${b.primary ? ' primary' : ''}`; el.textContent = b.label;
+        if (b.x) { el.className = 'btn askx'; el.textContent = '✕'; el.setAttribute('aria-label', b.label); el.title = b.label; } // (beta 4.6: Later as a quiet ✕ in the corner)
+        else if (b.tile) { el.className = `btn tile${b.primary ? ' primary' : ''}`; el.textContent = b.caption || b.label; el.setAttribute('aria-label', b.label); el.title = b.label; if (b.sub) { const sm = document.createElement('small'); sm.textContent = b.sub; el.appendChild(sm); } } // (a second, smaller line)
+        if (b.icon && !b.x) { const sv = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', `#${b.icon}`); sv.appendChild(u); sv.setAttribute('class', 'aic'); sv.setAttribute('aria-hidden', 'true'); el.insertBefore(sv, el.firstChild); el.classList.add('ic1'); } // beta 4.6: an icon before the words (a sprite id)
         el.addEventListener('click', () => done(b.value));
         row.appendChild(el);
       });
       // v2.42.27: Esc on a computer answers Cancel (Keep, Keep editing, Back to the form…), or the only button; a question with
       // neither stays until a button is pressed (never a guess: the Unsaved record question's Discard is not taken)
-      const c = btns.length === 1 ? btns[0] : btns.find((b) => /^(Cancel|Keep|Keep editing|Not now|No|Close|Back|Back to the form)$/.test(b.label));
+      const c = btns.length === 1 ? btns[0] : btns.find((b) => /^(Cancel|Keep|Keep editing|Not now|No|Close|Back|Back to the form|Later)$/.test(b.label)); // (beta 4.6: + Later)
       askEsc = mine = c ? () => done(c.value) : null;
       $('askBox').hidden = false;
     });
@@ -13909,6 +15430,15 @@
     return [...(m.siteExtra || []).filter(([k]) => !sfSkip(k)), ...(m.plaId ? [['PLA ID', m.plaId]] : []), ...(m.siteName ? [['Site name', m.siteName]] : [])];
   }
   function sfGet(F, re) { return ((F || []).find(([k]) => re.test(k)) || [])[1] || ''; }
+  /** beta 6.0: the project's details from the online sheet (as Project details keeps them): Project Name, PLA ID, serial number and
+      site name; the same sources as the plan's title blocks. known: at least one of them. */
+  function siteDetailsOf(name) {
+    const m = pmeta(name), task = m.taskId && S.cloud && (S.cloud.tasks || []).find((t) => t.id === m.taskId), SF = siteFieldsOf(name), sfm = sfMeta(SF);
+    const proj = sfGet(SF, /project\s*name/i) || (task && extraOf(task, 'Project Name')) || ((m.siteExtra || []).find(([k]) => /project\s*name/i.test(k)) || [])[1] || '';
+    const site = sfm.siteName || m.siteName || (task && task.project) || '', pla = sfm.plaId || m.plaId || (task && task.site) || '';
+    const serial = sfm.serial || m.serial || (task && extraOf(task, 'Serial Number')) || ((m.siteExtra || []).find(([k]) => /serial/i.test(k)) || [])[1] || '';
+    return { proj, pla, serial, site, known: !!(proj || pla || serial || site) };
+  }
   /** The title-block fields from the site details: site name, PLA ID, serial number (and the project name / type). */
   function sfMeta(F) { return { siteName: sfGet(F, /site\s*name|searchring|segment/i), plaId: sfGet(F, /pla\s*id/i), serial: sfGet(F, /serial/i) }; }
   /** v2.42.19: the site details of a project with no site of the sheet: the sheet's columns (as its sites have them), else these. */
@@ -14815,11 +16345,18 @@
   const webDriveFailed = new Set(); // Drive files whose one-tap download failed here: Open in Drive is offered again
   const DRIVE_HTML_ERR = 'Google Drive sent a web page instead of the map file. Set the file’s sharing to “Anyone with the link”, or open it in Drive, download it and use Import a pack file.';
   /** Opens a link outside the app (the APK hands it to the phone's browser). */
+  /** beta 6.4: Google Street View at a spot, by a Google Maps URL (no API key, no cost): the Google Maps app on a phone, a new tab on a
+      computer. Google shows the nearest panorama it has; where it has none, the map. */
+  const streetViewUrl = (lat, lon) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${(+lat).toFixed(6)},${(+lon).toFixed(6)}`;
   function openExternal(url) {
     const a = document.createElement('a'); a.href = url; a.rel = 'noopener';
     if (!NATIVE) a.target = '_blank';
     document.body.appendChild(a); a.click(); a.remove();
   }
+  $('pinStreetView').addEventListener('click', () => { // beta 6.4: Street View at the pin as it sits now
+    const c = pinMap && pinMap.getCenter(); if (!c || !Number.isFinite(c.lat)) { toast('No position for this record yet', 2500); return; }
+    openExternal(streetViewUrl(c.lat, c.lng)); toast('Street View opens in Google Maps (where Google has none here, the map)', 3500);
+  });
   /* beta 3.7: the icons of the map packs' buttons (the name shows on a long-press) */
   const PK_KIND = { Download: 'dl', Resume: 'dl', 'Download again': 'again', Repair: 'fix', Use: 'use', Show: 'show', 'Hide on the map': 'show', 'Show on the map': 'hide', Delete: 'del', Remove: 'del', Confirm: 'del', 'Open in Drive': 'drive', 'How to fix': 'help' };
   const PK_ICON = { dl: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3', again: 'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
@@ -16081,7 +17618,7 @@
     const ch = since ? all.filter((p) => String(p.updated || p.created || '') > since && !echo(p)) : all;
     const gone = since ? Object.entries(m.gone || {}).filter(([id, t]) => t > since && !(E && E.g && E.g[id] === t)).length : 0;
     const route = !!(since && m.linksAt && m.linksAt > since && !(E && E.l && E.l === m.linksAt)), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0;
-    return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size, cef: since && cefHooks.changed ? cefHooks.changed(name, since) : 0 }; // (v2.44: + the CEF plans saved since)
+    return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size, cef: since && cefHooks.changed ? cefHooks.changed(name, since) : 0, spl: since && splHooks.changed ? splHooks.changed(name, since) : 0 }; // (v2.44: + the CEF plans saved since; beta 4.6: the splicing details)
   }
   async function mbxBytes(name, U, ref, say) { const blob = await bundleZip([name], { update: U, ref, say }); return new Uint8Array(await blob.arrayBuffer()); }
   /** The coordinator sends the project to each field partner. To one who has not got it (or missed a send): the whole project
@@ -16195,13 +17732,13 @@
     }
     const wb = $('mbxWhat'); wb.innerHTML = '';
     const opt = (v, title, sub, dis) => { const l = document.createElement('label'), r = document.createElement('input'); r.type = 'radio'; r.name = 'mbxWhat'; r.value = v; r.checked = s.what === v; r.disabled = !!dis; r.addEventListener('change', () => { s.what = v; renderMbxSend(); }); const d = document.createElement('div'), b = document.createElement('b'); b.textContent = title; const sp = document.createElement('span'); sp.className = 's'; sp.textContent = sub; d.append(b, sp); l.append(r, d); wb.appendChild(l); };
-    const changesText = (c, led, since) => [c.ch.length - c.nNew && `${pl2(c.ch.length - c.nNew, 'record')} changed`, c.nNew && `${c.nNew} new`, c.gone && `${c.gone} deleted`, c.route && 'the route', c.cef && 'the CEF plan', c.nph && pl2(c.nph, 'photo')].filter(Boolean).join(' · ');
+    const changesText = (c, led, since) => [c.ch.length - c.nNew && `${pl2(c.ch.length - c.nNew, 'record')} changed`, c.nNew && `${c.nNew} new`, c.gone && `${c.gone} deleted`, c.route && 'the route', c.cef && 'the CEF plan', c.spl && 'the splicing details', c.nph && pl2(c.nph, 'photo')].filter(Boolean).join(' · ');
     let info = '', whatOn = false;
     if (s.mode === 'fp' && s.to.size) {
       whatOn = true;
       const to = [...s.to][0], W = mbxWhatFor(name, to), c = W.c, first = tmFirst(to);
       const nAns = fxAnswers(name).length; // beta 3: fix answers count as changes
-      const canDelta = !!W.since && (c.ch.length || c.gone || c.route || c.cef || nAns);
+      const canDelta = !!W.since && (c.ch.length || c.gone || c.route || c.cef || c.spl || nAns);
       if (!s.what) s.what = canDelta ? 'delta' : 'full';
       if (W.since) opt('delta', 'Only the changes', canDelta ? `${[changesText(c), nAns && `${nAns === 1 ? '1 fix answer' : `${nAns} fix answers`}`].filter(Boolean).join(' · ')} · since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})` : `Nothing changed since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})`, !canDelta);
       opt('full', 'The whole project', `${pl2(c.all.length, 'record')} · ${pl2(projPhotos(name), 'photo')}`);
@@ -16212,7 +17749,7 @@
       if (has.length) { // beta 2.1: to partners who have it, only the changes by default
         whatOn = true;
         const since = has.map((e) => mbxWhatFor(name, e).since).sort()[0], c = mbxChanges(name, since, has.length === 1 ? has[0] : ''), ref = refInfo(name), refNew = !!(ref && ref.at && ref.at > since);
-        const canDelta = !!(c.ch.length || c.gone || c.route || c.cef || refNew);
+        const canDelta = !!(c.ch.length || c.gone || c.route || c.cef || c.spl || refNew);
         if (!s.what) s.what = canDelta ? 'delta' : 'full';
         opt('delta', 'Only the changes', canDelta ? `${[changesText(c), refNew && 'the new KMZ reference'].filter(Boolean).join(' · ')} · since your last send (${fmtTime(since)})` : `Nothing changed since your last send (${fmtTime(since)})`, !canDelta);
         opt('full', 'The whole project', `${pl2(points.filter((p) => p.project === name).length, 'record')} · ${pl2(projPhotos(name), 'photo')}${ref ? ' · the KMZ reference' : ''}`);
@@ -16369,7 +17906,7 @@
   function mbxFpHas(name) {
     const T = tmTeam(name) || {}, to = (T.to && T.to[0]) || T.by; if (!to) return null;
     const W = mbxWhatFor(name, to), c = W.since ? W.c : mbxChanges(name, T.got || '', to), ans = fxAnswers(name).length;
-    return c.ch.length || c.gone || c.route || c.cef || ans ? { to, recs: c.ch.length, ans } : null;
+    return c.ch.length || c.gone || c.route || c.cef || c.spl || ans ? { to, recs: c.ch.length, ans } : null;
   }
   /** beta 3.4: Sync sends a field partner's work: for each of his team projects (not accepted, or opened again for fixes), only the
       changes since his last send, with his fix answers. Returns { n, said: [...], err }. */
@@ -17795,7 +19332,7 @@
   // A tap on a record in Records (or Find) closes the list; the map goes to it (zoom 19 or closer) and rings it; then its form opens.
   // Closed, the map is still there with the ring. The chip at the top: its ID shows it again, Edit opens it, List opens the list with
   // the search still typed, ✕ stops the ring. The ring goes too when another pole is tapped, or with the next pick.
-  var hlLayer = null, hlId = null, hlFrom = '', hlQ = '';
+  var hlLayer = null, hlId = null, hlFrom = '', hlQ = '', hlSpl = '';
   function hlDraw() {
     if (!hlLayer) hlLayer = L.layerGroup().addTo(map);
     hlLayer.clearLayers();
@@ -17804,6 +19341,10 @@
     L.circleMarker([p.lat, p.lon], { radius: 18, color: '#f08c00', weight: 3, fill: false, interactive: false, className: 'target-ring' }).addTo(hlLayer);
     L.circleMarker([p.lat, p.lon], { radius: 11, color: '#f08c00', weight: 3, fill: false, interactive: false }).addTo(hlLayer);
     $('hlChipId').textContent = recName(p) || '(no ID)'; $('hlChip').hidden = false;
+    // (from the splicing details' map pin: the record named by its kind, and List becomes the way back to the page, on that record)
+    const spl = hlFrom === 'splice' && !!hlSpl, kind = elemOf(p) === 'ODF' ? 'ODF' : spl && (p.closure || p.closureId) ? 'closure' : spl && (p.nap || p.napId) && /dummy/i.test((p.boq || {}).napType || '') ? 'dummy NAP' : elemOf(p).toLowerCase();
+    $('hlChip').setAttribute('aria-label', spl ? 'The ' + kind + ' from the splicing details' : 'The ' + kind + ' you found');
+    $('hlList').textContent = spl ? '‹ Splicing' : 'List'; $('hlList').title = spl ? 'Back to the splicing details' : 'The list, with your search';
   }
   function hlClear() { hlId = null; if (hlLayer) hlLayer.clearLayers(); $('hlChip').hidden = true; if (tmHooks.hlClear) tmHooks.hlClear(); }
   const hlOpen = (p) => (hlFrom === 'find' && visitMode() ? openVisit(p.id) : openEditorFor(p.id));
@@ -17818,6 +19359,7 @@
   $('hlGo').addEventListener('click', () => { const p = hlRec(); if (p) map.setView([p.lat, p.lon], Math.max(map.getZoom(), 18)); });
   $('hlEdit').addEventListener('click', () => { const p = hlRec(); if (p) hlOpen(p); });
   $('hlList').addEventListener('click', () => {
+    if (hlFrom === 'splice' && hlSpl) { const id = hlId ? String(hlId) : ''; guard(() => spliceOpen(hlSpl, { focus: id }), 'Splicing details not opened'); return; }
     if (hlFrom === 'find') { $('findQ').value = hlQ; renderFind(); openSheet('find'); }
     else { $('listSearch').value = hlQ; renderList(); openSheet('list'); }
   });
@@ -17842,7 +19384,7 @@
       if (!$('idPfxMenu').hidden) { $('idPfxMenu').hidden = true; return; } // the ID prefix menu
       $('edClose').click(); return; // with changes not saved it asks first (Esc again: keep editing)
     }
-    if ((top === 'export' || top === 'planSet') && $(top).classList.contains('side')) { e.preventDefault(); closeSheet(); return; } // v2.42.28: a panel beside the plan
+    if ((top === 'export' || top === 'drwStyle') && $(top).classList.contains('side')) { e.preventDefault(); closeSheet(); return; } // v2.42.28: a panel beside the plan (beta 6.7, UX step 4: Plan style)
     if (top === 'drawing' && !$('drawWhatBox').hidden) { e.preventDefault(); setWhat(false, false); return; }
     if (!stack.length && map._popup) map.closePopup();
   }
@@ -18009,7 +19551,7 @@
     ppMenuFor = name; btn.setAttribute('aria-expanded', 'true');
     const m = pmeta(name), acc = m.mode === 'acceptance', menu = $('ppMenu'); menu.innerHTML = '';
     const items = [...(name !== S.project ? [['Open this project', () => ppOpen(name), 'first']] : []), ['Zoom to the project', () => ppGo(name)], ['Share…', () => guard(() => shareProject(name))],
-      [acc ? 'Export…' : 'Export DXF…', () => ppAct(name, () => { exportPick = acc ? null : 'doDxf'; $('exportBtn').click(); })],
+      [acc ? 'Export…' : 'Export plan…', () => ppAct(name, () => { exportPick = acc ? null : 'doDxf'; planExport = !acc; $('exportBtn').click(); })], /* beta 6.7 (UX step 3): as the Drawing's Export plan */
       [m.completedAt ? 'Undo complete…' : 'Mark complete…', () => ppAct(name, () => $('doneBtn').click())], null,
       ['Delete…', () => guard(() => deleteProject(name)), 'del']];
     for (const it of items) {
@@ -18077,7 +19619,7 @@
   $('ppOpenShared').addEventListener('click', () => { ppMenuClose(); $('openShared').click(); }); // v2.43 beta 2.1: beside + New
   $('ppShareMany').addEventListener('click', () => { ppMenuClose(); $('bulkShareBtn').click(); });
   if (deskMQ) { const ch = () => { deskLayout(); deskRender(); if (!$('drawing').hidden) setWhat(deskOn() && S.drwWhatDesk !== false, false);
-      if (stack.includes('drawing')) { [['export', () => $('export').classList.contains('plan')], ['planSet', () => true]].forEach(([k, f]) => { if (stack.includes(k) && f()) $(k).classList.toggle('side', deskOn()); }); document.body.classList.toggle('drwside', deskOn() && ['export', 'planSet'].some((k) => stack.includes(k) && $(k).classList.contains('side'))); } }; /* v2.42.28 */ if (deskMQ.addEventListener) deskMQ.addEventListener('change', ch); else if (deskMQ.addListener) deskMQ.addListener(ch); }
+      if (stack.includes('drawing')) { [['export', () => $('export').classList.contains('plan')], ['drwStyle', () => stack.indexOf('drwStyle') > stack.indexOf('drawing')]].forEach(([k, f]) => { if (stack.includes(k) && f()) $(k).classList.toggle('side', deskOn()); }); document.body.classList.toggle('drwside', deskOn() && ['export', 'drwStyle'].some((k) => stack.includes(k) && $(k).classList.contains('side'))); } }; /* v2.42.28 */ if (deskMQ.addEventListener) deskMQ.addEventListener('change', ch); else if (deskMQ.addListener) deskMQ.addListener(ch); }
   { let rz = 0; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (deskOn()) deskLayout(); }, 150); }); }
   deskLayout();
 
@@ -18256,11 +19798,67 @@
     if (i >= 0) G.plans[i] = rec; else G.plans.push(rec);
     delete G.gone[c.id]; cefPut(c.name, G); return true;
   }
-  /** A site photo: the app's camera, with its checks (taken live, with a GPS fix; a dark or unclear photo is refused). */
+  /** A site photo: the app's camera, with its checks (taken live, with a GPS fix; a dark or unclear photo is refused). beta 6.7: when the
+      site's record has photos, they are offered first (cefPickOpen): one of them, or a new photo. */
   function cefTakePhoto() {
     if (cefShot || !cefNow || cefLockText(cefNow.name)) return Promise.resolve(null);
-    return new Promise((res, rej) => { cefShot = { res, rej }; guard(() => openCamera('cef'), 'Camera not opened'); });
+    return new Promise((res, rej) => {
+      cefShot = { res, rej };
+      guard(async () => { let shown = false; try { shown = await cefPickOpen(); } catch (e) { LOG.warn('cef.pick.fail', errInfo(e)); } if (!shown && cefShot) openCamera('cef'); }, 'Camera not opened');
+    });
   }
+  /* beta 6.7 (owner: "Towers, OLTs, ODCs: up to 10 photos: these photos should be available to CEF editing if the user wants to add photo"):
+     the editor's Photo button lists the photos of the plan's site record (its site pin; in a CEF-Plan project, its towers, OLTs and
+     ODCs). One tapped goes into the plan as a photo of its own (cefp…, a copy of the photo as the photo store keeps it, which notes
+     where it came from), as a camera photo does; Take a new photo opens the camera as before; Back adds nothing. A site with no photo
+     on this phone goes straight to the camera. */
+  let cefPickOn = false, cefPickUrls = [];
+  const cefPickRecs = (c) => points.filter((p) => p.project === c.name && p.kind !== 'acceptance' && (c.pin ? p.id === c.pin : ['Site', 'ODC'].includes(elemOf(p))));
+  async function cefPickOpen() {
+    const c = cefNow; if (!c || stack.includes('cefPick')) return false;
+    const groups = [];
+    for (const r of cefPickRecs(c)) {
+      const items = [];
+      for (const x of photosOf(r)) { const st = await dbGet('photos', x.pid).catch(() => null), b = st && (st.thumb || st.clean); if (b) items.push({ x, b }); }
+      if (items.length) groups.push({ r, items });
+    }
+    if (!groups.length || cefNow !== c || !cefShot) return false;
+    const plan = cefPlans(c.name).find((p) => p.id === c.id), inPlan = new Set();
+    for (const id of cefPhotoIds(plan)) { const st = await dbGet('photos', id).catch(() => null); if (st && st.from) inPlan.add(st.from); }
+    cefPickClear(); const box = $('cefPickList'); box.textContent = '';
+    groups.forEach(({ r, items }) => {
+      if (groups.length > 1 || !c.pin) { const h = document.createElement('h3'); h.textContent = recName(r) || r.poleId || elemOf(r); box.appendChild(h); }
+      items.forEach(({ x, b }, i) => {
+        const bt = document.createElement('button'); bt.type = 'button'; bt.setAttribute('role', 'listitem'); const u = URL.createObjectURL(b); cefPickUrls.push(u);
+        const im = document.createElement('img'); im.src = u; im.alt = ''; const t = document.createElement('span'); t.textContent = `${i + 1} · ${x.label || (i ? 'Photo' : 'Overview')}`;
+        bt.append(im, t); if (inPlan.has(x.pid)) { const k = document.createElement('small'); k.textContent = 'In the plan'; bt.appendChild(k); bt.classList.add('in'); }
+        bt.setAttribute('aria-label', `Use photo ${i + 1}, ${x.label || 'photo'}, of ${recName(r) || 'the site'}${inPlan.has(x.pid) ? ' (in the plan already)' : ''}`);
+        bt.addEventListener('click', () => guard(() => cefPickUse(r, x), 'Photo not added'));
+        box.appendChild(bt);
+      });
+    });
+    const n = groups.reduce((k, g) => k + g.items.length, 0);
+    $('cefPickSub').textContent = `${n} photo${n === 1 ? '' : 's'} of ${groups.length === 1 ? recName(groups[0].r) || 'the site' : `${groups.length} sites`}: tap one to add it to the plan, or take a new photo.`;
+    openSheet('cefPick'); cefPickOn = true;
+    LOG.info('cef.pick', { photos: n, sites: groups.length });
+    return true;
+  }
+  function cefPickClear() { cefPickUrls.forEach((u) => URL.revokeObjectURL(u)); cefPickUrls = []; }
+  /** A photo of the site's record into the plan: copied as the photo store keeps it (the editor gets what a camera photo gives). */
+  async function cefPickUse(r, x) {
+    const w = cefShot, c = cefNow; if (!w || !c || w.busy) return;
+    w.busy = true; busy('Adding the photo…');
+    try {
+      const st = await dbGet('photos', x.pid), clean = st && (st.clean || st.thumb); if (!clean) throw new Error('that photo is not on this phone');
+      const id = `cefp${uid()}`; await dbPut('photos', { id, clean, thumb: st.thumb || clean, from: x.pid });
+      const s = await cefPhotoSrc(clean); c.taken.push(id);
+      const main = x.pid === r.id, la = main ? (r.gpsLat != null ? r.gpsLat : r.lat) : x.lat, lo = main ? (r.gpsLon != null ? r.gpsLon : r.lon) : x.lon;
+      LOG.info('cef.photo.pick', { main, label: x.label || '' });
+      cefShot = null; cefPickOn = false; busy(false); await closeSheet();
+      w.res({ id, src: s.src, w: s.w, h: s.h, at: x.at || r.takenAt || new Date().toISOString(), lat: Number.isFinite(+la) && la != null ? +(+la).toFixed(6) : null, lon: Number.isFinite(+lo) && lo != null ? +(+lo).toFixed(6) : null });
+    } catch (e) { if (cefShot === w) { cefShot = null; cefPickOn = false; w.rej(e); } busy(false); if (stack[stack.length - 1] === 'cefPick') closeSheet(); throw e; }
+  }
+  $('cefPickCam').addEventListener('click', () => guard(async () => { if (!cefShot || cefShot.busy) return; cefPickOn = false; await closeSheet(); openCamera('cef'); }, 'Camera not opened'));
   function cefCamClosed() { if (!cefShot) return; clearTimeout(cefShotT); cefShotT = setTimeout(() => { if (cefShot && !cefShot.busy) { const w = cefShot; cefShot = null; w.res(null); } }, 900); } // closed with no photo
   async function cefGotPhoto(blob, gps, x) {
     const w = cefShot, c = cefNow; if (!w || !c) return; w.busy = true; clearTimeout(cefShotT);
@@ -18295,12 +19893,12 @@
       fr.src = `vendor/cef/cef.html?job=${job}`; document.body.appendChild(fr);
     });
   }
-  async function cefPlanFiles(name) {
+  async function cefPlanFiles(name, only) { // beta 4.6: only(file name): the files wanted (the One PDF: each plan's PDF; its photos are not read)
     const out = [], dirs = new Set();
     for (const plan of cefPlans(name)) {
       const r = await cefPlanJob(name, plan); if (!r || !Array.isArray(r.files)) throw new Error((r && r.err) || 'the CEF plan was not made');
       let dir = `CEF_PLAN_${String(r.base || 'SITE').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 40)}`; for (let k = 2; dirs.has(dir); k++) dir = `${dir.replace(/_\d+$/, '')}_${k}`; dirs.add(dir);
-      for (const f of r.files) { let data = f.data; if (f.pid) { const ph = await dbGet('photos', String(f.pid)).catch(() => null); if (ph && ph.clean) data = new Uint8Array(await ph.clean.arrayBuffer()); } out.push({ name: `${dir}/${String(f.name).slice(0, 160)}`, data: typeof data === 'string' ? data : new Uint8Array(data) }); }
+      for (const f of r.files) { if (only && !only(String(f.name))) continue; let data = f.data; if (f.pid) { const ph = await dbGet('photos', String(f.pid)).catch(() => null); if (ph && ph.clean) data = new Uint8Array(await ph.clean.arrayBuffer()); } out.push({ name: `${dir}/${String(f.name).slice(0, 160)}`, data: typeof data === 'string' ? data : new Uint8Array(data) }); }
     }
     return out;
   }
@@ -18430,6 +20028,7 @@
   cefHooks.isCef = (name) => isCefProj(name);
   cefHooks.open = (name, o) => guard(() => cefOpen(name, o), 'CEF plan not opened');
   cefHooks.closed = cefClosed; cefHooks.camClosed = cefCamClosed; cefHooks.photo = cefGotPhoto;
+  cefHooks.pickClosed = () => { cefPickClear(); if (!cefPickOn) return; cefPickOn = false; if (cefShot && !cefShot.busy) { const w = cefShot; cefShot = null; w.res(null); } }; // (Back: nothing added)
   cefHooks.pids = cefPids; cefHooks.changed = cefChanged; cefHooks.count = cefIncoming; cefHooks.merge = cefMerge; cefHooks.setLogo = cefSetLogoRow; cefHooks.canLogo = cefCanLogo; cefHooks.planFiles = cefPlanFiles; cefHooks.plansN = (n) => cefPlans(n || S.project).length;
   /** What is on the plan of a CEF-Plan project (0: nothing yet): its task is in progress, and can be completed, once there is something. */
   cefHooks.started = (name) => { if (!isCefProj(name)) return 0; const p = cefPlans(name)[0], sk = (p && p.sk) || {}; return (Array.isArray(sk.els) ? sk.els.length : 0) + (Array.isArray(sk.runs) ? sk.runs.length : 0); };
@@ -18514,7 +20113,7 @@
   function drawCefShow(id) {
     if (!drw) return; const it = drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return;
     drw.sel = it.p.id; drw.selRun = null; drw.view.cx = it.xy[0]; drw.view.cy = it.xy[1]; const info = $('drawInfo');
-    info.textContent = `${it.p.poleId || elemOf(it.p)} · ${svDesc(it.p)} · E ${it.xy[0].toFixed(1)} N ${it.xy[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; drawCefSync(); drawDrawing();
+    info.textContent = `${it.p.poleId || elemOf(it.p)} · ${svDesc(it.p)} · E ${it.xy[0].toFixed(1)} N ${it.xy[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; drawCefSync(); if (splHooks.drawSync) splHooks.drawSync(); drawDrawing();
   }
   function drawCefSync() {
     const btn = $('drawCef'); if (!btn) return; const on = drawCefOn(); btn.hidden = !on; const old = $('drawCefGo'); if (old) old.remove(); if (!on) { $('drawCefMenu').hidden = true; return; }
@@ -18527,6 +20126,415 @@
   $('drawCanvas').addEventListener('pointerdown', () => { if (!$('drawCefMenu').hidden) drawCefMenu(false); });
   $('drawMap').addEventListener('click', () => { if (!$('drawCefMenu').hidden) drawCefMenu(false); });
   try { cefHooks.main(); } catch (e) { /* at start */ }
+
+  /* ================= beta 4.6: Splicing details (the single line diagram and the splicing details, Access OSP) =================
+     The splicing details of an As-Plan or As-Built project. The approved Ask & Draw page (vendor/splice/splice.html, with the questions
+     in ask.js and the drawing engine splice.js) runs in a frame over the app (#spliceSheet), as the CEF plan does, and this part is the
+     app's side of it (window.__spliceHost). The page reads the project as it is: the survey records (sites, ODFs, closures, dummy NAPs,
+     poles) and the cable RUNs of Route. It asks a few plain questions; the answers are kept in the project (meta.splice) and travel with
+     it (Share, backup, the team mailbox: the one saved later wins). One source of truth: a size changed on the page is written on the
+     project's own ODF record (its FDU size) or cable RUN (its size, fibers per buffer, cable ID), as Route and the record form would.
+     Exports go through the app's save and share. An accepted task is view-only.
+     meta.splice = { v: 1, A: the page's answers, tube: 'lowest' | 'fresh', at, by, o (who saved it), made }
+     A phone on an older version keeps meta.splice as it came (it does not know it) and sends it back unchanged. */
+  const SPL_PAGE = 'vendor/splice/splice.html', SPL_MAX = 200000, SPL_NEW_SIZES = [...new Set(Object.values(CAB).map((c) => c.cores))].sort((a, b) => a - b);
+  let splNow = null; // { name, focus, wrote }: the project open on the page; wrote: a record or a cable was changed there
+  /** A project's splicing answers, well formed (null: none, or not readable). */
+  function spliceClean(s) {
+    if (!s || typeof s !== 'object' || s.v !== 1 || !s.A || typeof s.A !== 'object' || Array.isArray(s.A)) return null;
+    let n = 0; try { n = JSON.stringify(s.A).length; } catch (e) { return null; } if (n > SPL_MAX) return null;
+    const t = (v, k) => String(v == null ? '' : v).slice(0, k);
+    return { v: 1, A: s.A, tube: s.tube === 'fresh' ? 'fresh' : 'lowest', at: t(s.at, 40), by: t(s.by, 100), o: t(s.o, 120), made: t(s.made || s.at, 40) };
+  }
+  const spliceOf = (name) => spliceClean(pmeta(name).splice);
+  const spliceStarted = (name) => { const s = spliceOf(name); return !!(s && s.A && s.A.started); };
+  function splicePut(name, s) { S.meta = S.meta || {}; S.meta[name] = { ...pmeta(name), splice: s }; persist(); }
+  const splCables = (name) => fibers(name).some((f) => f.path.length > 1);
+  /** What the page is given: the survey records (no photos) and the cable RUNs as Route has them, and the title block as the plan's. */
+  function spliceData(name) {
+    const m = pmeta(name), F = siteFieldsOf(name), sfm = sfMeta(F), task = m.taskId && S.cloud && (S.cloud.tasks || []).find((t) => t.id === m.taskId);
+    const slim = (p) => { const b = p.boq || {};
+      return { id: String(p.id), element: elemOf(p), poleId: String(p.poleId || recName(p) || ''), status: p.status || '', siteKind: p.siteKind || '', closure: !!p.closure, closureId: p.closureId || '',
+        nap: !!p.nap, napId: p.napId || '', nap2: !!p.nap2, nap2Id: p.nap2Id || '', lat: +p.lat, lon: +p.lon,
+        boq: { odf: b.odf || '', conn: b.conn || '', clo: b.clo || '', cloSt: b.cloSt || '', cloAuto: !!b.cloAuto, napType: b.napType || '', napSt: b.napSt || '', nap2Type: b.nap2Type || '', nap2St: b.nap2St || '' } }; };
+    const R = name === S.project ? routeModel() : null, list = R && R.fib ? R.fib.list : []; // (the cables as Route has them: their paths on the records there are)
+    const runs = list.filter((f) => f.path.length > 1).map((f) => ({ fid: fidOf(f), n: f.n, ex: !!f.ex, size: f.ex ? exCores(f) : (CAB[f.cab] || {}).cores || 0, cab: f.ex ? '' : f.cab || '',
+      fam: f.ex ? '' : (CAB[f.cab] || {}).fam || '', notSet: !f.ex && !CAB[f.cab], fpt: +f.fpt === 6 ? 6 : 12, cid: String(f.cableId || ''), len: Math.round(f.len || 0), path: f.path.map(String),
+      sizes: f.ex ? EX_SIZES.slice() : SPL_NEW_SIZES.slice() }));
+    const site = sfm.siteName || m.siteName || (task && task.project) || '', planId = sfm.plaId || m.plaId || (task && task.site) || '';
+    const g = cefSign(), T = tmTeam(name), ck = T && T.accepted ? String(T.accepted.byName || T.accepted.by || '') : ''; // (the names of the CEF sheets: the same three)
+    return { id: name, name, site, refNames: [],
+      title: { company: m.contractor || (S.user && S.user.company) || '', project: sfGet(F, /project\s*name/i) || (planId || site ? '' : name), /* (no site details yet: the project's own name) */ planId, site, exchange: sfGet(F, /exchange/i), dwgNo: sfGet(F, /dwg|drawing\s*no/i), date: todayIso(), note: '',
+        sign: [{ name: g.by || (S.user && S.user.name) || '', role: 'PREPARED BY' }, { name: g.chk || ck, role: 'CHECKED BY' }, { name: g.apr || '', role: 'APPROVED BY' }] },
+      records: points.filter((p) => p.project === name && SV_ELEMENTS.includes(elemOf(p))).sort((x, y) => (x.created < y.created ? -1 : x.created > y.created ? 1 : 0)).map(slim), runs };
+  }
+  /** Opens the splicing details of a project (an As-Plan or As-Built with cables). o.focus: the record to show first (a site or a closure). */
+  async function spliceOpen(name, o) {
+    const nm = name || S.project, opt = o || {};
+    if (!nm || !allProjects().includes(nm) || isAcc(nm) || !BOQ_PURPOSES.includes(svPurpose(nm))) return false;
+    if (!profileOk()) { toast('Enter your details first (Settings → You)'); return false; }
+    if (stack.includes('spliceSheet') || stack.includes('cefSheet') || splNow) return false;
+    if (nm !== S.project) { S.project = nm; persist(); renderPoles(); }
+    if (!splCables(nm)) { toast('Draw the cables first (Route → Cables): the splicing details follow them', 5000); return false; }
+    splNow = { name: nm, focus: String(opt.focus || ''), wrote: false };
+    LOG.info('splice.open', { view: !!cefLockText(nm), focus: !!opt.focus });
+    openSheet('spliceSheet');
+    const f = $('spliceFrame'); try { f.contentWindow.location.replace(new URL(SPL_PAGE, location.href).href); } catch (e) { f.src = SPL_PAGE; } // (replace: the phone's Back closes the page, it does not go back inside the frame)
+    return true;
+  }
+  async function spliceInit() {
+    const c = splNow; if (!c) return null; const s = spliceOf(c.name);
+    return { project: spliceData(c.name), saved: s ? { A: s.A, tube: s.tube } : null, stage: svPurpose(c.name) === 'As-built' ? 'built' : 'plan', viewOnly: cefLockText(c.name), focus: c.focus, ver: `${APP_NAME} ${VER_LABEL}` };
+  }
+  /** The page saves as the user works: the answers only. Nothing is written when nothing changed (looking never makes it the later one at
+      a merge); fibers locked by an export alone (it issues the drawing) do not cancel an on-site approval. */
+  function spliceSave(o) {
+    const c = splNow; if (!c || !o || typeof o !== 'object' || cefLockText(c.name)) return false;
+    let txt; try { txt = JSON.stringify(o.A); } catch (e) { return false; }
+    if (!txt || txt.length > SPL_MAX || !o.A || typeof o.A !== 'object' || Array.isArray(o.A) || o.A.v !== 1) return false;
+    const old = spliceOf(c.name), tube = o.tube === 'fresh' ? 'fresh' : 'lowest';
+    if (old && JSON.stringify(old.A) === txt && old.tube === tube) return true;
+    if (!old && !o.A.started) return true; // (nothing saved yet and nothing started: a look is not the splicing details, it never wins a merge)
+    const strip = (A) => { const L = {}; Object.entries((A && A.legs) || {}).forEach(([k, v]) => { const { fix, ...r } = v || {}; if (Object.keys(r).length) L[k] = r; }); return JSON.stringify({ ...A, locked: false, legs: L }); };
+    const lockOnly = !!old && old.tube === tube && strip(old.A) === strip(o.A), now = new Date().toISOString();
+    splicePut(c.name, { v: 1, A: JSON.parse(txt), tube, at: now, by: (S.user && S.user.name) || '', o: cefMe(), made: (old && old.made) || now });
+    if (!lockOnly) changedAfterApproval(c.name, 'splice');
+    return true;
+  }
+  /** Why a size cannot be written now ('' when it can). */
+  function splWriteNo() {
+    const c = splNow; if (!c || c.name !== S.project) return 'The project is not open any more: close the splicing details and open them again';
+    if (pointsLost) return 'The records did not load from the phone’s storage at start: close and reopen G-eSAA first';
+    if (isAcc(c.name) || !drawOn()) return 'Only an As-Plan or As-Built survey has splicing details';
+    return cefLockText(c.name);
+  }
+  /** An FDU's size on the page: the ODF record's size (plan and BOQ). n 0: no size (the Undo of a first size). */
+  async function spliceSetOdf(recId, n) {
+    const no = splWriteNo(); if (no) return { ok: false, msg: no };
+    const name = splNow.name, p = points.find((x) => String(x.id) === recId && x.project === name);
+    if (!p || elemOf(p) !== 'ODF') return { ok: false, msg: 'That ODF record is not in the project any more' };
+    if (!(n === 0 || BOQ_OPT.odf.includes(`${n}F`))) return { ok: false, msg: `An FDU comes in ${BOQ_OPT.odf.join(', ')}` };
+    const lk = tmHooks.locked ? tmHooks.locked(p.id, 'edit') : ''; if (lk) return { ok: false, msg: String(lk) };
+    const want = n ? `${n}F` : '', b0 = p.boq || {};
+    if ((b0.odf || '') === want) return { ok: true, project: spliceData(name) };
+    const boq = { ...b0 }; if (want) boq.odf = want; else delete boq.odf;
+    const rec = { ...p, boq, updated: new Date().toISOString(), updatedBy: byLine() };
+    try { await dbPut('points', rec); } catch (e) { LOG.warn('splice.odf', errInfo(e)); return { ok: false, msg: 'The ODF record could not be saved: try again' }; }
+    const i = points.indexOf(p); if (i >= 0) points[i] = rec; else { const j = points.findIndex((x) => x.id === p.id); if (j >= 0) points[j] = rec; }
+    changedAfterApproval(name, 'record'); if (splNow) splNow.wrote = true; renderPoles(); LOG.info('splice.odf', { n });
+    return { ok: true, project: spliceData(name) };
+  }
+  /** A new cable of n fibers: the cable type of that size, in the RUN's own family first, then the project's, figure 8, UG, light. */
+  const splCab = (f, n) => { const pc = pmeta().cable, fams = [CAB[f.cab] && CAB[f.cab].fam, CAB[pc] && CAB[pc].fam, 'fig8', 'conv', 'ug', 'convug', 'light'].filter(Boolean);
+    for (const fam of fams) { const k = Object.keys(CAB).find((x) => CAB[x].fam === fam && CAB[x].cores === n); if (k) return k; } return ''; };
+  const SPL_FAM = { light: 'a light cable', fig8: 'a figure 8 cable', conv: 'a conventional AE cable', ug: 'a UG air-blown cable', convug: 'a conventional UG cable' };
+  /** A cable (RUN) changed on the page: o = { size | cab, fpt, cid }. Written on the RUN as Route writes it (the closures' sizes follow). */
+  async function spliceSetRun(fid, o) {
+    let no = splWriteNo(); if (no) return { ok: false, msg: no };
+    const c = splNow, name = c.name, F = fibers(name), f = F.find((x) => fidOf(x) === fid);
+    if (!f) return { ok: false, msg: 'This cable is not in the route any more' };
+    let L2 = null;
+    if (Object.prototype.hasOwnProperty.call(o, 'cab') && !f.ex) { // (the Undo of a size: the cable type it had, no question)
+      const k = String(o.cab || ''); if (k && !CAB[k]) return { ok: false, msg: 'Unknown cable type' };
+      f.cab = k; delete f.cores; if (k) L2 = linksFor(f.path, k);
+    }
+    if (Object.prototype.hasOwnProperty.call(o, 'size')) {
+      const n = Math.round(+o.size);
+      if (f.ex) { if (!(n >= 2 && n <= 1728)) return { ok: false, msg: 'An existing cable has 2 to 1728 fibers' }; f.cores = n; }
+      else {
+        const k = splCab(f, n); if (!k) return { ok: false, msg: `A new cable does not come in ${n}C` };
+        if (k !== f.cab) {
+          const fam0 = CAB[f.cab] ? CAB[f.cab].fam : '';
+          if (!fam0 || CAB[k].fam !== fam0) { // another kind of cable: asked first (it changes the hardware and the BOQ)
+            const yes = await ask(`Change RUN ${f.n} to ${CAB[k].label}?`, `${fam0 ? `${n}C does not come as ${SPL_FAM[fam0] || 'this cable'}.` : `RUN ${f.n} has no cable type yet.`} It changes the hardware, the BOQ and the plan's line for this cable.`,
+              [{ label: 'Cancel', value: false }, { label: `Use ${CAB[k].short}`, value: true, primary: true }]);
+            if (!yes) return { ok: false, cancelled: true };
+            no = splWriteNo(); if (no || splNow !== c) return { ok: false, msg: no || 'The splicing details were closed' };
+          }
+          f.cab = k; delete f.cores; L2 = linksFor(f.path, k) || L2;
+        }
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(o, 'fpt')) { if (+o.fpt === 6) f.fpt = 6; else if (+o.fpt === 12) delete f.fpt; else return { ok: false, msg: 'A buffer has 12 or 6 fibers' }; } // (12, the usual, is not written: older RUNs do not show as changed)
+    if (Object.prototype.hasOwnProperty.call(o, 'cid')) { const v = String(o.cid || '').trim().toUpperCase().slice(0, 24); if (v) f.cableId = v; else delete f.cableId; }
+    routeWrite(name, L2, F);
+    try { await cloSync('route'); } catch (e) { LOG.warn('clo.sync', errInfo(e)); } // (now, not in a moment: the page shows the closures' sizes)
+    c.wrote = true; renderPoles(); LOG.info('splice.run', { keys: Object.keys(o).join(',') });
+    return { ok: true, project: spliceData(name) };
+  }
+  /** Save or send an export of the page: the app's own save and share, with who exported it. No credits. */
+  async function spliceDeliver(name, data, kind) {
+    const c = splNow, type = /\.pdf$/i.test(name) ? 'application/pdf' : /\.dxf$/i.test(name) ? 'application/dxf' : 'application/zip';
+    const blob = new Blob([typeof data === 'string' ? data : new Uint8Array(data)], { type }); // (a copy made here: the page's bytes are of its own window)
+    if (c) noteExport('splice', c.name);
+    LOG.info('splice.export', { kind: kind || '', mb: +(blob.size / 1048576).toFixed(2) });
+    await shareFile(blob, String(name).replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 120), type);
+  }
+  /** The page closed (Done, or the phone's Back): its last change is saved, the frame is emptied, the Drawing drawn anew when a record changed. */
+  function spliceClosed() {
+    const f = $('spliceFrame'), c = splNow;
+    try { if (f.contentWindow && f.contentWindow.AskPage && f.contentWindow.AskPage.flush) f.contentWindow.AskPage.flush(); } catch (e) { /* closed already */ }
+    splNow = null;
+    // a new, empty frame in its place (not the old one sent to about:blank): a frame navigated after the screen's history entry was made
+    // is sent back by the phone's Back, so the next time a panel closed by Back (or a question answered by it) would empty the page
+    { const nf = document.createElement('iframe'); nf.id = 'spliceFrame'; nf.title = f.title || 'Splicing details'; try { f.contentWindow.location.replace('about:blank'); } catch (e) { /* closed already */ } f.replaceWith(nf); }
+    renderPoles(); if (!$('projects').hidden) renderProjects();
+    if (c && c.wrote && stack.includes('drawing') && drw && drw.project === S.project) openDrawing(true, drw.view ? { ...drw.view } : null); // the records changed: drawn anew, where it was
+    else { if (cefHooks.drawSync) cefHooks.drawSync(); splDrawSync(); }
+  }
+  /** Show on the map (a map pin on the page's cards and warnings): the page closes (its answers saved) and the map shows that record,
+      centred and ringed as a pick in Records is, so the user can fix it there (add the site, move the pin). false: no such record or position. */
+  async function spliceShowOnMap(id) {
+    const c = splNow; if (!c || c.name !== S.project) return false;
+    const p = points.find((x) => String(x.id) === id && x.project === c.name);
+    if (!p || !Number.isFinite(+p.lat) || !Number.isFinite(+p.lon)) return false;
+    LOG.info('splice.map', { el: elemOf(p) });
+    await closeAll(); hlId = p.id; hlFrom = 'splice'; hlQ = ''; hlSpl = c.name; hlDraw();
+    map.setView([+p.lat, +p.lon], Math.max(map.getZoom(), 19));
+    return true;
+  }
+  window.__spliceHost = { init: () => spliceInit(), data: async () => (splNow ? spliceData(splNow.name) : null), save: (o) => spliceSave(o),
+    setOdfSize: (id, n) => spliceSetOdf(String(id), Math.round(+n) || 0), setRun: (fid, o) => spliceSetRun(String(fid), o && typeof o === 'object' ? { ...o } : {}),
+    deliver: (n, d, k) => spliceDeliver(n, d, k), close: () => { if (stack[stack.length - 1] === 'spliceSheet') closeSheet(); }, exporter: () => exporterInfo(),
+    showOnMap: (id) => spliceShowOnMap(String(id || '')) };
+  /** A project that came in a file or through the team mailbox: its splicing answers, taken whole (the one saved later wins). */
+  async function spliceMerge(z, pre, proj, fm, o) {
+    const inc = spliceClean(fm && fm.splice); if (!inc || !S.meta || !S.meta[proj]) return;
+    if (o.fresh) { if (inc.A.started) o.splSaid = 'the splicing details'; return; } // (a new project took the sender's whole details already)
+    const cur = spliceOf(proj), from = inc.by || (o.update && o.update.from) || 'the sender';
+    if (cur && cur.A.started && !inc.A.started) { o.splSaid = 'Splicing details: kept as on this phone (the other copy was not started)'; } // (a copy never started never replaces real answers, whatever its time)
+    else if (!cur || String(inc.at) > String(cur.at)) { splicePut(proj, inc); o.splSaid = `Splicing details: taken from ${from}`; }
+    else if (String(cur.at) > String(inc.at)) o.splSaid = 'Splicing details: kept as on this phone (saved later here)';
+    if (o.splSaid) LOG.info('splice.merge', { took: /taken/.test(o.splSaid) });
+  }
+  /** 1 when this user saved the splicing answers after a time (Share → Only the changes, the team mailbox). */
+  const spliceChanged = (name, since) => { const s = spliceOf(name), me = cefMe(); return s && String(s.at || '') > String(since || '') && (!s.o || s.o === me) ? 1 : 0; };
+  /** 1 when a file's splicing answers would be taken on this phone (the question before an update is applied). */
+  const spliceIncoming = (fm, proj) => { const inc = spliceClean(fm && fm.splice); if (!inc) return 0; const cur = allProjects().includes(proj) ? spliceOf(proj) : null; return !cur || (String(inc.at) > String(cur.at) && !(cur.A.started && !inc.A.started)) ? 1 : 0; };
+  splHooks.open = (name, o) => guard(() => spliceOpen(name, o), 'Splicing details not opened');
+  splHooks.closed = spliceClosed; splHooks.merge = spliceMerge; splHooks.changed = spliceChanged; splHooks.count = spliceIncoming;
+
+  /* On the Drawing: the two plans made from it, side by side at the top of the round buttons, each with its name: CEF plan (As-Plan) and
+     Splicing details (As-Plan and As-Built). A site, ODF, closure or dummy NAP tapped on the drawing offers Splicing details › in its line. */
+  const splDrawOn = () => !!drw && !!drw.project && !isAcc(drw.project) && BOQ_PURPOSES.includes(svPurpose(drw.project));
+  const splPin = (it) => { const p = it.p, b = p.boq || {}, el = it.el, dn = (t) => /dummy/i.test(t || '');
+    return (el === 'Site' && p.siteKind !== 'OLT') || el === 'ODF' || el === 'Closure' || (el === 'NAP' && dn(b.napType)) || (['Pole', 'Handhole', 'Manhole', 'Service box'].includes(el) && !!(p.closure || p.closureId))
+      || (el === 'Pole' && (((p.nap || p.napId) && dn(b.napType)) || ((p.nap2 || p.nap2Id) && dn(b.nap2Type)))); };
+  function splDrawSync() {
+    const btn = $('drawSpl'); if (!btn) return; const on = splDrawOn(); btn.hidden = !on; const old = $('drawSplGo'); if (old) old.remove();
+    if (on) splDots();
+    if (!on || drw.sel == null || $('drawInfo').hidden) return;
+    const it = drw.items.find((x) => String(x.p.id) === String(drw.sel)); if (!it || !splPin(it)) return;
+    const b = document.createElement('button'); b.type = 'button'; b.id = 'drawSplGo'; b.className = 'btn small'; b.textContent = 'Splicing details ›';
+    const focus = String(it.on && it.el !== 'Site' ? it.on.p.id : it.p.id); // (a closure or NAP pin: the pole it stands on)
+    b.addEventListener('click', () => guard(() => spliceOpen(drw.project, { focus }), 'Splicing details not opened')); $('drawInfo').appendChild(b);
+  }
+  splHooks.drawSync = () => { try { splDrawSync(); } catch (e) { /* the drawing works without it */ } };
+  /** The splicing details' state (the Drawing's dot, the One PDF): '' no cables, 'none' not made yet, 'open' questions left, 'fix' a size or
+      fibers to fix, 'ok' ready. Worked out as the page works it out (the engine in this window), kept until the answers, route or records change. */
+  let splReadyMemo = { k: '', r: null };
+  async function splReady(name) {
+    if (!splCables(name)) return { st: '' };
+    const s = spliceOf(name); if (!s || !s.A || !s.A.started) return { st: 'none' };
+    const P = points.filter((p) => p.project === name), up = P.reduce((t, p) => (String(p.updated || p.created || '') > t ? String(p.updated || p.created || '') : t), '');
+    const k = `${name}|${s.at}|${pmeta(name).linksAt || ''}|${P.length}|${up}|${svPurpose(name)}`; if (splReadyMemo.k === k && splReadyMemo.r) return splReadyMemo.r;
+    await splLibs(); const c = splState(name).ctx, sizes = c.sizeIssues || [], short = c.shortOwn || [];
+    const r = { st: c.left ? 'open' : sizes.length || short.length ? 'fix' : 'ok', left: c.left, fix: sizes.length + short.length, notSet: sizes.filter((x) => x.notSet).length, small: sizes.filter((x) => !x.notSet).length, short: short.length };
+    splReadyMemo = { k, r }; return r;
+  }
+  /** What is still to do on the splicing details, in a few words ('2 questions to answer', 'a cable has no type yet'…). */
+  const splTodo = (r) => [r.left ? `${r.left} question${r.left === 1 ? '' : 's'} to answer` : '', r.notSet ? (r.notSet === 1 ? 'a cable has no type yet' : `${r.notSet} cables have no type yet`) : '',
+    r.small ? (r.small === 1 ? 'a size is too small' : `${r.small} sizes are too small`) : '', r.short ? `not enough free fibers on ${r.short === 1 ? 'a leg' : `${r.short} legs`}` : ''].filter(Boolean).join(', ');
+  let splDotTok = 0;
+  /** The dots on the Drawing's CEF plan and Splicing details buttons: green made, amber still to make (or to finish); said in their names. */
+  function splDots() {
+    if (!drw || !drw.project) return; const name = drw.project, M = plansMissing(name);
+    const set = (id, st, base, w) => { const b = $(id); if (!b) return; const d = b.querySelector('.pdot'); if (d) d.className = `pdot${st ? ` ${st}` : ''}`; const t = `${base}${w ? `: ${w}` : ''}`; b.setAttribute('aria-label', t); b.title = t; };
+    set('drawCef', M.cef.length ? 'miss' : cefPlans(name).length ? 'ok' : '', 'CEF plans of the tower sites', M.cef.length ? `${M.cef.length} not made yet` : cefPlans(name).length ? 'made' : '');
+    if (!M.cab) { set('drawSpl', '', 'Splicing details', ''); return; }
+    if (M.spl) { set('drawSpl', 'miss', 'Splicing details', 'not made yet'); return; }
+    const tok = ++splDotTok;
+    splReady(name).then((r) => { if (tok !== splDotTok || !drw || drw.project !== name) return; set('drawSpl', r.st === 'ok' ? 'ok' : 'miss', 'Splicing details', r.st === 'ok' ? 'made' : `not finished: ${splTodo(r)}`); },
+      (e) => { LOG.warn('splice.state', errInfo(e)); });
+  }
+  $('drawSpl').addEventListener('click', () => {
+    if ($('drawCefMenu') && !$('drawCefMenu').hidden) drawCefMenu(false); $('drawMapMenu').hidden = true;
+    guard(() => spliceOpen(drw ? drw.project : S.project), 'Splicing details not opened');
+  });
+
+  /* The reminder: the Drawing of a project with a route that has no CEF plan (As-Plan: a new tower site without one) or no splicing
+     details yet. Once per project each time the app is opened (Later: until the next time); Export the plan says it again, softly. */
+  const splRemindSaid = new Set();
+  function plansMissing(name) {
+    const cab = splCables(name), L = cefPlans(name), route = cab || (pmeta(name).links || []).length > 0;
+    const cef = svPurpose(name) === 'As-plan' ? points.filter((p) => p.project === name && elemOf(p) === 'Site' && p.siteKind !== 'OLT' && p.status !== 'Existing' && !L.some((x) => x.pin === p.id)) : [];
+    return { route, cab, cef, spl: cab && !spliceStarted(name) };
+  }
+  async function splRemind() {
+    const name = drw && drw.project;
+    if (!name || name !== S.project || splRemindSaid.has(name) || tutTour || !$('askBox').hidden || !$('busy').hidden || !profileOk() || (tmHooks.locked && tmHooks.locked())) return;
+    const M = plansMissing(name); if (!M.route || (!M.cef.length && !M.spl)) return;
+    splRemindSaid.add(name);
+    const both = M.cef.length && M.spl, what = both ? 'the CEF plan and the splicing details' : M.cef.length ? 'the CEF plan' : 'the splicing details';
+    const at = M.cef.length === 1 ? recName(M.cef[0]) || 'the tower site' : `each of the ${M.cef.length} new tower sites`;
+    LOG.info('splice.remind', { cef: M.cef.length, spl: !!M.spl });
+    const v = await ask(both ? 'Two plans to make' : M.cef.length ? 'CEF plan to make' : 'Splicing details to make',
+      `Please create ${what} for this project.${M.cef.length ? ` The CEF plan shows how the cable enters ${at}.` : ''}${M.spl ? ' The splicing details show every fiber, splice and port on the cables.' : ''}\n\n${both ? 'Both buttons are' : 'Its button is'} also on the Drawing (amber dot: still to make).`,
+      [...(M.cef.length ? [{ label: 'Make the CEF plan', caption: 'CEF plan', value: 'cef', primary: true, tile: true, icon: 'i-cef' }] : []), ...(M.spl ? [{ label: 'Make the splicing details', caption: 'Splicing details', value: 'spl', primary: !M.cef.length, tile: true, icon: 'i-splice' }] : []), { label: 'Later', value: '', x: true }]);
+    if (v === 'cef') { if (M.cef.length === 1 || !stack.includes('drawing')) await cefOpen(name, { pin: M.cef[0].id }); else drawCefMenu(true); }
+    else if (v === 'spl') await spliceOpen(name);
+  }
+  splHooks.remind = () => setTimeout(() => { if (stack[stack.length - 1] === 'drawing') guard(splRemind, 'Reminder not shown'); }, 400);
+  /** Export the plan: the plans still to make for this project, with a button to each (softer than a download warning). */
+  function renderPlansNeed() {
+    const box = $('dxfPlansNeed'); if (!box) return; if (!drawOn() || isAcc()) { box.hidden = true; return; }
+    const M = plansMissing(S.project), H = [], e = (x) => C.xmlEsc(String(x == null ? '' : x)); if (!M.route) { box.hidden = true; return; }
+    const mk = (k, what) => `<button class="btn mk" type="button" data-plan="${k}" aria-label="${what}" title="${what}"><svg aria-hidden="true"><use href="#i-draw"/></svg></button>`; // (icon buttons: the plan's icon, a pencil to make it)
+    if (M.cef.length) H.push(`<div class="r"><span class="ic" aria-hidden="true"><svg><use href="#i-cef"/></svg></span><span class="tx"><b>CEF plan</b> not made yet for ${e(M.cef.map((p) => recName(p) || p.poleId || 'the tower site').join(', '))}.</span>${mk('cef', 'Make the CEF plan')}</div>`);
+    if (M.spl) H.push(`<div class="r"><span class="ic" aria-hidden="true"><svg><use href="#i-splice"/></svg></span><span class="tx"><b>Splicing details</b> not made yet: every fiber, splice and port on the cables.</span>${mk('spl', 'Make the splicing details')}</div>`);
+    box.innerHTML = H.length ? `<p class="hd">Still to make for this project</p>${H.join('')}` : ''; box.hidden = !H.length;
+  }
+  $('dxfPlansNeed').addEventListener('click', (ev) => { const b = ev.target.closest('[data-plan]'); if (!b) return; const M = plansMissing(S.project);
+    guard(async () => { if (b.dataset.plan === 'cef') { if (M.cef[0]) await cefOpen(S.project, { pin: M.cef[0].id }); } else await spliceOpen(S.project); }, 'Not opened'); });
+  splHooks.need = (after) => { try { renderPlansNeed(); renderOneBox(after); } catch (e) { LOG.warn('plans.need', errInfo(e)); } };
+
+  /* One PDF with the three plans (Export the plan, template mode): the plan's sheets (the drawing the Drawing shows, on the company template,
+     as Also a PDF to print draws them), then the CEF plan of each tower site (each plan's own PDF), then the splicing details (the single line
+     diagram, the key map and the grid sheets, as the page's Export draws them). Each part is made by its own export; pdf-lib puts them in
+     one PDF, with a bookmark for each part, and it goes out through the app's save and share (the website's download or Share, the
+     Android app's Documents or share sheet). A plan not made yet (or splicing details with questions left) is said first: Make it now or
+     Export without it. An export issues the splicing details: their fibers lock as the page's Export locks them (no approval cancelled). */
+  let onePending = '', oneSkip = null; // onePending: the project whose plan was opened from the One PDF question (its tile is shown again at Done)
+  const andList = (a) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
+  const splIcon = (id) => `<svg aria-hidden="true"><use href="#${id}"/></svg>`;
+  /** The splicing engine and the questions (vendor/splice), loaded in the app's window to draw the sheets with no page (ask.js reads Splice). */
+  async function splLibs() {
+    if (!window.Splice) await loadScript('vendor/splice/splice.js');
+    if (!window.Ask) await loadScript('vendor/splice/ask.js');
+    if (!window.Splice || !window.Ask || !window.Ask.locks) throw new Error('the splicing details could not be loaded');
+  }
+  /** The project's splicing details as the page has them: the bridge, the answers, the stage and the computed state (questions left…). */
+  function splState(name) {
+    const K = window.Ask, s = spliceOf(name), P = K.fromApp(spliceData(name)), A = K.mergeAnswers(P, s && s.A);
+    const set = { stage: svPurpose(name) === 'As-built' ? 'built' : 'plan', tube: s && s.tube === 'fresh' ? 'fresh' : 'lowest' };
+    return { s, P, A, set, ctx: K.compute(P, A, set) };
+  }
+  /** The splicing details' sheets as a PDF (single line diagram, then the splicing details: key map and grid sheets). lock: drawn with the
+      fibers locked as an export locks them; keep() saves that lock (called once the One PDF is made; a view-only project is drawn as it is). */
+  async function splicePdf(name, lock) {
+    await splLibs();
+    const K = window.Ask, SP = window.Splice, st = splState(name), A = JSON.parse(JSON.stringify(st.A)); let add = 0;
+    if (lock && st.s && !cefLockText(name)) { const lk = K.locks(st.ctx, A); if (lk.add || !A.locked) { A.locked = true; lk.apply(A); add = lk.add || 0; } }
+    const r = SP.build(K.modelOf(st.P, A, st.set).model, ['sld', 'detailed']);
+    const keep = lock && st.s && !cefLockText(name) && JSON.stringify(A) !== JSON.stringify(st.A) ? () => {
+      splicePut(name, { ...st.s, A, at: new Date().toISOString(), by: (S.user && S.user.name) || '', o: cefMe() }); LOG.info('splice.lock', { add, from: 'onepdf' }); } : null; // (fibers locked only: no approval cancelled)
+    return { bytes: SP.toPDF(r.sheets, { title: `${fileBase()}_SPLICING`, creator: `${APP_NAME} ${VER_LABEL}` }), sheets: r.sheets.length, labels: r.sheets.map((x) => x.label || ''), left: st.ctx.left, keep, locked: !!(lock && st.s && !cefLockText(name) && A.locked) };
+  }
+  /** Puts PDFs one after the other (parts: [{ kind, label, data }] in order); a part that cannot be read is left out and said. A bookmark per part. */
+  async function onePdfMerge(parts) {
+    if (!window.PDFLib) await loadScript('vendor/pdf-lib/pdf-lib.min.js');
+    const L = window.PDFLib, out = await L.PDFDocument.create(), said = [];
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i]; busy(`Putting the plans in one PDF (${i + 1} of ${parts.length})…`, i / parts.length); await sleep(20);
+      try {
+        const src = await L.PDFDocument.load(p.data instanceof Uint8Array ? p.data : new Uint8Array(p.data), { ignoreEncryption: true, updateMetadata: false }), first = out.getPageCount(); // (bytes of another window, e.g. the CEF plan's page, copied: pdf-lib does not take them as they are)
+        (await out.copyPages(src, src.getPageIndices())).forEach((pg) => out.addPage(pg)); said.push({ kind: p.kind, label: p.label, first, pages: src.getPageCount() });
+      } catch (e) { LOG.warn('export.one.part', { kind: p.kind, ...errInfo(e) }); said.push({ kind: p.kind, label: p.label, first: -1, pages: 0, err: String((e && e.message) || e).slice(0, 120) }); }
+      p.data = null; // (each part let go once it is in: a phone's memory)
+    }
+    if (!out.getPageCount()) throw new Error('none of the plans could be read');
+    try { // the bookmarks: one per part, open beside the pages in a PDF reader
+      const ok = said.filter((x) => x.pages), cx = out.context, root = cx.nextRef(), refs = ok.map(() => cx.nextRef());
+      ok.forEach((x, k) => { const d = { Title: L.PDFHexString.fromText(x.label), Parent: root, Dest: [out.getPage(x.first).ref, 'Fit'] }; if (k) d.Prev = refs[k - 1]; if (k < ok.length - 1) d.Next = refs[k + 1]; cx.assign(refs[k], cx.obj(d)); });
+      cx.assign(root, cx.obj({ Type: 'Outlines', First: refs[0], Last: refs[ok.length - 1], Count: ok.length }));
+      out.catalog.set(L.PDFName.of('Outlines'), root); out.catalog.set(L.PDFName.of('PageMode'), L.PDFName.of('UseOutlines'));
+    } catch (e) { LOG.warn('export.one.marks', errInfo(e)); }
+    const e = exporterInfo(), ver = `${APP_NAME} ${VER_LABEL}`;
+    out.setTitle(`${S.project}: ${said.filter((x) => x.pages).map((x) => x.label).join(', ')}`); out.setAuthor(e.name || ''); out.setSubject(exporterLine(' · ')); out.setCreator(ver); out.setProducer(`${ver} (pdf-lib)`); out.setCreationDate(new Date());
+    return { bytes: await out.save(), said };
+  }
+  /** The One PDF from the parts exportPlanDxf made (the plan's sheets, the CEF plans' PDFs) and the splicing details, offered in the result box. */
+  async function onePdfFinish(pdfFiles, cefFiles) {
+    const name = S.project, parts = [], skip = oneSkip || {}, PL = cefPlans(name);
+    pdfFiles.forEach((f) => parts.push({ kind: 'plan', label: 'Plan', data: f.data }));
+    cefFiles.forEach((f, i) => { const p = cefFiles.length === PL.length && points.find((x) => x.id === PL[i].pin), dir = f.name.split('/')[0].replace(/^CEF_PLAN_/, '').replace(/_+/g, ' ');
+      parts.push({ kind: 'cef', label: `CEF plan · ${(p && recName(p)) || dir}`, data: f.data }); });
+    let sp = null;
+    if (splCables(name) && spliceStarted(name)) {
+      try { busy('The splicing details…'); await sleep(20); sp = await splicePdf(name, true); parts.push({ kind: 'spl', label: 'Splicing details', data: sp.bytes }); }
+      catch (e) { LOG.warn('export.one.splice', errInfo(e)); toast('The splicing details could not be drawn: the One PDF has the other plans', 6000); }
+    }
+    if (!parts.length) { busy(false); toast('Nothing to put in the PDF', 4000); return; }
+    const { bytes, said } = await onePdfMerge(parts); busy(false);
+    const has = (k) => said.some((x) => x.kind === k && x.pages);
+    if (has('spl')) { if (sp && sp.keep) sp.keep(); noteExport('splice', name); }
+    const tag = [has('plan') && 'PLAN', has('cef') && 'CEF', has('spl') && 'SPLICING'].filter(Boolean).join('_') || 'PLANS';
+    const icon = { plan: 'i-sheet', cef: 'i-cef', spl: 'i-splice' }, pg = (x) => (x.pages === 1 ? `Page ${x.first + 1}` : `Pages ${x.first + 1}–${x.first + x.pages}`);
+    const spWhat = sp ? `${sp.labels.filter((l) => /^single line/i.test(l)).length ? 'single line diagram' : ''}${sp.labels.some((l) => /key ?map/i.test(l)) ? ', key map' : ''}${sp.labels.filter((l) => !/^single line|key ?map/i.test(l)).length ? `, ${sp.labels.filter((l) => !/^single line|key ?map/i.test(l)).length} grid sheet${sp.labels.filter((l) => !/^single line|key ?map/i.test(l)).length === 1 ? '' : 's'}` : ''}`.replace(/^, /, '') + (sp.locked ? ' · its fibers are now locked as issued' : '') : '';
+    resultInside = [...said.map((x) => [splIcon(icon[x.kind]), x.label, x.pages ? `${pg(x)} · ${x.kind === 'plan' ? 'the plan’s sheets on A3' : x.kind === 'cef' ? 'its sheets' : spWhat || 'its sheets'}` : `Left out: ${x.err || 'it could not be read'}`, !x.pages]),
+      ...(skip.cef && skip.cef.length ? [[splIcon('i-cef'), 'CEF plan', `Not made yet for ${andList(skip.cef)}: not in this PDF`, true]] : []), // (also when another site's plan is in it)
+      ...(skip.spl && !has('spl') ? [[splIcon('i-splice'), 'Splicing details', 'Not made yet: not in this PDF', true]] : [])];
+    LOG.info('export.one', { parts: said.map((x) => `${x.kind}:${x.pages}`).join(','), mb: +(bytes.length / 1048576).toFixed(2) });
+    offerResult(new Blob([bytes], { type: 'application/pdf' }), `${fileBase()}_${tag}.pdf`); notePlan(); // beta 6.7 (UX step 3)
+    toast(`One PDF: ${said.reduce((t, x) => t + x.pages, 0)} pages · ${said.filter((x) => x.pages).map((x) => x.label.replace(/ · .*$/, '')).filter((v, i, a) => a.indexOf(v) === i).join(' + ')}`, 5000);
+  }
+  splHooks.onePdf = (pdfFiles, cefFiles) => onePdfFinish(pdfFiles, cefFiles);
+  /** beta 6.7 (UX step 3; was the round tile): under Plan drawing › One PDF to print, what goes in it, each with a dot: green made, amber
+      not made yet or not finished (Plan ✓ · CEF plan: not made for X · Splicing details: 3 fibers to place). after: back from a plan opened
+      by its question: One PDF to print is chosen again and its button pulses (one tap to go on). */
+  let oneTok = 0;
+  function renderOneBox(after) {
+    const box = $('xOneBox'), btn = $('xOnePdf'); if (!box || !btn) return;
+    dxfOutRender();
+    const on = drawOn() && !isAcc(); box.hidden = !on; if (!on) { onePending = ''; return; }
+    xOneHint(); // (beta 6.8, UX step 6)
+    const tpl = dxfMode() === 'tpl', name = S.project, M = plansMissing(name), haveCef = cefPlans(name).length > 0, cefOn = svPurpose(name) === 'As-plan' || haveCef, splOn = M.cab;
+    const parts = [['plan', 'Plan', 'ok', '']];
+    if (cefOn) parts.push(['cef', 'CEF plan', M.cef.length ? 'miss' : 'ok', M.cef.length ? `not made for ${andList(M.cef.map((p) => recName(p) || p.poleId || 'the tower site'))}` : '']);
+    if (splOn) parts.push(['spl', 'Splicing details', M.spl ? 'miss' : 'ok', M.spl ? 'not made yet' : '']);
+    $('dxfDescOne').textContent = `one PDF to print, with a bookmark for each part: ${andList(parts.map(([k]) => ({ plan: 'the plan', cef: 'the CEF plans', spl: 'the splicing details' })[k]))}.`; // beta 6.7 (UX step 3 fixes): You get, with the parts this project has
+    const draw = () => {
+      $('xOneParts').innerHTML = parts.map(([k, t, st, v]) => `<span role="listitem" data-p="${k}"><i class="${st === 'miss' ? 'miss' : ''}" aria-hidden="true"></i>${C.xmlEsc(t)}${v ? `: ${C.xmlEsc(v)}` : ' ✓'}</span>`).join('');
+      const lbl = tpl ? `One PDF: ${andList(parts.map((x) => x[1].toLowerCase()))}${parts.some((x) => x[2] === 'miss') ? ` (${parts.filter((x) => x[2] === 'miss').map((x) => `${x[1].toLowerCase()}: ${x[3]}`).join('; ')})` : ''}` : 'One PDF: it needs your company’s plan template (Plan style › Plan file)';
+      btn.title = lbl;
+    };
+    draw();
+    if (splOn && !M.spl && spliceStarted(name)) { const tok = ++oneTok; splReady(name).then((r) => { if (tok !== oneTok || S.project !== name || r.st === 'ok') return; const sp = parts.find((x) => x[0] === 'spl'); if (sp) { sp[2] = 'miss'; sp[3] = splTodo(r); } draw(); }, (e) => LOG.warn('export.one.state', errInfo(e))); } // (not finished: amber, as on the Drawing)
+    if (after && onePending === name) {
+      onePending = ''; if (tpl) { S.exp.planOut = 'onepdf'; persist(); dxfOutRender(); }
+      if (!$('export').hidden && !xMany) xOpen('doDxf', { scroll: false });
+      btn.classList.remove('pulse'); void btn.offsetWidth; btn.classList.add('pulse'); setTimeout(() => btn.classList.remove('pulse'), 4000); try { btn.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* old WebView */ }
+    }
+  }
+  $('xOnePdf').addEventListener('animationend', () => $('xOnePdf').classList.remove('pulse'));
+  $('xOnePdf').addEventListener('click', () => xguard(async () => {
+    if (dxfMode() !== 'tpl') { // (Simple DXF: the plan's sheets of the One PDF are drawn on the company template)
+      const v = await ask('One PDF needs your plan template', 'The plan’s sheets in the One PDF are drawn on your company’s template, as the Plan drawing draws them. Load the template in Plan style › Plan file, then come back here.',
+        [{ label: 'Cancel', value: false }, { label: 'Plan style', value: true, primary: true }]);
+      if (v) openStyle('advanced', 'stFile'); return; // (beta 6.7, UX step 4: Plan style › Plan file)
+    }
+    const pts = needPoints(); if (!pts) return;
+    const name = S.project, M = plansMissing(name), view = !!cefLockText(name), gaps = [];
+    if (!view) { // (an accepted task is view-only: nothing can be made, it is exported as it is)
+      const at = andList(M.cef.map((p) => recName(p) || p.poleId || 'the tower site'));
+      if (M.cef.length) gaps.push({ k: 'cef', icon: 'i-cef', line: `CEF plan: not made yet for ${at}.`, solo: `${at} ${M.cef.length === 1 ? 'has' : 'have'} no CEF plan yet.` });
+      if (M.spl) gaps.push({ k: 'spl', icon: 'i-splice', line: 'Splicing details: not made yet.', solo: 'The cables have no splicing details yet.' });
+      else if (M.cab && spliceStarted(name)) { try { const r = await splReady(name), q = splTodo(r); if (r.st === 'open' || r.st === 'fix') gaps.push({ k: 'spl', open: r.left || r.fix || 1, icon: 'i-splice', line: `Splicing details: ${q}.`, solo: `${q[0].toUpperCase()}${q.slice(1)}.` }); } catch (e) { LOG.warn('export.one.state', errInfo(e)); } } // (questions left, or a size or fibers to fix: not finished)
+    }
+    if (gaps.length) {
+      const g = gaps[0], solo = gaps.length === 1, open = gaps.some((x) => x.open);
+      const title = solo ? (g.open ? 'Splicing details not finished' : g.k === 'cef' ? 'No CEF plan yet' : 'No splicing details yet') : 'Two plans not ready';
+      const B = solo ? [{ label: g.open ? 'Finish it now' : 'Make it now', value: g.k, primary: true, icon: g.icon }, { label: g.open ? 'Export as it is' : 'Export without it', value: 'go', icon: 'i-pdf' }, { label: 'Cancel', value: '' }]
+        : [...gaps.map((x, i) => ({ label: x.k === 'cef' ? 'Make the CEF plan' : x.open ? 'Finish the splicing details' : 'Make the splicing details', value: x.k, primary: !i, icon: x.icon })), { label: open ? 'Export as it is' : 'Export without them', value: 'go', icon: 'i-pdf' }, { label: 'Cancel', value: '' }];
+      LOG.info('export.one.ask', { gaps: gaps.map((x) => x.k + (x.open ? '-open' : '')).join(',') });
+      const v = await ask(title, `${solo ? g.solo : gaps.map((x) => x.line).join('\n')}\n\n${solo ? (g.open ? 'Finish it now, or export the PDF as it is.' : 'Make it now, or export the PDF without it.') : open ? 'Make them now, or export the PDF as it is.' : 'Make them now, or export the PDF without them.'}`, B);
+      if (v === 'cef' || v === 'spl') { onePending = name; const ok = v === 'cef' ? await cefOpen(name, { pin: M.cef[0].id }) : await spliceOpen(name); if (!ok) onePending = ''; return; }
+      if (v !== 'go') return;
+    }
+    if (!(await creditGate('dxf'))) return; // (the plan is drawn on the template, as Export DXF draws it)
+    oneSkip = { cef: M.cef.map((p) => recName(p) || p.poleId || 'the tower site'), spl: !!M.spl };
+    try { await exportPlanDxf(pts, { one: true }); } finally { oneSkip = null; }
+  }, 'Export failed'));
 
   /* beta 4.1 (MarkT): on a computer the map tools are panels on the right; the map's round buttons and its summary line move clear of an open panel */
   { const RP = ['routeBar', 'rtBar', 'visitCard', 'fixPanel', 'photoPane'].map((k) => $(k)).filter(Boolean);
@@ -18576,7 +20584,7 @@
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
     fibHw: (pid) => { const p = points.find((x) => x.poleId === pid); return p ? hwOf(p, routeModel()) : null; },
     fibQty: () => surveyQty(projPoints()).rows, boqRows: () => { const P = projPoints(), fb = boqFilled(P); return [...boqGroups(P, fb).groups.values()].map((g) => [g.item, g.size, g.forWhat, g.qty]); },
-    /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
+    /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), openStyle: (t, sec) => openStyle(t, sec), plStdDiff: () => plStdDiff(), plNoticeShow: () => plNoticeShow(true), /* beta 6.7 (UX step 4) */ setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
     /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
     fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers(),
     packs: { here: (lat, lon) => { const h = packsHere(lat, lon); return h ? { reg: h.reg, road: { have: h.road.have, get: h.road.get && h.road.get.name }, map: { have: h.map.have, get: h.map.get && h.map.get.name } } : null; }, regions: (p) => packRegions(p), pop: () => (pkpNow ? { reg: pkpNow.reg, list: pkpNow.list.map((p) => p.name) } : null), check: () => packPopCheck(), index: () => loadPackIndex(), prog: () => Object.fromEntries(packProg), get: (name) => { const p = packCatalog().find((x) => x.name === name); if (p) startPackDl(p); return !!p; } }, // beta 3.8 (tests)
@@ -18588,10 +20596,23 @@
   /* v2.44 beta 4.0 (tests): CEF-Plan. frame(): the editor's window; put(): a made-up plan; keep(): a made-up photo in the photo store */
   window.__polecam.vicinity = async (o) => { const v = await vicinityJpeg(+o.E, +o.N, +o.size, o.zone || S.zone, !!o.south, null, o.street ? null : SAT_SOURCE, o.zCap || 0); if (!v || !v.jpg) return null; let s = ''; for (let i = 0; i < v.jpg.length; i += 0x8000) s += String.fromCharCode.apply(null, v.jpg.subarray(i, i + 0x8000)); return { b64: btoa(s), px: v.px, z: v.z, sat: !!v.sat }; }; // beta 4.3 (tests)
   window.__polecam.newAt = (o) => openEditor({ mode: 'new', element: (o && o.element) || 'Pole', lat: +o.lat, lon: +o.lon, source: 'map', takenAt: new Date().toISOString() }); // beta 4.3 (tests): a new record with no photo
+  /* beta 6.7 (tests) */ window.__polecam.drwEdit = (on) => drwEditSet(!!on);
+  window.__polecam.drwEd = () => ({ on: drwEd, handles: (drw && drw.edH ? drw.edH : []).map((h) => { const r = $('drawCanvas').getBoundingClientRect(); return { x: r.left + h.x, y: r.top + h.y, r: h.r, n: h.n, a: String(h.a), b: String(h.b) }; }), site: drwSiteArm ? drwSiteArm.kind : null, selRun: drw ? drw.selRun : null, n: drw ? drw.items.length : 0 });
+  window.__polecam.drwLL = (lat, lon) => { if (!drw || !drw.view) return null; const p = RT_DRW.pt([lat, lon]), r = $('drawCanvas').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
+  window.__polecam.drwLook = (lat, lon, mpp, ox, oy) => { if (!drw || !drw.view) return; const d = window.devicePixelRatio || 1, cv = $('drawCanvas'), u = C.utmForward(lat, lon, drw.zone, lat < 0), sc = d / mpp; drw.view = { ...drw.view, sc, cx: u.E - ((ox == null ? cv.width / 2 / d : ox) * d - cv.width / 2) / sc, cy: u.N + ((oy == null ? cv.height / 2 / d : oy) * d - cv.height / 2) / sc }; drawDrawing(); };
+  window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(it.xy), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; };
   window.__polecam.drawView = () => (drw && drw.view ? { cx: drw.view.cx, cy: drw.view.cy, sc: drw.view.sc } : null); // beta 4.3 (tests): where the Drawing looks
   window.__polecam.coops = () => ({ groups: coopGroups(), set: ed ? ed.coopSet || '' : '', name: ed ? (ed.boq || {}).ownerName || '' : '', owner: ed ? (ed.boq || {}).owner || '' : '', area: ed ? coopArea() : null }); // beta 4.3 (tests)
   window.__polecam.cef = { open: (n, o) => cefOpen(n, o), plans: (n) => JSON.parse(JSON.stringify(cefPlans(n || S.project))), of: (n) => JSON.parse(JSON.stringify(cefOf(n || S.project))), isCef: (n) => isCefProj(n), lock: () => cefLockText(S.project), now: () => (cefNow ? { ...cefNow } : null),
     frame: () => $('cefFrame').contentWindow, logos: () => cefLogos(), canLogo: () => cefCanLogo(), logoSet: (f) => cefLogoSet(f), logoRemove: () => cefLogoRemove(), changed: (n, t) => cefChanged(n || S.project, t), pids: (n, t) => cefPids(n || S.project, t), summary: (n) => projSummary(n || S.project),
     put: (n, id, sk, o) => { const G = cefOf(n), x = o || {}, i = G.plans.findIndex((p) => p.id === id), rec = { id, pin: x.pin || '', sk, at: x.at || new Date().toISOString(), by: x.by || (S.user && S.user.name) || '', o: x.o != null ? x.o : cefMe(), made: x.at || new Date().toISOString() }; if (i >= 0) G.plans[i] = rec; else G.plans.push(rec); cefPut(n, G); },
     keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); } };
+  /* beta 4.6 (tests): the splicing details. frame(): the page's window; drwPt(id): where a record is on the Drawing (screen pixels) */
+  window.__polecam.splice = { open: (n, o) => spliceOpen(n || S.project, o), now: () => (splNow ? { ...splNow } : null), of: (n) => JSON.parse(JSON.stringify(pmeta(n || S.project).splice || null)),
+    data: (n) => spliceData(n || S.project), frame: () => $('spliceFrame').contentWindow, missing: (n) => { const M = plansMissing(n || S.project); return { route: M.route, cab: M.cab, cef: M.cef.map((p) => p.id), spl: M.spl }; },
+    merge: (fm, o) => { const x = o || {}; return spliceMerge(null, '', S.project, fm, x).then(() => x); }, changed: (t) => spliceChanged(S.project, t), count: (fm) => spliceIncoming(fm, S.project), reminded: () => [...splRemindSaid],
+    drwPt: (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(it.xy), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; },
+    /* the One PDF: the splicing sheets as the One PDF draws them (not locked, not saved); the project's state as the One PDF question reads it */
+    pdf: (n) => splicePdf(n || S.project, false).then((r) => { let b = ''; for (let i = 0; i < r.bytes.length; i += 0x8000) b += String.fromCharCode.apply(null, r.bytes.subarray(i, i + 0x8000)); return { b64: btoa(b), sheets: r.sheets, labels: r.labels, left: r.left }; }),
+    left: async (n) => { await splLibs(); return splState(n || S.project).ctx.left; }, onePending: () => onePending };
 })();

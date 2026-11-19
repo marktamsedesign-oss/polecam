@@ -292,6 +292,21 @@ function riserKit(sc, pc, u, g, zc, pr, lay) {
   for (const z of K.gi.concat(K.ug)) band(z);
   return K;
 }
+/* (fix 47) the pedestal box at the foot of a pole, where the UG cable comes up, in place of the G.I. pipe: the box on its concrete base, its door on the side
+   away from the pole, a short flexible pipe from its top to the pole, and the U-guard from there up the pole to where it ends on a riser. Gives back the heights (riserParts) and the box. */
+function pedKit(sc, pole, u, g, zc, pr, st, A, S, ly) {
+  const K = riserParts(g, zc, 1), P = pedAt(pole, u), lay = ly || (st === 'E' ? 'ex' : 'pp'), rot = P.rot, bx = { x: P.c[0], y: P.c[1], w: PED.w, d: PED.d, rot }, zt = g + PED.h;
+  const ang = Math.atan2(u[1], u[0]) / D2R, gw = 0.125, gt = 0.12, pc = [pole.x, pole.y], at = (z, o) => { const d = pr(z) + o; return [pc[0] + u[0] * d, pc[1] + u[1] * d]; };
+  prism(sc, rectAt(P.c, PED.w + 0.1, PED.d + 0.1, rot), g, g + 0.06, lay);                         /* its concrete base */
+  prism(sc, P.poly, g + 0.06, zt - 0.04, lay); prism(sc, rectAt(P.c, PED.w + 0.03, PED.d + 0.03, rot), zt - 0.04, zt, lay);      /* the box and its lid */
+  faceRect(sc, bx, 'F', -PED.w / 2 + 0.04, PED.w / 2 - 0.04, g + 0.13, zt - 0.1, lay); faceLine(sc, bx, 'F', PED.w / 2 - 0.08, g + PED.h * 0.48, PED.w / 2 - 0.08, g + PED.h * 0.6, lay);      /* its door and handle */
+  for (let i = 1; i <= 3; i++) faceLine(sc, bx, 'F', -PED.w / 2 + 0.08, zt - 0.1 - i * 0.05, PED.w / 2 - 0.08, zt - 0.1 - i * 0.05, 'dt');      /* the louvres at the top of the door */
+  const b0 = [P.c[0] - u[0] * (PED.d / 2 - 0.05), P.c[1] - u[1] * (PED.d / 2 - 0.05)], g0 = at(K.giTop + 0.12, gw / 2); tube(sc, [b0[0], b0[1], zt], [g0[0], g0[1], K.giTop + 0.12], 0.025, 0.025, lay, 6);      /* the flexible pipe from the box to the U-guard */
+  loft(sc, rectAt(at(K.giTop, gw / 2), gw, gt, ang), K.giTop, rectAt(at(K.ugTop, gw / 2), gw, gt, ang), K.ugTop, lay);
+  for (const z of K.ug) { const Q = [], r = pr(z) + 0.006; for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; Q.push([pc[0] + r * Math.cos(a), pc[1] + r * Math.sin(a)]); } for (const q of rectAt(at(z, gw / 2), gw + 0.012, gt + 0.012, ang)) Q.push(q); prism(sc, hull(Q), z - 0.015, z + 0.015, 'dt'); }      /* the stainless straps */
+  if (A) { const key = 'ped' + pole.id; A.push({ k: 'el', key, kind: 'lead', p: [P.c[0] + u[0] * PED.d / 2, P.c[1] + u[1] * PED.d / 2, g + PED.h * 0.6], s: labText(S, key, pedName(st)), st, fp: P.poly, z: g, pts: P.poly.map(q => [q[0], q[1], g]).concat(P.poly.map(q => [q[0], q[1], zt])) }); }
+  return K;
+}
 /* does a wall or a face look at the viewer? n: its outward direction on the plan. More than 0: it does. */
 const facing = (sc, n) => { const r = sc.R([sc.cx + n[0], sc.cy + n[1], 0]); return (r[0] - sc.cx) - (r[1] - sc.cy); };
 const faceN = (el, side) => rot2(side === 'R' ? 1 : side === 'L' ? -1 : 0, side === 'F' ? -1 : side === 'B' ? 1 : 0, el.rot || 0);
@@ -314,13 +329,15 @@ function rackFace(S, sc, host, z0, A, X) {      /* (14 Nov 17:00) a cabinet with
   const nb = bayN(host);
   if (nb > 1) { const bw = host.w / nb; for (let k = 0; k < nb; k++) { const c = loc(host, (k - (nb - 1) / 2) * bw, 0), hb = Object.assign({}, host, { x: c[0], y: c[1], w: bw, bays: 1 }); rackFace1(S, sc, hb, z0, A, X, host, k);
       if (X && X.detail && facing(sc, faceN(host, 'F')) > 0.05) A.push({ k: 'mark', el: hb, u: 0, z: odcOpening(host, z0).zb - 0.022, s: 'RACK ' + (k + 1), h: 0.026 }); } return; }
+  if (is2P(host)) { rackFace1(S, sc, Object.assign({}, host, { d: twoPost(host).pd }), z0, A, X, host, null); return; }      /* (fix 48) a 2-post rack: the equipment is bolted to the front of its posts */
   rackFace1(S, sc, host, z0, A, X, host, null);
 }
 function rackFace1(S, sc, host, z0, A, X, H0, bay) {
-  const K = rackOf(host), lay = elLayer(host), zb = z0 + K.zb, zt = zb + K.n * RU, hw = K.hw, det = !!(X && X.detail), seen = facing(sc, faceN(host, 'F')) > 0.05;
-  const hol = !!(X && X.hollow) && host.t === 'odc', yf = -host.d / 2, bxh = (x0, x1, y0, y1, za, zc, ly) => prism(sc, [loc(host, x0, y0), loc(host, x1, y0), loc(host, x1, y1), loc(host, x0, y1)], za, zc, ly);      /* beta 4.2 */
-  if (hol) { const dr = Math.min(host.d - 0.12, 0.6); for (const sg of [-1, 1]) for (const y0 of dr > 0.3 ? [0.004, dr] : [0.004]) bxh(Math.min(sg * hw, sg * (hw - 0.03)), Math.max(sg * hw, sg * (hw - 0.03)), yf + y0, yf + y0 + 0.03, zb, zt, lay); }      /* the four posts of the rack */
-  else { for (const sg of [-1, 1]) for (const q of [hw, hw - 0.03]) faceLine(sc, host, 'F', sg * q, zb, sg * q, zt, lay);
+  const K = rackOf(host), lay = elLayer(host), zb = z0 + K.zb, zt = zb + K.n * RU, hw = K.hw, det = !!(X && X.detail), opn = host.t === 'rack' && !!host.open, seen = opn || facing(sc, faceN(host, 'F')) > 0.05;      /* (fix 47) an open rack: its items show from every side, each with its body */
+  const hol = (!!(X && X.hollow) && host.t === 'odc') || opn, yf = -host.d / 2, bxh = (x0, x1, y0, y1, za, zc, ly) => prism(sc, [loc(host, x0, y0), loc(host, x1, y0), loc(host, x1, y1), loc(host, x0, y1)], za, zc, ly);      /* beta 4.2 */
+  const two = is2P(host);      /* (fix 48) a 2-post rack: host is its posts (see rackFace); twoPostFrame draws them, so no rails here */
+  if (hol && !two) { const dr = Math.min(host.d - 0.12, 0.6); for (const sg of [-1, 1]) for (const y0 of dr > 0.3 ? [0.004, dr] : [0.004]) bxh(Math.min(sg * hw, sg * (hw - 0.03)), Math.max(sg * hw, sg * (hw - 0.03)), yf + y0, yf + y0 + 0.03, zb, zt, lay); }      /* the four posts of the rack */
+  else if (!hol) { for (const sg of [-1, 1]) for (const q of [hw, hw - 0.03]) faceLine(sc, host, 'F', sg * q, zb, sg * q, zt, lay);
     faceLine(sc, host, 'F', -hw, zb, hw, zb, lay); faceLine(sc, host, 'F', -hw, zt, hw, zt, lay); }
   if (det) {
     for (let u = 1; u < K.n; u++) for (const sg of [-1, 1]) faceLine(sc, host, 'F', sg * hw, zb + u * RU, sg * (hw - (u % 5 ? 0.015 : 0.03)), zb + u * RU, 'dt');
@@ -329,7 +346,7 @@ function rackFace1(S, sc, host, z0, A, X, H0, bay) {
   for (const q of rackSlots(S, H0, bay)) {
     const e = q.e, il = e.st === 'P' ? 'pp' : 'eq', a = zb + (q.u - 1) * RU + 0.003, b = zb + (q.u - 1 + q.ru) * RU - 0.003, x = hw - 0.002, xi = hw - 0.034;
     faceRect(sc, host, 'F', -x, x, a, b, il);
-    if (hol) bxh(-(hw - 0.034), hw - 0.034, yf + 0.034, yf + Math.max(0.12, Math.min(host.d - 0.1, e.t === 'odf' ? 0.25 : 0.38)), a, b, il);      /* its body, behind the front plate */
+    if (hol) bxh(-(hw - 0.034), hw - 0.034, yf + 0.034, yf + (two ? dp2P(H0, e) : Math.max(0.12, Math.min(host.d - 0.1, e.t === 'odf' ? 0.25 : 0.38))), a, b, il);      /* its body, behind the front plate (fix 48: on a 2-post rack it reaches back past the posts) */
     if (e.t === 'odf') {                                             /* a patch panel: one row of adapters for each unit */
       for (let i = 1; i < q.ru; i++) faceLine(sc, host, 'F', -xi, a + (b - a) * i / q.ru, xi, a + (b - a) * i / q.ru, il);
       if (det) { for (let i = 0; i < q.ru; i++) for (let j = 0; j < 12; j++) faceRing(sc, host, 'F', -xi + (j + 0.5) * 2 * xi / 12, a + (b - a) * (i + 0.5) / q.ru, 0.008, il); }
@@ -339,6 +356,18 @@ function rackFace1(S, sc, host, z0, A, X, H0, bay) {
     const pts = [onFace(host, 'F', -x, a), onFace(host, 'F', x, a), onFace(host, 'F', x, b), onFace(host, 'F', -x, b)], nm = elLabel(S, e);
     A.push({ k: 'el', id: e.id, key: e.id, kind: 'lead', p: onFace(host, 'F', x, (a + b) / 2), s: det ? nm + (e.t === 'odf' && e.size && !e.name && e.st !== 'P' ? ' ' + e.size : '') + ', ' + uText(q) : e.t === 'odf' ? nm : '', st: e.st, fp: elPoly(H0), z: z0, pts, edit: seen ? 'u' : null, hp: onFace(host, 'F', 0, b), item: 1, host: H0 });
   }
+}
+/* (fix 47) an open rack: a post at each corner, a frame at the top and one at the foot. No walls, no doors: what is mounted in it shows. */
+function openFrame(sc, el, z0, h, lay) {
+  const w = el.w, d = el.d, t = Math.min(0.05, w / 8, d / 8), lp = (x, y) => loc(el, x, y), rot = el.rot || 0, bar = (x0, y0, x1, y1, za, zb) => prism(sc, [lp(x0, y0), lp(x1, y0), lp(x1, y1), lp(x0, y1)], za, zb, lay);
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) prism(sc, rectAt(lp(sx * (w / 2 - t / 2), sy * (d / 2 - t / 2)), t, t, rot), z0, z0 + h, lay);
+  for (const [za, zb] of [[z0, z0 + Math.min(0.06, h / 10)], [z0 + h - t, z0 + h]]) for (const sy of [-1, 1]) { bar(-w / 2 + t, sy * (d / 2) - (sy > 0 ? t : 0), w / 2 - t, sy * (d / 2) + (sy < 0 ? t : 0), za, zb); bar(sy * (w / 2) - (sy > 0 ? t : 0), -d / 2 + t, sy * (w / 2) + (sy < 0 ? t : 0), d / 2 - t, za, zb); }
+}
+/* (fix 48) a 2-post rack: a foot at each end, a post on each foot, a bar at the top between the posts and one low down. What is mounted between the posts shows. */
+function twoPostFrame(sc, el, z0, h, lay) {
+  const K = twoPost(el), lp = (x, y) => loc(el, x, y), r = el.rot || 0, ix = K.px - K.pw / 2, tb = Math.min(K.tb, h / 10), bb = Math.min(K.bb, h / 10);
+  for (const sx of [-1, 1]) { prism(sc, rectAt(lp(sx * (K.w / 2 - K.fw / 2), 0), K.fw, K.d, r), z0, z0 + K.ft, lay); prism(sc, rectAt(lp(sx * K.px, 0), K.pw, K.pd, r), z0 + K.ft, z0 + h, lay); }
+  prism(sc, rectAt(lp(0, 0), 2 * ix, K.pd, r), z0 + h - tb, z0 + h, lay); prism(sc, rectAt(lp(0, 0), 2 * ix, K.pd, r), z0 + K.ft, z0 + bb, lay);
 }
 /* the shell of a cabin seen from inside: the floor, the two walls at the back at full height, and the two walls at the front cut down to a low kerb, so that the room shows */
 function roomShell(S, sc, A, O) {
@@ -612,10 +641,10 @@ function isoEl(S, el, sc, A, rg, X) {
       bx = { w, d, z0: z0 + pl, z1: z0 + h - rf, top: 1, zt: z0 + h, tw: w + 0.1, td: d + 0.1, sides: open ? 'RBL' : 'FRBL' }; break;
     }
     case 'cabin': {
-      const dh = Math.min(2.1, h - 0.2); prism(sc, elPoly(el), z0, z0 + h, lay); prism(sc, rectAt(c, w + 0.3, d + 0.3, rot), z0 + h, z0 + h + 0.12, lay);
+      const dh = Math.min(2.1, h - 0.2), tr = !!el.tr; prism(sc, elPoly(el), z0, z0 + h, lay); if (!tr) prism(sc, rectAt(c, w + 0.3, d + 0.3, rot), z0 + h, z0 + h + 0.12, lay);      /* (fix 47) a telco room stands in a building: no roof slab of its own, no step at its doors */
       if (dh > 0.5) for (const D of cabinDoors(el)) {                /* each door, with its handle and a step in front of it */
         const hz = D.face === 'F' || D.face === 'B', c = faceXY(el, D.face, D.u, -0.3);
-        faceRect(sc, el, D.face, D.u - D.w / 2, D.u + D.w / 2, z0 + 0.02, z0 + dh, lay); faceLine(sc, el, D.face, D.u + D.w / 2 - 0.13, z0 + dh * 0.48, D.u + D.w / 2 - 0.13, z0 + dh * 0.58, lay); prism(sc, rectAt(c, hz ? D.w + 0.2 : 0.5, hz ? 0.5 : D.w + 0.2, rot), z0, z0 + 0.12, lay);
+        faceRect(sc, el, D.face, D.u - D.w / 2, D.u + D.w / 2, z0 + 0.02, z0 + dh, lay); faceLine(sc, el, D.face, D.u + D.w / 2 - 0.13, z0 + dh * 0.48, D.u + D.w / 2 - 0.13, z0 + dh * 0.58, lay); if (!tr) prism(sc, rectAt(c, hz ? D.w + 0.2 : 0.5, hz ? 0.5 : D.w + 0.2, rot), z0, z0 + 0.12, lay);
       }
       cabinPorts(el).forEach((q, i) => {                              /* the portholes, where the sketch of the inside has them */
         const key = 'port' + el.id + '_' + i, u = portPlate(sc, el, q.face, q.u, z0 + q.z, q.st === 'P' ? 'pp' : lay);
@@ -628,7 +657,7 @@ function isoEl(S, el, sc, A, rg, X) {
         A.push({ k: 'el', grp: 'port', key, kind: 'lead', p: onFace(el, q.face, u, zc - (seen ? 0.18 : 0)), s: labText(S, key, 'PORTHOLE'), st: q.st, fp: elPoly(el), z: z0, pts: null });
       });
       for (const q of cabinAcs(el)) prism(sc, rectAt(q.at, q.hz ? q.w : q.d, q.hz ? q.d : q.w, rot), z0 + q.z, z0 + q.z + q.h, q.st === 'P' ? 'pp' : lay);          /* the aircon units, outside their walls */
-      top = z0 + h + 0.12; bx = { w, d, z0, z1: z0 + h, top: 1, zt: top, tw: w + 0.3, td: d + 0.3, sides: 'FRBL' }; break;
+      top = z0 + h + (tr ? 0 : 0.12); bx = { w, d, z0, z1: z0 + h, top: 1, zt: top, tw: w + (tr ? 0 : 0.3), td: d + (tr ? 0 : 0.3), sides: 'FRBL' }; break;
     }
     case 'gen': {
       const sk = Math.min(0.12, h * 0.12); prism(sc, rectAt(c, w + 0.1, d + 0.1, rot), z0, z0 + sk, lay); prism(sc, elPoly(el), z0 + sk, z0 + h, lay);
@@ -656,16 +685,18 @@ function isoEl(S, el, sc, A, rg, X) {
         const EP = sqr(c, Math.max(STD.encW, w + 0.16) / 2, rot);
         prism(sc, EP, z0, z0 + STD.encUp, lay);                    /* the concrete encasement: 0.406 m above the ground and 1.32 m below it */
         if (onG && !FLAT) { const zb = z0 - STD.encDn; sc.poly(EP.map(q => [q[0], q[1], zb]), hid, 1); for (const q of EP) sc.line([q[0], q[1], z0], [q[0], q[1], zb], hid); }
-        if (!rg.risers.some(q => q.pole === el)) riserKit(sc, c, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, lay);
+        if (!rg.risers.some(q => q.pole === el)) { if (pedOf(el)) pedKit(sc, el, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, pedOf(el), X && X.ref ? null : A, S, X && X.ref ? 'dt' : null); else riserKit(sc, c, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, lay); }      /* (fix 47) or its pedestal box */
         if (onG && !FLAT) { const zb = z0 - STD.poleIn, e = k => [c[0] + H[0] * k * r, c[1] + H[1] * k * r]; for (const k of [-1, 1]) sc.line([e(k)[0], e(k)[1], z0 - STD.encDn], [e(k)[0], e(k)[1], zb], hid); sc.line([e(-1)[0], e(-1)[1], zb], [e(1)[0], e(1)[1], zb], hid); }      /* the pole stands 1.5 m in the ground: its foot shows under the encasement */
         fp = EP;
       }
+      else if (pedOf(el) && !rg.risers.some(q => q.pole === el)) pedKit(sc, el, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, pedOf(el), X && X.ref ? null : A, S, X && X.ref ? 'dt' : null);      /* (fix 47) an existing pole with a pedestal box */
       frustum(sc, c, z0, z0 + h, r, r * 0.7, lay, 10); az = z0 + Math.min(h * 0.45, 4); break;
     }
     case 'ac': { if (!S.room) { prism(sc, elPoly(el), z0, z0 + h, lay); break; } const k = wallOf(S.site.L, S.site.W, el.x, el.y), hz = k.side === 'S' || k.side === 'N', q = [k.x + k.n[0] * (0.1 + d / 2), k.y + k.n[1] * (0.1 + d / 2)]; fp = rectAt(q, hz ? w : d, hz ? d : w, 0); prism(sc, fp, z0, z0 + h, lay); hp = [q[0], q[1], z0 + h];
       if (facing(sc, k.n) < 0) for (const z of [z0, z0 + h]) A.push({ k: 'ghost', lay: hid, pts: fp.map(p => [p[0], p[1], z]) });      /* behind a wall at the back: drawn dashed, as seen through it */
       break; }
-    case 'rack': prism(sc, elPoly(el), z0, z0 + h, lay); rackFace(S, sc, el, z0, A, X); bx = { w, d, z0, z1: z0 + h, top: 1, sides: 'RBL' }; break;
+    case 'rack': if (el.open) { if (is2P(el)) twoPostFrame(sc, el, z0, h, lay); else openFrame(sc, el, z0, h, lay); rackFace(S, sc, el, z0, A, X); fp = elPoly(el); break; }      /* (fix 47) an open rack: its frame, and what is mounted in it, seen from every side (fix 48: or a 2-post rack) */
+      prism(sc, elPoly(el), z0, z0 + h, lay); rackFace(S, sc, el, z0, A, X); bx = { w, d, z0, z1: z0 + h, top: 1, sides: 'RBL' }; break;
     case 'port': {
       if (!S.room) { prism(sc, elPoly(el), z0, z0 + h, lay); bx = { w, d, z0, z1: z0 + h, top: 1, sides: 'FRBL' }; break; }
       const k = wallOf(S.site.L, S.site.W, el.x, el.y), tg = [Math.abs(k.n[1]), Math.abs(k.n[0])], hw2 = Math.max(0.1, w / 2), hh = Math.max(0.08, h / 2);
@@ -907,7 +938,7 @@ function buildIso0(S, o) {
   });
   for (const r of rg.risers) {
     const s0 = sc.sid, pl = r.pole, zp = baseZ(S, pl);
-    r.K = riserKit(sc, [pl.x, pl.y], r.s || r.u, r.g, r.z1 - (r.nap ? 0 : CLOZ), z => poleR(pl, z - zp), 'pp');
+    r.K = pedOf(pl) ? pedKit(sc, pl, r.s || r.u, r.g, r.z1 - (r.nap ? 0 : CLOZ), z => poleR(pl, z - zp), pedOf(pl), A3, S) : riserKit(sc, [pl.x, pl.y], r.s || r.u, r.g, r.z1 - (r.nap ? 0 : CLOZ), z => poleR(pl, z - zp), 'pp');      /* (fix 47) a pedestal box in place of the G.I. pipe */
     if (r.dp > 0.2 && r.R > 0.05) elbow2(sc, r.at, r.g, r.dp, r.R, r.u, 'hp', 0);
     for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i);
   }
@@ -916,7 +947,8 @@ function buildIso0(S, o) {
     A3.push({ k: 'el', key: ck, kind: 'lead', p: [j.c[0], j.c[1], j.z + STD.cloH * 0.6], s: labText(S, ck, 'PROPOSED CLOSURE'), st: 'P', fp: sqr(j.c, 0.15, 0), z: j.z, pts: cloPts(j.c, j.z) });
   }
   }
-  const R0 = sc.render(), GT = new Gfx(), LB = new Labeler(GT), FB = [], fibP = [], fibH = [], legs2 = [], far = [], quads = []; let skipped = 0, strict = 0;
+  const R0 = sc.render(), GT = new Gfx(), LB = new Labeler(GT); if (labKs(S)) LB.kf = key => labK(S, key);      /* (fix 47) the size of one name */
+  const FB = [], fibP = [], fibH = [], legs2 = [], far = [], quads = []; let skipped = 0, strict = 0;
   if (!one) for (const q of X.pin || []) FB.push({ k: 'pl', pts: [P3(q[0]), P3(q[1])], lay: q[2], close: false, g: q[3] });      /* (14 Nov 17:00) the pipe in the pad */
   let CTX = [], fb = null;
   if (one) { const pts = []; for (const p of R0) if (p.k === 'pl') for (const q of p.pts) pts.push(q); if (pts.length > 2) fb = polyBox(pts);
@@ -963,7 +995,7 @@ function buildIso0(S, o) {
       for (let i = 0; i < n; i++) { const j = (i + 1) % n, m = [(poly[i][0] + poly[j][0]) / 2 - c[0], (poly[i][1] + poly[j][1]) / 2 - c[1]]; if (facing(sc, m) > 0) { FB.push({ k: 'pl', pts: [B[i], B[j]], lay, close: false }); up.add(i); up.add(j); } }
       for (const i of up) FB.push({ k: 'pl', pts: [B[i], T[i]], lay, close: false });
     };
-    for (const r of C.racks) box(r.poly, r.z0, r.z1, r.st === 'P' ? 'np' : 'nd');
+    for (const r of C.racks) if (r.two) { for (const q of r.posts) box(q, r.z0, r.z1, r.st === 'P' ? 'np' : 'nd'); box(r.bar, r.ztb, r.z1, r.st === 'P' ? 'np' : 'nd'); } else box(r.poly, r.z0, r.z1, r.st === 'P' ? 'np' : 'nd');      /* (fix 48) a 2-post rack: its posts and its top bar */
     for (const q of C.odfs) { box(q.poly, q.z0, q.z1, q.st === 'P' ? 'np' : 'nd'); const m = [(q.poly[0][0] + q.poly[2][0]) / 2, (q.poly[0][1] + q.poly[2][1]) / 2]; inLab.push({ q, ap: P3([m[0], m[1], (q.z0 + q.z1) / 2]) }); }
     for (const q of C.walls) for (const sd of q.sides) { FB.push({ k: 'pl', pts: sd.map(p => P3([p[0], p[1], q.z1])), lay: 'nd', close: false }); for (const p of [sd[0], sd[sd.length - 1]]) FB.push({ k: 'pl', pts: [P3([p[0], p[1], q.z0]), P3([p[0], p[1], q.z1])], lay: 'nd', close: false }); }      /* partition walls: their top and their ends */
     for (const l of C.legs) FB.push({ k: 'pl', pts: [P3(l.a), P3(l.b)], lay: 'fh', close: false });
@@ -985,7 +1017,7 @@ function buildIso0(S, o) {
   for (const v of rg.verts) {
     const zb = v.z0 + (v.R || 0), t2 = v.at2 || v.at, gz = Math.max(zb, Math.min(v.g, v.z1)); if (v.z1 - gz > 0.01) seg3([t2[0], t2[1], v.z1], [v.at[0], v.at[1], gz], 'ug', v.inside); if (gz - zb > 0.01) seg3([v.at[0], v.at[1], gz], [v.at[0], v.at[1], zb], 'ug', v.inside);      /* on a pole the cable leans with the pipe, down to the ground */
     if (v.R) { let prev = [v.at[0], v.at[1], zb]; for (let i = 1; i <= 6; i++) { const a = Math.PI + i * Math.PI / 12, q = [v.at[0] + v.u[0] * v.R * (1 + Math.cos(a)), v.at[1] + v.u[1] * v.R * (1 + Math.cos(a)), zb + v.R * Math.sin(a)]; seg3(prev, q, 'ug'); prev = q; } }
-    if (v.kind === 'riser' && v.z1 - v.g > 1.5) { const K = riserParts(v.g, v.z1 - (v.nap ? 0 : CLOZ)), t2 = v.at2 || v.at, q = z => { const f = clamp((z - v.g) / Math.max(0.1, v.z1 - v.g), 0, 1); return P3([v.at[0] + (t2[0] - v.at[0]) * f, v.at[1] + (t2[1] - v.at[1]) * f, z]); }; risers.push({ v, a: q(K.e), b: q(K.giTop), c: q(K.giTop), d: q(K.ugTop), ug: K.ugTop - K.giTop > 0.6 }); }
+    if (v.kind === 'riser' && v.z1 - v.g > 1.5) { const pd = v.rec ? pedOf(v.rec.pole) : null, K = riserParts(v.g, v.z1 - (v.nap ? 0 : CLOZ), pd), t2 = v.at2 || v.at, q = z => { const f = clamp((z - v.g) / Math.max(0.1, v.z1 - v.g), 0, 1); return P3([v.at[0] + (t2[0] - v.at[0]) * f, v.at[1] + (t2[1] - v.at[1]) * f, z]); }; risers.push({ v, ped: pd, a: q(K.e), b: q(K.giTop), c: q(K.giTop), d: q(K.ugTop), ug: K.ugTop - K.giTop > 0.6 }); }
   }
   for (const k of rg.links) seg3(k.a, k.b, 'ug');
   { const f0 = fgrp; fgrp = gk('FOC_AE'); for (const q of rg.drops) for (let i = 0; i + 1 < q.pts.length; i++) seg3(q.pts[i], q.pts[i + 1], 'ae'); fgrp = f0; }      /* (14 Nov 17:00) down the pole into a Dummy NAP */
@@ -1074,7 +1106,7 @@ function buildIso0(S, o) {
       const a = r.pts[bi], b = r.pts[bi + 1], m = [a[0] + (b[0] - a[0]) * 0.72, a[1] + (b[1] - a[1]) * 0.72], dp = runDepth(r), key = 'dep' + r.id;
       jobs.push({ o: 3.2, key, s: labText(S, key, 'TRENCH ' + f1(dp) + ' m DEEP'), st: 'P', ap: P3([m[0], m[1], groundZ(S, m) - dp * 0.6]), alt: [0.5, 0.3, 0.12].map(t => { const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; return P3([q[0], q[1], groundZ(S, q) - dp * 0.6]); }), kind: 'lead', opt: 0 });
     }
-    risers.forEach((q, i) => { jobs.push({ o: 3, key: 'riser' + i, s: labText(S, 'riser' + i, 'PROPOSED G.I. RISER PIPE'), st: 'P', ap: at(q, 0.5), kind: 'along', near: polyBox([q.a, q.b]), pcs: [[q.a, q.b]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); if (q.ug) jobs.push({ o: 3, key: 'ugd' + i, s: labText(S, 'ugd' + i, 'PROPOSED U-GUARD'), st: 'P', ap: [q.c[0] + (q.d[0] - q.c[0]) * 0.5, q.c[1] + (q.d[1] - q.c[1]) * 0.5], kind: 'along', near: polyBox([q.c, q.d]), pcs: [[q.c, q.d]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); });
+    risers.forEach((q, i) => { if (!q.ped) jobs.push({ o: 3, key: 'riser' + i, s: labText(S, 'riser' + i, 'PROPOSED G.I. RISER PIPE'), st: 'P', ap: at(q, 0.5), kind: 'along', near: polyBox([q.a, q.b]), pcs: [[q.a, q.b]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); if (q.ug) jobs.push({ o: 3, key: 'ugd' + i, s: labText(S, 'ugd' + i, 'PROPOSED U-GUARD'), st: 'P', ap: [q.c[0] + (q.d[0] - q.c[0]) * 0.5, q.c[1] + (q.d[1] - q.c[1]) * 0.5], kind: 'along', near: polyBox([q.c, q.d]), pcs: [[q.c, q.d]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); });
     for (const k of inLab) jobs.push({ o: 4, key: k.q.key, s: labText(S, k.q.key, k.q.s), st: k.q.st, ap: k.ap, kind: 'lead' });
     for (const q of loops) jobs.push({ o: 5, key: 'loop' + q.lp.i + (q.lp.ck || ''), s: labText(S, 'loop' + q.lp.i + (q.lp.ck || ''), 'LOOP HOLDER W/ ' + f2(q.lp.len) + 'm LOOP'), st: 'P', ap: q.c, kind: 'lead' });
     /* When the size is automatic, a name that finds no room is tried again smaller, down to what is still easy to read (1.8 mm on the sheet). Only then does it get a leader. */
@@ -1092,9 +1124,10 @@ function buildIso0(S, o) {
       LB.keep(jb.key, q, c, jb.ap, fixed ? { moved: 1 } : null);
     };
     const boxAuto = jb => {
+      const hj = h * LB.k(jb.key);      /* (fix 47) */
       for (const fr of faceFrames(sc, jb.a)) {
-        const B = frameBasis(sc, fr), need1 = 2 * half(jb.s, 1, B.U, B.V), k0 = Math.min(1, (fr.len - 0.08) / (need1 * h), (fr.ht - 0.08) / (1.7 * h));      /* the standard size, made smaller only to fit the face */
-        for (const H of k0 < KFACE ? [] : [h * k0]) {
+        const B = frameBasis(sc, fr), need1 = 2 * half(jb.s, 1, B.U, B.V), k0 = Math.min(1, (fr.len - 0.08) / (need1 * hj), (fr.ht - 0.08) / (1.7 * hj));      /* the standard size, made smaller only to fit the face */
+        for (const H of k0 < KFACE ? [] : [hj * k0]) {
         const hw = half(jb.s, H, B.U, B.V), hh = 0.85 * H, ms = Math.max(0, fr.len / 2 - hw - 0.04), mt = Math.max(0, fr.ht / 2 - hh - 0.04), P = (s, t) => fr.pt(B.ss * s, B.ts * t);
         let ts = fr.top ? [-mt, mt, 0] : [0.12 * fr.ht, 0, -0.25 * fr.ht, 0.3 * fr.ht].map(t => clamp(t, -mt, mt));
         if (fr.top) ts.sort((p, q) => sc.P(P(0, p))[1] - sc.P(P(0, q))[1]);          /* on a top face, the strip nearest the viewer first: it is the one most often clear */
@@ -1123,7 +1156,7 @@ function buildIso0(S, o) {
     /* 1. labels the user moved */
     for (const jb of jobs) {
       const off = labOff(S, jb.key, VK); if (!off) continue; const c = [jb.ap[0] + off[0], jb.ap[1] + off[1]]; jb.done = 1;
-      if (jb.kind === 'box') { const fr = faceFrames(sc, jb.a)[0]; if (fr) { const B = frameBasis(sc, fr); sticker(jb, c, B.U, B.V, h, 1); continue; } }
+      if (jb.kind === 'box') { const fr = faceFrames(sc, jb.a)[0]; if (fr) { const B = frameBasis(sc, fr); sticker(jb, c, B.U, B.V, h * LB.k(jb.key), 1); continue; } }
       LB.fixed(jb.key, jb.wrap ? wrap(jb.s, jb.wrap) : [jb.s], h, tl(jb.st), c, jb.kind === 'along' ? angOf(jb.pcs[0][0], jb.pcs[0][1]) : jb.kind === 'ground' ? -30 : 0, jb.ap);
     }
     /* the site name and ID: beside the top of the tower, bold, larger than the other names. Level with the top, on the right, then the left, then above, then lower down the sides. */

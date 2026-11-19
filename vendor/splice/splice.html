@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-app="splice">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Splicing details</title>
+<meta name="theme-color" content="#0f2547">
+<link rel="stylesheet" href="ask.css">
+</head>
+<body>
+<div class="app">
+  <header class="hdr">
+    <button class="hbtn done" id="doneBtn" type="button" aria-label="Done: back to the Drawing" title="Done">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg><span class="lbl">Done</span></button>
+    <div class="proj" id="projBtn"><small>Splicing details</small><b id="projName"></b></div>
+    <button class="hbtn" id="undoBtn" type="button" disabled aria-label="Undo" title="Undo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span class="lbl">Undo</span></button>
+    <button class="hbtn" id="choicesBtn" type="button" aria-haspopup="dialog" aria-label="Your choices" title="Your choices">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span class="lbl">Your choices</span></button>
+  </header>
+  <div class="vonly" id="viewOnly" hidden role="note"></div>
+  <main class="main">
+    <section class="stage" aria-label="Single line diagram">
+      <div class="view" id="view"></div>
+      <button class="chipbtn" id="stageBadge" type="button">AS-PLAN</button>
+      <button class="chipbtn" id="sheetsBtn" type="button" aria-label="See the A3 sheets" title="The A3 sheets">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 15h18M13 15v4"/></svg><span class="lbl">A3 sheets</span></button>
+      <button class="chipbtn" id="idsBtn" type="button" hidden></button>
+      <div class="tools">
+        <button class="tbtn" type="button" data-zoom="in" aria-label="Zoom in">+</button>
+        <button class="tbtn" type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
+        <button class="tbtn" type="button" data-zoom="fit" aria-label="Show the whole drawing">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      </div>
+    </section>
+    <section class="panel" aria-label="Questions">
+      <div class="bar">
+        <button class="count" id="count" type="button"></button>
+        <nav class="pills" id="pills" aria-label="Your answers"></nav>
+      </div>
+      <div class="card" id="card" aria-live="polite"></div>
+    </section>
+  </main>
+</div>
+<div id="nohost" hidden>The splicing details open from G-eSAA: the Drawing of an As-Plan or As-Built project, then the <b>Splicing details</b> button.</div>
+<div class="ovl" id="ovl" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="splice.js"></script>
+<script src="ask.js"></script>
+</body>
+</html>

@@ -1,0 +1,171 @@
+"""v2.43.0 beta 3 (synthetic data only): fixes per pole and what changed, end to end on two phones of DEMO CONTRACTOR:
+Juan (coordinator) and Pedro (field partner), with the REAL sheet and mailbox scripts on their stand-ins (e2e/servers.js).
+The app's checks, several poles at once, a spot, the fix list through the mailbox, Pedro's items ticked by the record itself,
+can't fix, found something else, send what's done so far, what changed (before → after), OK / Not yet, round 2, Accept."""
+import asyncio, sys, os, json, re, time
+import os as _os; S = _os.environ.get('GESAA_WS') or _os.path.abspath(__file__).split('/tests/regression/')[0] + '/tests/regression'; APP = _os.environ.get('GESAA_APP') or _os.path.dirname(_os.path.dirname(S)); PRIV = _os.environ.get('GESAA_PRIVATE') or '/nonexistent-private'  # (tests/run_all.py sets these)
+src = open(S + '/v243/t2433c.py').read().split('\nasync def main():')[0].replace("OUT = S + '/v243/out_c3'", "OUT = S + '/v243/out_d3'")  # beta 3.2: t2433c's header (Team on from the sheet)
+exec(compile(src, 't2433c_head', 'exec'))
+PROJ = 'DEMO SITE FIXES'
+FX = "(a) => __polecam.team.mbx.fx[a[0]](...a.slice(1))"
+async def fx(pg, fn, *a): return await pg.evaluate(FX, [fn, *a])
+async def body(pg): return await txt(pg, '#fxBody')
+async def fxclick(pg, k, extra=''): await pg.click(f'#fxBody [data-fx="{k}"]{extra}'); await W(pg, 250)
+async def setrec(pg, pid, patch): return await fx(pg, 'setRec', PROJ, pid, patch)
+
+async def main():
+    srv = subprocess.Popen(['node', S + '/v243/e2e/servers.js'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT); time.sleep(1.5)
+    try:
+        async with async_playwright() as p:
+            ca, A, ea = await new_ctx(p, OUT + '/ud_juan'); await setup(A, 'Juan Dela Cruz', JUAN)
+            cb, B, eb = await new_ctx(p, OUT + '/ud_pedro'); await setup(B, 'Pedro Santos', PEDRO)
+            await open_team(A); await confirm_email(A, JUAN); await role(A, 'Coordinator')
+            await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
+            await open_team(B); await confirm_email(B, PEDRO); await role(B, 'Field Partner')
+            await B.locator('#tmCoList .tmrow', has_text='Juan Dela Cruz').locator('[data-join]').click(); await idle(B)
+            await open_team(A); await A.locator('#tmMemList [data-accept]').first.click(); await idle(A); await W(A, 300)
+            if await B.is_visible('#tmRefresh'): await B.click('#tmRefresh'); await idle(B)
+            # ---------- the task, Pedro's first survey (6 poles; owners on 3, clamps on 2), update 1
+            await close_sheets(A); await A.click('#projectBtn'); await W(A, 300); await A.click('#newProjBtn'); await W(A, 300)
+            await A.select_option('#npCat', 'survey'); await W(A, 200); await A.select_option('#npPurpose', 'As-plan'); await A.fill('#npName', PROJ)
+            await A.click('#npAssign .chip:has-text("Pedro Santos")'); await W(A, 200); await A.click('#npCreate'); await idle(A, 40000); await W(A, 500)
+            await projects(B); j, stg = await dl(B, ms=40000)
+            await mbx(B, 'seed', PROJ, 6, {})
+            for pid, patch in (('CC-1001', {'boq': {'owner': 'Globe', 'clamp': '8-10 in'}}), ('CC-1002', {'boq': {'owner': 'Globe', 'clamp': '6-8 in'}}), ('CC-1003', {'boq': {'owner': 'PLDT'}})):
+                await setrec(B, pid, patch)
+            await send_sheet(B); sg = await send_go(B, 40000)
+            await projects(A); j, stg = await dl(A, ms=40000)
+            chg = await fx(A, 'chg', PROJ)
+            check('W1 every merged update says what changed: update 1 from Pedro, 6 new poles, with What changed on the result', j and j['stage'] == 'done' and j.get('chgN') == 6 and chg and len(chg['items']) == 6 and all(x['kind'] == 'new' for x in chg['items']) and await A.is_visible('#curTeam [data-jobchg]'), (j, chg and len(chg['items'])))
+            await A.click('#curTeam [data-jobchg]'); await W(A, 500)
+            ct = await txt(A, '#chgList'); sub = await txt(A, '#chgSub')
+            check('W2 What changed lists them (New), from Pedro, update 1', await A.is_visible('#chgSheet') and ct.count('New') == 6 and 'Update 1 from Pedro Santos' in sub, (sub, ct[:200]))
+            await close_sheets(A)
+            # ---------- Juan writes the fix list
+            await A.click('#projectBtn'); await W(A, 400); await A.click('#curTeam [data-ct="fix"]'); await W(A, 800)
+            st = await fx(A, 'state'); ck = await fx(A, 'checks', PROJ)
+            check('F1 Ask for fixes opens the fix list over the map, for Juan’s project', st and st['mode'] == 'co' and st['shown'] and await A.is_visible('#fixPanel') and 'Ask for fixes' in await txt(A, '#fxTitle'), st)
+            check('F2 the app’s own checks: 3 poles with no owner, 4 with no clamp size', {(c['label'], c['n']) for c in ck} >= {('No owner', 3), ('No clamp size', 4)}, ck)
+            await fxclick(A, 'checks')
+            labels = await A.eval_on_selector_all('#fxBody .fx-chk', "(d) => d.map((x) => x.textContent)")
+            await A.locator('#fxBody .fx-chk', has_text='No clamp size').locator('input').uncheck(); await W(A, 250)
+            await fxclick(A, 'chkadd')
+            d = await fx(A, 'draft', PROJ)
+            check('F3 ticked “No owner” only: CC-1004, CC-1005, CC-1006 added with Owner', sorted(x['name'] for x in d) == ['CC-1004', 'CC-1005', 'CC-1006'] and all(x['why'] == ['Owner'] for x in d), (labels, d))
+            await fxclick(A, 'select')
+            for pid in ('CC-1001', 'CC-1002'): await fx(A, 'tap', pid); await W(A, 150)
+            st = await fx(A, 'state')
+            check('F4 Select several: two poles ticked', len(st['sel']) == 2 and '2 poles ticked' in await body(A), (st, await body(A)))
+            await fxclick(A, 'selgo')
+            await A.click('#fxBody .fx-tile[data-w="New photo"]'); await W(A, 150)
+            await A.screenshot(path=f'{OUT}/j_multi_tiles.png')
+            await fxclick(A, 'save')
+            await fx(A, 'tap', 'CC-1003'); await W(A, 300)
+            await A.click('#fxBody .fx-tile[data-w="Delete it"]'); await A.fill('#fxItemNote', 'Not a pole: a lamp post'); await fxclick(A, 'save')
+            await fx(A, 'tap', 'CC-1004'); await W(A, 300)
+            pressed = await A.eval_on_selector_all('#fxBody .fx-tile[aria-pressed="true"]', "(d) => d.map((x) => x.dataset.w)")
+            await A.click('#fxBody .fx-tile[data-w="Pin location"]'); await fxclick(A, 'save')
+            await fx(A, 'spot', 7.0900, 125.6200); await W(A, 300)
+            spot_tiles = await A.eval_on_selector_all('#fxBody .fx-tile', "(d) => d.map((x) => x.dataset.w)")
+            await A.click('#fxBody .fx-tile[data-w="Missing pole"]'); await fxclick(A, 'save')
+            d = await fx(A, 'draft', PROJ); pins = await fx(A, 'pins')
+            by = {x['name'] or 'spot': x['why'] for x in d}
+            check('F5 one fix per pole: 1001 and 1002 New photo, 1003 Delete it (with its note), 1004 Owner + Pin location, and a spot: Missing pole (7, each with a pin)',
+                  len(d) == 7 and by.get('CC-1001') == ['New photo'] and by.get('CC-1002') == ['New photo'] and by.get('CC-1003') == ['Delete it'] and by.get('CC-1004') == ['Owner', 'Pin location'] and by.get('spot') == ['Missing pole'] and pressed == ['Owner'] and spot_tiles == ['Missing pole', 'Check here', 'Other'] and pins == 7, (d, pressed, spot_tiles, pins))
+            await A.screenshot(path=f'{OUT}/j_fixlist.png')
+            check('F6 the panel fits the phone: no sideways scroll', await A.evaluate("() => document.documentElement.scrollWidth - innerWidth") <= 0)
+            await fxclick(A, 'send'); await idle(A, 40000); await W(A, 500)
+            out = await fx(A, 'out', PROJ); tA = await toast(A)
+            check('F7 sent: 7 fixes to Pedro (round 1), each with the pole as it was', out and out['round'] == 1 and len(out['items']) == 7 and all(x['status'] == 'out' for x in out['items']) and sum(1 for x in out['items'] if x.get('before')) == 6 and '7 fixes sent to Pedro' in tA and not await A.is_visible('#fixPanel'), (tA, out and out['round']))
+            # ---------- Pedro works through it
+            await projects(B); ib = await inbox(B)
+            check('P1 Pedro: Fixes asked by Juan Dela Cruz', len(ib) == 1 and 'Fixes asked by Juan Dela Cruz' in ib[0], ib)
+            await open_in(B); await idle(B, 30000); await W(B, 900)
+            st = await fx(B, 'state'); L = await fx(B, 'list', PROJ); bt = await body(B)
+            check('P2 the fix list opens over the map: 7 numbered pins, fix 1 is CC-1004 (Owner, Pin location), ✓ Fixed it off until both show on the record',
+                  st and st['mode'] == 'fp' and len(L['items']) == 7 and await fx(B, 'pins') == 7 and 'Fix 1 of 7' in bt and 'Pole CC-1004' in bt and await B.is_disabled('#fxBody [data-fx="fixed"]'), (st, bt[:300]))
+            await B.screenshot(path=f'{OUT}/p_fix1.png')
+            await setrec(B, 'CC-1004', {'boq': {'owner': 'PLDT'}}); await W(B, 400)
+            half = await B.is_disabled('#fxBody [data-fx="fixed"]'); bt = await body(B)
+            await B.evaluate("""async (n) => { await __polecam.team.mbx.fx.setRec(n, 'CC-1004', { lat: 7.07 + 3 * 0.0004 + 0.00005, lon: 125.6 + 3 * 0.0004 + 0.00003 }); }""", PROJ); await W(B, 400)
+            done1 = not await B.is_disabled('#fxBody [data-fx="fixed"]')
+            check('P3 the items tick themselves: Owner done after the owner is set (still off), then Pin location after the pin moved: ✓ Fixed it on', half and 'Done' in bt and done1, (half, done1, bt[:300]))
+            await fxclick(B, 'fixed')
+            bt = await body(B)
+            check('P4 next: fix 2, CC-1005 (Owner)', 'Pole CC-1005' in bt, bt[:200])
+            await fxclick(B, 'cant'); await B.fill('#fxReply', 'No tag: owner unknown'); await fxclick(B, 'replysave')
+            await setrec(B, 'CC-1006', {'boq': {'owner': 'Globe'}}); await W(B, 300); await fxclick(B, 'fixed')
+            bt = await body(B)
+            check('P5 can’t fix with a reason; CC-1006 fixed; the next is CC-1001 (New photo, off until a new photo)', 'Pole CC-1001' in bt and 'Take the new photo' in bt and await B.is_disabled('#fxBody [data-fx="fixed"]') and 'Send the 3 done so far to Juan' in bt, bt[:400])
+            await B.screenshot(path=f'{OUT}/p_fix4.png')
+            await fxclick(B, 'send'); await W(B, 600)
+            what = await B.eval_on_selector_all('#mbxWhat label', "(d) => d.map((x) => [x.textContent, x.querySelector('input').checked])")
+            check('P6 Send the done so far: the Send screen, Only the changes with 3 fix answers', what and what[0][1] and '3 fix answers' in what[0][0], what)
+            sg = await send_go(B, 40000)
+            L = await fx(B, 'list', PROJ)
+            check('P7 sent: those 3 are marked sent; 4 still to do', sg.get('done') and sum(1 for x in L['items'] if x.get('sent')) == 3 and sum(1 for x in L['items'] if x['status'] == 'open') == 4, (sg.get('line'), [(x['name'], x['status'], x.get('sent')) for x in L['items']]))
+            # ---------- Juan: what changed, and each answer
+            await projects(A); j, stg = await dl(A, ms=40000)
+            out = await fx(A, 'out', PROJ); chg = await fx(A, 'chg', PROJ)
+            ct = await txt(A, '#curTeam')
+            ch4 = [x for x in chg['items'] if x['name'] == 'CC-1004']
+            check('J1 update 2 merged: 3 fix answers to check; What changed has CC-1004: Owner empty → PLDT and the pin moved',
+                  j['ans'] == 3 and ch4 and any(l['label'] == 'Owner' and l['from'] == 'empty' and l['to'] == 'PLDT' for l in ch4[0]['lines']) and any(l['label'] == 'Pin' for l in ch4[0]['lines']) and '3 to check' in ct, (j, ch4, ct[:300]))
+            await A.locator('#wfBox').screenshot(path=f'{OUT}/j_review1.png')
+            rows = await A.eval_on_selector_all('#curTeam .fx-rv', "(d) => d.map((x) => x.textContent)")
+            r4 = [r for r in rows if 'CC-1004' in r]; r5 = [r for r in rows if 'CC-1005' in r]
+            check('J2 each answer shows what changed: CC-1004 Owner empty → PLDT and Pin moved; CC-1005 “No tag: owner unknown”; the rest with Pedro',
+                  r4 and 'PLDT' in r4[0] and 'moved' in r4[0] and r5 and 'No tag: owner unknown' in r5[0] and sum(1 for r in rows if 'With the field partner' in r) == 4, rows)
+            acc = await A.evaluate(ACC_JS)
+            check('J3 Accept is off: answers to check first', acc is True and 'not OK yet' in ct, (acc, ct[-200:]))
+            await A.click('#curTeam .fx-rv:has-text("CC-1004") [data-fxr="show"]'); await W(A, 900)
+            shown = await A.evaluate("() => ({ chip: !document.getElementById('hlChip').hidden, proj: !document.getElementById('projects').hidden })")
+            check('J4 Show on the map: the pole is ringed on the map (with where it was)', shown['chip'] and not shown['proj'], shown)
+            await A.screenshot(path=f'{OUT}/j_show.png')
+            await A.click('#projectBtn'); await W(A, 400)
+            for pid, v in (('CC-1004', 'ok'), ('CC-1005', 'ok'), ('CC-1006', 'again')):
+                await A.click(f'#curTeam .fx-rv:has-text("{pid}") [data-fxr="{v}"]'); await W(A, 300)
+            await A.fill('#fxAgainNote', 'The owner is Converge'); await A.click('#curTeam [data-fxr="sendagain"]'); await idle(A, 30000); await W(A, 500)
+            out = await fx(A, 'out', PROJ); i6 = [x for x in out['items'] if x['name'] == 'CC-1006'][0]
+            check('J5 OK, OK, Not yet: CC-1006 goes back as round 2 with Juan’s note', out['round'] == 2 and i6['status'] == 'out' and i6['round'] == 2 and 'Converge' in i6.get('againMsg', ''), (out['round'], i6))
+            # ---------- Pedro: the rest, something found, round 2
+            await close_sheets(B); await B.click('#projectBtn'); await W(B, 300); await B.click('#curTeam [data-ct="fxopen"]'); await W(B, 700)
+            await setrec(B, 'CC-1001', {'takenAt': '2026-11-10T08:00:00.000Z'}); await W(B, 300)
+            bt = await body(B); await fxclick(B, 'fixed')
+            await setrec(B, 'CC-1002', {'takenAt': '2026-11-10T08:05:00.000Z'}); await W(B, 300); await fxclick(B, 'fixed')
+            await mbx(B, 'del', PROJ, 'CC-1003'); await W(B, 400)
+            bt3 = await body(B); await fxclick(B, 'fixed')
+            await mbx(B, 'seed', PROJ, 1, {'from': 50}); await W(B, 400)
+            bt4 = await body(B); await fxclick(B, 'fixed')
+            check('P8 a new photo, a deleted record and the missing pole (captured at the spot) each tick on the record', 'Pole CC-1001' in bt and 'Done' in bt3 and 'Missing pole' in bt4 and 'Done' in bt4, (bt[:160], bt3[:200], bt4[:200]))
+            await fxclick(B, 'found'); await B.click('#fxBody .fx-tile[data-w="Leaning"]'); await B.fill('#fxFoundNote', 'Leaning toward the road'); await fxclick(B, 'foundsave')
+            await projects(B); ib = await inbox(B)
+            await open_in(B); await idle(B, 30000); await W(B, 800)
+            bt = await body(B); L = await fx(B, 'list', PROJ)
+            check('P9 round 2 arrives: CC-1006 open again with Juan’s note; the found item is on the list', 'Pole CC-1006' in bt and 'Round 2' in bt and 'Converge' in bt and any(x['kind'] == 'found' for x in L['items']), (ib, bt[:300]))
+            await setrec(B, 'CC-1006', {'boq': {'owner': 'Converge'}}); await W(B, 300); await fxclick(B, 'fixed')
+            bt = await body(B)
+            check('P10 all checked: Send to Juan', 'All checked' in bt, bt[:200])
+            await fxclick(B, 'send'); await W(B, 500); sg = await send_go(B, 40000)
+            # ---------- Juan checks and accepts
+            await projects(A); j, stg = await dl(A, ms=40000)
+            rows = await A.eval_on_selector_all('#curTeam .fx-rv', "(d) => d.map((x) => x.textContent)")
+            g = lambda k: ([r for r in rows if k in r] or [''])[0]
+            check('J6 the answers: CC-1001 new photo, CC-1003 deleted, a new pole CC-1051 at the spot, Pedro found Leaning, CC-1006 Owner → Converge',
+                  'new photo' in g('CC-1001') and 'deleted' in g('CC-1003') and 'CC-1051' in g('A spot on the map') and 'Leaning' in g('Found') and 'Converge' in g('CC-1006'), rows)
+            await A.locator('#wfBox').screenshot(path=f'{OUT}/j_review2.png')
+            while True:
+                b = A.locator('#curTeam [data-fxr="ok"]')
+                if not await b.count(): break
+                await b.first.click(); await W(A, 250)
+            acc = await A.evaluate(ACC_JS)
+            check('J7 every answer OK: Accept is on', acc is False, (acc, await txt(A, '#curTeam')))
+            await A.click('#curTeam [data-ct="accept"]'); await answer(A, 'Accept'); await idle(A, 30000); await W(A, 400)
+            check('J8 accepted', 'Accepted on' in await txt(A, '#curTeam'), await txt(A, '#curTeam'))
+            check('Z1 no page errors', not (ea + eb), ea + eb)
+            for c in (ca, cb): await c.close()
+    finally:
+        srv.terminate()
+    bad = [n for n, ok in checks if not ok]
+    print(f'{len(checks) - len(bad)} passed, {len(bad)} failed' + (f': {bad}' if bad else ''))
+asyncio.run(main())

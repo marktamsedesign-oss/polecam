@@ -2,6 +2,7 @@
 /* ---------- basics ---------- */
 const D2R = Math.PI / 180, C30 = Math.cos(Math.PI / 6);
 const f1 = v => (Math.round(v * 10) / 10).toFixed(1);
+const r1w = v => Math.round((+v || 0) * 10) / 10;      /* beta 6.6 (the owner: "yes always same with the CEF"): a length as the plan writes it, to 0.1 m */
 const f0 = v => String(Math.round(v));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const snap = v => Math.round(v * 10) / 10;
@@ -56,7 +57,8 @@ const LOOPZ = STD.gap + STD.loopD / 2, CLOZ = 2 * STD.gap + STD.loopD, bendR = d
 /* service boxes of the standard: the frame as it shows at ground level, how deep the box goes, its inside size in mm, and how deep its conduit comes in */
 const SBOX = { A1: { w: 0.8, d: 0.8, dp: 0.85, inn: '500x500x700', cd: 0.1 }, A2: { w: 0.8, d: 0.8, dp: 0.85, inn: '500x500x700', cd: 0.2 }, B1: { w: 1, d: 0.75, dp: 0.65, inn: '700x500x500', cd: 0.1 }, B2: { w: 1, d: 0.75, dp: 0.65, inn: '700x500x500', cd: 0.2 } };
 /* the riser on a pole whose cable is zc above the datum and whose ground is at g: where the encasement ends, where the G.I. pipe ends and the U-guard ends, and the heights of their straps */
-function riserParts(g, zc) {
+function riserParts(g, zc, ped) {
+  if (ped) { const giTop = g + PED.h, R = riserParts(g, zc), ugTop = Math.max(giTop + 0.3, R.ugTop), ug = []; for (let t = giTop + 0.3; t < ugTop - 0.04; t += 0.6) ug.push(t); return { e: g, giTop, ugTop, gi: [], ug, ped: 1 }; }      /* (fix 47) a pedestal box at the foot: no encasement of its own and no G.I. pipe; the U-guard goes from the top of the box to where it ends on a riser */
   const e = g + STD.encUp, gi = [], ug = []; let z = e; for (const q of STD.gi) { z += q; gi.push(z); }
   const giTop = Math.max(e + 0.2, Math.min(z, zc - 1)); let t = giTop; for (const q of STD.ugd) { t += q; ug.push(t); }
   const ugTop = Math.max(giTop, Math.min(t + 0.1, zc - 0.3));
@@ -76,6 +78,7 @@ const TYPES = {
   pad: { n: 'Base pad', s: 'Base pad', g: 'equip', w: 4, d: 2.5, h: 0.3 },
   odc: { n: 'Outdoor cabinet', s: 'ODC', g: 'equip', w: 0.8, d: 0.8, h: 1.9, cn: 'ODC', num: 1 },
   cabin: { n: 'Cabin', s: 'Cabin', g: 'equip', w: 3, d: 4, h: 2.8, num: 1 },
+  troom: { n: 'Telco room', s: 'Telco room', g: 'equip', w: 3, d: 3, h: 3, num: 1, cn: 'TELCO ROOM', as: 'cabin', set: { tr: 1 } },      /* (fix 47) the room of an in-building solution (IBS): a cabin in all but its name (el.tr), with no aircon unit on its wall to start with */
   gen: { n: 'Genset', s: 'Genset', g: 'equip', w: 2.4, d: 1.1, h: 1.4 },
   tank: { n: 'Fuel tank', s: 'Fuel tank', g: 'equip', w: 2.2, d: 1, h: 1.6 },
   box: { n: 'Other structure', s: 'Structure', g: 'equip', w: 1, d: 1, h: 1, cn: 'STRUCTURE' },
@@ -90,6 +93,8 @@ const TYPES = {
   enc: { n: 'Concrete encasement', s: 'Encasement', g: 'foc', w: 0.6, d: 0.6, h: 0.6, st: 'P' },
   /* inside a cabin */
   rack: { n: 'Equipment rack', s: 'Rack', g: 'room', w: 0.6, d: 0.6, h: 2.05, num: 1 },
+  orack: { n: 'Open rack (4-post)', s: 'Open rack', g: 'room', w: 0.6, d: 0.6, h: 2.05, num: 1, as: 'rack', set: { open: 1 } },      /* (fix 47) a rack with no walls and no doors: an open frame, posts only (el.open) */
+  rack2: { n: '2-post rack', s: '2-post rack', cn: '2-POST OPEN RACK', g: 'room', w: 0.52, d: 0.38, h: 2.13, num: 1, as: 'rack', set: { open: 2 } },      /* (fix 48) a 2-post open relay rack (el.open 2): two posts on floor feet, a bar at the top and one at the foot, the equipment bolted between the posts. 19-inch: 0.52 m across, feet 0.38 m deep, 2.13 m (7 ft) tall */
   runit: { n: 'Rack equipment', s: 'Equipment', g: 'room', w: 0.48, d: 0.4, h: 0.09, ru: 2 },
   port: { n: 'Porthole', s: 'Porthole', g: 'room', w: 0.5, d: 0.1, h: 0.36, z: 2.35 },
   ac: { n: 'Aircon unit', s: 'Aircon', g: 'room', w: 0.8, d: 0.3, h: 0.6, z: 1.7, cn: 'AIRCON' }          /* the outdoor unit, on the outside of a cabin wall; z: its bottom above the floor */
@@ -145,10 +150,35 @@ function blank() {
   };
 }
 function newEl(t, x, y) {
-  const T = TYPES[t], e = { id: uid(), t, x: snap(x), y: snap(y), w: T.w, d: T.d, h: T.h || 0, rot: 0, st: T.st || 'E', name: '' };
+  const T = TYPES[t], e = { id: uid(), t: T.as || t, x: snap(x), y: snap(y), w: T.w, d: T.d, h: T.h || 0, rot: 0, st: T.st || 'E', name: '' };
+  if (T.set) Object.assign(e, T.set);      /* (fix 47) a telco room is a cabin, an open rack a rack */
   if (T.th) e.th = T.th; if (T.ar) e.ar = T.ar; if (T.size) e.size = T.size; if (T.z != null) e.z = T.z; if (T.dp) e.dp = T.dp; if (T.ru) e.ru = T.ru;
   return e;
 }
+/* (fix 47) a telco room: a cabin (t 'cabin') with el.tr. Everything a cabin does it does; only its name differs. tyOf: the type an item is shown as. */
+const isTR = e => !!e && e.t === 'cabin' && !!e.tr;
+const tyOf = e => isTR(e) ? TYPES.troom : is2P(e) ? TYPES.rack2 : e && e.t === 'rack' && e.open ? TYPES.orack : TYPES[e.t];
+/* (fix 48) a 2-post open rack: a rack with el.open 2 (an open rack of beta 4.7 has el.open 1, a closed cabinet none). TP: the parts of one, in metres (each kept within a rack typed smaller):
+   pw, pd: a post across and front to back; fw, ft: a foot across and its thickness (the foot runs the whole depth el.d); tb, bb: the height of the bar at the top and of the one at the foot.
+   twoPost(el): the same for this rack, with px the middle of a post from the middle of the rack and yf the front of the posts, where the equipment is bolted. The posts stand at the outer ends of the feet, so that 19-inch equipment fits between them. */
+const is2P = e => !!e && e.t === 'rack' && +e.open === 2;
+const TP = { pw: 0.035, pd: 0.08, fw: 0.09, ft: 0.015, tb: 0.06, bb: 0.08 };
+function twoPost(el) { const w = Math.max(0.2, num(el.w, 0.52)), d = Math.max(0.1, num(el.d, 0.38)), pw = Math.min(TP.pw, w / 8), fw = Math.max(pw, Math.min(TP.fw, w / 4)), pd = Math.min(TP.pd, d); return { w, d, pw, pd, fw, ft: TP.ft, tb: TP.tb, bb: TP.bb, px: w / 2 - pw / 2, yf: -pd / 2 }; }
+/* its parts seen from above, in site coordinates: the two feet, the two posts, and the bar at the top between the posts */
+function twoPostTop(el) { const K = twoPost(el), lp = (x, y) => loc(el, x, y), r = el.rot || 0, o = { feet: [], posts: [], bar: rectAt(lp(0, 0), 2 * (K.px - K.pw / 2), K.pd, r) };
+  for (const sx of [-1, 1]) { o.feet.push(rectAt(lp(sx * (K.w / 2 - K.fw / 2), 0), K.fw, K.d, r)); o.posts.push(rectAt(lp(sx * K.px, 0), K.pw, K.pd, r)); } return o; }
+/* how deep an item mounted in a rack is behind its front plate (on a 2-post rack: from the front of the posts, no further back than its feet); and the room it takes there,
+   seen from above, as wide as its front plate */
+const itemDp = e => e.t === 'odf' ? 0.25 : 0.38;
+const dp2P = (h, e) => { const K = twoPost(h); return Math.max(0.06, Math.min(itemDp(e), K.d / 2 - K.yf - 0.01)); };
+function odf2P(h, e) { const K = twoPost(h), hw = rackOf(h).hw, dp = dp2P(h, e); return rectAt(loc(h, 0, K.yf + dp / 2), 2 * hw, dp, h.rot); }
+const roomWord = e => isTR(e) ? 'telco room' : 'cabin';
+/* (fix 47) the ground pedestal box at the foot of a pole, where the UG cable comes up, in place of the G.I. riser pipe: el.ped 'P' (proposed) or 'E' (existing) on the pole.
+   PED: its size (w along the side of the pole, d out from it, h above the ground). It stands on the side of the riser, against the pole (against its concrete encasement on a riser pole). */
+const PED = { w: 0.36, d: 0.3, h: 1 };
+const pedOf = pole => !!pole && (pole.t === 'rpole' || pole.t === 'epole') && (pole.ped === 'P' || pole.ped === 'E') ? pole.ped : null;
+const pedName = st => (st === 'E' ? 'EXISTING' : 'PROPOSED') + ' PEDESTAL BOX';
+function pedAt(pole, u) { const off = (pole.t === 'rpole' ? Math.max(STD.encW, pole.w + 0.16) / 2 : Math.max(pole.w / 2, 0.1)) + 0.03 + PED.d / 2, c = [pole.x + u[0] * off, pole.y + u[1] * off]; return { c, rot: Math.atan2(u[1], u[0]) / D2R + 90, poly: rectAt(c, PED.w, PED.d, Math.atan2(u[1], u[0]) / D2R + 90), u }; }
 function sampleSite() {
   const S = blank(); S.sample = true;
   Object.assign(S.site, { name: 'SAMPLE SITE', id: 'MIN0000', lat: 7.11, lon: 124.83, bearing: 24, by: 'Sample surveyor' });
@@ -239,7 +269,7 @@ const units = e => clamp(Math.round(e.t === 'odf' && !ruTyped(e) ? odfRu(e) : nu
 function rackOf(host, bay) {      /* (14 Nov 17:00) bay: which rack of a cabinet with more than one; cx: the middle of that rack, across from the middle of the cabinet */
   const nb = bayN(host), h = Math.max(0.3, num(host.h, 2)), w = Math.max(0.2, num(host.w, 0.6)) / nb, k = bay == null ? 0 : clamp(bay | 0, 0, nb - 1);
   const zb = host.t === 'odc' ? Math.min(0.1, h * 0.1) + 0.07 : 0.09, zu = host.t === 'odc' ? h - Math.min(0.07, h * 0.08) - 0.06 : h - 0.06;
-  return { zb, n: Math.max(1, Math.floor((zu - zb) / RU)), hw: Math.max(0.08, Math.min(0.2413, w / 2 - 0.07)), cx: (k - (nb - 1) / 2) * w, nb };
+  return { zb, n: Math.max(1, Math.floor((zu - zb) / RU)), hw: Math.max(0.08, Math.min(0.2413, is2P(host) ? w / 2 - twoPost(host).pw / 2 : w / 2 - 0.07)), cx: (k - (nb - 1) / 2) * w, nb };      /* (fix 48) on a 2-post rack the equipment is bolted to the front of the posts */
 }
 function rackHost(S, e) { if (!inRack(e)) return null; for (const q of S.els) if (q !== e && (q.t === 'odc' || q.t === 'rack') && inPoly([e.x, e.y], elPoly(q))) return q; return null; }
 function rackItems(S, host, bay) { return S.els.filter(e => inRack(e) && rackHost(S, e) === host && (bay == null || bayOf(host, e) === bay)); }
@@ -275,7 +305,7 @@ function wallOf(w, d, x, y) {
 /* a cabin's aircon units, as wall points of the inside sketch (x, y on a wall, with that wall's side, n and face), their size, the height of their bottom, and where they stand on the site (at: the middle of the unit, outside the wall). With no inside sketch: one on the right wall, as before. */
 function cabinAcs(el) {
   const w = el.w, d = el.d, h = Math.max(1, num(el.h, 2.8)), I = el.inside;
-  const list = I && I.acInit && Array.isArray(I.els) ? I.els.filter(e => e.t === 'ac') : h > 1.6 ? [{ x: w, y: d * 0.7, z: h - 1.1, st: el.st }] : [];
+  const list = I && I.acInit && Array.isArray(I.els) ? I.els.filter(e => e.t === 'ac') : h > 1.6 && !el.tr ? [{ x: w, y: d * 0.7, z: h - 1.1, st: el.st }] : [];
   return list.map(e => { const k = wallOf(w, d, e.x, e.y), aw = num(e.w, 0.8), ad = num(e.d, 0.3), ah = num(e.h, 0.6), o = 0.02 + ad / 2, lc = [k.x - w / 2 + k.n[0] * o, k.y - d / 2 + k.n[1] * o];
     return Object.assign(k, { w: aw, d: ad, h: ah, z: clamp(num(e.z, h - 1.1), 0, Math.max(0, h - ah)), st: e.st || el.st || 'E', id: e.id || null, hz: k.side === 'S' || k.side === 'N', at: loc(el, lc[0], lc[1]), wall: loc(el, k.x - w / 2, k.y - d / 2) }); });
 }
@@ -292,9 +322,10 @@ function cabinInside(S, el) {
   const F = p => fromRoom(el, p), zf = baseZ(S, el), out = { racks: [], odfs: [], legs: [], walls: [], fh: Math.max(1.5, num(el.h, 2.8)) };
   for (const r of I.runs || []) if (r.kind === 'part' && r.pts && r.pts.length > 1) { const hw = Math.max(0.03, num(r.w, RUNS.part.w)) / 2; out.walls.push({ pts: r.pts.map(F), sides: [offsetPath(r.pts, hw).map(F), offsetPath(r.pts, -hw).map(F)], z0: zf, z1: zf + out.fh }); }
   for (const q of I.els) {
-    if (q.t === 'rack') out.racks.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, poly: elPoly(q).map(F), front: [loc(q, -q.w / 2, -q.d / 2 + 0.08), loc(q, q.w / 2, -q.d / 2 + 0.08)].map(F), z0: zf, z1: zf + Math.max(0.3, num(q.h, 2)) });
+    if (is2P(q)) { const T2 = twoPostTop(q), z1 = zf + Math.max(0.3, num(q.h, 2)), K2 = twoPost(q); out.racks.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, two: 1, feet: T2.feet.map(p => p.map(F)), posts: T2.posts.map(p => p.map(F)), bar: T2.bar.map(F), z0: zf, z1, ztb: z1 - Math.min(K2.tb, (z1 - zf) / 10) }); continue; }      /* (fix 48) a 2-post rack: its feet, its two posts and the bar at the top */
+    if (q.t === 'rack') out.racks.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, poly: elPoly(q).map(F), front: [loc(q, -q.w / 2, -q.d / 2 + 0.08), loc(q, q.w / 2, -q.d / 2 + 0.08)].map(F), z0: zf, z1: zf + Math.max(0.3, num(q.h, 2)), posts: q.open ? [-1, 1].reduce((o, sx) => o.concat([-1, 1].map(sy => { const t = Math.min(0.05, q.w / 8, q.d / 8); return rectAt(loc(q, sx * (q.w / 2 - t / 2), sy * (q.d / 2 - t / 2)), t, t, q.rot).map(F); })), []) : null });      /* (fix 47) an open rack: its corner posts too */
     if (q.t === 'odf') {
-      const h = rackHost(I, q), K = h ? rackOf(h) : null, zb = h ? zf + K.zb + (uOf(I, h, q) - 1) * RU : zf, base = h ? rectAt([h.x, h.y], Math.min(h.w - 0.04, 2 * K.hw + 0.04), Math.max(0.1, h.d - 0.12), h.rot) : elPoly(q);
+      const h = rackHost(I, q), K = h ? rackOf(h) : null, zb = h ? zf + K.zb + (uOf(I, h, q) - 1) * RU : zf, base = h ? (is2P(h) ? odf2P(h, q) : rectAt([h.x, h.y], Math.min(h.w - 0.04, 2 * K.hw + 0.04), Math.max(0.1, h.d - 0.12), h.rot)) : elPoly(q);      /* (fix 48) on a 2-post rack: from the front of the posts back */
       out.odfs.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, poly: base.map(F), z0: zb, z1: zb + (h ? units(q) * RU : Math.max(0.05, num(q.h, 0.4))) });
     }
   }
@@ -383,7 +414,7 @@ function syncRoom(R, el) {
   R.room = true; const si = R.site; si.kind = 'room'; si.L = el.w; si.W = el.d; si.fh = Math.max(1.5, num(el.h, 2.8));
   /* A new inside gets one door and one aircon unit, as a cabin has them. After that they are the user's to add, move and remove, down to none. */
   if (!R.doorInit) { if (!Array.isArray(R.gates) || !R.gates.length) R.gates = [{ side: 'S', off: Math.max(0, el.w / 2 - 0.45), w: Math.min(0.9, el.w) }]; R.doorInit = true; }
-  if (!R.acInit) { if (si.fh > 1.6 && !R.els.some(e => e.t === 'ac')) R.els.push(Object.assign(newEl('ac', si.L, si.W * 0.7), { x: si.L, y: Math.round(si.W * 0.7 * 100) / 100, z: Math.round((si.fh - 1.1) * 10) / 10, rot: 90, st: el.st || 'E' })); R.acInit = true; }
+  if (!R.acInit) { if (si.fh > 1.6 && !el.tr && !R.els.some(e => e.t === 'ac')) R.els.push(Object.assign(newEl('ac', si.L, si.W * 0.7), { x: si.L, y: Math.round(si.W * 0.7 * 100) / 100, z: Math.round((si.fh - 1.1) * 10) / 10, rot: 90, st: el.st || 'E' })); R.acInit = true; }
   return R;
 }
 function newRoom(el) { const R = blank(); R.route.note = ''; R.els.push(Object.assign(newEl('port', el.w, Math.min(0.4, el.d / 2)), { z: Math.round((Math.max(1.5, num(el.h, 2.8)) - 0.45) * 10) / 10, rot: 90 })); return syncRoom(R, el); }
@@ -435,14 +466,14 @@ const SAND_R = 0.012;
 const isPole = e => e.t === 'rpole' || e.t === 'epole';
 /* Names on the drawings of the site. A CEF plan is about the fiber, so the names of what belongs to the tower site are left out unless the user turns them on.
    [key, what the Site tab calls it, written by default] */
-const NAMES = [['tid', 'Site name and ID on the tower', 1], ['th', 'Tower height', 0], ['cabin', 'Cabin', 0], ['ladder', 'Cable ladder', 0], ['port', 'Porthole', 0], ['gate', 'Gate', 0], ['site', 'Genset, base pad, tank, structure', 1], ['dim', 'Length of each leg: FOC, conduit, trench', 1], ['shade', 'Outline on a base pad under a raised ladder', 1]];
+const NAMES = [['tid', 'Site name and ID on the tower', 1], ['th', 'Tower height', 0], ['cabin', 'Cabin', 0], ['troom', 'Telco room', 1], ['ladder', 'Cable ladder', 0], ['port', 'Porthole', 0], ['gate', 'Gate', 0], ['site', 'Genset, base pad, tank, structure', 1], ['dim', 'Length of each leg: FOC, conduit, trench', 1], ['shade', 'Outline on a base pad under a raised ladder', 1]];
 function nameOn(S, k) { if (S.room) return k !== 'tid'; const n = S.site && S.site.names, d = NAMES.find(q => q[0] === k); return n && n[k] != null ? !!n[k] : !d || !!d[2]; }
 /* The site name and ID, written as a title beside the top of the tower: bold, capitals, larger than the other names. '' when it is turned off or there is no name. */
 function siteTitle(S) { if (S.room || !nameOn(S, 'tid')) return ''; const si = S.site || {}; return labText(S, 'tid', [si.name, si.id].map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join('\n')); }
 const titleLines = S => siteTitle(S).split('\n').filter(Boolean);            /* the site name on one line, the ID on the next */
 const titleTower = S => siteTitle(S) ? S.els.find(q => TYPES[q.t] && TYPES[q.t].g === 'tower') || null : null;
 const TITLE_K = [1.5, 1.3, 1.15, 1];
-const nameGrp = el => el.t === 'cabin' ? 'cabin' : el.t === 'gen' || el.t === 'tank' || el.t === 'pad' || el.t === 'box' ? 'site' : null;
+const nameGrp = el => el.t === 'cabin' ? (el.tr ? 'troom' : 'cabin') : el.t === 'gen' || el.t === 'tank' || el.t === 'pad' || el.t === 'box' ? 'site' : null;
 /* the size of the names: 'auto' (a name that finds no room is written smaller, down to what is still easy to read, before it gets a leader), or a percentage that the user set */
 const txAuto = S => !(S.site && S.site.txt != null && S.site.txt !== '' && S.site.txt !== 'auto');
 const txK = S => txAuto(S) ? 1 : clamp(num(S.site.txt, 100), 50, 250) / 100;
@@ -505,21 +536,25 @@ function depthAt(S, p) { let d = 0; for (const r of S.runs) if (buried(r) && onR
 /* the name of a cable on the drawing: what it is and how long, as on the hand-made plans ("Proposed Duct Single Mode FOC, 72 Fibers: 50.0m") */
 function focName(S, rg, f, k) { const R = cables(S)[k || 0] || S.route, P = rg.parts && rg.parts[k || 0], sm = P ? P.sum : rg.sum, c = String((R[f] || {}).cable || '').trim(), L = f === 'ae' ? sm.ae : sm.ugt; return 'PROPOSED ' + (c ? c + ' ' : '') + 'FOC ' + f.toUpperCase() + (f !== 'ae' && L > 0.05 ? ': ' + f1(L) + 'm' : ''); }      /* (14 Nov) the aerial cable says no length: how far it is drawn inside the site says nothing about the cable */
 function elLabel(S, el) {
-  const s = elLabel0(S, el), T = TYPES[el.t]; if (el.name || el.st !== 'P' || !T || T.g === 'tower') return s;      /* a proposed item says so, as on the hand-made plans */
+  const s = elLabel0(S, el), T = tyOf(el); if (el.name || el.st !== 'P' || !T || T.g === 'tower') return s;      /* a proposed item says so, as on the hand-made plans */
   if (el.t === 'dnap') return 'PROPOSED ' + (String(el.size || '').trim() ? String(el.size).trim().toUpperCase() + ' ' : '') + 'DUMMY NAP';      /* (14 Nov 17:00) */
   if (el.t === 'odf') { const h = hostOf(S, [el.x, el.y], el); return 'PROPOSED ' + (el.size ? el.size + ' ' : '') + 'ODF' + (h && h.st !== 'P' && h.t !== 'cabin' ? ' @EXISTING ' + elLabel0(S, h) : ''); }
   return 'PROPOSED ' + s;
 }
 function elLabel0(S, el) {
-  const T = TYPES[el.t]; if (el.name) return String(el.name).toUpperCase();
+  const T = tyOf(el); if (el.name) return String(el.name).toUpperCase();
   const nm = (T.cn || T.s).toUpperCase();
   if (T.g === 'tower') return nm + (nameOn(S, 'th') ? ' ' + f2(Math.round(num(el.th, 0) * 10) / 10) + ' m' : '');      /* its height only when the user asks for it */
   if (el.t === 'sbox' && SBOX[el.ty]) return nm + ' ' + el.ty;                 /* a box of the standard: its type says its size and depth */
   if (el.t === 'hh' || el.t === 'sbox') return nm + deepNote(num(el.dp, UGD));
-  if (T.num) { const same = S.els.filter(q => q.t === el.t), i = same.findIndex(q => q.id === el.id); if (same.length > 1 && i >= 0) return nm + ' ' + (i + 1); }       /* ODC 1, ODC 2: so that a detail can say which one it shows */
+  if (T.num) { const same = S.els.filter(q => q.t === el.t && (el.t !== 'cabin' || isTR(q) === isTR(el))), i = same.findIndex(q => q.id === el.id); if (same.length > 1 && i >= 0) return nm + ' ' + (i + 1); }      /* (fix 47: cabins and telco rooms are counted apart; open and closed racks together) */       /* ODC 1, ODC 2: so that a detail can say which one it shows */
   return nm;
 }
 const labRec = (S, key) => (S.lab && S.lab[key]) || null;
+/* (fix 47) the size the user gave this one name: a part of the size of the names of the plan (S.lab[key].k), 1 when none */
+const LABK = [0.7, 0.85, 1, 1.2, 1.4, 1.7, 2];
+function labK(S, key) { const r = labRec(S, key), k = r ? +r.k : NaN; return k > 0 ? clamp(k, 0.5, 3) : 1; }
+const labKs = S => !!S.lab && Object.keys(S.lab).some(k => S.lab[k] && +S.lab[k].k > 0 && +S.lab[k].k !== 1);
 function labText(S, key, def) { const r = labRec(S, key); return r && r.t ? String(r.t).toUpperCase() : def; }
 /* where the user dragged a label to, measured from its item. v: 'p' on the plan, 'i0' to 'i3' in the isometric, one for each way it can be turned */
 function labOff(S, key, v) { const r = labRec(S, key); return r && Array.isArray(r[v]) && isFinite(r[v][0]) && isFinite(r[v][1]) ? r[v] : null; }
@@ -887,11 +922,12 @@ function routeGeom1(S, R, cno) {
   if (A.length > 1 && U.length > 1 && !out.join) out.notes.push('The AE and UG fibers do not meet. End the AE fiber and start the UG fiber on the same riser pole.');
   if (S.room && U.length > 1 && !S.els.some(e => e.t === 'port' && (d2([e.x, e.y], U[0]) < 0.35 || d2([e.x, e.y], U[n2]) < 0.35))) out.notes.push('The cable inside the cabin does not start at a porthole.');
   const s = out.sum;
-  for (const l of out.legs) s[l.type] += l.len;
-  for (const q of out.drops) s.aerial += q.len;      /* (14 Nov 17:00) down the pole into a Dummy NAP: AE cable */
+  for (const l of out.legs) s[l.type] += r1w(l.len);      /* beta 6.6: each leg counts as the plan writes its length (0.1 m), so the written lengths add up to the totals */
+  for (const q of out.drops) s.aerial += r1w(q.len);      /* (14 Nov 17:00) down the pole into a Dummy NAP: AE cable */
   for (const v of out.verts) s.vert += v.z1 - v.z0;
   for (const k of out.links) s.vert += Math.hypot(k.b[0] - k.a[0], k.b[1] - k.a[1]);
-  for (const l of out.loops) { s.loop += l.len; s.nloop++; }
+  for (const l of out.loops) { s.loop += r1w(l.len); s.nloop++; }
+  for (const k in s) if (k !== 'nloop') s[k] = r1w(s[k]);      /* beta 6.6: no float dust (10.3 + 2.1 is 12.4) */
   s.inside = 0; out.U = U; out.A = A;
   return out;
 }
@@ -916,7 +952,7 @@ function routeGeom(S) {
   }
   if (!S.room) for (const e of S.els) if (e.t === 'cabin' && S.runs.some(r => r.kind === 'ladder' && (r.pts || []).some(p => inCabin(e, p, 0.15)))) notes.push('A cable ladder is drawn into ' + elLabel(S, e).toLowerCase() + ' on the site sketch. A ladder outside ends on the porthole; the ladder inside is drawn in the sketch of the inside.');
   const sum = {};
-  for (const p of parts) { const s = p.sum; s.ae = s.aerial + s.loop; s.ugt = s.ug + s.xug + s.ladder + s.open + s.liquid + s.wall + s.vert + s.inside; s.total = s.ae + s.ugt; for (const key in s) sum[key] = (sum[key] || 0) + s[key]; }
+  for (const p of parts) { const s = p.sum; s.inside = r1w(s.inside); s.ae = r1w(s.aerial + s.loop); s.ugt = r1w(s.ug + s.xug + s.ladder + s.open + s.liquid + s.wall + s.vert + s.inside); s.total = r1w(s.ae + s.ugt); for (const key in s) sum[key] = r1w((sum[key] || 0) + s[key]); }      /* beta 6.6: the sums of the lengths as written */
   const out = { legs: [], verts: [], loops: [], exits: [], bare: [], padx: [], drops: [], risers: [], links: [], warn: [], notes, ports: {}, join: null, joins: [], parts, sum };
   parts.forEach((p, k) => {
     for (const key of ['legs', 'verts', 'loops', 'exits', 'bare', 'padx', 'drops', 'risers', 'links', 'warn']) for (const q of p[key]) { q.cn = k; q.ck = p.ck; out[key].push(q); }
@@ -927,11 +963,15 @@ function routeGeom(S) {
 }
 function cefTable(S) {
   const rg = routeGeom(S), g = rg.sum, cnt = t => S.els.filter(e => e.t === t).length, odf = S.els.filter(e => e.t === 'odf').concat([].concat.apply([], S.els.filter(e => e.t === 'cabin' && e.inside && Array.isArray(e.inside.els)).map(e => e.inside.els.filter(q => q.t === 'odf'))));
-  const RP = rg.risers.map(r => riserParts(r.g, r.z1 - (r.nap ? 0 : CLOZ))), trench = g.ug + extraTrench(S, rg), pipe = rg.risers.reduce((s, r, i) => s + Math.max(0, RP[i].giTop - r.g), 0), guard = RP.reduce((s, k) => s + Math.max(0, k.ugTop - k.giTop), 0);
+  const RP = rg.risers.map(r => riserParts(r.g, r.z1 - (r.nap ? 0 : CLOZ), pedOf(r.pole))), trench = g.ug + extraTrench(S, rg), pipe = rg.risers.reduce((s, r, i) => s + (pedOf(r.pole) ? 0 : Math.max(0, RP[i].giTop - r.g)), 0), guard = RP.reduce((s, k) => s + Math.max(0, k.ugTop - k.giTop), 0);
+  const ped = st => S.els.filter(e => pedOf(e) === st).length;      /* (fix 47) the pedestal boxes at the foot of the poles */
   const sbt = Array.from(new Set(S.els.filter(e => e.t === 'sbox' && SBOX[e.ty]).map(e => e.ty))).join(', ');
   const Lm = v => v > 0.05 ? f1(v) + 'm' : '', Q = v => v > 0 ? String(v) : '';
   const cab = c => { c = String(c || ''); const sp = c.indexOf(' '); return sp > 0 ? [c.slice(0, sp), c.slice(sp + 1)] : [c, '']; }, CB = cables(S), drawn = CB.map((R, k) => k).filter(k => !k || cableDrawn(CB[k])), focRows = [];
-  for (const f of ['ae', 'ug']) for (const k of drawn) { const sm = rg.parts[k].sum, c = cab(CB[k][f].cable), Lf = f === 'ae' ? sm.ae : sm.ugt; if (k && Lf <= 0.05) continue; focRows.push([(f === 'ae' ? 'AE ' : 'UG ') + c[0] + ' FOC' + (f === 'ae' ? ' (W/ LOOP)' : '') + (drawn.length > 1 ? ' - C' + (k + 1) : ''), Lf > 0.05 ? c[1] : '', '', Lm(Lf)]); }      /* (14 Nov) one row for each fiber of each cable */
+  /* beta 6.7 (the owner: "the AE fiber is also written which should [not] because it will be counted from the asplan itself"): the UG fiber
+     only, one row for each cable, its whole length as the plan writes it in the cable's name (PROPOSED … FOC UG: 28.4m); the AE fiber is
+     counted in the As-Plan (a line under the table says so, focFormula) */
+  for (const k of drawn) { const sm = rg.parts[k].sum, c = cab(CB[k].ug.cable), Lf = sm.ugt; if (Lf <= 0.05) continue; focRows.push(['UG ' + c[0] + ' FOC' + (drawn.length > 1 ? ' - C' + (k + 1) : ''), c[1], '', Lm(Lf)]); }      /* (14 Nov) one row for each cable */
   const dps = Array.from(new Set(S.runs.filter(r => r.kind === 'trench' && r.st === 'P').map(r => f1(runDepth(r))))), deep = trench > 0.05 ? (dps.length > 1 ? 'SEE PLAN' : (dps[0] || f1(UGD)) + 'm DEEP') : '';
   const TR = S.runs.filter(r => r.kind === 'trench' && r.st === 'P'), TT = Array.from(new Set(S.runs.filter(r => (r.kind === 'conduit' || r.kind === 'encase') && r.st === 'P' && buried(r)).map(r => runN(r) + '-' + runMM(r) + 'mm')));      /* (22:24) the proposed conduits that are drawn say the runs and the size; with none drawn, the standard */
   const nclo = cnt('clo') + rg.joins.filter(j => j.auto).length, nexit = rg.exits.length + S.els.filter(e => e.t === 'exit' && !rg.exits.some(x => x.el === e.id)).length;
@@ -944,6 +984,7 @@ function cefTable(S) {
     [(TR.length && TR.every(runShallow) ? 'SHALLOW' : 'OPEN') + ' TRENCH CONDUIT' + (deep ? ' (' + deep + ')' : ''), trench > 0.05 ? (TT.length > 1 ? 'SEE PLAN' : (TT[0] || '2-' + PVC_MM + 'mm') + ' PVC') : '', '', Lm(trench)],
     ['PROP. RISER POLE', '', Q(cnt('rpole')), ''],
     ['CONCRETE ENCASEMENT', '', Q(cnt('enc') + cnt('rpole')), ''],
+    ...(ped('P') ? [['PEDESTAL BOX', '', Q(ped('P')), '']] : []), ...(ped('E') ? [['PEDESTAL BOX (EXISTING)', '', Q(ped('E')), '']] : []),
     ...focRows,
     ['LOOP HOLDER', '', Q(g.nloop), ''],
     ['SERVICE BOX', sbt, Q(cnt('sbox')), ''],
@@ -955,14 +996,15 @@ function cefTable(S) {
     ['U-GUARD', '', '', Lm(guard)]
   ];
 }
-/* how each cable length is made up, one line for AE and one for UG */
+/* how each UG cable length is made up (beta 6.7: the UG fiber only; the AE fiber is counted in the As-Plan, said once) */
 function focFormula(S) {
   const rg = routeGeom(S), o = [], P = rg.parts.filter(p => p.sum.total > 0.05), many = P.length > 1;
   for (const p of many ? P : [rg]) { const g = p.sum, w = many ? 'CABLE ' + (rg.parts.indexOf(p) + 1) + ' ' : '';
-    if (g.ae > 0.05) o.push(w + 'AE FOC = ' + f1(g.aerial) + ' m RUN + ' + g.nloop + ' LOOP' + (g.nloop === 1 ? '' : 'S') + ' (' + f1(g.loop) + ' m) = ' + f1(g.ae) + ' m');
-    if (g.ugt > 0.05) o.push(w + 'UG FOC = ' + f1(g.ugt - g.vert - g.inside) + ' m RUN + ' + f1(g.vert) + ' m UP AND DOWN' + (g.inside > 0.05 ? ' + ' + f1(g.inside) + ' m INSIDE THE CABIN' : '') + ' = ' + f1(g.ugt) + ' m'); }
+    if (g.ugt > 0.05) o.push(w + 'UG FOC = ' + f1(g.ugt - g.vert - g.inside) + ' m RUN + ' + f1(g.vert) + ' m UP AND DOWN' + (g.inside > 0.05 ? ' + ' + f1(g.inside) + ' m INSIDE THE ' + (S.els.some(e => e.t === 'cabin' && !e.tr && e.inside) ? 'CABIN' : 'TELCO ROOM') : '') + ' = ' + f1(g.ugt) + ' m'); }
+  if (rg.sum.ae > 0.05) o.push(aeNote());
   return o;
 }
+const aeNote = () => 'FOC AE: COUNTED IN THE AS-PLAN, NOT IN THIS TABLE.';      /* beta 6.7 */
 
 /* ---------- drawing primitives (metres, y up) ---------- */
 function Gfx() { this.p = []; }
@@ -1055,12 +1097,14 @@ function topEl(S, el, G, rg) {
     case 'gen': G.pl(P, lay, 1); G.pl(rectAt(c, Math.max(0.2, el.w - 0.5), Math.max(0.2, el.d - 0.35), el.rot), lay, 1); break;
     case 'tank': G.pl(P, lay, 1); G.pl([lp(-el.w / 2 + 0.12, -el.d / 2), lp(-el.w / 2 + 0.12, el.d / 2)], lay); G.pl([lp(el.w / 2 - 0.12, -el.d / 2), lp(el.w / 2 - 0.12, el.d / 2)], lay); break;
     case 'hh': case 'enc': G.pl(P, lay, 1); G.pl([P[0], P[2]], lay); G.pl([P[1], P[3]], lay); break;
-    case 'epole': G.ci(c, Math.max(el.w / 2, 0.15), lay); cross(c, 0.35, lay); break;
+    case 'epole': G.ci(c, Math.max(el.w / 2, 0.15), lay); cross(c, 0.35, lay); if (pedOf(el)) topPed(S, el, G, rg); break;
     case 'rpole': G.ci(c, Math.max(el.w / 2, 0.1), lay); G.pl(sqr(c, Math.max(STD.encW, el.w + 0.16) / 2, el.rot), lay, 1);
-      if (!(rg || routeGeom(S)).risers.some(q => q.pole === el)) { const us = pipeSide(S, el), o = poleR(el, 0) + GIR; G.ci([c[0] + us[0] * o, c[1] + us[1] * o], GIR, lay); }      /* (14 Nov) its G.I. pipe, on its side of the pole */
+      if (pedOf(el)) topPed(S, el, G, rg);      /* (fix 47) the pedestal box in place of the G.I. pipe */
+      else if (!(rg || routeGeom(S)).risers.some(q => q.pole === el)) { const us = pipeSide(S, el), o = poleR(el, 0) + GIR; G.ci([c[0] + us[0] * o, c[1] + us[1] * o], GIR, lay); }      /* (14 Nov) its G.I. pipe, on its side of the pole */
       break;      /* the pole in its concrete encasement */
-    case 'odf': G.pl(P, lay, 1); G.pl([P[0], P[2]], lay); G.pl([P[1], P[3]], lay); break;
-    case 'rack': G.pl(P, lay, 1); G.pl([lp(-el.w / 2, -el.d / 2 + 0.08), lp(el.w / 2, -el.d / 2 + 0.08)], lay); G.pl([lp(-el.w / 2 + 0.06, -el.d / 2), lp(-el.w / 2 + 0.06, -el.d / 2 + 0.08)], lay); G.pl([lp(el.w / 2 - 0.06, -el.d / 2), lp(el.w / 2 - 0.06, -el.d / 2 + 0.08)], lay); break;   /* the double line is its front */
+    case 'odf': { const h2 = S.room ? rackHost(S, el) : null, Q = h2 && is2P(h2) ? odf2P(h2, el) : P; G.pl(Q, lay, 1); G.pl([Q[0], Q[2]], lay); G.pl([Q[1], Q[3]], lay); break; }      /* (fix 48) on a 2-post rack: between the posts, from their front back */
+    case 'rack': if (is2P(el)) { topTwoPost(S, el, G, lay); break; } if (el.open) { topOpenRack(S, el, G, lay); break; }
+      G.pl(P, lay, 1); G.pl([lp(-el.w / 2, -el.d / 2 + 0.08), lp(el.w / 2, -el.d / 2 + 0.08)], lay); G.pl([lp(-el.w / 2 + 0.06, -el.d / 2), lp(-el.w / 2 + 0.06, -el.d / 2 + 0.08)], lay); G.pl([lp(el.w / 2 - 0.06, -el.d / 2), lp(el.w / 2 - 0.06, -el.d / 2 + 0.08)], lay); break;   /* the double line is its front */
     case 'runit': if (!rackHost(S, el)) { G.pl(P, lay, 1); G.pl([P[0], P[2]], lay); } break;
     case 'ac': { if (!S.room) { G.pl(P, lay, 1); break; } const k = wallOf(S.site.L, S.site.W, el.x, el.y), hz = k.side === 'S' || k.side === 'N', ad = num(el.d, 0.3), aw = num(el.w, 0.8), q = [k.x + k.n[0] * (0.1 + ad / 2), k.y + k.n[1] * (0.1 + ad / 2)]; G.pl(rectAt(q, hz ? aw : ad, hz ? ad : aw, 0), lay, 1); G.ci(q, Math.min(aw, ad) * 0.36, lay); break; }      /* outside the wall, beyond its thickness */
     case 'port': { if (!S.room) { G.pl(P, lay, 1); break; } const k = wallOf(S.site.L, S.site.W, el.x, el.y), hz = k.side === 'S' || k.side === 'N', q = [k.x + k.n[0] * 0.05, k.y + k.n[1] * 0.05], hw = Math.max(0.1, el.w / 2); G.pl(rectAt(q, hz ? 2 * hw : 0.16, hz ? 0.16 : 2 * hw, 0), lay, 1); for (const j of [-0.6, 0, 0.6]) G.ci(hz ? [q[0] + j * hw, q[1]] : [q[0], q[1] + j * hw], 0.035, lay); break; }
@@ -1074,6 +1118,26 @@ function topEl(S, el, G, rg) {
         for (let i = 1; i < K.n; i++) G.pl([faceXY(el, K.face, K.u - K.w / 2, -i * K.tread), faceXY(el, K.face, K.u + K.w / 2, -i * K.tread)], lay);
       }
   }
+}
+/* (fix 47) an open rack seen from above: its frame, a post at each corner, the line of its front, and what is mounted in it, which shows from above */
+function topOpenRack(S, el, G, lay) {
+  const w = el.w, d = el.d, lp = (x, y) => loc(el, x, y), t = Math.min(0.05, w / 8, d / 8), K = rackOf(el), its = rackItems(S, el);
+  G.pl(elPoly(el), lay, 1);
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) G.pl(rectAt(lp(sx * (w / 2 - t / 2), sy * (d / 2 - t / 2)), t, t, el.rot), lay, 1);      /* the four posts */
+  G.pl([lp(-w / 2 + t, -d / 2 + 0.08), lp(w / 2 - t, -d / 2 + 0.08)], lay);      /* the front, as on a closed rack */
+  if (its.length) { const dp = Math.min(d - 0.12, Math.max(0.12, ...its.map(e => e.t === 'odf' ? 0.25 : 0.38))); G.pl(rectAt(lp(0, -d / 2 + 0.04 + dp / 2), 2 * K.hw - 0.06, dp, el.rot), its.some(e => e.st === 'P') ? 'pp' : 'eq', 1); }      /* the equipment in it, seen through the open top */
+}
+/* (fix 48) a 2-post rack seen from above: its two feet, the post on each, the bar at the top between the posts, and other equipment mounted in it (an ODF draws itself) */
+function topTwoPost(S, el, G, lay) {
+  const T2 = twoPostTop(el), ru = rackItems(S, el).filter(e => e.t !== 'odf');
+  for (const q of T2.feet.concat(T2.posts)) G.pl(q, lay, 1); G.pl(T2.bar, lay, 1);
+  if (ru.length) G.pl(odf2P(el, ru[0]), ru.some(e => e.st === 'P') ? 'pp' : 'eq', 1);
+}
+/* (fix 47) the pedestal box at the foot of a pole, seen from above: its outline, the line of its door (on the side away from the pole) and the pipe where the cable comes up in it */
+function topPed(S, pole, G, rg) {
+  const r = (rg || routeGeom(S)).risers.find(q => q.pole === pole), u = r ? r.s || r.u : pipeSide(S, pole), P = pedAt(pole, u), st = pedOf(pole), lay = st === 'P' ? 'pp' : 'ex', f = q => [P.c[0] + u[0] * q, P.c[1] + u[1] * q], n = [-u[1], u[0]];
+  G.pl(P.poly, lay, 1); const a = f(PED.d / 2 - 0.05); G.pl([[a[0] - n[0] * (PED.w / 2 - 0.03), a[1] - n[1] * (PED.w / 2 - 0.03)], [a[0] + n[0] * (PED.w / 2 - 0.03), a[1] + n[1] * (PED.w / 2 - 0.03)]], lay);
+  G.ci(f(-0.03), STD.hdpe / 2, lay);
 }
 /* ---------- labels that sit beside what they name, parallel to it, and never on top of anything ---------- */
 const readable = a => { a = ((a + 180) % 360 + 360) % 360 - 180; if (a > 90) a -= 180; if (a <= -90) a += 180; return a; };
@@ -1099,6 +1163,8 @@ function obb(c, w, h, a) { const cs = Math.cos(a * D2R), sn = Math.sin(a * D2R),
 function thick(a, b, w) { const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = -(b[1] - a[1]) / l * w / 2, ny = (b[0] - a[0]) / l * w / 2; return [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]]; }
 const polyBoxArea = P => { const b = polyBox(P); return (b[2] - b[0]) * (b[3] - b[1]); };
 function Labeler(G) { this.G = G; this.obst = []; this.labs = []; this.leads = []; this.out = []; }
+/* (fix 47) the size the user gave one name, as a part of the size of every name (kf: key to factor, set by the drawing; 1 when none was given) */
+Labeler.prototype.k = function (key) { return this.kf && key ? this.kf(key) : 1; };
 /* solid: a thing a leader line should not run across on its way to something else. own: the label key of the item it belongs to */
 Labeler.prototype.block = function (poly, solid, own) { if (poly && poly.length > 1) this.obst.push({ p: poly, b: polyBox(poly), s: !!solid, o: own || null }); };
 /* on a sheet the drawing and its labels must stay inside the room there is: bb = what is drawn so far, lim = [width, height] allowed */
@@ -1136,7 +1202,7 @@ const txSize = (lines, h, bold) => { const pitch = h * 1.45; return { pitch, w: 
 Labeler.prototype.write = function (lines, h, lay, c, a, bold) { const z = txSize(lines, h, bold), sn = Math.sin(a * D2R), cs = Math.cos(a * D2R); lines.forEach((s, k) => { const off = z.hg / 2 - 0.2 * h - k * z.pitch - h; this.G.tx([c[0] - sn * off, c[1] + cs * off], s, h, lay, 'c', a, bold); }); };
 /* lines of text as one block. cands(w, h) gives block centres and angles to try, best first. */
 Labeler.prototype.place = function (lines, h, lay, cands, bold, key, ap, own) {
-  const z = txSize(lines, h, bold);
+  h *= this.k(key); const z = txSize(lines, h, bold);
   for (const c of cands(z.w, z.hg)) {
     const box = obb(c.p, z.w, z.hg, c.a); if (!this.free(box, own)) continue;
     this.write(lines, h, lay, c.p, c.a, bold); this.keep(key, box, c.p, ap, { a: c.a });
@@ -1150,7 +1216,7 @@ Labeler.prototype.arrow = function (from, p, h, lay) { const dx = from[0] - p[0]
 /* a label the user dragged: it stays where it was put, measured from its item. When it is no longer next to its item, a leader joins the two. */
 /* like place, but the text may cross the lines of the drawing: it only keeps clear of other names, of leaders and of what avoid holds. Gives the box it took, or null. */
 Labeler.prototype.placeLoose = function (lines, h, lay, cands, bold, key, ap, avoid) {
-  const z = txSize(lines, h, bold), r = this.rect;
+  h *= this.k(key); const z = txSize(lines, h, bold), r = this.rect;
   for (const c of cands(z.w, z.hg)) {
     const box = obb(c.p, z.w, z.hg, c.a), b = polyBox(box);
     if (r && (b[0] < r[0] || b[1] < r[1] || b[2] > r[2] || b[3] > r[3])) continue;
@@ -1161,7 +1227,7 @@ Labeler.prototype.placeLoose = function (lines, h, lay, cands, bold, key, ap, av
   return null;
 };
 Labeler.prototype.fixed = function (key, lines, h, lay, c, a, ap, x) {
-  const bold = !!(x && x.bold), z = txSize(lines, h, bold), box = obb(c, z.w, z.hg, a);
+  h *= this.k(key); const bold = !!(x && x.bold), z = txSize(lines, h, bold), box = obb(c, z.w, z.hg, a);
   this.write(lines, h, lay, c, a, bold);
   if (ap && !inPoly(ap, box) && Math.hypot(ap[0] - c[0], ap[1] - c[1]) > Math.max(z.w, z.hg) * 0.5 + 1.6 * h) { const e = edgeOut(c, ap, box); this.arrow(e, ap, h, lay); this.leads.push([ap, e]); this.block(thick(ap, e, 0.5 * h)); }
   this.keep(key, box, c, ap, Object.assign({ a, moved: 1 }, x || {}));
@@ -1204,7 +1270,7 @@ Labeler.prototype.callout = function (p, lines, h, lay, o) { const b = this.seek
 Labeler.prototype.calloutsOld = function (list, h, o) {
   const HS = o && o.hs && o.hs.length ? o.hs : [h], left = list.slice(), fail = [], find = (a, oo) => {
     let b = null; const seen = {};
-    for (const wd of [a.w || 18, 14, 28]) { const lines = a.lines && wd === (a.w || 18) ? a.lines : wrap(a.s, wd), key = lines.join('|'); if (seen[key] || (lines.length > 4 && wd !== (a.w || 18))) continue; seen[key] = 1; for (const p of [a.p].concat(a.alt || [])) HS.forEach((hh, j) => { const c = this.seek(p, lines, hh, oo || o); if (c) { c.h = hh; c.cost += j * 0.9; } if (c && (!b || c.cost < b.cost - 0.01)) b = c; }); }      /* a smaller size costs a little: it is taken when it gives a shorter leader */
+    for (const wd of [a.w || 18, 14, 28]) { const lines = a.lines && wd === (a.w || 18) ? a.lines : wrap(a.s, wd), key = lines.join('|'); if (seen[key] || (lines.length > 4 && wd !== (a.w || 18))) continue; seen[key] = 1; for (const p of [a.p].concat(a.alt || [])) HS.forEach((h0, j) => { const hh = h0 * this.k(a.key), c = this.seek(p, lines, hh, oo || o); if (c) { c.h = hh; c.cost += j * 0.9; } if (c && (!b || c.cost < b.cost - 0.01)) b = c; }); }      /* a smaller size costs a little: it is taken when it gives a shorter leader */
     return b;
   };
   while (left.length) {
@@ -1252,7 +1318,7 @@ Labeler.prototype.grid = function (p, T, o, add, out) { const h = T.h; for (cons
    best corner is wanted by its neighbours still has somewhere else to go. Every way of breaking its text into lines and every point its arrow may land on
    is tried; a smaller text size close by only. dense: also the fine grid close by. What is found is kept on the note (n.raw), so asking again costs little. */
 Labeler.prototype.cands = function (n, h, o, K, dense) {
-  const a = n.a, HS = o.hs && o.hs.length ? o.hs : [h], nMax = o.max || LEAD_R.length;
+  const a = n.a, ka = this.k(a.key), HS = (o.hs && o.hs.length ? o.hs : [h]).map(q => q * ka), nMax = o.max || LEAD_R.length;
   if (!n.raw) {
     const vars = n.vars = [], seen = {}, out = n.raw = [];
     for (const wd of [a.w || 18, 14, 28]) { const lines = a.lines && wd === (a.w || 18) ? a.lines : wrap(a.s, wd), key = lines.join('|'); if (seen[key] || (lines.length > 4 && wd !== (a.w || 18))) continue; seen[key] = 1; for (const p of [a.p].concat((a.alt || []).slice(0, 5))) vars.push({ p, T: noteText(lines, HS[0]), main: p === a.p && !vars.length }); }
@@ -1335,7 +1401,7 @@ Labeler.prototype.callouts = function (list, h, o) {
 /* beta 4.2: a length beside its piece and parallel to it. Where the place right beside the piece is taken it moves to the nearest clear place, still
    parallel to the piece, and a thin leader ties it to the piece. It is never written over a line of the drawing or over another name. */
 Labeler.prototype.along = function (lines, h, lay, a, b, key, ap, o) {
-  o = o || {}; const z = txSize(lines, h), dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, ux = dx / l, uy = dy / l, ang = readable(Math.atan2(dy, dx) / D2R), gap = o.gap || 0, m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], C = [];
+  h *= this.k(key); o = o || {}; const z = txSize(lines, h), dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, ux = dx / l, uy = dy / l, ang = readable(Math.atan2(dy, dx) / D2R), gap = o.gap || 0, m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], C = [];
   for (let j = 0; j < (o.wide ? 26 : 11); j++) for (let i = (o.wide ? -15 : -7); i <= (o.wide ? 15 : 7); i++) for (const s of [1, -1]) { const u = i * z.w * 0.55, v = s * (gap + z.hg / 2 + j * h * 0.95), on = Math.abs(u) <= Math.max(0, l / 2 - z.w * 0.35) && j < 2; C.push({ u, v, on, d: Math.hypot(u, v) + (on ? 0 : 1.5 * h) }); }
   C.sort((p, q) => p.d - q.d);
   for (const k of C) {
@@ -1411,7 +1477,7 @@ function buildTop(S, o) {
     for (const q of I.els || []) if (q.t !== 'port' && q.t !== 'ac' && q.t !== 'rack' && q.t !== 'odf' && !rackHost(I, q)) G.pl(elPoly(q).map(F), 'gh', 1);      /* the porthole and the aircon units are drawn on the cabin itself */
     for (const r of I.runs || []) if (r.pts && r.pts.length > 1 && r.kind !== 'part') { const hw = Math.max(0.05, num(r.w, (RUNS[r.kind] || RUNS.ladder).w)) / 2; if (r.kind === 'ladder') { const ST = ladPath(r); for (const sg of [-1, 1]) G.pl(ST.map(q => F([q.p[0] + q.n[0] * q.k * hw * sg, q.p[1] + q.n[1] * q.k * hw * sg])), 'gh'); } else for (const sg of [-1, 1]) G.pl(offsetPath(r.pts, hw * sg).map(F), 'gh'); }
   }
-  const lab = !!o.labels, LB = new Labeler(G), jobs = [], h = th * 0.9, gap = 0.3 * th, tl = s => s === 'P' ? 'tp' : 'tx';
+  const lab = !!o.labels, LB = new Labeler(G), jobs = [], h = th * 0.9, gap = 0.3 * th, tl = s => s === 'P' ? 'tp' : 'tx'; if (labKs(S)) LB.kf = key => labK(S, key);      /* (fix 47) */
   const R = [[0, 0], [L, 0], [L, W], [0, W]], ring = (c, r, n) => { const q = []; for (let i = 0; i < n; i++) q.push([c[0] + r * Math.cos(i * 2 * Math.PI / n), c[1] + r * Math.sin(i * 2 * Math.PI / n)]); return q; };
   const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], angOf = (a, b) => readable(Math.atan2(b[1] - a[1], b[0] - a[0]) / D2R);
   let swing = { S: 0, N: 0, E: 0, W: 0 };
@@ -1471,12 +1537,13 @@ function buildTop(S, o) {
     if (el.t === 'cabin' && nameOn(S, 'port')) cabinPorts(el).forEach((q, i) => { const k2 = 'port' + el.id + '_' + i, hz = q.face === 'F' || q.face === 'B', pp = rectAt(q.at, hz ? 0.5 : 0.22, hz ? 0.22 : 0.5, el.rot); jobs.push({ o: 5, key: k2, opt: 1, lines: [labText(S, k2, 'PORTHOLE')], lay: tl(q.st), ap: q.at, a: 0, cands: topCands(pp, 0, gap), st: q.st }); });
     const s = elLabel(S, el), grp = nameGrp(el), tt = titleTower(S) === el;
     if (tt) { const b = polyBox(fp), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2; jobs.push({ o: 0, key: 'tid', bold: 1, hk: 1, lines: titleLines(S), lay: 'tx', ap: [cx, b[3]], a: 0, cands: (w, hh) => { const o = []; for (let j = 0; j < 4; j++) { const d = gap + j * hh * 0.6; o.push({ p: [cx, b[3] + d + hh / 2], a: 0 }, { p: [b[2] + d + w / 2, b[3] - hh / 2], a: 0 }, { p: [b[0] - d - w / 2, b[3] - hh / 2], a: 0 }, { p: [b[2] + d + w / 2, cy], a: 0 }, { p: [b[0] - d - w / 2, cy], a: 0 }, { p: [cx, b[1] - d - hh / 2], a: 0 }); } return o; }, st: 'E' }); }      /* the site name and ID: above the tower first, then beside it */
+    if (pedOf(el)) { const r = rg.risers.find(q => q.pole === el), P = pedAt(el, r ? r.s || r.u : pipeSide(S, el)), pk = 'ped' + el.id, ps = pedOf(el); LB.block(P.poly, 1, pk); jobs.push({ o: 4, key: pk, lines: [labText(S, pk, pedName(ps))], lay: tl(ps), ap: P.c, a: 0, cands: topCands(P.poly, 0, gap), st: ps }); }      /* (fix 47) */
     if ((!grp || nameOn(S, grp)) && !(tt && !el.name && !nameOn(S, 'th'))) jobs.push({ o: 1, key, own: key, call: host ? 1 : 0, opt: el.t === 'runit' && host ? 1 : 0, area: polyBoxArea(fp), fp, lines: s.length > 18 ? wrap(s, 16) : [s], lay: tl(el.st), ap: cm ? cm.c : c, a: ang, ins, cands: topCands(fp, ang, gap), st: el.st });
   }
   if (!S.room) for (const el of S.els) if (el.t === 'cabin' && !el.hid) {             /* inside a cabin: its racks and the ODF, dashed, and the cable from the porthole to the ODF */
     const C = cabinInside(S, el); if (!C) continue; const cp = elPoly(el);
     for (const q of C.walls) for (const sd of q.sides) G.pl(sd, 'nd');      /* partition walls */
-    for (const r of C.racks) { const lay = r.st === 'P' ? 'np' : 'nd'; G.pl(r.poly, lay, 1); G.pl(r.front, lay); }
+    for (const r of C.racks) { const lay = r.st === 'P' ? 'np' : 'nd'; if (r.two) { for (const q of r.feet.concat(r.posts)) G.pl(q, lay, 1); G.pl(r.bar, lay, 1); continue; } G.pl(r.poly, lay, 1); G.pl(r.front, lay); if (r.posts) for (const q of r.posts) G.pl(q, lay, 1); }      /* (fix 48) a 2-post rack: its feet, posts and top bar */
     for (const q of C.odfs) { const lay = q.st === 'P' ? 'np' : 'nd'; G.pl(q.poly, lay, 1); G.pl([q.poly[0], q.poly[2]], lay); G.pl([q.poly[1], q.poly[3]], lay); jobs.push({ o: 1, key: q.key, call: 1, lines: [labText(S, q.key, q.s)], lay: tl(q.st), ap: mid(q.poly[0], q.poly[2]), a: 0, cands: topCands(cp, 0, gap), st: q.st }); }
     for (const l of C.legs) if (Math.hypot(l.b[0] - l.a[0], l.b[1] - l.a[1]) > 0.02) G.pl([[l.a[0], l.a[1]], [l.b[0], l.b[1]]], 'fh');
   }
@@ -1510,7 +1577,7 @@ function buildTop(S, o) {
   const grp = {}, long = {};
   for (const l of rg.legs) {
     G.grp = gk((l.f === 'ae' ? 'FOC_AE' : 'FOC_UG') + (l.cn ? '_' + (l.cn + 1) : '')); G.pl([l.a, l.b], l.inside ? 'fh' : LEG[l.type].lay); G.grp = null; LB.block(thick(l.a, l.b, 0.6 * th));
-    const k = l.f + l.i + (l.ck || ''), q = grp[k] || (grp[k] = { len: 0, best: l }); q.len += l.len; if (l.plan > q.best.plan) q.best = l;
+    const k = l.f + l.i + (l.ck || ''), q = grp[k] || (grp[k] = { len: 0, best: l }); q.len += r1w(l.len);      /* beta 6.6 */ if (l.plan > q.best.plan) q.best = l;
     const lk = l.f + (l.ck || ''); if (!long[lk] || l.plan > long[lk].plan) long[lk] = l;
   }
   if (lab && nameOn(S, 'dim')) { const LK = lenKeys(rg.legs); for (const l of rg.legs) { if (!l.f || l.f === 'ae' || l.inside || l.plan < 0.3) continue;      /* beta 4.1: the length of each straight piece of a cable (beta 4.2: not on the aerial cable) */

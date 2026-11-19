@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Splicing Details Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a drafting desk. The sheet lies on the desk at the left; the job's points, cables and links sit in the side panel at the right (below it on a phone). */
+:root {
+  --bg: #eef1f4; --panel: #ffffff; --ink: #161a20; --muted: #586270; --line: #d5dbe3; --desk: #dde3ea; --paper: #ffffff;
+  --field: #f6f8fa; --accent: #c8102e; --accent-ink: #ffffff; --exist: #1f5fd6; --warn-bg: #fff3d1; --warn-ink: #6a4700; --ok: #13804a;
+  --font-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-head: 'Archivo', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1318; --panel: #171c23; --ink: #e6eaef; --muted: #9aa4b1; --line: #2c333d; --desk: #0a0d11; --paper: #ffffff;
+  --field: #11161c; --accent: #f0435a; --accent-ink: #ffffff; --exist: #7aa2ff; --warn-bg: #3a2d0a; --warn-ink: #ffd98a; --ok: #4ade80; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1318; --panel: #171c23; --ink: #e6eaef; --muted: #9aa4b1; --line: #2c333d; --desk: #0a0d11; --paper: #ffffff;
+  --field: #11161c; --accent: #f0435a; --accent-ink: #ffffff; --exist: #7aa2ff; --warn-bg: #3a2d0a; --warn-ink: #ffd98a; --ok: #4ade80; color-scheme: dark }
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: var(--font-ui); font-size: 14px; line-height: 1.45; margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 14px 40px; }
+h1, h2, h3 { font-family: var(--font-head); text-wrap: balance; margin: 0; }
+button, select, input { font: inherit; color: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--exist); outline-offset: 2px; }
+.top { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; max-width: 1500px; margin: 0 auto 14px; }
+.brand { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.brand svg { flex: none; }
+.brand h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; }
+.brand p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.seg { display: inline-flex; background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 2px; flex-wrap: wrap; }
+.seg button { border: 0; background: transparent; padding: 7px 12px; border-radius: 6px; cursor: pointer; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 480px); gap: 16px; max-width: 1500px; margin: 0 auto; align-items: start; }
+@media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.viewer, .inputs { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.bar .grow { flex: 1 1 auto; }
+.bar select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; max-width: 100%; min-width: 0; }
+.tool { display: inline-flex; align-items: center; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+.tool button { border: 0; background: transparent; min-width: 34px; height: 32px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+.tool button:hover { background: var(--field); }
+.tool span { font-family: var(--font-mono); font-size: 0.8rem; padding: 0 6px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* the sheets by name (Single line, Key map, A-01 …): one row that scrolls sideways */
+.chips { position: relative; display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; padding: 2px 0 4px; margin-top: -4px; }
+.chips[hidden] { display: none; }
+.chips button { flex: none; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-weight: 600; font-size: 0.84rem; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chips button:hover { background: var(--field); }
+.chips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chips .sep { flex: none; width: 1px; background: var(--line); margin: 6px 2px; }
+.desk .sheet [data-ref^="grid:"] { cursor: pointer; }
+.desk { background: var(--desk); border-radius: 12px; padding: 14px; overflow: auto; max-height: 78vh; border: 1px solid var(--line); }
+.desk .sheet { background: var(--paper); box-shadow: 0 1px 3px rgb(0 0 0 / 0.18), 0 8px 24px rgb(0 0 0 / 0.10); margin: 0 auto; max-width: none; }
+.desk .sheet svg { display: block; width: 100%; height: auto; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+.export .row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 10px; }
+.export label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 9px 14px; cursor: pointer; font-weight: 600; }
+.btn:hover { background: var(--field); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.06); background: var(--accent); }
+.btn small { font-weight: 400; opacity: 0.85; }
+.hint { color: var(--muted); font-size: 0.82rem; margin: 8px 0 0; }
+.warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 10px 14px; font-size: 0.86rem; }
+.warn ul { margin: 4px 0 0; padding-left: 18px; }
+details.card { padding: 0; }
+details.card > summary { list-style: none; cursor: pointer; padding: 12px 16px; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary h3 { font-size: 0.98rem; font-weight: 600; }
+details.card > summary .count { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); }
+details.card > summary::after { content: "▸"; color: var(--muted); }
+details.card[open] > summary::after { content: "▾"; }
+details.card .body { padding: 0 16px 14px; display: grid; gap: 10px; }
+.note { color: var(--muted); font-size: 0.82rem; margin: 0; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table.ed { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+table.ed th { text-align: left; font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 6px 6px; background: var(--field); border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.ed td { padding: 3px 3px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.ed tr:last-child td { border-bottom: 0; }
+table.ed input, table.ed select { width: 100%; min-width: 0; border: 1px solid transparent; background: transparent; border-radius: 5px; padding: 5px 5px; }
+table.ed input:hover, table.ed select:hover { border-color: var(--line); }
+table.ed input:focus, table.ed select:focus { border-color: var(--exist); background: var(--field); outline: none; }
+table.ed input.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+table.ed td.del button { border: 0; background: transparent; color: var(--muted); cursor: pointer; width: 26px; height: 26px; border-radius: 5px; font-size: 1rem; }
+table.ed td.del button:hover { background: var(--field); color: var(--accent); }
+table.out td { padding: 6px 8px; font-family: var(--font-mono); font-size: 0.78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.add { justify-self: start; border: 1px dashed var(--line); background: transparent; border-radius: 8px; padding: 6px 12px; cursor: pointer; color: var(--muted); font-weight: 500; }
+.add:hover { color: var(--ink); border-color: var(--muted); }
+.form { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px 10px; }
+.form label { display: grid; gap: 3px; font-size: 0.74rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; }
+.form input { background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; text-transform: none; letter-spacing: 0; font-size: 0.86rem; color: var(--ink); min-width: 0; }
+.form label.check { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 0.86rem; color: var(--ink); }
+.pill { display: inline-block; font-family: var(--font-mono); font-size: 0.72rem; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.pill.new { color: var(--accent); border-color: currentColor; }
+.pill.ex { color: var(--exist); border-color: currentColor; }
+.how { margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.84rem; display: grid; gap: 4px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 0.88rem; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgb(0 0 0 / 0.25); z-index: 20; }
+@media (prefers-reduced-motion: no-preference) { .toast { transition: opacity 0.2s; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg width="38" height="38" viewBox="0 0 38 38" aria-hidden="true"><rect x="1" y="1" width="36" height="36" rx="8" fill="var(--panel)" stroke="var(--line)"/><path d="M6 13h10l6 12h10" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="3.2 2"/><path d="M6 25h10l6-12h10" fill="none" stroke="var(--exist)" stroke-width="2.2" stroke-dasharray="3.2 2"/><circle cx="19" cy="19" r="2.6" fill="var(--ink)"/></svg>
+    <div><h1>Splicing Details</h1><p>G-eSAA demo · every site, cable and person here is made up</p></div>
+  </div>
+  <div class="seg" id="net" role="group" aria-label="Network">
+    <button type="button" data-v="access" aria-pressed="true">Access OSP</button>
+    <button type="button" data-v="broadband" aria-pressed="false">Broadband · OLT / ODN</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="viewer" aria-label="Drawing">
+    <div class="bar">
+      <div class="seg" id="view" role="group" aria-label="Diagram">
+        <button type="button" data-v="sld" aria-pressed="true">Single line diagram</button>
+        <button type="button" data-v="detailed" aria-pressed="false">Detailed</button>
+      </div>
+      <select id="sample" aria-label="Sample project"></select>
+      <span class="grow"></span>
+      <div class="tool" aria-label="Sheets"><button type="button" id="prev" aria-label="Previous sheet">‹</button><span id="pageLbl">Sheet 1 of 1</span><button type="button" id="next" aria-label="Next sheet">›</button></div>
+      <div class="tool" aria-label="Zoom"><button type="button" id="zout" aria-label="Zoom out">−</button><span id="zoomLbl">Fit</span><button type="button" id="zin" aria-label="Zoom in">+</button></div>
+    </div>
+    <div class="chips" id="chips" role="group" aria-label="Sheets" hidden></div>
+    <p class="hint" id="keyHint" hidden style="margin:-6px 0 0">Key map: tap a grid cell to open its sheet.</p>
+    <div class="desk" id="desk"><div class="sheet" id="sheet"></div></div>
+    <div class="warn" id="warn" hidden></div>
+    <div class="card export">
+      <h2>Export</h2>
+      <div class="row">
+        <span class="note">Diagrams:</span>
+        <label><input type="checkbox" id="exSld" checked> Single line diagram</label>
+        <label><input type="checkbox" id="exDet" checked> Detailed</label>
+      </div>
+      <div class="btns">
+        <button type="button" class="btn primary" data-fmt="pdf">PDF</button>
+        <button type="button" class="btn" data-fmt="dxf">DXF <small>R12</small></button>
+        <button type="button" class="btn" data-fmt="both">PDF + DXF <small>ZIP</small></button>
+      </div>
+      <p class="hint" id="exHint">A3 sheets, scale NTS. The DXF puts every sheet side by side in model space, 1 unit = 1 mm, on SPL_ layers.</p>
+    </div>
+  </section>
+
+  <aside class="inputs" aria-label="Job data">
+    <details class="card" open>
+      <summary><h3>How the fibers are given out</h3></summary>
+      <div class="body">
+        <ul class="how" id="how"></ul>
+      </div>
+    </details>
+    <div id="netInputs"></div>
+    <details class="card">
+      <summary><h3>Title block</h3><span class="count">A3 · NTS</span></summary>
+      <div class="body"><div class="form" id="titleForm"></div></div>
+    </details>
+  </aside>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script src="splice.js"></script>
+<script>
+(function () {
+  'use strict';
+  const SP = window.Splice, $ = s => document.querySelector(s), clone = o => JSON.parse(JSON.stringify(o));
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const KEY = 'splice-demo-v1';
+  const S = { net: 'access', view: 'sld', page: 0, zoom: 0, sample: { access: 'access1', broadband: 'broadband' }, models: { access: clone(SP.samples.access1.model), broadband: clone(SP.samples.broadband.model) } };
+  try { const saved = JSON.parse(localStorage.getItem(KEY) || 'null'); if (saved && saved.models && saved.models.access && saved.models.broadband) Object.assign(S, saved, { page: 0 }); } catch (e) { /* no storage here: start from the samples */ }
+  const keep = () => { try { localStorage.setItem(KEY, JSON.stringify({ net: S.net, view: S.view, sample: S.sample, models: S.models })); } catch (e) { /* fine without */ } };
+  const M = () => S.models[S.net];
+  let built = null, timer = 0;
+
+  /* ---------- drawing ---------- */
+  const ZOOMS = [1, 1.5, 2, 3, 4];
+  function draw() {
+    built = SP.build(M(), S.view);
+    const n = built.sheets.length; S.page = Math.min(S.page, n - 1);
+    $('#sheet').innerHTML = SP.toSVG(built.sheets[S.page]);
+    $('#pageLbl').textContent = 'Sheet ' + (S.page + 1) + ' of ' + n;
+    $('#prev').disabled = S.page === 0; $('#next').disabled = S.page >= n - 1;
+    /* a chip per sheet, named; a line between the single line sheets and the detailed ones */
+    const chips = $('#chips'), sl = chips.scrollLeft; chips.hidden = n < 2;
+    chips.innerHTML = n < 2 ? '' : built.sheets.map((sh, i) => (i && !!sh.cell !== !!built.sheets[i - 1].cell && !built.sheets[i - 1].keymap ? '<span class="sep"></span>' : '') +
+      '<button type="button" data-page="' + i + '" aria-pressed="' + (i === S.page) + '" aria-label="' + esc((sh.cell ? 'Grid ' : '') + (sh.label || sh.head)) + ', sheet ' + (i + 1) + ' of ' + n + '">' + esc(sh.label || 'Sheet ' + (i + 1)) + '</button>').join('');
+    chips.scrollLeft = sl; const on = chips.querySelector('[aria-pressed="true"]');
+    if (on && (on.offsetLeft < chips.scrollLeft || on.offsetLeft + on.offsetWidth > chips.scrollLeft + chips.clientWidth)) chips.scrollLeft = Math.max(0, on.offsetLeft - (chips.clientWidth - on.offsetWidth) / 2);
+    $('#keyHint').hidden = !built.sheets[S.page].keymap;
+    applyZoom();
+    const w = built.warnings, box = $('#warn');
+    box.hidden = !w.length; box.innerHTML = w.length ? '<strong>Check ' + (w.length === 1 ? 'this' : 'these') + ' before you export</strong><ul>' + w.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' : '';
+    renderResults(); keep();
+  }
+  function applyZoom() {
+    const desk = $('#desk'), sheet = $('#sheet'), z = ZOOMS[S.zoom], w = desk.clientWidth - 28;
+    sheet.style.width = Math.max(260, Math.round(w * z)) + 'px';
+    $('#zoomLbl').textContent = z === 1 ? 'Fit' : Math.round(z * 100) + '%';
+  }
+  const soon = () => { clearTimeout(timer); timer = setTimeout(draw, 220); };
+
+  /* ---------- editable tables ---------- */
+  const uid = p => p + Math.random().toString(36).slice(2, 7);
+  const SIZES = [2, 4, 6, 12, 24, 48, 72, 96, 144, 288];
+  function cell(col, row, ti, i) {
+    const v = row[col.k], base = 'data-t="' + ti + '" data-i="' + i + '" data-k="' + col.k + '"' + (col.refresh ? ' data-refresh="1"' : '');
+    if (col.type === 'sel') { const opts = col.opts(); return '<select ' + base + ' aria-label="' + esc(col.t) + '">' + opts.map(([val, lab]) => '<option value="' + esc(val) + '"' + (String(val) === String(v) ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + (opts.some(o => String(o[0]) === String(v)) ? '' : '<option value="' + esc(v) + '" selected>' + esc(v || '—') + '</option>') + '</select>'; }
+    return '<input ' + base + (col.type === 'num' ? ' class="num" inputmode="numeric"' : '') + ' value="' + esc(v) + '" placeholder="' + esc(col.ph || '') + '" aria-label="' + esc(col.t) + '">';
+  }
+  function editor(ti, title, count, note, rows, cols, addRow, open) {
+    return '<details class="card"' + (open ? ' open' : '') + '><summary><h3>' + esc(title) + '</h3><span class="count">' + esc(count) + '</span></summary><div class="body">' + (note ? '<p class="note">' + note + '</p>' : '') +
+      '<div class="tablewrap"><table class="ed"><thead><tr>' + cols.map(c => '<th style="min-width:' + (c.w || 6) + 'em">' + esc(c.t) + '</th>').join('') + '<th></th></tr></thead><tbody>' +
+      rows.map((r, i) => '<tr>' + cols.map(c => '<td>' + cell(c, r, ti, i) + '</td>').join('') + '<td class="del"><button type="button" data-del="' + ti + '" data-i="' + i + '" aria-label="Delete row">×</button></td></tr>').join('') +
+      '</tbody></table></div><button type="button" class="add" data-add="' + ti + '">+ ' + esc(addRow) + '</button></div></details>';
+  }
+  const TABLES = {};
+  function renderInputs() {
+    const m = M(), host = $('#netInputs'), open = [...host.querySelectorAll('details')].map(d => d.open);
+    if (S.net === 'access') {
+      const pts = m.points, ptOpts = () => pts.map(p => [p.id, (p.name || '(no name)') + ' · ' + ({ site: 'site', closure: 'closure', dnap: 'dummy NAP' })[p.type]]), endOpts = () => pts.filter(p => p.type !== 'closure').map(p => [p.id, p.name || '(no name)']);
+      TABLES.points = { rows: pts, cols: [{ k: 'name', t: 'Name', w: 8, refresh: 1 }, { k: 'type', t: 'Type', type: 'sel', w: 8.5, refresh: 1, opts: () => [['site', 'Site (FDU)'], ['closure', 'Closure'], ['dnap', 'Dummy NAP']] }, { k: 'status', t: 'Status', type: 'sel', w: 7.5, opts: () => [['new', 'New'], ['existing', 'Existing']] }, { k: 'code', t: 'Code', w: 6 }, { k: 'fdu', t: 'FDU / ID', w: 9 }, { k: 'ports', t: 'Ports', type: 'num', w: 4 }, { k: 'active', t: 'Active ports', w: 7, ph: 'existing: 1-12' }, { k: 'termFrom', t: 'First fiber', type: 'num', w: 4.5, ph: '1' }, { k: 'coords', t: 'Coordinates', w: 9, ph: 'TBF' }], add: () => ({ id: uid('p'), type: 'closure', name: 'C' + (pts.filter(p => p.type === 'closure').length + 1), status: 'new', coords: '' }) };
+      TABLES.cables = { rows: m.cables, cols: [{ k: 'name', t: 'Cable ID', w: 8.5 }, { k: 'from', t: 'From', type: 'sel', w: 9, opts: ptOpts }, { k: 'to', t: 'To', type: 'sel', w: 9, opts: ptOpts }, { k: 'size', t: 'Size', type: 'sel', w: 5.8, opts: () => SIZES.map(s => [s, s + 'C']) }, { k: 'status', t: 'Status', type: 'sel', w: 7.5, opts: () => [['new', 'New'], ['existing', 'Existing']] }, { k: 'length', t: 'Length m', type: 'num', w: 5 }, { k: 'used', t: 'Fibers in use', w: 7, ph: 'existing: 1-12' }, { k: 'leg', t: 'Leg', w: 5 }], add: () => ({ name: 'NEW CABLE ' + (m.cables.length + 1), from: pts[0] ? pts[0].id : '', to: pts[1] ? pts[1].id : '', size: 12, status: 'new', length: 100, used: '', leg: '' }) };
+      TABLES.links = { rows: m.links, cols: [{ k: 'a', t: 'From', type: 'sel', w: 9, opts: endOpts }, { k: 'b', t: 'To', type: 'sel', w: 9, opts: endOpts }, { k: 'fibers', t: 'Fibers', type: 'num', w: 4 }], add: () => { const e = endOpts(); return { a: e[0] ? e[0][0] : '', b: e[1] ? e[1][0] : '', fibers: 6 }; } };
+      host.innerHTML =
+        editor('links', 'Links (what must be connected)', m.links.length + ' link' + (m.links.length === 1 ? '' : 's'), 'A link joins two ends (sites or dummy NAPs) with a number of fibers. The route and the fibers are found for you.', m.links, TABLES.links.cols, 'Add a link', open.length ? open[0] : true) +
+        editor('points', 'Points', pts.length + ' points', 'Sites (FDU panels), closures and dummy NAPs, as recorded in the project. An existing FDU lists its active ports; a new one can start at a fiber other than 1.', pts, TABLES.points.cols, 'Add a point', open.length ? open[1] : true) +
+        editor('cables', 'Cables', m.cables.length + ' cables', 'Each cable joins two points. On an existing cable, list the fibers already in use: the link takes the first vacant run.', m.cables, TABLES.cables.cols, 'Add a cable', open.length ? open[2] : false) +
+        '<details class="card"' + (open[3] ? ' open' : '') + ' id="resultCard"><summary><h3>Fiber assignment</h3><span class="count" id="resCount"></span></summary><div class="body" id="results"></div></details>';
+    } else {
+      const mains = m.mains, mainOpts = () => mains.map(x => [x.id, x.name || x.id]);
+      TABLES.mains = { rows: mains, cols: [{ k: 'name', t: 'Main', w: 6, refresh: 1 }, { k: 'size', t: 'Size', type: 'sel', w: 5.8, opts: () => SIZES.map(s => [s, s + 'C']) }, { k: 'closure', t: 'Closure', w: 9 }, { k: 'first', t: 'First fiber', type: 'num', w: 4.5 }], add: () => ({ id: uid('m'), name: 'MAIN ' + (mains.length + 1), size: 72, closure: '72C CLOSURE ' + (mains.length + 1), first: 1 }) };
+      TABLES.naps = { rows: m.naps, cols: [{ k: 'main', t: 'Main', type: 'sel', w: 7, opts: mainOpts }, { k: 'line', t: 'Line', w: 4.5, ph: 'auto' }, { k: 'ports', t: 'Ports', type: 'sel', w: 8, opts: () => [[16, '16 · double'], [8, '8 · single']] }, { k: 'pole', t: 'Pole ID', w: 7 }, { k: 'poleType', t: 'Type', w: 3.5 }], add: () => { const last = m.naps[m.naps.length - 1]; return { main: last ? last.main : (mains[0] || {}).id, line: '', ports: 16, pole: '', poleType: 'CC' }; } };
+      const o = m.olt, f = m.feeder;
+      host.innerHTML =
+        '<details class="card"' + (open.length ? (open[0] ? ' open' : '') : ' open') + '><summary><h3>OLT, ODF and feeder</h3><span class="count">' + esc(o.odfSize) + ' ports</span></summary><div class="body"><div class="form">' +
+        [['olt.name', 'OLT name', o.name], ['olt.code', 'Code', o.code], ['olt.odf', 'ODF', o.odf], ['olt.odfSize', 'ODF ports', o.odfSize], ['demand', 'Demand lines', m.demand]].map(([k, l, v]) => '<label>' + esc(l) + '<input data-f="' + k + '" value="' + esc(v) + '"></label>').join('') +
+        '<label class="check"><input type="checkbox" data-f="feeder.use"' + (f.use ? ' checked' : '') + '> Feeder cable and closure</label>' +
+        [['feeder.name', 'Feeder', f.name], ['feeder.size', 'Feeder size (C)', f.size], ['feeder.closure', 'Feeder closure', f.closure], ['feeder.first', 'First feeder fiber', f.first]].map(([k, l, v]) => '<label>' + esc(l) + '<input data-f="' + k + '" value="' + esc(v) + '"' + (f.use ? '' : ' disabled') + '></label>').join('') +
+        '</div></div></details>' +
+        editor('mains', 'Mains (distribution cables)', mains.length + ' mains', 'A main runs from the feeder closure (or the ODF) to its own closure. Its drops take fibers in groups of six from the first fiber.', mains, TABLES.mains.cols, 'Add a main', open.length ? open[1] : true) +
+        editor('naps', 'NAPs', m.naps.length + ' NAPs', 'Rows with the same line are that line\'s N01, N02… in order. Leave the line empty to start a new one (numbered for you). Five lines fill one 6F drop cable.', m.naps, TABLES.naps.cols, 'Add a NAP', open.length ? open[2] : true) +
+        '<details class="card"' + (open[3] ? ' open' : '') + ' id="resultCard"><summary><h3>Lines and counts</h3><span class="count" id="resCount"></span></summary><div class="body" id="results"></div></details>';
+    }
+  }
+  function renderResults() {
+    const res = $('#results'); if (!res || !built) return; const P = built.plan;
+    if (S.net === 'access') {
+      $('#resCount').textContent = P.paths.length + ' of ' + (M().links || []).length + ' links routed';
+      res.innerHTML = '<div class="tablewrap"><table class="ed out"><thead><tr><th>Cable</th><th>Status</th><th>Size</th><th>In use before</th><th>Given to links</th><th>Free after</th></tr></thead><tbody>' +
+        P.cables.map(c => '<tr><td>' + esc(c.name) + '</td><td><span class="pill ' + (c.status === 'existing' ? 'ex' : 'new') + '">' + c.status + '</span></td><td>' + c.size + 'C</td><td>' + esc(SP.fmtRanges(SP.parseRanges(c.used)) || '—') + '</td><td>' + esc(c.links.map(l => 'L' + (l.li + 1) + ' F' + SP.fmtRanges(l.f)).join(', ') || '—') + '</td><td>' + (c.size - c.taken.size) + '</td></tr>').join('') + '</tbody></table></div>';
+    } else {
+      const s = P.sum; $('#resCount').textContent = s.lines + ' lines · ' + s.ports + ' ports';
+      res.innerHTML = '<p class="note">' + s.lines + ' lines (1:4 each), ' + s.dnap + ' double NAPs, ' + s.snap + ' single NAPs, ' + s.ports + ' designed lines' + (s.demand ? ' for ' + s.demand + ' demand' : '') + '.</p><div class="tablewrap"><table class="ed out"><thead><tr><th>Line</th><th>Main</th><th>Drop</th><th>Main fiber</th><th>6F fiber</th><th>NAPs</th><th>Ports</th></tr></thead><tbody>' +
+        P.mains.flatMap(mn => mn.lines.map(ln => '<tr><td>' + esc(ln.id) + '</td><td>' + esc(mn.name) + '</td><td>' + (ln.drop.d + 1) + '</td><td>F' + ln.fDist + '</td><td>F' + ln.fDrop + '</td><td>' + ln.naps.map(n => esc(n.id.split('_')[1]) + '·' + n.ports).join(' ') + '</td><td>' + ln.naps.reduce((a, n) => a + n.ports, 0) + '</td></tr>')).join('') + '</tbody></table></div>';
+    }
+  }
+  function renderTitle() {
+    const t = M().title || (M().title = {}); t.sign = t.sign || [{}, {}, {}];
+    const F = [['project', 'Project'], ['planId', 'Plan ID'], ['site', 'Site name'], ['exchange', 'Exchange'], ['dwgNo', 'Dwg. no.'], ['date', 'Issue date'], ['company', 'Company (logo cell)']];
+    $('#titleForm').innerHTML = F.map(([k, l]) => '<label>' + esc(l) + '<input data-tt="' + k + '" value="' + esc(t[k]) + '"></label>').join('') +
+      [0, 1, 2].map(j => '<label>Name ' + (j + 1) + '<input data-sg="' + j + '.name" value="' + esc((t.sign[j] || {}).name) + '"></label><label>Role ' + (j + 1) + '<input data-sg="' + j + '.role" value="' + esc((t.sign[j] || {}).role) + '"></label>').join('') +
+      '<label style="grid-column:1/-1">Note at the foot<input data-tt="note" value="' + esc(t.note) + '" placeholder="THIS DRAWING IS FOR THE PROJECT TEAM ONLY…"></label>';
+  }
+  function renderHow() {
+    $('#how').innerHTML = (S.net === 'access' ? [
+      'Each link follows the cables from one end to the other, through the closures.',
+      'On every cable it takes the lowest free run of fibers, so a straight splice keeps its numbers (F1-6 to F1-6).',
+      'An existing cable gives its first vacant fibers: with 1-12 in use, a 6-fiber link gets F13-18.',
+      'Detailed is drawn like the ODN one: the homing ODF at the left, every cable a bundle of fibers through its closures (splices inside), the far ODF or dummy NAP at the right.'
+    ] : [
+      'Each line is one fiber of its main and one fiber (2 to 6) of a 6F drop cable; fiber 1 stays spare.',
+      'The line\'s first NAP holds its 1:4. Outputs 3 and 4 feed that NAP\'s 1:8s; 1 and 2 go on a 6F branch to N02, N03.',
+      'With a feeder, the mains take the feeder\'s fibers in order from the first feeder fiber.',
+      'Detailed is one drawing, like the reference: the ODF, the feeder closure, each main up to its closure, then every drop, numbered, through its NAPs.'
+    ]).map(s => '<li>' + esc(s) + '</li>').join('');
+  }
+  function renderSamples() {
+    const keys = Object.keys(SP.samples).filter(k => (S.net === 'broadband') === (SP.samples[k].model.kind === 'broadband'));
+    $('#sample').innerHTML = keys.map(k => '<option value="' + k + '"' + (S.sample[S.net] === k ? ' selected' : '') + '>Sample ' + esc(SP.samples[k].label) + '</option>').join('');
+  }
+  function renderAll() {
+    document.querySelectorAll('#net button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === S.net)));
+    document.querySelectorAll('#view button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === S.view)));
+    renderSamples(); renderHow(); renderInputs(); renderTitle(); draw();
+  }
+
+  /* ---------- events ---------- */
+  $('#net').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.dataset.v === S.net) return; S.net = b.dataset.v; S.page = 0; renderAll(); });
+  $('#view').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.dataset.v === S.view) return; S.view = b.dataset.v; S.page = 0; renderAll(); });
+  $('#sample').addEventListener('change', e => { S.sample[S.net] = e.target.value; S.models[S.net] = clone(SP.samples[e.target.value].model); S.page = 0; renderAll(); toast('Loaded ' + SP.samples[e.target.value].label); });
+  $('#prev').addEventListener('click', () => { if (S.page > 0) { S.page--; draw(); } });
+  $('#next').addEventListener('click', () => { if (built && S.page < built.sheets.length - 1) { S.page++; draw(); } });
+  $('#chips').addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (!b || +b.dataset.page === S.page) return; S.page = +b.dataset.page; draw(); });
+  /* the key map's cells, a grid sheet's locator and its MATCH LINE · SEE labels open that cell's sheet; a tap that just misses one
+     (a finger is wider than a small target) opens the nearest within 22 px */
+  $('#sheet').addEventListener('click', e => {
+    let g = e.target.closest('[data-ref^="grid:"]'); if (!built) return;
+    if (!g) { let d0 = 22; $('#sheet').querySelectorAll('[data-ref^="grid:"]').forEach(t => { const r = t.getBoundingClientRect(), d = Math.hypot(Math.max(r.left - e.clientX, 0, e.clientX - r.right), Math.max(r.top - e.clientY, 0, e.clientY - r.bottom)); if (d < d0) { d0 = d; g = t; } }); }
+    if (!g) return;
+    const i = built.sheets.findIndex(sh => sh.cell === g.getAttribute('data-ref').slice(5)); if (i >= 0) { S.page = i; draw(); $('#desk').scrollTop = 0; }
+  });
+  $('#zin').addEventListener('click', () => { S.zoom = Math.min(ZOOMS.length - 1, S.zoom + 1); applyZoom(); });
+  $('#zout').addEventListener('click', () => { S.zoom = Math.max(0, S.zoom - 1); applyZoom(); });
+  window.addEventListener('resize', applyZoom);
+  const numK = new Set(['ports', 'termFrom', 'size', 'length', 'fibers', 'first']);
+  const inputs = $('.inputs');
+  inputs.addEventListener('input', e => {
+    const t = e.target, m = M();
+    if (t.dataset.t) { const row = TABLES[t.dataset.t].rows[+t.dataset.i]; row[t.dataset.k] = numK.has(t.dataset.k) && t.value !== '' && !isNaN(+t.value) ? +t.value : t.value; soon(); }
+    else if (t.dataset.f) { const [a, b] = t.dataset.f.split('.'); const v = t.type === 'checkbox' ? t.checked : t.value; if (b) m[a][b] = v; else m[a] = v; if (t.type === 'checkbox') renderInputs(); soon(); }
+    else if (t.dataset.tt) { m.title[t.dataset.tt] = t.value; soon(); }
+    else if (t.dataset.sg) { const [j, k] = t.dataset.sg.split('.'); m.title.sign[+j] = m.title.sign[+j] || {}; m.title.sign[+j][k] = t.value; soon(); }
+  });
+  inputs.addEventListener('change', e => { if (e.target.dataset.refresh) { renderInputs(); draw(); } });
+  inputs.addEventListener('click', e => {
+    const add = e.target.closest('[data-add]'), del = e.target.closest('[data-del]');
+    if (add) { const T = TABLES[add.dataset.add]; T.rows.push(T.add()); renderInputs(); draw(); }
+    if (del) {
+      const key = del.dataset.del, T = TABLES[key], gone = T.rows.splice(+del.dataset.i, 1)[0], m = M();
+      if (key === 'points' && gone) { m.cables = m.cables.filter(c => c.from !== gone.id && c.to !== gone.id); m.links = m.links.filter(l => l.a !== gone.id && l.b !== gone.id); }
+      if (key === 'mains' && gone) m.naps = m.naps.filter(n => n.main !== gone.id);
+      renderInputs(); draw();
+    }
+  });
+
+  /* ---------- export ---------- */
+  let dl = null;
+  const inViewer = !!(window.claude && typeof window.claude.use === 'function');
+  if (inViewer) window.claude.use('downloads').then(x => { dl = x; }, () => { dl = null; });
+  const baseName = () => { const t = M().title || {}; return ([t.project, t.planId, t.site].filter(Boolean).join('_') || 'SPLICING').toUpperCase().replace(/[^A-Z0-9_-]+/g, '-').replace(/-+/g, '-').slice(0, 80); };
+  async function save(name, bytes) {
+    if (inViewer) {
+      if (!dl) { try { dl = await window.claude.use('downloads'); } catch (e) { dl = null; } }
+      if (!dl) { toast('Saving files is not available in this view.'); return; }
+      let fname = name, data = bytes;
+      if (/\.dxf$/i.test(name)) { data = SP.zip([{ name, data: bytes }]); fname = name.replace(/\.dxf$/i, '_DXF.zip'); }
+      try { await dl.save({ filename: fname, data }); toast('Saved ' + fname + (fname !== name ? ' (this viewer saves a DXF inside a ZIP)' : '')); }
+      catch (e) { toast(e && e.code === 'declined' ? 'Not saved.' : 'Could not save here (' + ((e && e.code) || 'unavailable') + ').'); }
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([bytes])), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000); toast('Downloaded ' + name);
+  }
+  document.querySelector('.export').addEventListener('click', async e => {
+    const b = e.target.closest('[data-fmt]'); if (!b) return;
+    const views = [$('#exSld').checked && 'sld', $('#exDet').checked && 'detailed'].filter(Boolean);
+    if (!views.length) { toast('Tick at least one diagram.'); return; }
+    const r = SP.build(M(), views), tag = views.length === 2 ? 'SPLICING-SET' : views[0] === 'sld' ? 'SLD' : 'SPLICING-DETAILS', base = baseName() + '_' + tag, enc = new TextEncoder();
+    const pdf = () => SP.toPDF(r.sheets, { title: base }), dxf = () => enc.encode(SP.toDXF(r.sheets));
+    if (b.dataset.fmt === 'pdf') await save(base + '.pdf', pdf());
+    else if (b.dataset.fmt === 'dxf') await save(base + '.dxf', dxf());
+    else await save(base + '.zip', SP.zip([{ name: base + '.pdf', data: pdf() }, { name: base + '.dxf', data: dxf() }]));
+  });
+  let tt = 0; function toast(s) { const t = $('#toast'); t.textContent = s; t.hidden = false; clearTimeout(tt); tt = setTimeout(() => { t.hidden = true; }, 3800); }
+
+  renderAll();
+})();
+</script>
+</body>
+</html>
