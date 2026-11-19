@@ -50,7 +50,11 @@ async def main():
         s3 = await tip(pg, '#scanSkip'); await pg.screenshot(path=f'{OUT}/r2_id_step.png')
         if skip_shown: await pg.click('#scanSkip')
         else: await W(pg, 2500)  # the ID was read by itself: the record is open and the tour moves on by itself
-        await pg.wait_for_selector('#editor:not([hidden])', timeout=15000); await W(pg, 1200); s4 = await tip(pg, '#snapGps')
+        await pg.wait_for_selector('#editor:not([hidden])', timeout=15000); await W(pg, 1200)
+        # (beta 6.7 camera: the record opens with its photo full size on top; × shows the record, and the tour goes on there.
+        #  The PAT topic has 8 steps: its step 4, two or more photos per pin, is passed over with one photo a pin)
+        if await pg.evaluate("!document.getElementById('photoView').hidden"): await pg.click('#pvClose'); await W(pg, 900)
+        s4 = await tip(pg, '#snapGps')
         await pg.screenshot(path=f'{OUT}/r3_record_step.png')
         await pg.click('#snapGps'); await W(pg, 900); s5t = await tip(pg, '#edTabs button')  # v2.42.17: the record's tabs
         await pg.click('#edTabs [data-tab="acc"]'); await W(pg, 900); s5 = await tip(pg, '#edSave, #edSaveTop')
@@ -85,7 +89,7 @@ async def main():
         p7 = await tip(pg)
         print('pat tour', p1, p2, p3, p4, p5, p6, p7, sep='\n  ')
         check('PAT tour: details → Next opens the map round Capture → camera (shutter) → the defect form rings Add to punchlist → + Add → Save → last step',
-              p1['around'] and p2['around'] and p2['top'] == 'map' and p3['around'] and p4['around'] and p4['head'].endswith('step 4 of 7') and p5['around'] and p6['around'] and p7['head'].endswith('step 7 of 7'), [x.get('head') for x in (p1, p2, p3, p4, p5, p6, p7)])
+              p1['around'] and p2['around'] and p2['top'] == 'map' and p3['around'] and p4['around'] and p4['head'].endswith('step 5 of 8') and p5['around'] and p6['around'] and p7['head'].endswith('step 8 of 8'), [x.get('head') for x in (p1, p2, p3, p4, p5, p6, p7)])
         await pg.click('#tutTip .tutx'); await W(pg, 300)
 
         # patdone: Mark complete asks (dialog): the tip hides, then comes back with Open it ›

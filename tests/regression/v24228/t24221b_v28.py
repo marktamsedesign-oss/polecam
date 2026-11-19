@@ -77,6 +77,7 @@ async def main():
         await pg.locator('#stCl').scroll_into_view_if_needed(); await pg.screenshot(path=OUT + '/style.png')
         await pg.click('#stClPlace .chip[data-v="callout"]'); await pg.click('#stClPos .chip[data-v="up"]'); await pg.click('#stClCol button[aria-label^="red"]'); await W(pg, 300)
         st = await pg.evaluate("__polecam.S.plStyle")
+        await pg.evaluate("document.getElementById('stSum').closest('details').open = true"); await W(pg, 200)  # (beta 6.7, UX step 4: the summary is folded under All settings in one list (for support))
         sm = await pg.inner_text('#stSum')
         check('G1. the style sheet: callout, above, red kept (the drawing design style); its summary says so; (v2.42.23) no two-of-one-cable wording any more', st['clamp']['place'] == 'callout' and st['clamp']['pos'] == 'up' and st['clamp']['color'] == 1 and 'callout' in sm and 'up to 3 for each cable in a grid' in sm and not await pg.locator('#stCabWord').count(), (st, sm[:200]))
         await pg.screenshot(path=OUT + '/style_callout.png')

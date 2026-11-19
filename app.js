@@ -78,10 +78,15 @@
   /* Survey points (v2.13): the poles and the network elements an As-plan, As-built or Audit survey records, each its own pin
      with one photo. A POI (point of insertion) is a closure on a pole, or a handhole with a closure inside. */
   const SV_ELEMENTS = ['Pole', 'Site', 'ODC', 'ODF', 'NAP', 'Closure', 'Handhole', 'Manhole', 'Service box']; // v2.37: + manhole, service box
-  const SV_PREFIX = { ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB' };
-  const SV_COLORS = { Pole: '#e8590c', Site: '#9c36b5', ODC: '#2b8a3e', ODF: '#1971c2', NAP: '#f08c00', Closure: '#c2255c', Handhole: '#495057', Manhole: '#5c5f66', 'Service box': '#868e96' };
-  const SV_SHORT = { Site: 'SITE', ODC: 'ODC', ODF: 'ODF', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB' };
-  const ROUTE_ELS = ['Pole', 'Handhole', 'Manhole', 'Service box', 'Site', 'ODC', 'ODF']; // NAP and closure pins sit on a pole: they are not route points
+  const SV_PREFIX = { ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB', 'Pull-off': 'PO', 'Cross-over': 'CO' }; // (beta 6.9: + pull-off, cross-over)
+  const SV_COLORS = { Pole: '#e8590c', Site: '#9c36b5', ODC: '#2b8a3e', ODF: '#1971c2', NAP: '#f08c00', Closure: '#c2255c', Handhole: '#495057', Manhole: '#5c5f66', 'Service box': '#868e96', 'Pull-off': '#c92a2a', 'Cross-over': '#c92a2a' };
+  const SV_SHORT = { Site: 'SITE', ODC: 'ODC', ODF: 'ODF', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB', 'Pull-off': 'PO', 'Cross-over': 'CO' };
+  const ROUTE_ELS = ['Pole', 'Handhole', 'Manhole', 'Service box', 'Site', 'ODC', 'ODF', 'Pull-off', 'Cross-over']; // NAP and closure pins sit on a pole: they are not route points (beta 6.9: a pull-off or cross-over is: the cable goes through it)
+  /* beta 6.9 (the owner): a pull-off (3 poles) or a cross-over (4 poles), "used if the corner has no pole thereby allowing our fiber not to
+     traverse on houses or buildings": a point the cable goes through, held by an extended messenger to each of its poles (rec.att, the
+     pole ids). Not a pole: no pole number, no pole clamps, no pole in the BOQ. n: its poles; word: as the plan writes it. */
+  const JN = { 'Pull-off': { n: 3, pre: 'PO', word: 'PULL-OFF', name: 'pull-off', Name: 'Pull-off' }, 'Cross-over': { n: 4, pre: 'CO', word: 'CROSS-OVER', name: 'cross-over', Name: 'Cross-over' } };
+  const isJn = (r) => !!r && !!JN[r.element || 'Pole'];
   /* Location integrity: the pin may move at most PIN_LIMIT_M from where the photo was taken, and in acceptance
      projects every photo must be live (in-app camera, fresh GPS) and taken within PIN_LIMIT_M of the element. */
   const PIN_LIMIT_M = 1000, MAX_PHOTO_AGE_MS = 2 * 60000, STORE_MAX_PX = 2048; // photos are kept at 2048 px; exports may shrink copies
@@ -458,6 +463,7 @@
   function svStatuses(el, purpose) {
     const p = purpose || svPurpose();
     if (!el) return [];
+    if (JN[el]) return p === 'Audit' ? [] : p === 'As-built' ? ['New'] : ['Proposed']; // beta 6.9: a pull-off or cross-over is new work
     if (p === 'Audit') return el === 'Pole' ? [] : ['Existing'];
     if (p === 'As-built') return ['New', 'Existing']; // v2.14: poles too — mark the new poles, closures, ODF…
     if (el === 'Pole') return ['Existing', 'Proposed']; // v2.14: a proposed new pole (PP-0001) in an As-plan
@@ -719,6 +725,7 @@
     // v2.19: in PAT, cleanup and FAT the ID is optional, so no number is guessed: only the prefix is offered (saved as is, the record gets D-0001…)
     if (ed && ed.acc) return !element || element === 'Pole' ? `${typePrefix(type) || typePrefix(S.lastType) || 'CC'}-` : element === 'ODF' ? 'FDU_' : '';
     const recs = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id));
+    if (JN[element]) return jnNextId(element, recs); // beta 6.9: PO-0001, CO-0001 (the next in the project)
     const latest = (list) => list.reduce((m, p) => (p.created > m.created ? p : m));
     if ((!element || element === 'Pole') && ed && !ed.acc && ed.status === 'Proposed') {
       const n = recs.filter((p) => PP_RE.test(p.poleId || '')).reduce((m, p) => Math.max(m, +PP_RE.exec(p.poleId)[1]), 0);
@@ -883,6 +890,7 @@
   }));
   function onSheetClosed(id) {
     if (id === 'drawing' && drwEd) drwEditSet(false); // beta 6.7: Back from the Drawing ends its Edit route
+    if (id === 'drawing' && jnPick && jnPick.surf === 'drawing') jnPickEnd(); // beta 6.9: its poles were being tapped there
     if (id === 'editor' && drwEd) drwEdSoon(); // beta 6.7: a tower placed on the Drawing: its record saved (or not)
     if (id === 'editor') { document.body.classList.remove('edopen'); if (typeof ppxRefresh === 'function') ppxRefresh(); } // beta 4.1
     if (id === 'dupSheet' && dupRes) { const r = dupRes; dupRes = null; r(null); } // beta 3.3: Back: decided later
@@ -957,10 +965,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.45.2';
+  const APP_VER = '2.45.3';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '6.8'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '7.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1689,7 +1697,7 @@
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], pinLook(p, sel)); // (v2.42.19: its look in pinLook)
       m._tipO = { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' }; m._tipP = p; // v2.42.26: its label bound near the screen only (labelCull)
-      m.on('click', () => { if (!routeMode && tmHooks.pinTap && tmHooks.pinTap(p.id)) return; /* v2.43 beta 3: the fix list */ if (hlId && hlId !== p.id && !routeMode) hlClear(); /* v2.42.27: the ring goes when another pole is tapped */ return routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id); }); // (v2.42.21: a tap the drawing gesture took)
+      m.on('click', () => { if (!routeMode && jnPick && jnPick.surf === 'map') { jnPickTap(p.id); return; } /* beta 6.9: a pull-off's or cross-over's pole */ if (!routeMode && tmHooks.pinTap && tmHooks.pinTap(p.id)) return; /* v2.43 beta 3: the fix list */ if (hlId && hlId !== p.id && !routeMode) hlClear(); /* v2.42.27: the ring goes when another pole is tapped */ return routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id); }); // (v2.42.21: a tap the drawing gesture took)
       m.addTo(poleLayer); pinMarkers.set(p.id, m);
     }
     pinShownSel = routeMode ? routeSel : null;
@@ -1759,12 +1767,13 @@
     { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // beta 3.3 (QA-09): an accepted task
     // v2.37: only the models: a tower or an OLT site, or an ODC (poles, ODFs and handholes are recorded from the camera)
     // beta 6.8 (the owner): and a proposed pole, "since some did not take a picture during survey, it will only be plotted during plan drawing"
-    const pp = ppStatus(), k = await ask('Add a pin on the map', `${pp ? `${pp === 'New' ? 'New pole' : 'Proposed pole'}, tower` : 'Tower'}, OLT or ODC? Then drag the map to place it${pp ? ' (a pole on a cable: on its line)' : ''}, type its name and pick its colour. A photo is optional${pp ? ': a proposed pole needs none' : ''}. For the homing site or ODC (where the route starts or ends), set Existing.`, [
-      ...(pp ? [{ label: pp === 'New' ? 'New pole' : 'Proposed pole', value: 'Pole' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
+    // beta 6.9 (the owner): and a pull-off (3 poles) or a cross-over (4 poles) at a corner with no pole
+    const pp = ppStatus(), k = await ask('Add a pin on the map', `${pp ? `${pp === 'New' ? 'New pole' : 'Proposed pole'}, pull-off, cross-over, tower` : 'Tower'}, OLT or ODC? Then drag the map to place it${pp ? ' (a pole on a cable: on its line; a pull-off or cross-over at the corner with no pole)' : ''}, type its name and pick its colour. A photo is optional${pp ? ': a proposed pole needs none' : ''}. For the homing site or ODC (where the route starts or ends), set Existing.`, [
+      ...(pp ? [{ label: pp === 'New' ? 'New pole' : 'Proposed pole', value: 'Pole' }, { label: 'Pull-off (3 poles)', value: 'Pull-off' }, { label: 'Cross-over (4 poles)', value: 'Cross-over' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
     if (!k) return;
-    const c = map.getCenter(), el = k === 'Pole' ? 'Pole' : k === 'ODC' ? 'ODC' : 'Site';
+    const c = map.getCenter(), el = k === 'Pole' || JN[k] ? k : k === 'ODC' ? 'ODC' : 'Site';
     LOG.info('pin.add', { el, k });
-    await openEditor({ mode: 'new', element: el, siteKind: el === 'Site' ? k : '', ...(el === 'Pole' ? ppRec() : {}), lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: el === 'Pole' ? 'Placed on the map · no photo needed' : 'Placed on the map · photo optional' });
+    await openEditor({ mode: 'new', element: el, siteKind: el === 'Site' ? k : '', ...(el === 'Pole' ? ppRec() : JN[el] ? { status: ppStatus() } : {}), lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: el === 'Pole' || JN[el] ? 'Placed on the map · no photo needed' : 'Placed on the map · photo optional' });
   });
   /** beta 6.8: the status of a pole placed by hand (no photo): Proposed in an As-Plan, New in an As-Built; '' where a survey has none (Audit). */
   const ppStatus = () => { const L = svStatuses('Pole'); return L.includes('Proposed') ? 'Proposed' : L.includes('New') ? 'New' : ''; };
@@ -1794,6 +1803,181 @@
     if (routeMode) routeRefresh([id]); else renderPoles();
     toast(`${who} put on ${rl(on)}${routeMode ? ' (↶ takes it off)' : ''}`, 3500); return true;
   }
+  /* ================= beta 6.9: Pull-off and Cross-over pins (a corner with no pole) =================
+     The owner: "Pull-off: shows pull-off with 3 pole attachments, this was used if the corner has no pole thereby allowing our fiber not
+     to traverse on houses or buildings ... Cross-over: shows cross-over with 4 attachments". Placed with the map's ＋ pin or the
+     Drawing's ＋ (as a proposed pole, no photo needed): on a proposed cable's span it is put on that cable (rtAttach, as a cable grabbed
+     onto a pole), the span's two poles its first two; then its other poles are tapped (jnPick); then it moves to where its messengers
+     meet (jnFit): a pull-off to the foot of the perpendicular from its third pole on the straight messenger between the other two, a
+     cross-over to where its two messengers cross; only within JN_MOVE_M of where it was placed and between the poles. Its poles (jnAtt):
+     the poles before and after it on its cables (they carry the cable to it) and the ones chosen (rec.att); a pole deleted drops out. */
+  const JN_REACH_M = 120, JN_MOVE_M = 30;
+  /** The next PO- / CO- number of the project (recs: its records). */
+  function jnNextId(el, recs) { const pre = JN[el].pre, re = new RegExp(`^${pre}-(\\d+)$`); const n = (recs || []).reduce((m, p) => { const x = re.exec(String(p.poleId || '').toUpperCase()); return x ? Math.max(m, +x[1]) : m; }, 0); return `${pre}-${String(n + 1).padStart(4, '0')}`; }
+  const jnName = (j) => (j && (recName(j) || j.poleId)) || (j && JN[elemOf(j)] ? JN[elemOf(j)].word : '');
+  /** The poles its proposed cables come from and go on to (the poles before and after it on each RUN): they carry the cable to it. */
+  function jnCablePoles(j, F) {
+    const out = []; (F || fibers(j.project)).forEach((f) => { if (f.ex || !Array.isArray(f.path)) return; const i = f.path.indexOf(j.id); if (i < 0) return; [f.path[i - 1], f.path[i + 1]].forEach((id) => { if (id != null && !out.includes(id)) out.push(id); }); });
+    return out.filter((id) => { const p = points.find((x) => x.id === id); return !!p && p.project === j.project && elemOf(p) === 'Pole'; });
+  }
+  /** Its poles: its cable's poles, then the ones chosen; only poles still in the project (a deleted pole drops out). */
+  function jnAtt(j, F) {
+    if (!isJn(j)) return []; const by = new Map(points.filter((p) => p.project === j.project && elemOf(p) === 'Pole').map((p) => [p.id, p]));
+    return [...new Set([...jnCablePoles(j, F), ...(Array.isArray(j.att) ? j.att : [])])].map((id) => by.get(id)).filter(Boolean);
+  }
+  /** Where it goes on its poles P: { at: { lat, lon } or null (it stays: why), d: metres it moves, main: [id, id] (its straight messenger) }.
+      Each way its poles can pair into messengers is tried (a pull-off: which pole pulls, the other two its straight messenger; a
+      cross-over: which two pairs), and the one taken is: first, where the cable turns at it (its two cable poles on two messengers, as
+      the owner's sketches: the fiber comes along one messenger and turns onto the other; placed on the cable's span, those two are
+      always opposite there, so "most opposite" alone would keep the cable across the houses); then where it meets most inside its
+      messengers (not at the end of one); then the most opposite. It moves only when that place is between its poles and within
+      JN_MOVE_M of where it was placed. */
+  function jnFit(j, P, F) {
+    const el = elemOf(j), need = JN[el].n, k = Math.cos(j.lat * Math.PI / 180) * 111320, xy = (p) => [p.lon * k, p.lat * 110574], J = xy(j), Q = P.map(xy), nm = (p) => recName(p) || p.poleId || 'a pole';
+    const back = (q) => ({ lat: q[1] / 110574, lon: q[0] / k });
+    if (P.length !== need) return { at: null, why: `it has ${P.length} of its ${need} poles`, main: null };
+    const cab = new Set(jnCablePoles(j, F)), two = P.filter((p) => cab.has(p.id)).length >= 2, both = (i, q) => cab.has(P[i].id) && cab.has(P[q].id);
+    const ang = (i, q) => { const a = [Q[i][0] - J[0], Q[i][1] - J[1]], b = [Q[q][0] - J[0], Q[q][1] - J[1]], n = Math.hypot(a[0], a[1]) * Math.hypot(b[0], b[1]) || 1; return Math.acos(Math.max(-1, Math.min(1, (a[0] * b[0] + a[1] * b[1]) / n))); };
+    const len = (i, q) => Math.hypot(Q[i][0] - Q[q][0], Q[i][1] - Q[q][1]), C = [];
+    if (el === 'Pull-off') for (let c = 0; c < 3; c++) { // the foot of the perpendicular from the pulling pole on the straight messenger
+      const [i, q] = [0, 1, 2].filter((x) => x !== c), A = Q[i], B = Q[q], r = [B[0] - A[0], B[1] - A[1]], t = ((Q[c][0] - A[0]) * r[0] + (Q[c][1] - A[1]) * r[1]) / ((r[0] * r[0] + r[1] * r[1]) || 1);
+      C.push({ main: [i, q], turns: !two || !both(i, q), cen: Math.min(t, 1 - t), a: ang(i, q), X: [A[0] + r[0] * t, A[1] + r[1] * t], why: `the corner (the foot of ${nm(P[c])} on ${nm(P[i])} – ${nm(P[q])}) is not between those two poles` }); }
+    else [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]].forEach(([p, q]) => { // where its two messengers cross
+      const A = Q[p[0]], B = Q[p[1]], C0 = Q[q[0]], D0 = Q[q[1]], r = [B[0] - A[0], B[1] - A[1]], s = [D0[0] - C0[0], D0[1] - C0[1]], den = r[0] * s[1] - r[1] * s[0], ok = Math.abs(den) > 1e-9;
+      const t = ok ? ((C0[0] - A[0]) * s[1] - (C0[1] - A[1]) * s[0]) / den : -9, u = ok ? ((C0[0] - A[0]) * r[1] - (C0[1] - A[1]) * r[0]) / den : -9;
+      C.push({ main: len(...p) >= len(...q) ? p : q, turns: !two || !(both(...p) || both(...q)), cen: Math.min(t, 1 - t, u, 1 - u), a: Math.min(ang(...p), ang(...q)), X: ok ? [A[0] + r[0] * t, A[1] + r[1] * t] : null,
+        why: `its messengers ${nm(P[p[0]])} – ${nm(P[p[1]])} and ${nm(P[q[0]])} – ${nm(P[q[1]])} do not cross between the poles` }); });
+    C.sort((x, y) => (y.turns - x.turns) || (y.cen - x.cen) || (y.a - x.a)); const b = C[0], main = b.main.map((i) => P[i].id);
+    if (!b.X || b.cen <= 0.02) return { at: null, why: b.why, main };
+    const d = Math.hypot(b.X[0] - J[0], b.X[1] - J[1]);
+    if (d > JN_MOVE_M) return { at: null, d, main, why: `there it would move ${Math.round(d)} m, more than ${JN_MOVE_M} m from where it was placed` };
+    return { at: back(b.X), d, main };
+  }
+  /** The metres of extended messenger with no cable on it (its poles it has no span to, each as the plan writes a length: whole metres). */
+  function jnMsgM(j, L) {
+    const have = new Set((L || effLinks()).map((l) => spanKey(l[0], l[1]))); let m = 0, n = 0;
+    jnAtt(j).forEach((p) => { if (have.has(spanKey(j.id, p.id))) return; m += Math.round(haversine(j, p)); n++; }); return { m, n };
+  }
+  /** Placed by hand (the map's ＋ pin, the Drawing's ＋): on a proposed cable's span (within tol metres of its line), put on that cable
+      (all its RUNs there; with several, which, as a proposed pole is), the span split at it; then its poles are tapped (jnPick). */
+  async function jnPlaced(id, surf, tol) {
+    await jnOnCable(id, tol);
+    const j = points.find((x) => x.id === id); if (!j || !isJn(j)) return;
+    jnPickStart(id, surf === 'drawing' && drwEd && drw ? 'drawing' : 'map');
+  }
+  async function jnOnCable(id, tol) {
+    const p = points.find((x) => x.id === id); if (!p || !isJn(p) || isAcc()) return false;
+    const R = routeModel(); if (!R.fib) return false; const xy = xyOf(p.lat), Q = xy(p); let best = null;
+    for (const h of R.fib.hops.values()) {
+      const fs = h.fs.filter((f) => !f.ex && f.path.indexOf(id) < 0); if (!fs.length) continue; const A = R.fib.by.get(h.a), B = R.fib.by.get(h.b); if (!A || !B) continue;
+      const r = projOn(Q, [xy(A), xy(B)]); if (r.d > tol || r.t < 1 || r.t > r.len - 1) continue;
+      if (!best || r.d < best.d) best = { d: r.d, h, fs };
+    }
+    if (!best) return false;
+    const nm = (x) => fibName(x), who = jnName(p), runs = best.fs.map((f) => f.n), rl = (L) => L.map((n) => `RUN ${n}`).join(' and ');
+    let on = runs;
+    if (runs.length > 1) { // (the span carries several cables: which goes through it)
+      const v = await ask(`Put ${who} on the cable?`, `It is on the span ${nm(best.h.a)} → ${nm(best.h.b)} (${rl(runs)}). On the cable, the span goes through it: ${nm(best.h.a)} → ${who} → ${nm(best.h.b)}, the cable turning there.`,
+        [{ label: `Put on ${rl(runs)}`, value: 'all', primary: true }, ...runs.map((n) => ({ label: `RUN ${n} only`, value: `n${n}` })), { label: 'Not on a cable', value: '' }]);
+      if (!v || !points.some((x) => x.id === id)) return false; on = v === 'all' ? runs : [+v.slice(1)];
+    }
+    const F = fibers(); let L = null;
+    if (routeMode) routeUndo.push(routeSnap());
+    on.forEach((n) => { const f = F.find((x) => x.n === n); if (!f) return; const k = f.path.findIndex((x, i) => i > 0 && spanKey(f.path[i - 1], x) === spanKey(best.h.a, best.h.b)); if (k < 1) return; L = rtAttach(f, id, F, k, L || undefined) || L; });
+    setRoute(L, F); LOG.info('jn.attach', { el: elemOf(p), runs: on.length });
+    if (routeMode) routeRefresh([id]); else renderPoles();
+    toast(`${who} put on ${rl(on)}: ${nm(best.h.a)} → ${who} → ${nm(best.h.b)}${routeMode ? ' (↶ takes it off)' : ''}`, 3500); return true;
+  }
+  /* The poles tapped: jnPick { id, need, ch: the poles chosen, fix: its cable's poles (they stay), surf: 'map' | 'drawing' }. A tap on a
+     pole within JN_REACH_M chooses it, again un-chooses it (not a cable's pole); Done when it has its 3 or 4; Cancel keeps it as it was. */
+  let jnPick = null, jnLayer = null, jnBarT = 0;
+  function jnPickStart(id, surf) {
+    const j = points.find((p) => p.id === id); if (!j || !isJn(j) || isAcc()) return;
+    if (rtPop) { rtPop = null; renderRtPop(); }
+    const need = JN[elemOf(j)].n, fix = jnCablePoles(j), ch = jnAtt(j).map((p) => p.id);
+    jnPick = { id, need, ch, fix: new Set(fix), surf: surf === 'drawing' && drw ? 'drawing' : 'map' };
+    LOG.info('jn.pick', { el: elemOf(j), have: ch.length, need }); jnBarShow(); rtApplyMode(); jnPaintSoon();
+  }
+  function jnBarText() {
+    const P = jnPick, j = P && points.find((x) => x.id === P.id); if (!j) return '';
+    const w = JN[elemOf(j)], k = P.ch.length, two = P.fix.size >= 2;
+    const what = elemOf(j) === 'Pull-off' ? (two ? 'tap the pole that pulls the corner' : 'tap the 3 poles it is held by') : (two ? 'tap the 2 poles of the other messenger' : 'tap the 4 poles of its two messengers');
+    return `${w.Name} ${jnName(j)}: ${k >= P.need ? 'Done to place it' : what} (${k} of ${P.need})`;
+  }
+  function jnBarShow(info, onD) { // (info: a message with OK, on the Drawing when onD)
+    const bar = $('jnBar'), host = (info ? onD : jnPick && jnPick.surf === 'drawing') ? $('drawWrap') : $('app'); clearTimeout(jnBarT);
+    if (bar.parentNode !== host) host.appendChild(bar); // (on the Drawing: over it; on the map: over the map)
+    if (info) { $('jnBarT').textContent = info; $('jnBarDone').hidden = true; $('jnBarCancel').textContent = 'OK'; bar.hidden = false; jnBarT = setTimeout(() => { if (!jnPick) bar.hidden = true; }, 9000); return; }
+    if (!jnPick) { bar.hidden = true; return; }
+    $('jnBarT').textContent = jnBarText(); $('jnBarDone').hidden = false; $('jnBarDone').disabled = jnPick.ch.length !== jnPick.need; $('jnBarCancel').textContent = 'Cancel'; bar.hidden = false;
+  }
+  function jnPickEnd() { jnPick = null; $('jnBar').hidden = true; clearTimeout(jnBarT); if (jnLayer) jnLayer.clearLayers(); rtApplyMode(); if (drw && !$('drawing').hidden) drawDrawing(); }
+  function jnPickTap(id) {
+    const P = jnPick; if (!P) return; const j = points.find((x) => x.id === P.id); if (!j) { jnPickEnd(); return; }
+    const p = points.find((x) => x.id === id); if (!p || id === j.id) return; const nm = recName(p) || p.poleId || elemOf(p);
+    if (elemOf(p) !== 'Pole') { toast(`${nm}: a messenger is held by poles only (not a ${elemOf(p).toLowerCase()})`, 3000); return; }
+    if (P.ch.includes(id)) { if (P.fix.has(id)) { toast(`${nm} carries the cable to ${jnName(j)}: it stays`, 3000); return; } P.ch = P.ch.filter((x) => x !== id); jnBarShow(); jnPaintSoon(); return; }
+    const d = haversine(j, p); if (d > JN_REACH_M) { toast(`${nm} is ${Math.round(d)} m away: tap a pole within ${JN_REACH_M} m`, 3000); return; }
+    if (P.ch.length >= P.need) { toast(`It has its ${P.need} poles: tap one to take it off, or Done`, 3000); return; }
+    P.ch.push(id); jnBarShow(); jnPaintSoon();
+  }
+  async function jnSave(rec) {
+    await dbPut('points', rec); const i = points.findIndex((x) => x.id === rec.id); if (i >= 0) points[i] = rec; else points.push(rec);
+    changedAfterApproval(rec.project, 'record');
+  }
+  async function jnPickDone() {
+    const P = jnPick; if (!P || P.ch.length !== P.need) return; const j0 = points.find((x) => x.id === P.id); if (!j0) { jnPickEnd(); return; }
+    { const lk = tmHooks.locked ? tmHooks.locked(j0.id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    const surf = P.surf; jnPickEnd();
+    const now = new Date().toISOString(), prev = JSON.parse(JSON.stringify(j0)), rec = { ...j0, att: P.ch.slice(), updated: now, updatedBy: byLine() };
+    try { await jnSave(rec); } catch (e) { toast('Could not save: try again', 3500); return; }
+    if (routeMode) routeUndo.push({ rec: prev }); // (↶: its poles as before)
+    const fit = jnFit(rec, jnAtt(rec)); if (fit.main) { rec.jm = fit.main; try { await jnSave(rec); } catch (e) { /* (kept for its record only) */ } } // (its straight messenger, kept with it)
+    const who = jnName(rec), names = jnAtt(rec).map((p) => recName(p) || p.poleId).join(', '); let msg = '';
+    if (fit.at && fit.d >= 0.3) {
+      const moved = { ...rec, lat: +fit.at.lat.toFixed(7), lon: +fit.at.lon.toFixed(7), adjusted: true, updated: new Date().toISOString() };
+      try { await jnSave(moved); if (routeMode) routeUndo.push({ rec: JSON.parse(JSON.stringify(rec)) }); msg = `${who} placed where its messengers ${elemOf(rec) === 'Pull-off' ? 'meet' : 'cross'}: moved ${fmtLen(fit.d)}. Held by ${names}${routeMode ? ' (↶ takes it back)' : ''}`; } // (↶: where it was placed)
+      catch (e) { msg = `${who}: held by ${names}; not moved (could not save)`; }
+    } else msg = fit.at ? `${who}: held by ${names}, already where its messengers ${elemOf(rec) === 'Pull-off' ? 'meet' : 'cross'}` : `${who}: held by ${names}. It stays where it was placed: ${fit.why}. Hold it to move it`;
+    LOG.info('jn.done', { el: elemOf(rec), moved: !!(fit.at && fit.d >= 0.3), d: fit.d != null ? Math.round(fit.d) : null });
+    renderPoles(); if (drw && !$('drawing').hidden && !drwEd) { const v = drw.view ? { ...drw.view } : null; openDrawing(true, v); }
+    jnBarShow(msg, surf === 'drawing' && !!drw && !$('drawing').hidden); // (it says where it went, or why it stays)
+  }
+  $('jnBarDone').addEventListener('click', () => guard(jnPickDone, 'Not saved'));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && jnPick && !/^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '') && $('askBox').hidden) $('jnBarCancel').click(); }); // (Esc: as Cancel)
+  $('jnBarCancel').addEventListener('click', () => { const P = jnPick; if (!P) { $('jnBar').hidden = true; return; } const j = points.find((x) => x.id === P.id), k = j ? jnAtt(j).length : 0; jnPickEnd(); if (j) toast(`${jnName(j)}: its poles as they were (${k} of ${P.need})${k < P.need ? ': open it and tap Choose the poles to add the others' : ''}`, 4500); });
+  /** The poles chosen, and its messengers to them, on the map or the Drawing; the reach (JN_REACH_M) as a dashed ring. */
+  function jnPaintSoon() { if (!jnPick) return; if (jnPick.surf === 'drawing') { if (drw) drawDrawing(); return; } jnPaintMap(); }
+  function jnPaintMap() {
+    if (!jnLayer) jnLayer = L.layerGroup().addTo(map); jnLayer.clearLayers(); const P = jnPick; if (!P || P.surf !== 'map') return;
+    const j = points.find((x) => x.id === P.id); if (!j) return;
+    L.circle([j.lat, j.lon], { radius: JN_REACH_M, color: '#e03131', weight: 1.5, dashArray: '5 7', fill: false, interactive: false }).addTo(jnLayer);
+    P.ch.forEach((id) => { const p = points.find((x) => x.id === id); if (!p) return; L.polyline([[j.lat, j.lon], [p.lat, p.lon]], { color: '#e03131', weight: 2.5, dashArray: '6 5', interactive: false }).addTo(jnLayer);
+      L.circleMarker([p.lat, p.lon], { radius: 16, color: P.fix.has(id) ? '#1c3f94' : '#2f9e44', weight: 4, fill: false, interactive: false }).addTo(jnLayer); });
+    L.circleMarker([j.lat, j.lon], { radius: 13, color: '#e03131', weight: 3, fill: false, interactive: false }).addTo(jnLayer);
+  }
+  function jnPaintDrw(g, d) {
+    const P = jnPick; if (!P || P.surf !== 'drawing' || !drw) return; const j = drwEdById(P.id); if (!j) return; const c = drwPx(j.xy);
+    g.save(); g.strokeStyle = 'rgba(224,49,49,.55)'; g.lineWidth = 1.5 * d; g.setLineDash([5 * d, 7 * d]); g.beginPath(); g.arc(c[0], c[1], JN_REACH_M * drw.view.sc, 0, 2 * Math.PI); g.stroke();
+    P.ch.forEach((id) => { const it = drwEdById(id); if (!it) return; const q = drwPx(it.xy); g.strokeStyle = '#e03131'; g.lineWidth = 2.5 * d; g.setLineDash([6 * d, 5 * d]); g.beginPath(); g.moveTo(c[0], c[1]); g.lineTo(q[0], q[1]); g.stroke();
+      g.setLineDash([]); g.strokeStyle = P.fix.has(id) ? '#1c3f94' : '#2f9e44'; g.lineWidth = 4 * d; g.beginPath(); g.arc(q[0], q[1], 16 * d, 0, 2 * Math.PI); g.stroke(); });
+    g.setLineDash([]); g.strokeStyle = '#e03131'; g.lineWidth = 3 * d; g.beginPath(); g.arc(c[0], c[1], 13 * d, 0, 2 * Math.PI); g.stroke(); g.restore();
+  }
+  /** Its record (Details): its poles, how many it still needs, Choose the poles. */
+  function jnBoxRender() {
+    const box = $('jnBox'); if (!box) return; const on = !!ed && !ed.acc && !!JN[ed.element]; box.hidden = !on; if (!on) return;
+    const j = points.find((p) => p.id === ed.id), need = JN[ed.element].n, P = j ? jnAtt(j) : [], k = P.length;
+    $('jnAtt').textContent = ed.mode === 'new' ? `Save it, then tap its ${need} poles on the map or the Drawing (on a cable: the cable's two poles are its first two).`
+      : `${k ? P.map((p) => `${recName(p) || p.poleId} (${fmtLen(haversine(j, p))})`).join(', ') : 'no pole yet'}${k < need ? ` · needs ${need - k} more pole${need - k === 1 ? '' : 's'} (${k} of ${need})` : k > need ? ` · ${k} poles: a ${JN[ed.element].name} has ${need}` : ''}`;
+    $('jnPickBtn').hidden = ed.mode === 'new' || ed.lock === 'closed';
+  }
+  $('jnPickBtn').addEventListener('click', async () => {
+    if (!ed || !JN[ed.element] || ed.mode === 'new') return; const id = ed.id;
+    if (edDirty()) { toast('Save your changes first, then Choose the poles', 3500); return; }
+    ed.closeOK = true; await closeSheet(); const onD = !!drw && !$('drawing').hidden && stack[stack.length - 1] === 'drawing';
+    if (!onD) { const j = points.find((p) => p.id === id); if (j) map.setView([j.lat, j.lon], Math.max(map.getZoom(), 17)); }
+    jnPickStart(id, onD ? 'drawing' : 'map');
+  });
   /* v2.42.24: the blocks the Drawing screen draws on the cable, as the plan does: a dummy NAP (DN: the template's green rounded box)
      and a hybrid closure (the template's P-Joint pentagon: proposed red filled, existing a blue outline) at their pole; each cable meets
      their sides. Keyed by the pole's ID: { kind: 'dn' | 'clo', xy, ax (the cable's direction through the pole, for the DN), old, cid, size }. */
@@ -1874,6 +2058,8 @@
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
     drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), ia: String(h.a), ib: String(h.b), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     drw.blocks = drwBlocks(items, R, U); // v2.42.24: the dummy NAPs and closures on the cable
+    { const byI = new Map(items.map((it) => [String(it.p.id), it])); // beta 6.9: each pull-off and cross-over, its poles on the Drawing
+      drw.jns = items.filter((it) => JN[it.el]).map((it) => ({ it, att: jnAtt(it.p).map((q) => byI.get(String(q.id))).filter(Boolean) })); }
     drw.pts = pts; drwXHid(); // beta 6.2: the points as exported (clamps); the hidden ones' chip
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
@@ -1948,6 +2134,7 @@
       if (bk.kind === 'dn') return Math.hypot(bk.e1[0] - toward[0], bk.e1[1] - toward[1]) <= Math.hypot(bk.e2[0] - toward[0], bk.e2[1] - toward[1]) ? bk.e1 : bk.e2;
       const u = u2(bk.c, toward); return [bk.c[0] + u[0] * bk.R * 0.45, bk.c[1] + u[1] * bk.R * 0.45]; };
     const fitIn = (id, N) => { const bk = BK.get(String(id)), lim = bk.kind === 'dn' ? 0.75 * bk.hw : 0.5 * bk.R, l = Math.hypot(N[0], N[1]); return l > lim ? [N[0] * lim / l, N[1] * lim / l] : N; }; // (the lanes side by side within it)
+    drw.jnMsg = []; (drw.jns || []).forEach(({ it, att }) => { const c = drwPx(it.xy); att.forEach((q) => { const e = drwPx(q.xy); g.strokeStyle = '#e03131'; g.lineWidth = 1.3 * d; g.setLineDash([]); g.beginPath(); g.moveTo(c[0], c[1]); g.lineTo(e[0], e[1]); g.stroke(); occ.add(segObb(c, e, 3 * d), 'cable', `m${it.p.id}`); drw.jnMsg.push({ id: String(it.p.id), pole: String(q.p.id), a: c, b: e }); }); }); // (beta 7.1: each arm straight to its pole's centre as drawn here; drw.jnMsg, for a check) // beta 6.9: each extended messenger, a thin continuous line from the pull-off or cross-over to its pole (under the cables)
     const GAP = 5 * d, laneAt = new Map(); drw.hitL = []; // (each span's lanes: the offset of each fiber's line from the span's line, for the labels)
     (drw.fibs || []).forEach((f) => { // v2.42.23: each fiber one line in its lane, mitred at the corners (v2.42.24: as wide as its size; meeting the blocks' sides)
       const ids = f.ids || [], Q = f.pts.map(drwPx), m = Q.length - 1;
@@ -2016,9 +2203,10 @@
       const { p, xy, el } = it, [px, py] = drwPx(xy), bk = el === 'Pole' ? BK.get(String(p.id)) : null, r = bk ? bk.r + 2 * d : (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New'; // (v2.42.24: a DN or closure stands for its pole)
       if (!bk) { g.lineWidth = 1.8 * d; g.strokeStyle = pinCol(p) || (prop ? '#e03131' : '#1b1b1b'); g.fillStyle = drw.sel === p.id ? '#ffd43b' : '#ffffff';
       g.beginPath();
-      if (el === 'Pole') g.arc(px, py, r, 0, Math.PI * 2); else if (el === 'Handhole' || el === 'Manhole' || el === 'Service box' || el === 'ODC' || el === 'ODF') g.rect(px - r, py - r, r * 2, r * 2); else { g.moveTo(px, py - r * 1.2); g.lineTo(px + r, py + r * 0.8); g.lineTo(px - r, py + r * 0.8); g.closePath(); }
+      if (JN[el]) { g.strokeStyle = pinCol(p) || '#e03131'; g.lineWidth = 2.4 * d; if (el === 'Pull-off') g.rect(px - r * 0.85, py - r * 0.85, r * 1.7, r * 1.7); else g.arc(px, py, r * 0.95, 0, Math.PI * 2); } // beta 6.9: a pull-off a small square, a cross-over a small circle (proposed: red)
+      else if (el === 'Pole') g.arc(px, py, r, 0, Math.PI * 2); else if (el === 'Handhole' || el === 'Manhole' || el === 'Service box' || el === 'ODC' || el === 'ODF') g.rect(px - r, py - r, r * 2, r * 2); else { g.moveTo(px, py - r * 1.2); g.lineTo(px + r, py + r * 0.8); g.lineTo(px - r, py + r * 0.8); g.closePath(); }
       g.fill(); g.stroke();
-      if (el !== 'Pole') { g.fillStyle = pinCol(p) || SV_COLORS[el] || '#495057'; g.beginPath(); g.arc(px, py, r * 0.35, 0, Math.PI * 2); g.fill(); } }
+      if (el !== 'Pole' && !JN[el]) { g.fillStyle = pinCol(p) || SV_COLORS[el] || '#495057'; g.beginPath(); g.arc(px, py, r * 0.35, 0, Math.PI * 2); g.fill(); } }
       placed.push(bk && bk.kind === 'dn' ? [px - Math.abs(bk.ax[0]) * bk.hl - Math.abs(bk.ax[1]) * bk.hw, py - Math.abs(bk.ax[1]) * bk.hl - Math.abs(bk.ax[0]) * bk.hw, 2 * (Math.abs(bk.ax[0]) * bk.hl + Math.abs(bk.ax[1]) * bk.hw), 2 * (Math.abs(bk.ax[1]) * bk.hl + Math.abs(bk.ax[0]) * bk.hw)] : [px - r, py - r, r * 2, r * 2]);
       // its photo or number on the plan (as the DXF will have it)
       const n = roomy ? drw.seq.get(String(p.id)) : 0;
@@ -2048,7 +2236,7 @@
     });
     const clTags = []; // v2.42.21: clamp types as tags or callouts, placed after the labels
     drw.items.forEach((it) => { // the IDs (and the clamps and tags of a pole, close up), moved where they would cover another
-      const { p, xy, el } = it; if (!drw.labels) return;
+      const { p, xy, el } = it; if (!drw.labels || JN[el]) return; // (beta 6.9: a pull-off's or cross-over's name is in its label along its messenger, drwLabels)
       const [px, py] = drwPx(xy), bk = el === 'Pole' ? BK.get(String(p.id)) : null, r = bk ? bk.r + 2 * d : (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
       g.font = `600 ${fs}px ui-monospace, monospace`;
       const t = p.poleId || el, w = g.measureText(t).width;
@@ -2088,6 +2276,7 @@
     g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + sb * v.sc, sy); g.moveTo(sx, sy - 5 * d); g.lineTo(sx, sy + 5 * d); g.moveTo(sx + sb * v.sc, sy - 5 * d); g.lineTo(sx + sb * v.sc, sy + 5 * d); g.stroke();
     g.textBaseline = 'bottom'; g.fillText(sb >= 1000 ? `${sb / 1000} km` : `${sb} m`, sx + sb * v.sc / 2, sy - 4 * d);
     if (drwEd) drwEdPaint(g, d); // beta 6.7: Edit route: the line being drawn, the handles, what is dragged
+    if (jnPick) jnPaintDrw(g, d); // beta 6.9: a pull-off's or cross-over's poles being tapped
   }
   /* v2.42.24: the closure's texts and the cable labels and span lengths on the Drawing screen, where they cover nothing (the other
      labels, the IDs, numbers and tags, the blocks, the cables): as on the plan. Each cable its own label beside its own line, as large
@@ -2206,6 +2395,27 @@
         if (lp) break; }
       if (!lp) return; txt(it.len, lp.q, lp.h, ang, it.long ? '#c92a2a' : '#1c3f94', 600); occ.add(lp.b, 'text'); kb(lp.b, it.len);
     });
+    /* beta 6.9 (the owner: "pull-off and cross-over labels must be small enough to read.. just a name above the drawing block is ok"):
+       its name (PULL-OFF / CROSS-OVER, no number) in red, level, inside a dashed red bubble above its block, a short dashed tail to the
+       block's edge; as high as the red PROPOSED CLOSURE text, or the pole label's second line (its clamps) where that is smaller; nudged
+       left, right or up where something is there (the cables, their labels, the lengths, its messengers). */
+    drw.jnLbl = [];
+    (drw.jns || []).forEach(({ it }) => {
+      const p = it.p, j = drwPx(it.xy); if (j[0] < -60 || j[0] > Wv + 60 || j[1] < -60 || j[1] > Hv + 60) return;
+      const hClo = 10.5 * d, hPole = 9.5 * d, h = Math.min(hClo, hPole), t = JN[it.el].word, w = tw(t, h, 700), ea = w * 0.62 + h * 0.6, eb = h * 1.08, r0 = 6 * d;
+      const tailOf = (c) => { const u = [c[0] - j[0], c[1] - j[1]], l = Math.hypot(u[0], u[1]) || 1, e = [j[0] + u[0] / l * r0, j[1] + u[1] / l * r0], t0 = Math.atan2((e[1] - c[1]) / eb, (e[0] - c[0]) / ea); return { e, s: [-0.3, 0.3].map((dt) => [c[0] + ea * Math.cos(t0 + dt), c[1] + eb * Math.sin(t0 + dt)]) }; };
+      let best = null;
+      found: for (const up of [0.9, 1.8, 3, 4.5]) for (const f of [0, 0.5, -0.5, 1, -1, 1.6, -1.6]) {
+        const c = [j[0] + f * ea, j[1] - r0 - up * h - eb], T = tailOf(c), m = [(T.s[0][0] + T.s[1][0]) / 2, (T.s[0][1] + T.s[1][1]) / 2], b = obb(c[0], c[1], 2 * ea, 2 * eb, 0);
+        const tl = Math.hypot(T.e[0] - m[0], T.e[1] - m[1]), tq = tl > 10 * d ? [m[0] + (T.e[0] - m[0]) * (tl - 8 * d) / tl, m[1] + (T.e[1] - m[1]) * (tl - 8 * d) / tl] : null; // (its tail up to near the block: the cable and the messengers meet there anyway)
+        const n = occ.cost(b) + (tq ? occ.cost(segObb(m, tq, 2 * d)) * 0.3 : 0) + (inView(b) ? 0 : 40) + up * 0.002 + Math.abs(f) * 0.001;
+        if (!best || n < best.n) best = { c, T, b, n }; if (n < 0.02) break found; }
+      const { c, T } = best; g.save(); g.setLineDash([4 * d, 3 * d]); g.strokeStyle = '#e03131'; g.lineWidth = 1.3 * d;
+      g.fillStyle = 'rgba(251,251,248,0.85)'; g.beginPath(); g.ellipse(c[0], c[1], ea, eb, 0, 0, 2 * Math.PI); g.fill(); g.stroke(); // the bubble
+      g.beginPath(); g.moveTo(T.s[0][0], T.s[0][1]); g.lineTo(T.e[0], T.e[1]); g.lineTo(T.s[1][0], T.s[1][1]); g.stroke(); g.restore(); // its tail, to the block
+      g.save(); g.font = `700 ${h}px ui-monospace, monospace`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#e03131'; g.fillText(t, c[0], c[1] + 0.5 * d); g.restore();
+      occ.add(best.b, 'text'); kb(best.b, t); drw.jnLbl.push({ id: String(p.id), t, h, hClo, hPole, w, c, ea, eb, e: T.e, s: T.s, j, r0, over: best.n >= 1 });
+    });
     leaders.forEach(({ c, col }) => { g.strokeStyle = col; g.lineWidth = 1.1 * d; g.beginPath(); g.moveTo(c.tip[0], c.tip[1]); g.lineTo(c.kn[0], c.kn[1]); g.lineTo(c.L0[0], c.L0[1]); g.stroke();
       const l = Math.hypot(c.kn[0] - c.tip[0], c.kn[1] - c.tip[1]) || 1, u = [(c.kn[0] - c.tip[0]) / l, (c.kn[1] - c.tip[1]) / l], aL = 7 * d, aW = 3 * d, base = [c.tip[0] + u[0] * aL, c.tip[1] + u[1] * aL];
       g.fillStyle = col; g.beginPath(); g.moveTo(c.tip[0], c.tip[1]); g.lineTo(base[0] - u[1] * aW, base[1] + u[0] * aW); g.lineTo(base[0] + u[1] * aW, base[1] - u[0] * aW); g.closePath(); g.fill(); });
@@ -2231,13 +2441,14 @@
       if (moved < 8 && e.type === 'pointerup' && !drwEd) { // a tap: the nearest point (beta 6.7: in Edit route, Route's tap)
         const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
         let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(it.xy), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; });
+        if (jnPick && jnPick.surf === 'drawing') { if (best) jnPickTap(best.it.p.id); return; } // beta 6.9: a pull-off's or cross-over's pole
         drw.sel = best ? best.it.p.id : null; const info = $('drawInfo');
         drw.selRun = null; if (!best) { let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((L) => { for (let k = 1; k < L.length; k++) { const a = L[k - 1], b = L[k], vx = b[0] - a[0], vy = b[1] - a[1], t = Math.max(0, Math.min(1, ((tx - a[0]) * vx + (ty - a[1]) * vy) / (vx * vx + vy * vy || 1))), dd = Math.hypot(a[0] + vx * t - tx, a[1] + vy * t - ty); if (dd < 16 * d() && (!bc || dd < bc.dd)) bc = { n, dd }; } }));
           if (bc) { drw.selRun = bc.n; const f = drw.R && drw.R.fib ? drw.R.fib.list.find((x) => x.n === bc.n) : null; // v2.42.26: a cable tapped: its whole run lit
             if (f) { const by = drw.R.fib.by, a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by); let len = 0; for (let k = 1; k < f.path.length; k++) { const p = by.get(f.path[k - 1]), q = by.get(f.path[k]); if (p && q) len += haversine(p, q); }
               info.textContent = `RUN ${f.n} · ${fibCabName(f)} · ${a.ref || a.kind} → ${z.ref || z.kind} · ${fmtLen(len)} · ${f.path.length - 1} spans`; info.hidden = false; $('drawHint').hidden = true; } } }
         if (best) { const p = best.it.p, u = best.it.xy, n = drw.seq.get(String(p.id)), tg = best.it.el === 'Pole' ? poleTags(best.it).map((x) => x[0]) : [];
-          info.textContent = `${n ? `No. ${n} · ` : ''}${p.poleId || elemOf(p)} · ${svDesc(p)}${boqText(p) ? ` · ${boqText(p)}` : ''}${tg.length ? ` · on the plan: ${tg.join(', ')}` : ''}${best.it.on ? ` · on pole ${best.it.on.p.poleId || '(no ID)'}` : ''} · E ${u[0].toFixed(1)} N ${u[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; }
+          info.textContent = `${n ? `No. ${n} · ` : ''}${p.poleId || elemOf(p)} · ${svDesc(p)}${isJn(p) ? ` · extended messengers to ${jnAtt(p).map((q) => q.poleId || '(no ID)').join(', ') || 'no pole yet'} (${jnAtt(p).length} of ${JN[elemOf(p)].n})` : ''}${boqText(p) ? ` · ${boqText(p)}` : ''}${tg.length ? ` · on the plan: ${tg.join(', ')}` : ''}${best.it.on ? ` · on pole ${best.it.on.p.poleId || '(no ID)'}` : ''} · E ${u[0].toFixed(1)} N ${u[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; }
         else if (drw.selRun == null) { info.hidden = true; $('drawHint').hidden = !!S.drawHintOff; } // (v2.42.26: a cable tapped keeps its line)
         if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: a tower site tapped: its CEF plan
         if (splHooks.drawSync) splHooks.drawSync(); // beta 4.6: a site, closure or dummy NAP tapped: Splicing details ›
@@ -2361,6 +2572,8 @@
     if (has((x) => ['Handhole', 'Manhole', 'Service box', 'ODC', 'ODF'].includes(x.el))) rows.push([sv('<rect x="6" y="3" width="10" height="10" fill="#fff" stroke="#1b1b1b" stroke-width="1.6"/>'), 'Handhole, ODC, ODF…']);
     if (has((x) => ['Site', 'NAP', 'Closure'].includes(x.el))) rows.push([sv('<path d="M11 2.5 16 13H6Z" fill="#fff" stroke="#1b1b1b" stroke-width="1.6"/>'), 'Site, NAP or closure pin']);
     if (has((x) => x.on)) rows.push([sv('<path d="M2 8h18" stroke="#f08c00" stroke-width="1.8" stroke-dasharray="2 2.5"/>'), 'Pin on its pole']);
+    if (has((x) => x.el === 'Pull-off')) rows.push([sv('<path d="M1 8h20M11 8v7" stroke="#e03131" stroke-width="1.2"/><rect x="7.5" y="4.5" width="7" height="7" fill="#fff" stroke="#e03131" stroke-width="1.8"/>'), 'Pull-off, its extended messengers (3 poles)']); // beta 6.9
+    if (has((x) => x.el === 'Cross-over')) rows.push([sv('<path d="M1 8h20M11 1v14" stroke="#e03131" stroke-width="1.2"/><circle cx="11" cy="8" r="3.8" fill="#fff" stroke="#e03131" stroke-width="1.8"/>'), 'Cross-over, its extended messengers (4 poles)']); // beta 6.9
     rows.push([sv('<path d="M1 8h20" stroke="#1c3f94" stroke-width="2.2" stroke-dasharray="4 2.5"/>'), 'Cable, aerial (solid: underground)']);
     if (drw && drw.spans.some((x) => x.sp.long)) rows.push([sv('<path d="M1 8h20" stroke="#c92a2a" stroke-width="2.2"/>'), `Span over ${pol().maxSpan || 200} m`]);
     if (drw && drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); } // v2.42.12
@@ -3486,7 +3699,9 @@
   }
   /** Points the cable route runs through: poles, handholes, the site, ODC and ODF (NAP and closure pins sit on a pole). */
   const routePts = () => projPoints().filter((p) => ROUTE_ELS.includes(elemOf(p)));
-  const routeModel = () => { const rp = routePts(), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); riserAutoIds = risersOf(R); return R; }; // (2.44.7: and its riser poles)
+  const routeModel = () => { const rp = routePts(), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); riserAutoIds = risersOf(R);
+    rp.forEach((j) => { if (isJn(j)) jnAtt(j).forEach((p) => { const q = R.poles[p.id]; if (q && q.role === 'Not on route') { q.role = 'Messenger pole'; R.off--; } }); }); // (beta 6.9: a pole holding a pull-off's or cross-over's messenger is on the route)
+    return R; }; // (2.44.7: and its riser poles)
   /** v2.42.20: the fibers on the route R: R.fib = { list (all, by number; each with len, spans, gaps), planned (new, 2+ points),
       hops: Map spanKey -> { a, b, s, fs: fibers in lane order }, by }; each span: lanes (its fibers in lane order) and fibers (the
       new ones). Lanes: on a shared span, from the right of a → b to its left (lane 0 on the right), so they do not cross where they
@@ -3583,6 +3798,7 @@
       const gSh = gK && gK.has(spanKey(s.ia, s.ib)) ? ` style="${grabLblShift(s.a, s.b, `${s.len.toFixed(0)} m${nf ? ` ${s.lanes.map(fibTag).join(' ')}` : nr > 1 ? ` x${nr}` : ''}`)}"` : '';
       spanLbls.push({ ll: sll, mk: L.marker(sll, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}"${gSh}>${s.len.toFixed(0)} m${tags}</span>`, iconSize: null }) }) });
     }
+    { const F0 = fibers(); projPoints().filter(isJn).forEach((j) => jnAtt(j, F0).forEach((p) => L.polyline([[j.lat, j.lon], [p.lat, p.lon]], { pane: 'routePane', color: '#e03131', weight: 1.6, opacity: 0.9, interactive: false }).addTo(routeLayer))); } // beta 6.9: each pull-off's and cross-over's extended messengers, thin
     drawFibLanes(R); drawRtMarks(R); labelCull();
     for (const p of projPoints()) {
       const info = R.poles[p.id];
@@ -3866,6 +4082,8 @@
       links().forEach((l) => { const more = Array.isArray(l[3]) ? l[3].length : 0; if (!more) return; const s = R.spans.find((x) => spanKey(x.ia, x.ib) === spanKey(l[0], l[1]));
         if (s && s.fibers.length && s.fibers.length < 1 + more) out.push({ id: s.ia, poleId: s.from, kind: 'flag', text: `span ${s.from} → ${s.to} had ${1 + more} runs before the cables and has ${s.fibers.length} cable${s.fibers.length === 1 ? '' : 's'}: put each cable on it` }); });
     }
+    pts.filter(isJn).forEach((j) => { const w = JN[elemOf(j)], k = jnAtt(j).length; // beta 6.9: a pull-off or cross-over short of its poles (one deleted, or not all chosen)
+      if (k !== w.n) out.push({ id: j.id, poleId: j.poleId || '', kind: 'flag', text: `${j.poleId || w.Name}: ${w.name} held by ${k} of its ${w.n} poles${k < w.n ? `: needs ${w.n - k} more` : ''} (open it, Choose the poles)` }); });
     return out;
   }
   /** v2.42.16: the maintenance loops the app adds to an As-Plan where the survey has none. Along each aerial run, from the homing (or
@@ -4632,7 +4850,7 @@
   /** What a long press at c (a point on the map's screen) picks up: a pole a cable goes through (not its end), else the cable under the
       finger (the RUN in the bar, or lit, before another 6 px off on a shared span). null: nothing (the press goes on as before). */
   function grabAt(c, touch) {
-    const R = lastR; if (!rtGrabOk() || !R || !R.fib || !R.fib.list.length) return null;
+    const R = lastR; if (jnPick || !rtGrabOk() || !R || !R.fib || !R.fib.list.length) return null; // (beta 6.9: not while a pull-off's or cross-over's poles are tapped)
     const bonus = (f) => (f.n === fibAdd ? 7 : f.n === fibSel ? 5 : 0), id = rtHit(c, touch ? 24 : 14), sf = rtSurf();
     if (id != null && sf === RT_DRW) { const p = points.find((x) => x.id === id); if (p && DRW_MOVE(p)) return { kind: 'site', id }; } // beta 6.7: on the Drawing, a tower, OLT or ODC held is moved
     if (id != null) {
@@ -4704,7 +4922,7 @@
   }
   function lpClear() { if (rtLp) { clearTimeout(rtLp.t); rtLp = null; } }
   /** beta 6.7: the points a point is linked to (its spans, and the cables through it), to draw them following it while it is moved. */
-  function siteNb(id) { const out = new Set(); links().forEach((l) => { if (l[0] === id) out.add(l[1]); else if (l[1] === id) out.add(l[0]); }); fibers().forEach((f) => f.path.forEach((x, i) => { if (x !== id) return; if (i > 0) out.add(f.path[i - 1]); if (i < f.path.length - 1) out.add(f.path[i + 1]); })); return [...out]; }
+  function siteNb(id) { const out = new Set(); { const j = points.find((p) => p.id === id); if (isJn(j)) jnAtt(j).forEach((p) => out.add(p.id)); } /* (beta 6.9: a pull-off's or cross-over's messengers follow it too) */ links().forEach((l) => { if (l[0] === id) out.add(l[1]); else if (l[1] === id) out.add(l[0]); }); fibers().forEach((f) => f.path.forEach((x, i) => { if (x !== id) return; if (i > 0) out.add(f.path[i - 1]); if (i < f.path.length - 1) out.add(f.path[i + 1]); })); return [...out]; }
   /* ================= v2.42.22: ✎ Draw or ✋ Move =================
      ✎ Draw (Route opens in it; kept on this phone): one finger (the left button) draws, from anywhere. The line goes to the fiber in the
      bar, from its end (from the end to where the line starts: straight); from the fiber's other end it goes on from there; from a point
@@ -4713,7 +4931,7 @@
      (a pinch never draws). Mouse: the right or middle button, or Space + drag, moves the map; a right-click (no drag) undoes; the wheel
      zooms. ✋ Move: the map as usual; a tap on a pole shows its options in the bar. Route tools (⋯) and linking by pairs: as before (the
      map moves; the pins' own taps). ＋ Closure / ＋ Dummy NAP: the map zooms in on the pole; a second tap on it adds it. */
-  const rtDrawing = () => routeMode && rtPenOn() && !rtTools && !rtPairs && !rtConf && !isAcc();
+  const rtDrawing = () => routeMode && rtPenOn() && !rtTools && !rtPairs && !rtConf && !isAcc() && !jnPick; // (beta 6.9: while a pull-off's or cross-over's poles are tapped, one finger moves the map)
   function rtApplyMode() { const d = rtDrawing(); if (d) map.dragging.disable(); else map.dragging.enable(); map.getContainer().classList.toggle('rt-pen', d); $('drawCanvas').classList.toggle('rt-pen', d && drwEd); }
   function rtSetPen(on, ids) { if (rtPenOn() !== on) { S.routePen = on; persist(); } routeSel = null; if (!on) fibStartAt = null; rtPop = null; rtApplyMode(); routeRefresh(ids); if (on) rtTip(); }
   function rtTip() { // once on a phone: how to draw and move the map
@@ -4727,7 +4945,7 @@
   /** ✋ Move: a tap on a pole: its options in the bar (again: closed). */
   function rtHandTap(id) { const t = points.find((p) => p.id === id); if (t && !ROUTE_ELS.includes(elemOf(t))) return; rtPop = null; spanSel = null; const was = routeSel; routeSel = routeSel === id ? null : id; routeRefresh([was, id]); }
   /** A tap on a point in Route, however it came (the gestures, a pin's own tap). */
-  function rtTapAny(id) { if (rtConf) { rtConfTap(id); return; } if (rtTools && !rtPairs && fibAdd == null) { rtHandTap(id); return; } if (rtTools || rtPairs || rtPenOn()) routeTap(id); else rtHandTap(id); } // (Route tools: the pole's spans, as before)
+  function rtTapAny(id) { if (jnPick) { jnPickTap(id); return; } /* beta 6.9: a pull-off's or cross-over's pole */ if (rtConf) { rtConfTap(id); return; } if (rtTools && !rtPairs && fibAdd == null) { rtHandTap(id); return; } if (rtTools || rtPairs || rtPenOn()) routeTap(id); else rtHandTap(id); } // (Route tools: the pole's spans, as before)
   function rtLive(t) { const e = $('rtLive'); if (e) e.textContent = t; }
   function rtBegin(s) { // s: where the line starts. What it does to the fiber in the bar (another end, a branch) is done when it ends: a pinch changes nothing
     const F = fibers(), su = snapM(), kH = rtHit(rtSurf().pt(s), 26); let A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, f = null, at = fibAt, id = null, fin = null;
@@ -4841,6 +5059,7 @@
         if (id || p0.draw || rtConf) rtGestAt = Date.now(); // (✋ a tap off the poles: a span's own tap)
         if (id) rtTapAny(id); return; }
       rtGestAt = Date.now(); // beta 6.7, the Drawing: its points have no taps of their own; a tower to place; a cable tapped (✋, Route tools) shows its spans
+      if (jnPick) { const jid = rtHit(p0.s, p0.type === 'mouse' ? 14 : 24); if (jid) jnPickTap(jid); return; } // beta 6.9: a pull-off's or cross-over's pole
       if (drwSiteArm) { drwSitePlace(sf.ll(p0.s)); return; }
       const id = rtHit(p0.s, p0.type === 'mouse' ? 14 : 24);
       if (id) rtTapAny(id); else if ((!p0.draw || rtTools) && !rtConf && !rtPairs) drwTapCable(p0.s);
@@ -4873,7 +5092,7 @@
      the New cable sheet asks its type. Each change is saved as on the map, and the Drawing is drawn anew at once (the plan as it will
      export). ＋ Tower · OLT · ODC: a tap where it stands, then its record for its name (as the map's ＋ pin); a long press on a tower,
      OLT or ODC drags it to its place. ↶ takes back each. Done, ✎ again or Back ends it. */
-  const DRW_MOVE = (p) => { const el = elemOf(p); return el === 'Site' || el === 'ODC'; }; // what a long press moves on the Drawing
+  const DRW_MOVE = (p) => { const el = elemOf(p); return el === 'Site' || el === 'ODC' || !!JN[el] || (el === 'Pole' && p.source === 'map' && (p.status === 'Proposed' || p.status === 'New')); }; // what a long press moves on the Drawing (beta 6.9: + a pull-off or cross-over, and a proposed pole placed by hand)
   const drwEdHome = new Map(); let drwEdQ = 0;
   function drwEdById(id) { if (!drw) return null; if (!drw.byId) drw.byId = new Map(drw.items.map((it) => [String(it.p.id), it])); return drw.byId.get(String(id)) || null; }
   function drwEditSet(on) {
@@ -4890,6 +5109,7 @@
   }
   function drwEdEnd() {
     if (!drwEd) return; drwEd = false; drwSiteArm = null; drwSiteWait = null; cancelAnimationFrame(drwEdQ); drwEdQ = 0;
+    if (jnPick && jnPick.surf === 'drawing') { jnPick = null; $('jnBar').hidden = true; } // beta 6.9: a pull-off's or cross-over's poles were being tapped
     if (rtGrab) grabEnd(true); if (rtDraft) rtDrop(); rtPress = null; rtMpan = null; lpClear();
     drwEdHome.forEach((h, id) => { const el = $(id); if (h.nx && h.nx.parentNode === h.p) h.p.insertBefore(el, h.nx); else h.p.appendChild(el); }); drwEdHome.clear();
     $('drawing').classList.remove('drwedit'); $('drawEdit').setAttribute('aria-pressed', 'false'); RT_DRW.el.classList.remove('rt-panning', 'rt-pen'); rtHint(''); LOG.info('draw.edit', { on: false });
@@ -4903,7 +5123,8 @@
   function drwEdSoon() {
     if (drwEdQ) return; drwEdQ = requestAnimationFrame(() => { drwEdQ = 0; if (!drwEd || !drw) return;
       if (drwSiteWait && !stack.includes('editor')) { const w = drwSiteWait; drwSiteWait = null; const nw = projPoints().filter((p) => !w.ids.has(p.id) && (DRW_MOVE(p) || elemOf(p) === 'Pole')); if (nw.length === 1) { routeUndo.push({ add: nw[0].id }); renderRtBar(lastR || routeModel());
-        if (elemOf(nw[0]) === 'Pole') { const id = nw[0].id; setTimeout(() => guard(() => ppOnCable(id, w.tol || 8), 'Not put on the cable'), 0); } } } // (its record saved: ↶ takes it off again; beta 6.8: a proposed pole on a span: on its cable?)
+        if (elemOf(nw[0]) === 'Pole') { const id = nw[0].id; setTimeout(() => guard(() => ppOnCable(id, w.tol || 8), 'Not put on the cable'), 0); }
+        else if (isJn(nw[0])) { const id = nw[0].id; setTimeout(() => guard(() => jnPlaced(id, 'drawing', w.tol || 8), 'Not put on the cable'), 0); } } } // (its record saved: ↶ takes it off again; beta 6.8: a proposed pole on a span: on its cable?; beta 6.9: a pull-off or cross-over: on its cable, then its poles)
       const sig = drwEdSig(); if (sig === drw.edSig) { drawDrawing(); return; }
       const old = drw, view = old.view ? { ...old.view } : null; openDrawing(true, view); if (!drw || drw === old) return;
       if (view) drw.view = view; drw.labels = old.labels; drw.mapKind = old.mapKind; drw.under = old.under; drw.underKey = old.underKey; drw.edSig = sig;
@@ -4950,16 +5171,16 @@
       onto that cable once its record is saved (ppOnCable). */
   async function drwSiteAsk() {
     const pp = ppStatus(), ppL = pp === 'New' ? 'New pole' : 'Proposed pole';
-    const k = await ask('Add on the Drawing', `${pp ? `A ${ppL.toLowerCase()}, a tower` : 'A tower'}, an OLT or an ODC: pick it, then tap the Drawing where it stands${pp ? ' (a pole: on the cable\'s line, to put it on that cable)' : ''}. Its record opens for its name and colour (a photo is optional). To move a tower, an OLT or an ODC later, hold it, then drag it.`, [
-      ...(pp ? [{ label: ppL, value: 'Pole' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
-    if (!k || !drwEd) return; drwSiteArm = { el: k === 'Pole' ? 'Pole' : k === 'ODC' ? 'ODC' : 'Site', kind: k };
-    rtHint(k === 'Pole' ? `Tap the Drawing where the ${pp === 'New' ? 'new' : 'proposed'} pole goes (on a cable: on its line). Esc: cancel` : `Tap the Drawing where the ${k === 'ODC' ? 'ODC' : k === 'OLT' ? 'OLT' : 'tower'} stands (Esc: cancel)`);
+    const k = await ask('Add on the Drawing', `${pp ? `A ${ppL.toLowerCase()}, a pull-off, a cross-over, a tower` : 'A tower'}, an OLT or an ODC: pick it, then tap the Drawing where it stands${pp ? ' (a pole: on the cable\'s line, to put it on that cable; a pull-off or cross-over: on the cable at the corner with no pole, then tap its poles)' : ''}. Its record opens for its name and colour (a photo is optional). To move one later, hold it, then drag it.`, [
+      ...(pp ? [{ label: ppL, value: 'Pole' }, { label: 'Pull-off (3 poles)', value: 'Pull-off' }, { label: 'Cross-over (4 poles)', value: 'Cross-over' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
+    if (!k || !drwEd) return; drwSiteArm = { el: k === 'Pole' || JN[k] ? k : k === 'ODC' ? 'ODC' : 'Site', kind: k }; // (beta 6.9: + a pull-off or cross-over)
+    rtHint(k === 'Pole' ? `Tap the Drawing where the ${pp === 'New' ? 'new' : 'proposed'} pole goes (on a cable: on its line). Esc: cancel` : JN[k] ? `Tap the cable at the corner where the ${JN[k].name} goes. Esc: cancel` : `Tap the Drawing where the ${k === 'ODC' ? 'ODC' : k === 'OLT' ? 'OLT' : 'tower'} stands (Esc: cancel)`);
   }
   function drwSitePlace(ll) {
     const a = drwSiteArm; drwSiteArm = null; rtHint(''); if (!a || !ll) return;
     const d = window.devicePixelRatio || 1, tol = drw && drw.view ? Math.min(25, Math.max(3, 20 * d / drw.view.sc)) : 8; // (beta 6.8: a pole tapped within 20 px of a cable's span: on it)
     drwSiteWait = { ids: new Set(points.map((p) => p.id)), tol }; LOG.info('draw.site.add', { el: a.el, k: a.kind });
-    openEditor({ mode: 'new', element: a.el, siteKind: a.el === 'Site' ? a.kind : '', ...(a.el === 'Pole' ? ppRec() : {}), lat: ll.lat, lon: ll.lng, source: 'map', takenAt: new Date().toISOString(), note: a.el === 'Pole' ? 'Placed on the Drawing · no photo needed' : 'Placed on the Drawing · photo optional' }).catch((e) => { LOG.warn('draw.site.add', errInfo(e)); drwSiteWait = null; });
+    openEditor({ mode: 'new', element: a.el, siteKind: a.el === 'Site' ? a.kind : '', ...(a.el === 'Pole' ? ppRec() : JN[a.el] ? { status: ppStatus() } : {}), lat: ll.lat, lon: ll.lng, source: 'map', takenAt: new Date().toISOString(), note: a.el === 'Pole' || JN[a.el] ? 'Placed on the Drawing · no photo needed' : 'Placed on the Drawing · photo optional' }).catch((e) => { LOG.warn('draw.site.add', errInfo(e)); drwSiteWait = null; });
   }
   /** A tower, OLT or ODC let go where it was dragged on the Drawing: its record's place (pin adjusted), with ↶. */
   async function drwSiteMove(g) {
@@ -5098,7 +5319,7 @@
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
         h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
-        if (drwEd && !rtPairs) { const pp = ppStatus(); h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add ${pp ? `a ${pp === 'New' ? 'new' : 'proposed'} pole, ` : ''}a tower, an OLT or an ODC: tap the Drawing where it stands">＋ ${pp ? 'Pole · ' : ''}Tower · OLT · ODC</button><div class="rt-meta grow">Hold a site or ODC to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole)
+        if (drwEd && !rtPairs) { const pp = ppStatus(); h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add ${pp ? `a ${pp === 'New' ? 'new' : 'proposed'} pole, a pull-off, a cross-over, ` : ''}a tower, an OLT or an ODC: tap the Drawing where it stands">＋ ${pp ? 'Pole · ' : ''}Tower · OLT · ODC</button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over)
       }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
@@ -6895,7 +7116,7 @@
     edLayout(!acc); edTab = !acc && o.mode === 'new' && o.blob && !o.restore ? 'photo' : 'details'; // beta 6.7: a photo just taken: the record opens on it (Photo/Model), to add a model or text $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
     $('editor').querySelector('.edbody').scrollTop = 0;
     $('svColorBox').hidden = acc; if (!acc) renderPinColors();
-    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
+    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole', 'Pull-off': 'pull-off', 'Cross-over': 'cross-over' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
     $('siteKindBox').hidden = true; // shown for a site (survey)
     $('edHint').textContent = ed.mapPin ? 'Drag the map to place the pin where it goes' : `Drag the map to place the pin on the ${acc ? 'element' : 'pole'}`;
     $('edHint').classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => $('edHint').classList.add('gone'), 5000);
@@ -6921,7 +7142,7 @@
     ed.idTouched = o.poleId != null;
     ed.q = o.q || null; showQualWarn(ed.q); $('idCands').hidden = true; $('idNote').hidden = true;
     renderTypeChips(ed.type);
-    renderElemChips(); applyElement(); renderBoxInfo();
+    renderElemChips(); applyElement(); renderBoxInfo(); jnBoxRender(); // (beta 6.9: a pull-off's or cross-over's poles; hidden for the others)
     if (acc) { renderAccPhotos(); renderDefs(); }
     $('noDefNote').hidden = !(acc && ed.noDef);
     if (acc && o.mode === 'new' && canRecord() && !ed.noDef) { // the defect form is ready, with the photo just taken as its as-found photo
@@ -7616,8 +7837,8 @@
     const u = URL.createObjectURL(b); edUrls.push(u); return u;
   }
   function renderElemChips() {
-    const box = $('elemSel'); box.innerHTML = '';
-    for (const el of ed.acc ? ELEMENTS : SV_ELEMENTS.filter((x) => (x !== 'NAP' && x !== 'Closure') || x === ed.element)) box.add(new Option(el === 'Site' ? 'Site (new / existing)' : el === 'Closure' ? 'Closure (POI on a pole)' : el === 'Handhole' ? 'Handhole' : el, el, false, el === ed.element));
+    const box = $('elemSel'); box.innerHTML = ''; box.disabled = !ed.acc && !!JN[ed.element]; // (beta 6.9: a pull-off or cross-over stays one)
+    for (const el of ed.acc ? ELEMENTS : JN[ed.element] ? [ed.element] : SV_ELEMENTS.filter((x) => (x !== 'NAP' && x !== 'Closure') || x === ed.element)) box.add(new Option(el === 'Site' ? 'Site (new / existing)' : el === 'Closure' ? 'Closure (POI on a pole)' : el === 'Handhole' ? 'Handhole' : el, el, false, el === ed.element));
   }
   $('elemSel').addEventListener('change', (e) => {
     if (!ed) return;
@@ -7635,11 +7856,11 @@
     if (cefHooks.pinRow) cefHooks.pinRow(); // v2.44: a site pin of an As-Plan: its CEF plan
     if (!ed.acc) { // survey point
       const isNew = ed.mode !== 'edit', nm = el === 'Pole' ? 'pole' : el;
-      $('editorTitle').textContent = ed.mapPin ? `New ${({ Pole: ed.status === 'Proposed' ? 'proposed pole' : 'pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[el] || el} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : nm}`; // v2.36
+      $('editorTitle').textContent = ed.mapPin ? `New ${({ Pole: ed.status === 'Proposed' ? 'proposed pole' : 'pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole', 'Pull-off': 'pull-off', 'Cross-over': 'cross-over' })[el] || el} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : JN[el] ? JN[el].name : nm}`; // v2.36 (beta 6.9: + pull-off, cross-over)
       $('siteKindBox').hidden = el !== 'Site'; $('siteKindSel').value = ed.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37
       $('idLabel').textContent = el === 'Site' ? 'SITE NAME / ID' : `${el.toUpperCase()} ID`;
       const sts = svStatuses(el); if (!sts.includes(ed.status)) ed.status = svDefaultStatus(el);
-      $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? 'e.g. PP-0001' : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001', Manhole: 'e.g. MH-0001', 'Service box': 'e.g. SB-0001' }[el];
+      $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? 'e.g. PP-0001' : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001', Manhole: 'e.g. MH-0001', 'Service box': 'e.g. SB-0001', 'Pull-off': 'e.g. PO-0001', 'Cross-over': 'e.g. CO-0001' }[el];
       $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole' || ed.status === 'Proposed';
       const ppGlobe = el === 'Pole' && ed.status === 'Proposed'; // v2.27: a proposed pole is a Globe pole (GT)
       if (ppGlobe && ed.type !== globeType()) { ed.type = globeType(); renderTypeChips(ed.type); }
@@ -7652,7 +7873,8 @@
       // v2.41: what is on the pole: the NAP and the hybrid closure (the maintenance loop is in the sizes)
       $('poleAttach').hidden = el !== 'Pole'; $('atMloop').closest('.tchip').hidden = true; $('atNap').checked = !!ed.nap; $('atClosure').checked = !!ed.closure; noCloSync(); markToggles(); renderAttach();
       renderBoq();
-      $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : `Drag the map to place the pin on the ${nm}`;
+      $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : JN[el] ? `Drag the map to place the pin at the corner (on the cable: on its line)` : `Drag the map to place the pin on the ${nm}`;
+      jnBoxRender(); // beta 6.9: a pull-off's or cross-over's poles
       renderBoxInfo(); renderEdSym(); // v2.37: the legend symbol beside the photo, and on the pin
       idPadSync(); edRefreshSoon(); // v2.42.17
       return;
@@ -7691,6 +7913,8 @@
       case 'closure': return w(`<path d="M32 12 52 27 44 52H20L12 27Z" fill="${isNew ? SYM_RED : 'none'}" stroke="${c}" stroke-width="2.4" stroke-linejoin="round"/>`);
       case 'hh': case 'mh': case 'sb': return w(`<rect x="${kind === 'sb' ? 14 : 16}" y="${kind === 'sb' ? 22 : 16}" width="${kind === 'sb' ? 36 : 32}" height="${kind === 'sb' ? 20 : 32}" fill="none" stroke="${c}" stroke-width="2.4"/>${T(32, 32, kind.toUpperCase(), kind === 'sb' ? 13 : 15, '#17202a')}`);
       case 'pp': return w(`<circle cx="32" cy="32" r="13" fill="${SYM_RED}"/>`);
+      case 'po': return w(`<path d="M4 32h56M32 32v26" stroke="${c}" stroke-width="2" stroke-dasharray="none"/><rect x="22" y="22" width="20" height="20" fill="#fff" stroke="${c}" stroke-width="3.2"/>`); // beta 6.9: a pull-off (a square on its messenger, pulled by a third)
+      case 'co': return w(`<path d="M4 32h56M32 4v56" stroke="${c}" stroke-width="2"/><circle cx="32" cy="32" r="11" fill="#fff" stroke="${c}" stroke-width="3.2"/>`); // beta 6.9: a cross-over (a circle where two messengers cross)
       case 'tel': return w(`<circle cx="32" cy="32" r="16" fill="none" stroke="#17202a" stroke-width="2.4"/><path d="M21 21l22 22M43 21 21 43" stroke="#17202a" stroke-width="2.4"/>`);
       default: return w(`<path d="M18 18l28 28M46 18 18 46" stroke="#17202a" stroke-width="2.6" stroke-linecap="round"/>`); // an electric pole
     }
@@ -7705,7 +7929,7 @@
     return box(-0.03, W + 0.03, -0.03, Dp + 0.03, 0, pl) + box(0, W, 0, Dp, pl, 1 - cap) + box(-0.025, W + 0.025, -0.025, Dp + 0.025, 1 - cap, 1, true)
       + ln(P(0, 0, 0.7), P(W, 0, 0.7)) + ln(P(W / 2, 0, pl), P(W / 2, 0, 0.7)) + ln(P(W / 2 - 0.05, 0, 0.42), P(W / 2 - 0.05, 0, 0.55), 2) + ln(P(W / 2 + 0.05, 0, 0.42), P(W / 2 + 0.05, 0, 0.55), 2);
   }
-  const SYM_CAP = { tower: 'tower', olt: 'OLT', odc: 'ODC (cabinet)', odc2: 'double LCP', lcp: 'LCP 1:4 (on its pole)', lcp2: 'double LCP 2 × 1:8 (on its pole)', odf: 'ODF', nap: 'NAP', nap16: 'NAP 1:16', dnap: 'dummy NAP', napc: 'NAP changed to 1:16', nap2: 'double NAP', closure: 'closure', hh: 'handhole', mh: 'manhole', sb: 'service box', pp: 'proposed pole', tel: 'telco pole', pole: 'electric pole' };
+  const SYM_CAP = { po: 'pull-off (3 poles)', co: 'cross-over (4 poles)', tower: 'tower', olt: 'OLT', odc: 'ODC (cabinet)', odc2: 'double LCP', lcp: 'LCP 1:4 (on its pole)', lcp2: 'double LCP 2 × 1:8 (on its pole)', odf: 'ODF', nap: 'NAP', nap16: 'NAP 1:16', dnap: 'dummy NAP', napc: 'NAP changed to 1:16', nap2: 'double NAP', closure: 'closure', hh: 'handhole', mh: 'manhole', sb: 'service box', pp: 'proposed pole', tel: 'telco pole', pole: 'electric pole' };
   /** The symbol of a survey record: { kind, isNew }. */
   function symOfRec(el, status, kind, boq, type) {
     const isNew = status === 'Proposed' || status === 'New', b = boq || {};
@@ -7715,6 +7939,7 @@
     if (el === 'NAP') return { kind: ({ 'NAP 1x16': 'nap16', 'Dummy NAP': 'dnap', 'NAP changed to 1:16': 'napc', 'Double NAP': 'nap2', 'LCP 1x4': 'lcp', 'Double LCP 2x1:8': 'lcp2' })[b.napType] || 'nap', isNew };
     if (el === 'Closure') return { kind: 'closure', isNew };
     if (el === 'Handhole') return { kind: 'hh', isNew }; if (el === 'Manhole') return { kind: 'mh', isNew }; if (el === 'Service box') return { kind: 'sb', isNew };
+    if (JN[el]) return { kind: el === 'Pull-off' ? 'po' : 'co', isNew: true }; // beta 6.9
     if (isNew) return { kind: 'pp', isNew };
     const own = String(b.owner || '').trim(); return { kind: ['GT', 'BT'].includes(typePrefix(type)) || (own && !/electric|coop|power/i.test(own)) ? 'tel' : 'pole', isNew };
   }
@@ -8773,6 +8998,7 @@
     // saved: refreshing the screens must not turn a successful save into an error
     busy(false);
     const wasNew = ed.mode === 'new', ppNew = wasNew && ed.mapPin && (ed.element || 'Pole') === 'Pole' && !drwEd ? ed.id : null; // (beta 6.8: a proposed pole placed on the map; on the Drawing: drwEdSoon)
+    const jnNew = wasNew && ed.mapPin && JN[ed.element] && !drwEd ? ed.id : null; // (beta 6.9: a pull-off or cross-over placed on the map)
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
     editorSaving = false;
     if (ed) ed.closeOK = true; // saved: the draft goes
@@ -8781,6 +9007,7 @@
     if (genId) toast(`No ID entered: saved as ${poleId}, a generic number. Change it when the ID is known (open the pin).`, 5000);
     else toast(wasNew ? `${poleId} saved` : 'Changes saved');
     if (ppNew) setTimeout(() => guard(() => ppOnCable(ppNew, 15), 'Not put on the cable'), 600); // beta 6.8: on a span: on its cable?
+    if (jnNew) setTimeout(() => guard(() => jnPlaced(jnNew, 'map', 15), 'Not put on the cable'), 600); // beta 6.9: on a span: on its cable; then its poles
   }
   /** beta 5.9: after a Save, the pins and the list are drawn again in the frame after the record closed. */
   function savedRedraw() {
@@ -8788,9 +9015,10 @@
   }
   /** v2.27: the generic number of a survey record saved without its ID: P-0001 (pole), ODF-0001, SITE-0001, ODC-, NAP-, CL-, HH-0001;
       a proposed pole keeps its PP- number. The next free number in the project. */
-  const GEN_PRE = { Pole: 'P', ODF: 'ODF', Site: 'SITE', ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB' }; // v2.42.4: + MH, SB (they got X-0001)
+  const GEN_PRE = { Pole: 'P', ODF: 'ODF', Site: 'SITE', ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB', 'Pull-off': 'PO', 'Cross-over': 'CO' }; // v2.42.4: + MH, SB (they got X-0001)
   function genSvId(el, status) {
     if (el === 'Pole' && status === 'Proposed') return suggestId('Pole', ed && ed.type);
+    if (JN[el]) return jnNextId(el, points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id))); // beta 6.9
     const pre = GEN_PRE[el] || 'X', re = new RegExp(`^${pre}-(\\d+)$`);
     const n = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id)).reduce((m, p) => { const x = re.exec(String(p.poleId || '').toUpperCase()); return x ? Math.max(m, +x[1]) : m; }, 0);
     return `${pre}-${String(n + 1).padStart(4, '0')}`;
@@ -10502,6 +10730,7 @@
   function loosePoles(name) {
     const nm = name || S.project; if (!nm || isAcc(nm) || (cefHooks.isCef && cefHooks.isCef(nm))) return [];
     const on = onCableIds(nm); if (!on.size) return [];
+    points.filter((q) => q.project === nm && isJn(q)).forEach((q) => jnAtt(q).forEach((x) => on.add(String(x.id)))); // (beta 6.9: a pole holding a pull-off's or cross-over's messenger is on the route)
     return points.filter((p) => p.project === nm && elemOf(p) === 'Pole' && !p.xHide && !on.has(String(p.id)) && Number.isFinite(+p.lat) && Number.isFinite(+p.lon)).sort((a, b) => (a.created < b.created ? -1 : 1));
   }
   /** At Export: the poles on no cable not left as they are before (null: nothing to ask). */
@@ -10906,6 +11135,7 @@
       const p0 = pts[i], p = fb(p0) === p0.boq ? p0 : { ...p0, boq: fb(p0) }; busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
       const ph = await dbGet('photos', p.id);
       const r = { ...p, element: elemOf(p), statusLabel: svStatusLabel(p.status), detailsText: detailsText(p.details), boqText: boqText(p) };
+      if (isJn(p)) { const A = jnAtt(p).filter((q) => pts.includes(q)); r.attIds = A.map((q) => q.poleId || '(no ID)').join('; '); r.attPts = A.map((q) => ({ lat: q.lat, lon: q.lon, poleId: q.poleId || '' })); } // beta 6.9: its poles and messengers
       if (ph && ph.clean && E.kmzBalloonPx > 0) { r.photoName = `photos/${names[p.id]}.jpg`; files.push({ name: 'files/' + r.photoName, data: await exportPhoto(p, ph.clean, null, null, { maxPx: E.kmzBalloonPx, stamp: E.kmzStamp, quality: 0.85 }) }); }
       if (r.photoName && phDoc('kmz') === 'all' && p.photos && p.photos.length > 1) { // beta 3.5: the other photos of the pin too
         r.photoNames = [r.photoName];
@@ -11058,7 +11288,7 @@
       const o = ownKey(p.boq && p.boq.owner); if (o === 'ELEC' && p.boq.ownerName) return `ELEC:${String(p.boq.ownerName).toUpperCase().slice(0, 30)}`; if (o) return o; // v2.42.18: by the coop's name
       return ELEC_TYPES.has(t) ? 'ELEC' : t || '_none';
     }
-    return el === 'NAP' || el === 'Closure' ? null : `el:${el}`;
+    return el === 'NAP' || el === 'Closure' || JN[el] ? null : `el:${el}`; // (beta 6.9: a pull-off or cross-over is not a pole: no number, no photo on the plan)
   }
   const ownName = (k) => prefixType(k) || (k.length <= 5 ? k : k.charAt(0) + k.slice(1).toLowerCase()); // PLDT; Converge
   function markName(k) { if (k.startsWith('ELEC:')) return `${k.slice(5)} poles (electric)`; return k === 'ELEC' ? 'Electric poles (the power company\'s)' : k === 'GT' ? 'Globe poles (GT, Bayantel and proposed)' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? MARK_EL_NAME[k.slice(3)] || k.slice(3) : `${ownName(k)} poles (${k})`; }
@@ -12033,7 +12263,7 @@
     // and pole tag (electric) or material and ID (telco pole: Globe, Bayantel, or a telco owner); the new arm and guying
     const TELCO_TYPES = new Set(['GT', 'BT']);
     const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p), b = p.boq || {}, pre = typePrefix(p.poleType), own = String(b.owner || '').trim(), generic = !p.poleId || /^P{1,2}-?\d+$/i.test(p.poleId);
-      return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
+      return { ...(JN[el] ? { att: jnAtt(p).filter((q) => pts.includes(q)).map((q) => q.id) } : {}), /* beta 6.9: a pull-off's or cross-over's poles (on this plan) */ id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
         telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), gtbt: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && isGlobePole(p), /* (beta 6.7: Bayantel's as Globe's) */ /* beta 6.7: an existing Globe or Bayantel pole: a circle filled blue */ label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: el === 'Pole' && hwOf(p, R).noClamp ? '' : b.clamp || '', /* 2.44.9: the light cable's pole: its retractors and span clamps, no clamp size */
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), armText: el === 'Pole' && hasTelcoArm(p) ? armOnPole(p)[2] : '', // v2.42.1: the plan draws it (beta 6.3: with its own name)
         mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id) || (LA.fib && LA.fib.list.has(p.id))), mloopM: el === 'Pole' ? (LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id)[0].len : loopLenAt(p, R, LA, OWN.get(p.id))) : 0,
@@ -12255,6 +12485,8 @@
       `Title blocks: ${known ? `${[sName, sPla].filter(Boolean).join('_')} / ${sSerial || '(no serial number)'} from the online sheet's project details` : 'no project details from the online sheet: the project\'s location text is used'}; company ${logo ? 'logo COMPANY_LOGO' : 'name (no logo set)'}; title ${m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN'}.`,
       ...(siteFieldsOf().length ? [`Site details (Project details): ${siteFieldsOf().map(([k2, v2]) => `${k2}: ${v2}`).join(' · ')}.`] : []),
       'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
+      ...(() => { const J = pts.filter(isJn); if (!J.length) return []; const n = (el) => J.filter((p) => elemOf(p) === el).length, mm = J.reduce((t, p) => t + jnMsgM(p).m, 0); // beta 6.9
+        return [`Pull-offs (${n('Pull-off')}) and cross-overs (${n('Cross-over')}), at a corner with no pole: a small red square (pull-off, block G-ESAA PULL-OFF) or circle (cross-over, block G-ESAA CROSS-OVER) where the cable turns, a thin continuous red line (layer MESSENGER) for each extended messenger to its poles (3 for a pull-off, 4 for a cross-over), and its name (PULL-OFF / CROSS-OVER) in red in a dashed bubble above it, with a dashed tail to it, as high as the red PROPOSED CLOSURE text (or the pole labels' lines where those are smaller). The spans to and from it are written as the others (the cable is measured round the corner). Extended messenger with no cable on it: ${mm} m (BOQ, survey quantities; not in the PMI table).`]; })(),
       `Sheets: TITLE, TOC, LEGENDS, ${(rp.vicinities || [{ sheet: 'VICINITY MAP' }]).map((v) => v.sheet).join(', ')}, ROW AREA COVERAGE, ${(rp.vicinities || [0]).map((_, k) => (k ? `KEYMAP (${k + 1})` : 'KEYMAP')).join(', ')}, ${rp.sheets.join(', ')}, PMI.`,
       `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Plan style \u203a Map sheets \u203a Sheet split, 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}).`, // (beta 6.0: the scale of a finer Tidy grid; which split)
       `Roads: ${roadsNote}.`,
@@ -12389,7 +12621,7 @@
     const pts = needPoints(); if (!pts) return;
     const names = photoNames(pts, new Set(await dbKeys('photos'))); // v2.42.4: as the Photos export names them (and none for a record without a photo)
     const NUM = poleNums(projPoints(), routeModel()); // v2.42.18: the pole numbers of the DXF (RTA)
-    const fb = boqFilled(pts), rows = pts.map((p) => ({ ...p, no: NUM.get(p.id) || '', photoName: names[p.id] ? names[p.id] + '.jpg' : '', detailsText: detailsText(p.details), boq: fb(p) || {} })); // v2.40: with the clamp types
+    const fb = boqFilled(pts), rows = pts.map((p) => ({ ...p, no: NUM.get(p.id) || '', photoName: names[p.id] ? names[p.id] + '.jpg' : '', detailsText: detailsText(p.details), boq: fb(p) || {}, ...(isJn(p) ? { attIds: jnAtt(p).map((q) => q.poleId || '(no ID)').join('; ') } : {}) })); // v2.40: with the clamp types (beta 6.9: a pull-off's or cross-over's poles)
     offerResult(new Blob([C.buildCsv(rows, S.zone, exporterLine())], { type: 'text/csv' }), fileBase() + '.csv');
   }));
 
@@ -12436,7 +12668,7 @@
      project's reference). One table for the BOQ Excel, the Route and spans Excel and the Completion report. */
   const boqStNorm = (st) => (st === 'Proposed' || st === 'New' ? 'New' : st || '');
   function boqGroups(pts, fill) {
-    const groups = new Map(), missing = { pole: 0, ODF: 0, closure: 0 }, fb = fill || ((p) => p.boq);
+    const groups = new Map(), missing = { pole: 0, ODF: 0, closure: 0 }, fb = fill || ((p) => p.boq), L0 = pts.some(isJn) ? effLinks() : null;
     const add = (item, size, forWhat, id, n) => { const k = [item, size, forWhat].join('|'), g = groups.get(k) || { item, size, forWhat, qty: 0, ids: [] }; g.qty += n || 1; if (id) g.ids.push(id); groups.set(k, g); }; // (v2.42.18: n each)
     pts.forEach((p) => {
       const el = elemOf(p), b = p.boq || {}, id = p.poleId && !DREF_RE.test(p.poleId) ? p.poleId : '', stn = boqStNorm(p.status);
@@ -12457,6 +12689,8 @@
         if (p.nap || p.napId) { if (b.napType === 'Dummy NAP') add('Dummy NAP', b.napSz || 'size not set', b.napSt || 'New', p.napId || id); else add('NAP', b.napType || 'NAP', b.napSt || 'New', p.napId || id); }
         if (p.nap2 || p.nap2Id) { if (b.nap2Type === 'Dummy NAP') add('Dummy NAP', b.nap2Sz || 'size not set', b.nap2St || 'New', p.nap2Id || id); else add('NAP', b.nap2Type || 'NAP', b.nap2St || 'New', p.nap2Id || id); } // v2.42: its second box
         if (p.closure || p.closureId) { if (b.clo) add('Closure', b.clo, b.cloSt || 'New', p.closureId || id); else missing.closure++; }
+      } else if (JN[el]) { // beta 6.9: one pull-off or cross-over assembly each, and its extended messenger with no cable on it (whole metres, as the plan writes lengths)
+        add(`${JN[el].Name} assembly`, `${JN[el].n} poles`, stn || 'New', id); const mm = jnMsgM(p, L0); if (mm.m) add('Extended messenger', 'metres (no cable on it)', JN[el].Name, id, mm.m);
       } else if (el === 'ODF') { if (b.odf || b.conn) add('ODF', [b.odf, b.conn].filter(Boolean).join(' '), stn, id); else missing.ODF++; }
       else if (el === 'Closure' || boxClo(p)) { if (b.clo) add('Closure', b.clo, el === 'Closure' ? stn : boqStNorm(b.cloSt) || stn, el === 'Closure' ? id : p.closureId || id); else missing.closure++; } // v2.42.17: a box's closure is new or existing of its own
       const fL = (fb(p) || {}).mloopL; // v2.42.20: a loop for each fiber there
@@ -12480,7 +12714,7 @@
     // v2.40: an As-Plan KMZ made before v2.40 has no clamp types: they are not compared (the clamp sizes are)
     const noPlanTypes = compare && ![...P.groups.values()].some((x) => x.item === 'Pole clamp type');
     if (noPlanTypes) [...B.groups.keys()].forEach((k) => { if (B.groups.get(k).item === 'Pole clamp type') B.groups.delete(k); });
-    const order = ['New Globe pole', 'Pole clamp', 'Pole clamp type', 'Retractor', 'Span clamp', 'J-hook', 'Suspension clamp', 'New arm', 'Guying', 'Maintenance loop', 'ODF', 'Closure', 'Dummy NAP', 'NAP'];
+    const order = ['New Globe pole', 'Pole clamp', 'Pole clamp type', 'Retractor', 'Span clamp', 'J-hook', 'Suspension clamp', 'New arm', 'Guying', 'Pull-off assembly', 'Cross-over assembly', 'Extended messenger', 'Maintenance loop', 'ODF', 'Closure', 'Dummy NAP', 'NAP']; // (beta 6.9: + pull-off, cross-over, their messenger)
     const keys = [...new Set([...B.groups.keys(), ...(P ? P.groups.keys() : [])])];
     const g = (k) => B.groups.get(k) || P.groups.get(k);
     keys.sort((a, c) => { const x = g(a), y = g(c); return order.indexOf(x.item) - order.indexOf(y.item) || String(x.size).localeCompare(String(y.size), undefined, { numeric: true }) || String(x.forWhat).localeCompare(String(y.forWhat)); });
@@ -12527,7 +12761,8 @@
     const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
     const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen(), pct = allowPct(), allowBy = {}; // (2.45.1 / beta 6.9: pct, allowBy: the span length allowance)
     keys.forEach((k) => { lenBy[k] = 0; polesBy[k] = new Set(); loopsBy[k] = 0; allowBy[k] = 0; });
-    R.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { lenBy[k] += spanW(sp); allowBy[k] = (allowBy[k] || 0) + allowM(spanW(sp), pct); polesBy[k].add(sp.ia); polesBy[k].add(sp.ib); })); // v2.42.18: each run (beta 6.6: as the plan writes it)
+    const jnIds = new Set(pts.filter(isJn).map((p) => p.id)); // (beta 6.9: a pull-off or cross-over is not a pole on the cable)
+    R.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { lenBy[k] += spanW(sp); allowBy[k] = (allowBy[k] || 0) + allowM(spanW(sp), pct); if (!jnIds.has(sp.ia)) polesBy[k].add(sp.ia); if (!jnIds.has(sp.ib)) polesBy[k].add(sp.ib); })); // v2.42.18: each run (beta 6.6: as the plan writes it)
     const RW = routeW(R, pct); // beta 6.6
     const cabAt = (id) => { const sp = R.spans.find((x) => x.ia === id || x.ib === id); return sp ? sp.cable : null; };
     let loops = 0, loopsOff = 0, loopM = 0, nBox = 0; const loopMBy = {}; keys.forEach((k) => { loopMBy[k] = 0; });
@@ -12573,6 +12808,9 @@
     }
     keys.forEach((k) => { if (k || polesBy[k].size) add(`POLES_${tag(k)}`, polesBy[k].size, 'each', `Route points (poles, handholes, ODF…) on ${nm(k)} spans`); });
     add('SPANS_LONG', R.long, 'each', `Spans longer than ${pol().maxSpan || 200} m`);
+    { const J = pts.filter(isJn), L0 = J.length ? effLinks() : null, M = J.map((p) => jnMsgM(p, L0)); // beta 6.9
+      add('PULLOFF', J.filter((p) => elemOf(p) === 'Pull-off').length, 'each', 'Pull-off assemblies (a corner with no pole, 3 poles)'); add('CROSSOVER', J.filter((p) => elemOf(p) === 'Cross-over').length, 'each', 'Cross-over assemblies (a corner with no pole, 4 poles)');
+      add('MESSENGER_EXT_M', M.reduce((t, x) => t + x.m, 0), 'm', `Extended messenger of the pull-offs and cross-overs with no cable on it (${M.reduce((t, x) => t + x.n, 0)} arm${M.reduce((t, x) => t + x.n, 0) === 1 ? '' : 's'}, each in whole metres as the plan writes lengths)`); }
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), cnt = (list, f) => { const m = new Map(); list.forEach((p) => { const v = f(p); if (v) String(v).split(' + ').forEach((x) => m.set(x, (m.get(x) || 0) + 1)); }); return [...m.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true })); };
     const slug = (v) => String(v).toUpperCase().replace(/[^A-Z0-9.]+/g, '_').replace(/^_|_$/g, '');
     add('POLES_TOTAL', poles.length, 'each', 'Poles recorded'); add('POLES_NEW', poles.filter(isNew).length, 'each', 'Proposed / new poles');
@@ -20197,7 +20435,7 @@
     return { id: name, name, site, refNames: [],
       title: { company: m.contractor || (S.user && S.user.company) || '', project: sfGet(F, /project\s*name/i) || (planId || site ? '' : name), /* (no site details yet: the project's own name) */ planId, site, exchange: sfGet(F, /exchange/i), dwgNo: sfGet(F, /dwg|drawing\s*no/i), date: todayIso(), note: '',
         sign: [{ name: g.by || (S.user && S.user.name) || '', role: 'PREPARED BY' }, { name: g.chk || ck, role: 'CHECKED BY' }, { name: g.apr || '', role: 'APPROVED BY' }] },
-      records: points.filter((p) => p.project === name && SV_ELEMENTS.includes(elemOf(p))).sort((x, y) => (x.created < y.created ? -1 : x.created > y.created ? 1 : 0)).map(slim), runs };
+      records: points.filter((p) => p.project === name && (SV_ELEMENTS.includes(elemOf(p)) || isJn(p))).sort((x, y) => (x.created < y.created ? -1 : x.created > y.created ? 1 : 0)).map(slim), runs };
   }
   /** Opens the splicing details of a project (an As-Plan or As-Built with cables). o.focus: the record to show first (a site or a closure). */
   async function spliceOpen(name, o) {
@@ -20638,6 +20876,8 @@
     frame: () => $('cefFrame').contentWindow, logos: () => cefLogos(), canLogo: () => cefCanLogo(), logoSet: (f) => cefLogoSet(f), logoRemove: () => cefLogoRemove(), changed: (n, t) => cefChanged(n || S.project, t), pids: (n, t) => cefPids(n || S.project, t), summary: (n) => projSummary(n || S.project),
     put: (n, id, sk, o) => { const G = cefOf(n), x = o || {}, i = G.plans.findIndex((p) => p.id === id), rec = { id, pin: x.pin || '', sk, at: x.at || new Date().toISOString(), by: x.by || (S.user && S.user.name) || '', o: x.o != null ? x.o : cefMe(), made: x.at || new Date().toISOString() }; if (i >= 0) G.plans[i] = rec; else G.plans.push(rec); cefPut(n, G); },
     keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); } };
+  window.__polecam.jn = { att: (id) => { const j = points.find((p) => p.id === id); return j ? jnAtt(j).map((p) => p.id) : null; }, fit: (id) => { const j = points.find((p) => p.id === id); return j ? jnFit(j, jnAtt(j)) : null; }, msg: (id) => { const j = points.find((p) => p.id === id); return j ? jnMsgM(j) : null; }, // beta 6.9: a pull-off's or cross-over's poles, where it fits, its messenger
+      pick: () => (jnPick ? { id: jnPick.id, need: jnPick.need, ch: jnPick.ch.slice(), fix: [...jnPick.fix], surf: jnPick.surf, bar: $('jnBarT').textContent, done: !$('jnBarDone').disabled } : null), tap: (id) => jnPickTap(id), done: () => jnPickDone(), start: (id, surf) => jnPickStart(id, surf), bar: () => ($('jnBar').hidden ? null : $('jnBarT').textContent), lbl: () => (drw && drw.jnLbl ? drw.jnLbl : null) };
   /* beta 4.6 (tests): the splicing details. frame(): the page's window; drwPt(id): where a record is on the Drawing (screen pixels) */
   window.__polecam.splice = { open: (n, o) => spliceOpen(n || S.project, o), now: () => (splNow ? { ...splNow } : null), of: (n) => JSON.parse(JSON.stringify(pmeta(n || S.project).splice || null)),
     data: (n) => spliceData(n || S.project), frame: () => $('spliceFrame').contentWindow, missing: (n) => { const M = plansMissing(n || S.project); return { route: M.route, cab: M.cab, cef: M.cef.map((p) => p.id), spl: M.spl }; },

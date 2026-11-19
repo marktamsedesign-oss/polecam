@@ -1865,6 +1865,11 @@
     const KEEP_EDGE = 6;
     // v2.37: the points the cable runs through that are not poles stand on the cable line beside the road, the cable meeting their sides
     const INLINE_EL = new Set(['ODC', 'Handhole', 'Manhole', 'Service box']);
+    /* beta 6.9: a pull-off (3 poles) or a cross-over (4 poles), at a corner with no pole: the cable goes through it; a small square or
+       circle (red: proposed) on its own block and layer, a thin continuous line (layer MESSENGER) for each extended messenger to its
+       poles (p.att), and its name in a dashed bubble above it (after the span lengths and the cables' labels, see below). */
+    const JNW = { 'Pull-off': { w: 'PULL-OFF', b: 'G-ESAA PULL-OFF' }, 'Cross-over': { w: 'CROSS-OVER', b: 'G-ESAA CROSS-OVER' } }, jnDone = [];
+    const jnSpans = new Set(spans.map((s) => (String(s.ia) < String(s.ib) ? `${s.ia}|${s.ib}` : `${s.ib}|${s.ia}`))); // (beta 7.1: an arm on a span carries the FOC)
     const polesOnly = pts.filter((p) => p.el === 'Pole');
     const nns = polesOnly.map((p) => { let nn = 1e9; for (const q of polesOnly) if (q !== p) nn = Math.min(nn, Math.hypot(q.E - p.E, q.N - p.N)); return nn; }).filter((v) => v < 1e8).sort((a, b) => a - b);
     const kG = Math.max(0.6, Math.min(1, (nns.length ? nns[Math.floor(nns.length * 0.2)] : 25) / 25)) / NU; // (beta 4.8: Tidy: on a finer grid, as much smaller)
@@ -2300,6 +2305,21 @@
       } else if (p.el === 'Closure') {
         { const Rq = cloR([p.E, p.N]), m0 = o.model.length; o.insert(lay('P-JOINT'), 'P-Joint', p.E, p.N, { scale: Rq, attrs: { JT_ID: p.poleId || p.closureId || '', JOINT: 'JT' } }); spots.add(Spots.box(p.E, p.N, 2 * Rq, 2 * Rq, 0)); // (2.44.12: its size)
           if (TIDY) for (const r of o.model.slice(m0)) { if (r[0][1] !== 'ATTRIB') continue; const g = (c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; }, h = +g(40, 0), tx = String(g(1, '')); if (!(h > 0) || !tx.trim()) continue; const al = +g(72, 0) || +g(74, 0), x = al ? +g(11, 0) : +g(10, 0), y = al ? +g(21, 0) : +g(20, 0); spots.add(textBox(x, y, h, tx, +g(50, 0), +g(72, 0), +g(74, 0) === 2 ? 2 : +g(74, 0) === 3 ? 3 : 0), 'label'); } } // (beta 6.0: Tidy: its ID and JT where the block puts them: nothing over them)
+      } else if (JNW[p.el]) { // beta 6.9: a pull-off (square) or cross-over (circle), and a thin line for each of its extended messengers
+        const J = JNW[p.el], at = p.A || [p.E, p.N], sz = 3 * kG, P = (p.att || []).map((id) => byId.get(String(id))).filter((q) => q && (q.A || q.dp));
+        if (!S.layers.has('MESSENGER')) addLayer(d, S, 'MESSENGER', 1);
+        if (!S.layers.has(J.b)) addLayer(d, S, J.b, 1);
+        if (!S.blocks.has(J.b)) defineBlock(d, S, J.b, p.el === 'Pull-off' ? [{ pts: [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]], closed: true, w: 0.14 }] : [{ pts: Array.from({ length: 32 }, (_, k) => [0.5 * Math.cos(k * Math.PI / 16), 0.5 * Math.sin(k * Math.PI / 16)]), closed: true, w: 0.14 }]);
+        /* beta 7.1 (the owner: "the extended messenger portion without the FOC must point the end to the pole same as the guying"): an arm
+           with no FOC on it runs straight to the pole's symbol where the plan draws it (p.dp: beside the road, as moved), ending on the
+           symbol's edge toward it, as a guy starts there; before, every arm ended at the pole's cable point (p.A, in the road on the
+           cable's line, 3–4 m from the symbol), so the arm with no cable ran along the road and stopped short of the pole. An arm with
+           the FOC on it still meets the cable at the pole (p.A). */
+        const arms = P.map((q) => { const foc = jnSpans.has(K2(p.id, q.id)), e = foc ? q.A || q.dp : add2(q.dp, unit(q.dp, at), q.rp || 0), ln = [at, e];
+          o.lwpoly('MESSENGER', ln, { color: 1, lt: 'Continuous', lwt: 18 }); spots.line(ln, 0.6);
+          return { id: String(q.id), foc, dp: q.dp.map((v) => +v.toFixed(3)), rp: +(q.rp || 0).toFixed(3), A: (q.A || q.dp).map((v) => +v.toFixed(3)), end: e.map((v) => +v.toFixed(3)) }; });
+        o.insert(J.b, J.b, at[0], at[1], { scale: sz, color: 1 }); const sb = spots.add(Spots.box(at[0], at[1], sz * 1.2, sz * 1.2, 0));
+        jnDone.push({ p, at, sz, P, J, sb, arms });
       } else if (!inl.has(p) && !INLINE_EL.has(p.el)) o.circle(lay('MISC'), p.E, p.N, 2);
     }
     let nOdc = 0;
@@ -3160,6 +3180,25 @@
       c = c || best; if (ownC) { const w = sheetW(c.bx, c.th), SL = rep.spanLabels || (rep.spanLabels = { ownSheet: 0, otherSheet: 0, acrossLine: 0 }); SL[w === 0 ? 'ownSheet' : w < 1 ? 'otherSheet' : 'acrossLine']++; } // (beta 6.4)
       o.text(lay('Distance Data'), c.q[0], c.q[1], c.th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : +SST.color || null }); spots.add([c.bx]); spanLblAt.set(K2(s.ia, s.ib), c.q);
     }
+    /* beta 6.9 (the owner: "pull-off and cross-over labels must be small enough to read.. just a name above the drawing block is ok"):
+       its name (PULL-OFF / CROSS-OVER, no number) in red, level, inside a dashed red bubble above its block, a short dashed tail from the
+       bubble to the block's edge; as high as the red PROPOSED CLOSURE label, or the pole label's lines (Standard: the pole ID and clamp
+       lines; Tidy: the block's smaller lines) where those are smaller; nudged left, right or up where something is there. */
+    { const JLT = ['DASHED', 'DASHED2', 'AERCA'].find((n) => S.ltypes.has(n)) || null, PST = job.poleStyle || {}, hI0 = +PST.idH > 0 ? +PST.idH : 2.2;
+      for (const { p, at, sz, J, arms } of jnDone) {
+        const hClo = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, hPole = TIDY ? TS.sm / kAt(at[0], at[1]) : Math.max(1.5 * hI0 / 2.2, hI0 * kG), th = Math.min(hClo, hPole);
+        const txt = J.w, w = arialW(txt, th) * 1.08, ea = w * 0.62 + th * 0.6, eb = th * 1.08, r0 = sz / 2, cands = [];
+        const tailOf = (c) => { const e = add2(at, unit(at, c), r0 * 1.05), t0 = Math.atan2((e[1] - c[1]) / eb, (e[0] - c[0]) / ea); return { e, s: [-0.3, 0.3].map((dt) => [c[0] + ea * Math.cos(t0 + dt), c[1] + eb * Math.sin(t0 + dt)]) }; };
+        for (const up of [0.9, 1.8, 3, 4.5, 6.5, 9]) for (const f of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.3, -2.3]) { // (beta 7.1: further up and aside where the corner is crowded)
+          const c = [at[0] + f * ea, at[1] + r0 + up * th + eb], T = tailOf(c), m = [(T.s[0][0] + T.s[1][0]) / 2, (T.s[0][1] + T.s[1][1]) / 2], bx = Spots.box(c[0], c[1], 2 * ea, 2 * eb, 0);
+          const tl = dist2(m, T.e) - 1.5 * th, tq = add2(m, unit(m, T.e), Math.max(0, tl)); // (its tail up to near the block: where it meets the block, the cable and the messengers are there anyway)
+          cands.push({ c, T, cost: up * 0.02 + Math.abs(f) * 0.01 + (cellHolds(bx, at[0], at[1]) ? 0 : 5), boxes: [bx, ...(tl > 0.2 ? [Spots.box((m[0] + tq[0]) / 2, (m[1] + tq[1]) / 2, tl, 0.3, deg([T.e[0] - m[0], T.e[1] - m[1]]))] : [])] }); }
+        const c = pickC(spots, cands, W_LBL), dash = { color: 1, lwt: 18, ...(JLT ? { lt: JLT, lts: +(th * 1.2).toFixed(3), gen: true } : {}) };
+        o.lwpoly(J.b, Array.from({ length: 48 }, (_, k) => [c.c[0] + ea * Math.cos(k * Math.PI / 24), c.c[1] + eb * Math.sin(k * Math.PI / 24)]), { ...dash, closed: true }); // the bubble
+        o.lwpoly(J.b, [c.T.s[0], c.T.e, c.T.s[1]], dash); // its tail, to the block's edge
+        o.text(J.b, c.c[0], c.c[1], th, txt, { ha: 1, va: 2, style: 'arial', color: 1 }); spots.add(c.boxes, 'label');
+        (rep.jn || (rep.jn = [])).push({ id: String(p.id), el: p.el, text: txt, h: +th.toFixed(3), hClo: +hClo.toFixed(3), hPole: +hPole.toFixed(3), at: c.c.map((v) => +v.toFixed(2)), ea: +ea.toFixed(2), eb: +eb.toFixed(2), lt: JLT, poles: (p.att || []).map(String), arms, over: (c.n || 0) >= 1 });
+      } }
     // v2.42.11: each tower, its name beside the tower where it covers nothing (the cable, the road lines, the poles, their labels,
     // the span lengths), inside the tower's GEO sheet. v2.42.13: its box as wide as AutoCAD draws it (Arial bold at the attribute's
     // width factor; it was narrower, so a name was put over the cable and the road), more places round the tower (beside it at every

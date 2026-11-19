@@ -99,6 +99,9 @@ const LINES = [
   // 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables), on the cable lengths of the plan, BOQ, Excel and CEF
   ['6.9', '!span length allowance · allowance · extra cable · sag · wastage · foc % · cable length allowance', 'planstyle boq'],
   ['6.8', '!delete pole on cable · !cable cut · cable broken · deleted pole · missing span', 'route'],
+  ['6.9', '!pull-off · !pull off · !pulloff · pull-off pin · add pull-off', 'pulloff'],
+  ['6.9', '!cross-over · !cross over · !crossover · cross-over pin · add cross-over', 'pulloff'],
+  ['6.9', '!corner without pole · !extended messenger · corner with no pole · cable across houses · messenger', 'pulloff'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];

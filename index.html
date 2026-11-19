@@ -1068,7 +1068,13 @@ body.svdrag,body.svdrag *{cursor:grabbing!important}
 #hlChip .ed{background:var(--navy);color:var(--navy-ink)}#hlChip .ed:hover{background:var(--accent);color:var(--accent-ink)}
 /* Poles on no cable, at Export: the Fix walk's bar at the top of the open map (over the GPS pill; the legend, the toast and the hint below it) */
 #xfBar{position:absolute;top:calc(env(safe-area-inset-top,0px) + 60px);left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:530;display:flex;align-items:center;gap:4px;background:var(--surface);color:var(--ink);border:2px solid #f08c00;border-radius:var(--r);box-shadow:var(--shadow);padding:3px}
-#xfBar[hidden]{display:none}#xfBar:focus{outline:none}#xfBar:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+#xfBar[hidden]{display:none}
+/* beta 6.9: a pull-off's or cross-over's poles, tapped on the map or the Drawing */
+#jnBar{position:absolute;top:calc(env(safe-area-inset-top,0px) + 60px);left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:560;display:flex;align-items:center;gap:6px;background:var(--surface);color:var(--ink);border:2px solid #e03131;border-radius:var(--r);box-shadow:var(--shadow);padding:4px 4px 4px 10px}
+#jnBar[hidden]{display:none}#jnBar span{flex:1;min-width:0;font:700 calc(13px * var(--fs))/1.3 system-ui,sans-serif}
+#jnBar button{flex:none;min-width:44px;min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:inherit;font:700 calc(13px * var(--fs)) system-ui,sans-serif;cursor:pointer}
+#jnBar button.primary{background:var(--navy);color:var(--navy-ink);border-color:var(--navy)}#jnBar button:disabled{opacity:.35;cursor:default}#jnBar button[hidden]{display:none}
+#drawWrap #jnBar{top:8px;z-index:23}body.deskpane #jnBar{left:calc(var(--pw) + 12px);right:12px}body.deskpane.rpanel #jnBar,body.deskpane.routing #jnBar{right:calc(var(--rpw) + 12px)}body.deskpane #drawWrap #jnBar{left:8px;right:calc(var(--drpw, 0px) + 8px)}#xfBar:focus{outline:none}#xfBar:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 #xfNow{flex:1 1 auto;min-width:0;text-align:center;font-size:calc(13px * var(--fs));line-height:1.25;overflow-wrap:anywhere}
 #xfNow b{font-family:var(--mono)}#xfNow .ok{color:#2f9e44;font-weight:700;white-space:nowrap}#xfNow .off{color:var(--muted);font-weight:700}
 #xfBar button{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:44px;min-height:44px;padding:0 9px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:inherit;font:700 calc(13px * var(--fs)) system-ui,sans-serif;cursor:pointer}
@@ -1559,6 +1565,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div id="rtPop" hidden></div>
   <div id="rtBar" hidden aria-label="Cable route"></div>
   <div id="rtHint" hidden aria-live="polite"></div>
+  <div id="jnBar" hidden role="group" aria-label="Pull-off or cross-over: tap its poles"><span id="jnBarT" aria-live="polite"></span><button type="button" id="jnBarCancel">Cancel</button><button type="button" id="jnBarDone" class="primary">Done</button></div><!-- beta 6.9 -->
   <div id="xfBar" hidden role="group" aria-label="Poles on no cable: put each on a cable" tabindex="-1">
     <button type="button" id="xfPrev" aria-label="Previous pole" title="Previous pole">◀</button>
     <span id="xfNow" aria-live="polite"></span>
@@ -1686,6 +1693,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <p class="warnline" id="fmtWarn" hidden></p>
       <label class="frow" id="odfBox" hidden><span class="lbl">ODF</span><select id="odfSel" aria-label="ODF"><option value="New">New ODF</option><option value="Existing">Existing ODF</option></select></label>
       <label class="frow" id="siteKindBox" hidden><span class="lbl">SITE TYPE</span><select id="siteKindSel" aria-label="Site type"><option value="Tower">Tower</option><option value="OLT">OLT</option></select></label>
+      <div class="field" id="jnBox" hidden><span class="lbl">EXTENDED MESSENGER TO</span><p class="hint" id="jnAtt" style="margin:0 0 6px"></p><button class="btn" id="jnPickBtn" type="button">Choose the poles</button></div><!-- beta 6.9: a pull-off's or cross-over's poles -->
       <div id="cefPinBox" hidden><span class="lbl">CEF PLAN</span><button class="btn" id="cefPinBtn" type="button">Add a CEF plan</button><span class="hint" id="cefPinInfo" style="margin:0"></span></div>
       <div class="field" id="svClosureBox" data-k="clo" hidden><span class="lbl" id="svCloLbl">CLOSURE IN THIS HANDHOLE</span>
         <div class="toggles"><label class="tchip"><input type="checkbox" id="svCloOn"><span>Closure</span></label></div>
