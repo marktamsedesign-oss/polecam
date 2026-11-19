@@ -4,6 +4,13 @@ const D2R = Math.PI / 180, C30 = Math.cos(Math.PI / 6);
 const f1 = v => (Math.round(v * 10) / 10).toFixed(1);
 const r1w = v => Math.round((+v || 0) * 10) / 10;      /* beta 6.6 (the owner: "yes always same with the CEF"): a length as the plan writes it, to 0.1 m */
 const f0 = v => String(Math.round(v));
+/* 2.45.1 / beta 6.9 (the owner: "Span Length allowances editable by user and default is 10%"; "the CEF must follow the same rules as the plan"):
+   the span length allowance of the app's Plan style › Cables (APP.focPct, set by ui.js at start; 10 % unless the app says), on each UG cable's
+   length as the CEF writes it (0.1 m): its run, up and down and inside, the loops apart; the allowance to 0.1 m, rounded (half up). Not on a
+   cabin's inside sketch (its cable is part of the site's UG cable, which has it once), nor on the AE fiber (counted in the As-Plan). */
+let ALLOW_PCT = 10;
+function setAllowPct(v) { const n = v == null || v === '' ? NaN : +v; ALLOW_PCT = Number.isFinite(n) ? Math.max(0, Math.min(50, Math.round(n))) : 10; return ALLOW_PCT; }
+const allowOf = L => Math.round(Math.round((+L || 0) * 10) * ALLOW_PCT / 100) / 10;      /* (in tenths, whole numbers: 28.5 m at 10 % is 2.9 m) */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const snap = v => Math.round(v * 10) / 10;
 const uid = () => 'e' + Math.random().toString(36).slice(2, 8);
@@ -944,15 +951,15 @@ function routeGeom(S) {
   parts.forEach((p, k) => { p.ck = cableKey(S, k); for (const n of p.notes) notes.push(many ? 'Cable ' + (k + 1) + ': ' + n : n); });
   for (const e of S.els) if (e.t === 'clo' && !poleAt(S, [e.x, e.y], 0.6) && !pitAt(S, [e.x, e.y])) notes.push('A closure is loose on the ground. Put it on a pole, or in a hand hole or service box.');
   /* the same UG cable carries on inside a cabin, from the porthole to the ODF: that length goes to the cable that reaches the cabin */
-  if (!S.room) for (const e of S.els) if (e.t === 'cabin' && e.inside && e.inside.route && e.inside.route.ug && e.inside.site) {
-    const add = routeGeom(e.inside).sum.ugt, poly = elPoly(e), reach = p => p.U.some(q => inPoly(q, poly) || cabinPorts(e).some(c => d2(c.at, q) < 0.5)), k = parts.findIndex(reach);
+  if (!S.room) for (const e of S.els) if (e.t === 'cabin' && e.inside && e.inside.route && e.inside.route.ug && e.inside.site) {      /* (2.45.1 / beta 6.9: ugm, the cable drawn inside: the site's UG cable has the allowance once) */
+    const add = routeGeom(e.inside).sum.ugm, poly = elPoly(e), reach = p => p.U.some(q => inPoly(q, poly) || cabinPorts(e).some(c => d2(c.at, q) < 0.5)), k = parts.findIndex(reach);
     parts[k < 0 ? 0 : k].sum.inside += add;
     if (add > 0.05 && parts.some(p => p.U.some(q => inCabin(e, q, 0.15)))) notes.push('The UG fiber goes on into ' + elLabel(S, e).toLowerCase() + ' on the site sketch, and cable is also drawn in the sketch of its inside, so that length is counted twice. End the UG fiber on the porthole.');
     if (add > 0.05 && k < 0) notes.push('Cable is drawn inside ' + elLabel(S, e).toLowerCase() + ' and counts in the UG length, but the UG fiber on the site does not reach the porthole of that cabin.');
   }
   if (!S.room) for (const e of S.els) if (e.t === 'cabin' && S.runs.some(r => r.kind === 'ladder' && (r.pts || []).some(p => inCabin(e, p, 0.15)))) notes.push('A cable ladder is drawn into ' + elLabel(S, e).toLowerCase() + ' on the site sketch. A ladder outside ends on the porthole; the ladder inside is drawn in the sketch of the inside.');
   const sum = {};
-  for (const p of parts) { const s = p.sum; s.inside = r1w(s.inside); s.ae = r1w(s.aerial + s.loop); s.ugt = r1w(s.ug + s.xug + s.ladder + s.open + s.liquid + s.wall + s.vert + s.inside); s.total = r1w(s.ae + s.ugt); for (const key in s) sum[key] = r1w((sum[key] || 0) + s[key]); }      /* beta 6.6: the sums of the lengths as written */
+  for (const p of parts) { const s = p.sum; s.inside = r1w(s.inside); s.ae = r1w(s.aerial + s.loop); s.ugm = r1w(s.ug + s.xug + s.ladder + s.open + s.liquid + s.wall + s.vert + s.inside); s.allow = S.room ? 0 : allowOf(s.ugm); s.ugt = r1w(s.ugm + s.allow); s.total = r1w(s.ae + s.ugt); for (const key in s) sum[key] = r1w((sum[key] || 0) + s[key]); }      /* beta 6.6: the sums of the lengths as written; 2.45.1 / beta 6.9: ugm the UG cable drawn, allow its span length allowance, ugt the two (the cable's length: its name, the tables) */
   const out = { legs: [], verts: [], loops: [], exits: [], bare: [], padx: [], drops: [], risers: [], links: [], warn: [], notes, ports: {}, join: null, joins: [], parts, sum };
   parts.forEach((p, k) => {
     for (const key of ['legs', 'verts', 'loops', 'exits', 'bare', 'padx', 'drops', 'risers', 'links', 'warn']) for (const q of p[key]) { q.cn = k; q.ck = p.ck; out[key].push(q); }
@@ -1000,7 +1007,7 @@ function cefTable(S) {
 function focFormula(S) {
   const rg = routeGeom(S), o = [], P = rg.parts.filter(p => p.sum.total > 0.05), many = P.length > 1;
   for (const p of many ? P : [rg]) { const g = p.sum, w = many ? 'CABLE ' + (rg.parts.indexOf(p) + 1) + ' ' : '';
-    if (g.ugt > 0.05) o.push(w + 'UG FOC = ' + f1(g.ugt - g.vert - g.inside) + ' m RUN + ' + f1(g.vert) + ' m UP AND DOWN' + (g.inside > 0.05 ? ' + ' + f1(g.inside) + ' m INSIDE THE ' + (S.els.some(e => e.t === 'cabin' && !e.tr && e.inside) ? 'CABIN' : 'TELCO ROOM') : '') + ' = ' + f1(g.ugt) + ' m'); }
+    if (g.ugt > 0.05) o.push(w + 'UG FOC = ' + f1(g.ugm - g.vert - g.inside) + ' m RUN + ' + f1(g.vert) + ' m UP AND DOWN' + (g.inside > 0.05 ? ' + ' + f1(g.inside) + ' m INSIDE THE ' + (S.els.some(e => e.t === 'cabin' && !e.tr && e.inside) ? 'CABIN' : 'TELCO ROOM') : '') + (g.allow > 0.05 ? ' + ' + f1(g.allow) + ' m SPAN LENGTH ALLOWANCE (' + ALLOW_PCT + ' %)' : '') + ' = ' + f1(g.ugt) + ' m'); }      /* (2.45.1 / beta 6.9: + its allowance) */
   if (rg.sum.ae > 0.05) o.push(aeNote());
   return o;
 }

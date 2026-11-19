@@ -3,13 +3,15 @@
    A phone (390x844) and a small phone with the largest text (360x640, text size 1.45):
    - Find a setting is on the screen when Plan style opens, above its Reset / Done footer;
    - a row found and tapped is marked, on top (nothing over it) and focused: a Basic row, an Advanced row, a Colours and sizes row;
-   - a row hidden now (Photo width, Extra cable on each span, FOC %) says "only with the Simple drawing"; tapped, Kind of drawing is
+   - a row hidden now (Photo width, Pole circle size) says "only with the Simple drawing"; tapped, Kind of drawing is
      marked and focused, with the note of what to choose; choosing Simple marks the row asked for;
+   - (2.45.1 / beta 6.9) Cables › Span length allowance (the Simple drawing's Extra cable on each span, FOC %, moved there): found by
+     allowance, foc, extra cable, sag, wastage, in Find a setting and the Tutorial's search; marked, on top, focused; typed, kept;
    - (small phone) every row of Plan style, typed by its label and tapped: marked, on top and focused (a new row is checked by itself);
    - (small phone) the Tutorial's search: one setting row, the first topic on the screen, More › (Find a setting with the same words,
      focus on its first result), and Show me of a Simple drawing row (Kind of drawing marked, focused).
    - (beta 6.7, UX step 5 fixes, round 2; phone, small phone and a desk, 1440x900) right after launch, Plan style and Export never
-     opened: the Tutorial's search for "foc" and "photo width" says "only with the Simple drawing" (on the row and in its aria-label),
+     opened: the Tutorial's search for "pole circle size" and "photo width" says "only with the Simple drawing" (on the row and in its aria-label),
      and Show me marks Kind of drawing with its note;
    - (round 2) More › with Plan style used last on Advanced (a section open far down, a row just marked): Find a setting and its
      results on the screen under the preview, from the top, focus on the first result, nothing marked; and the same with the
@@ -115,7 +117,7 @@ for (const size of ['phone', 'small']) {
   test(`${size}: a Simple drawing row, hidden with the company plan: Kind of drawing marked with its note; Simple chosen: the row`, async () => {
     const { ctx, page, errors } = await open(size);
     try {
-      for (const [q, label, name] of [['photo width', 'Photo width (Simple drawing)', 'Photo width'], ['foc', 'Extra cable on each span, FOC % (Simple drawing)', 'Extra cable on each span, FOC %']]) {
+      for (const [q, label, name] of [['photo width', 'Photo width (Simple drawing)', 'Photo width'], ['pole circle size', 'Pole circle size (Simple drawing)', 'Pole circle size']]) { // (2.45.1 / beta 6.9: FOC % moved to Cables)
         const where = await find(page, q, label);
         assert.match(where, /Plan style › Plan file · only with the Simple drawing$/);
         const m = await marked(page);
@@ -125,12 +127,45 @@ for (const size of ['phone', 'small']) {
         assert.equal(await onTop(page, '[data-tmark]'), true, `${q}: Kind of drawing on top`);
         await page.evaluate(() => document.querySelector('[data-tmark]').removeAttribute('data-tmark'));
       }
-      await page.selectOption('#dxfMode', 'simple'); // (after foc)
+      await page.selectOption('#dxfMode', 'simple'); // (after pole circle size)
       await page.waitForTimeout(700);
       const m = await marked(page);
-      assert.ok(m && m.label === 'Extra cable on each span, FOC % (Simple drawing)' && m.focus && !m.note, JSON.stringify(m));
-      assert.equal(await onTop(page, '[data-tmark]'), true, 'the FOC row, shown now, on top');
+      assert.ok(m && m.label === 'Pole circle size (Simple drawing)' && m.focus && !m.note, JSON.stringify(m));
+      assert.equal(await onTop(page, '[data-tmark]'), true, 'the Pole circle size row, shown now, on top');
       assert.equal(await page.evaluate(() => !document.getElementById('plFindWhy') && !document.getElementById('dxfMode').hasAttribute('aria-describedby')), true, 'the note gone');
+      assert.deepEqual(errors, []);
+    } finally { await ctx.close(); }
+  });
+}
+/* 2.45.1 / beta 6.9: Plan style › Cables › Span length allowance (S.exp.focPct, 10 % unless set): Find a setting and the Tutorial's search
+   find it by its words (allowance, foc, extra cable, sag, wastage); marked, on top, focused; a value typed is kept (0 to 50, whole), the
+   section's summary says it; the Tutorial's Show me marks it. */
+const ALLOW = 'Span length allowance: extra cable for sag and wastage, FOC %';
+for (const size of ['phone', 'small']) {
+  test(`${size}: Cables › Span length allowance: found, marked, on top, focused; typed and kept; the Tutorial lists it`, async () => {
+    const { ctx, page, errors } = await open(size);
+    try {
+      for (const q of ['allowance', 'foc', 'extra cable', 'sag', 'wastage']) {
+        const where = await find(page, q, ALLOW);
+        assert.equal(where, 'Plan style › Cables', q);
+        const m = await marked(page);
+        assert.ok(m && m.label === ALLOW && m.focus && !m.note, `${q}: ${JSON.stringify(m)}`);
+        assert.equal(await onTop(page, '[data-tmark]'), true, `${q}: the row marked is on top`);
+        await page.evaluate(() => document.querySelector('[data-tmark]').removeAttribute('data-tmark'));
+      }
+      assert.equal(await page.inputValue('#focPct'), '10', 'never set: 10 %');
+      await page.fill('#focPct', '15'); await page.locator('#focPct').blur(); await page.waitForTimeout(300);
+      assert.deepEqual(await page.evaluate(() => [window.__polecam.S.exp.focPct, JSON.parse(localStorage.getItem('polecam.settings')).exp.focPct, document.querySelector('#stRoute .secsum').textContent]), [15, 15, 'Follows the road · name on · allowance 15 %']);
+      await page.fill('#focPct', '80'); await page.locator('#focPct').blur(); await page.waitForTimeout(300);
+      assert.equal(await page.evaluate(() => window.__polecam.S.exp.focPct), 50, 'at most 50 %');
+      assert.equal(await page.inputValue('#focPct'), '50');
+      await tutOpen(page, 'span length allowance');
+      const row = page.locator('#tutList .tutset').filter({ has: page.locator('b', { hasText: ALLOW }) }).first();
+      assert.equal(await row.count(), 1, 'the Tutorial lists the setting');
+      assert.equal(await row.locator('small').textContent(), 'Plan style › Cables');
+      await tap(page, row); await page.waitForTimeout(800);
+      const m = await marked(page);
+      assert.ok(m && m.label === ALLOW && m.focus, `Show me: ${JSON.stringify(m)}`);
       assert.deepEqual(errors, []);
     } finally { await ctx.close(); }
   });
@@ -147,7 +182,7 @@ test('small: every row of Plan style, found by its label and tapped, is marked, 
     }));
     assert.ok(rows.length >= 85, `${rows.length} rows`);
     assert.deepEqual(rows.filter((r) => r.off).map((r) => r.label), ['Photo beside each point (Simple drawing)', 'Photo width (Simple drawing)',
-      'Extra cable on each span, FOC % (Simple drawing)', 'Pole circle size (Simple drawing)', 'Label size (Simple drawing)']);
+      'Pole circle size (Simple drawing)', 'Label size (Simple drawing)']); // (2.45.1 / beta 6.9: Extra cable on each span, FOC % is Cables › Span length allowance, shown with the company plan too)
     const bad = [], seen = {};
     for (const r of rows) {
       const n = seen[r.label] = (seen[r.label] || 0) + 1; // (twins, as Circle colour: the n-th of that label, in the screen's order)
@@ -214,7 +249,7 @@ for (const size of Object.keys(SIZES)) {
   test(`${size}: right after launch, the Tutorial's search: a Simple drawing row says so, and Show me marks Kind of drawing`, async () => {
     const { ctx, page, errors } = await open(size, false);
     try {
-      for (const [q, label, name] of [['foc', 'Extra cable on each span, FOC % (Simple drawing)', 'Extra cable on each span, FOC %'], ['photo width', 'Photo width (Simple drawing)', 'Photo width']]) {
+      for (const [q, label, name] of [['pole circle size', 'Pole circle size (Simple drawing)', 'Pole circle size'], ['photo width', 'Photo width (Simple drawing)', 'Photo width']]) { // (2.45.1 / beta 6.9: FOC % moved to Cables)
         await page.reload(); await page.waitForFunction(() => !!window.__polecam && !!document.getElementById('tutorialBtn')); await page.waitForTimeout(800);
         assert.equal(await page.evaluate(() => document.getElementById('drwStyle').hidden && document.getElementById('export').hidden), true, 'nothing opened yet');
         await tutOpen(page, q);

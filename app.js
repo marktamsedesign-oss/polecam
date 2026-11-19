@@ -192,7 +192,16 @@
      that had the app keeps what it had (Standard where it never chose). false: new installs stay on Standard (DEF.exp). */
   const PL_STD = { dxfLabels: 'tidy', rtaOn: true, photoSize: 18, photoStamp: 'addr', dxfClampType: true, boxLoops: false, dxfBoqGrid: true };
   const PL_NEW_ON_STD = true;
-  const S_NEW = (() => { try { return !localStorage.getItem(`${STORE}.settings`); } catch (e) { return true; } })(); // beta 6.7 (UX step 4): nothing saved yet
+  /* 2.45.1 / beta 6.9 (the owner: "Please add on Plan style under Cable [fiber]: Span Length allowances editable by user and default is
+     10%"): the span length allowance, extra cable on each span for sag and wastage (Plan style › Cables), kept in S.exp.focPct as the
+     Simple drawing's "Extra cable on each span (FOC %)" was, so a saved value carries over (never set: 10). 0 to 50 %, whole. Each span's
+     allowance is in whole metres: its length as the plan writes it (whole metres) × % / 100, rounded (Math.round: 2.5 m → 3 m), each run.
+     Added to the cable (FOC) lengths only: the plan's PMI and each sheet's BOQ table, the Excel BOQ's survey quantities, the Route and
+     spans Excel, the CEF plan's UG cable; never to the span lengths written on the plan, nor to messenger, conduit, trench, HDD or poles.
+     At 0 % every figure is as before. (The Simple drawing writes span × (1 + % / 100) along each span, as before.) */
+  const allowPct = () => { const v = S && S.exp && S.exp.focPct != null && S.exp.focPct !== '' ? +S.exp.focPct : NaN; return Number.isFinite(v) ? Math.max(0, Math.min(50, Math.round(v))) : 10; };
+  const allowM = (L, pct) => Math.round((+L || 0) * (pct == null ? allowPct() : +pct || 0) / 100); // (L: whole metres, as written)
+  const S_NEW =(() => { try { return !localStorage.getItem(`${STORE}.settings`); } catch (e) { return true; } })(); // beta 6.7 (UX step 4): nothing saved yet
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem(`${STORE}.settings`) || '{}')); } catch (e) { return { ...DEF }; } })();
   applyHand();
   let persistWarned = 0, pointsLost = false; // v2.42.4: pointsLost: the records did not load at start
@@ -948,7 +957,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.45.0';
+  const APP_VER = '2.45.1';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
   const APP_BETA = '6.8'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
@@ -2427,9 +2436,9 @@
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
-  function plSummary() {
+  function plSummary() { // (2.45.1 / beta 6.9: + the span length allowance)
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? colName(Cl.color) : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Pole ID (Tidy): ${{ auto: 'CC over 123456, CC-123456 where it needs room', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · Cables between points: ${Cb.route === 'straight' ? 'straight from point to point' : 'follow the road'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : colName(P.site.acol)) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${N.rta.on ? `by RTA/JPA category (${N.rta.cats.map((x) => `${x.text} ${colName(x.color)}`).join(', ')}), others ` : ''}${colName(N.color)}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${colName(N.bcolor)}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? colName(I.color) : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${colName(V.circle)}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? colName(V.route) : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m; ${PH_STAMP[P.photo.stamp]} · Grid: ${P.grid.split ? `your own split 1/${P.grid.split} (Tidy)` : 'Auto split (Tidy: 1/1 to 1/4)'}; the sheets\u2019 names ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, ${P.grid.h ? `${P.grid.h} mm` : 'auto size'}, ${P.grid.color ? colName(P.grid.color) : 'auto colour (Tidy: light grey)'}, under the details; leader lines ${P.grid.leaders === 'allow' ? 'allowed, for fewer sheets' : 'only where there is no other way'}; photos near their pole within ${P.photo.near} mm`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? colName(Cl.color) : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Pole ID (Tidy): ${{ auto: 'CC over 123456, CC-123456 where it needs room', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · Cables between points: ${Cb.route === 'straight' ? 'straight from point to point' : 'follow the road'} · Span length allowance: ${allowPct()} % · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : colName(P.site.acol)) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${N.rta.on ? `by RTA/JPA category (${N.rta.cats.map((x) => `${x.text} ${colName(x.color)}`).join(', ')}), others ` : ''}${colName(N.color)}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${colName(N.bcolor)}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? colName(I.color) : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${colName(V.circle)}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? colName(V.route) : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m; ${PH_STAMP[P.photo.stamp]} · Grid: ${P.grid.split ? `your own split 1/${P.grid.split} (Tidy)` : 'Auto split (Tidy: 1/1 to 1/4)'}; the sheets\u2019 names ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, ${P.grid.h ? `${P.grid.h} mm` : 'auto size'}, ${P.grid.color ? colName(P.grid.color) : 'auto colour (Tidy: light grey)'}, under the details; leader lines ${P.grid.leaders === 'allow' ? 'allowed, for fewer sheets' : 'only where there is no other way'}; photos near their pole within ${P.photo.near} mm`;
   }
   /* beta 6.5: Drawing style › Numbers › Colour by RTA/JPA category: on or off, and the categories: each its legend text and colour (the
      proposed red is the legend's, locked), a pole owner's one removed or added (an owner from the list, or typed), the standard four again */
@@ -2515,6 +2524,7 @@
     if (document.activeElement !== $('stCabH')) $('stCabH').value = String(P.cab.h || 1.3); $('stCabHAuto').setAttribute('aria-pressed', String(!P.cab.h)); o('stCabHO', P.cab.h ? `${mmOf(P.cab.h)} mm` : 'auto (0.9–1.2 mm, by the poles\u2019 spacing)');
     o('stCabReads', `Reads: ${['F72', 'L12', 'U144'].map((k, i) => runLbl(cabWords(k), i + 1) || '(nothing)').join(' · ')}`);
     seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0'); seg('stCabRoute', P.cab.route); drawRoutePreview(P); // (beta 6.1)
+    { const a = allowPct(); if (document.activeElement !== $('focPct')) $('focPct').value = String(a); o('focPctO', a ? `${a} %: a 31 m span gets ${allowM(31, a)} m` : '0 %: none'); } // 2.45.1 / beta 6.9: Cables › Span length allowance
     o('stClHO', `${mmOf(P.clamp.h)} mm`); // (beta 6.7, UX step 4: the rows greyed with their reason by plDims: clamp types off, In the pole label)
     { const Z = P.photo.size; // Drawing style › Photos
       $('stPhSize').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === Z)));
@@ -2562,8 +2572,8 @@
      project's pole numbers nor the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). beta 6.7 (UX
      step 6; reviewer): it says the owner colours and their legend texts go back to the standard four (RTA_STD). */
   $('stReset').addEventListener('click', async () => {
-    if (!(await ask('Reset Plan style?', `Every look choice goes back: Basic to the company standard, Advanced (sizes, colours, cables, tower site, location map, map sheets) to its defaults. The owner colours and their legend texts go back to the standard four (${RTA_STD.map((x) => x.text).join(', ')}): owner colours you added are taken off. Not changed: this project’s pole numbers and the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). Use company standard, at the top, changes only the Basic look and keeps your Advanced choices.`, [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
-    delete S.plStyle; S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Plan style: the company standard and the defaults', 2500);
+    if (!(await ask('Reset Plan style?', `Every look choice goes back: Basic to the company standard, Advanced (sizes, colours, cables and their span length allowance, ${DEF.exp.focPct} %, tower site, location map, map sheets) to its defaults. The owner colours and their legend texts go back to the standard four (${RTA_STD.map((x) => x.text).join(', ')}): owner colours you added are taken off. Not changed: this project’s pole numbers and the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). Use company standard, at the top, changes only the Basic look and keeps your Advanced choices.`, [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
+    delete S.plStyle; S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid; S.exp.focPct = DEF.exp.focPct; /* 2.45.1 / beta 6.9: the span length allowance back to 10 % */ persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Plan style: the company standard and the defaults', 2500);
   });
   $('stDone').addEventListener('click', () => closeSheet());
   $('stPhSize').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'size', +b.dataset.v); }); // Drawing style › Photos: Small, Normal, Large, Extra large
@@ -2575,6 +2585,11 @@
   $('stPhNear').addEventListener('input', () => setPl('photo', 'near', +$('stPhNear').value)); // beta 6.0: a photo's distance from its pole
   $('stGridH').addEventListener('input', () => setPl('grid', 'h', +$('stGridH').value)); $('stGridHAuto').addEventListener('click', () => setPl('grid', 'h', 0)); // (its height, mm on the A3 sheet)
   $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–53 m, beta 6.7)
+  /* 2.45.1 / beta 6.9: Cables › Span length allowance (S.exp.focPct, the Simple drawing's old FOC % row moved here: one home, one key):
+     0 to 50 %, whole; while it is typed, kept once it is one; left empty, it stays as it was */
+  const setAllow = (v) => { S.exp.focPct = Math.max(0, Math.min(50, Math.round(v))); persist(); renderStyle(); };
+  $('focPct').addEventListener('input', () => { const t = $('focPct').value.trim(), v = +t; if (t !== '' && Number.isFinite(v) && v >= 0 && v <= 50) setAllow(v); });
+  $('focPct').addEventListener('change', () => { const t = $('focPct').value.trim(), v = +t; if (t !== '' && Number.isFinite(v)) setAllow(v); $('focPct').value = String(allowPct()); });
   /** The vicinity preview: a map 1.5 km across (1 unit = 25 m), the route on its white band and the PROJECT AREA circle. */
   /** beta 6.1: Drawing style › Cables between points: a small picture of a curving road with a pole, two handholes and a service box
       along it, the cable drawn as the setting says (following the road at its side of it, or straight from point to point). */
@@ -10953,7 +10968,7 @@
         } catch (e) { note = 'Road download failed — exported poles only'; roads = []; }
       }
     }
-    const E = S.exp, focPct = Math.max(0, Math.min(100, Number.isFinite(+E.focPct) ? +E.focPct : 10)), photoW = Math.max(1, Math.min(50, +E.dxfPhotoW || 6));
+    const E = S.exp, focPct = allowPct() /* 2.45.1 / beta 6.9: Plan style › Cables › Span length allowance */, photoW = Math.max(1, Math.min(50, +E.dxfPhotoW || 6));
     const rows = pts.map((p) => ({ ...p, element: elemOf(p), detailsText: [boqText(p), detailsText(p.details)].filter(Boolean).join('; ') })), name = `${fileBase()}_UTM${S.zone}N`;
     const opts = { zone: S.zone, symbolSize: S.sym, textHeight: S.txt, spans: routeModel().spans, exportedBy: exporterLine(' | '), focPct };
     if (E.dxfPhotos === false) { // plain DXF R12, no photos
@@ -11427,7 +11442,7 @@
     set('stPole', `Pole ID ${{ auto: 'Auto', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · sizes ${[P.pole.idH, P.pole.ownH, P.pole.llH, P.span.h].some(Boolean) ? 'your own' : 'Auto'}`);
     set('stId', `${P.id.bold ? 'Bold' : 'Normal'} · ${mmOf(P.id.h)} mm high`); // (beta 6.8, UX step 6: mm on the printed sheet, as its row)
     set('stCl', S.exp.dxfClampType === false ? 'Clamp types off (Basic)' : S.exp.dxfLabels === 'tidy' ? 'In the pole block (Tidy labels)' : `${{ label: 'In the pole label', tag: 'Small box (tag)', callout: 'Box with a line (callout)' }[P.clamp.place]}${P.clamp.place !== 'label' ? ` · side ${{ auto: 'Auto', up: 'above', down: 'below', left: 'left', right: 'right' }[P.clamp.pos]}` : ''}`);
-    set('stRoute', `${P.cab.route === 'straight' ? 'Straight from point to point' : 'Follows the road'} · name ${on(P.cab.on)}`);
+    set('stRoute', `${P.cab.route === 'straight' ? 'Straight from point to point' : 'Follows the road'} · name ${on(P.cab.on)} · allowance ${allowPct()} %`); // (2.45.1 / beta 6.9)
     set('stPh', `${phName(P.photo.size)} · ${phTidyMm(P.photo.size)} mm · near its pole ${P.photo.near} mm`);
     set('stCrowd', P.crowd.auto ? 'Fit automatically' : 'Leave as they are');
     set('stLm', `Icons ${on(P.crowd.icons)} · names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]}`);
@@ -12068,7 +12083,10 @@
        up to the tables and the sheets to the PMI. (beta 6.6: the Excel BOQ's survey quantities and the Route and spans Excel the same:
        spanW, routeW, fibW.) */
     const spW = (sp) => Math.round(+sp.len || 0), methOf = (k) => (k && CAB[k] ? CAB[k].method : null), PW = { span: 0, foc: 0, AE: 0, UG: 0, sAE: 0, sUG: 0 };
-    R.spans.forEach((sp) => { const L = spW(sp), rs = sp.runs || [sp.cable]; PW.span += L; PW.foc += rs.length * L; rs.forEach((k) => { const m0 = methOf(k); if (m0 === 'AE' || m0 === 'UG') { PW[m0] += L; PW[`s${m0}`] += L; } }); });
+    /* 2.45.1 / beta 6.9: a span's cable is its length as written + its span length allowance (Plan style › Cables, whole metres, allowM),
+       each run, in the PMI's three cable rows and (pmiItems below) each sheet's BOQ table; the loops after, without it. 0 %: as before. */
+    const pctA = allowPct(), spC = (sp) => spW(sp) + allowM(spW(sp), pctA);
+    R.spans.forEach((sp) => { const L = spC(sp), rs = sp.runs || [sp.cable]; PW.span += L; PW.foc += rs.length * L; rs.forEach((k) => { const m0 = methOf(k); if (m0 === 'AE' || m0 === 'UG') { PW[m0] += L; PW[`s${m0}`] += L; } }); });
     QC.loops.forEach(([, cab, len]) => { PW.foc += +len || 0; const m0 = methOf(cab); if (m0 === 'AE' || m0 === 'UG') PW[m0] += +len || 0; });
     const cabs = [...new Set(R.spans.flatMap((s) => s.runs || [s.cable]).filter(Boolean))]; // (v2.42.18: every run's)
     const e = exporterInfo();
@@ -12105,7 +12123,7 @@
     const pmiItems = (() => {
       const meth = (k) => (k && CAB[k] ? CAB[k].method : null), out = { spans: [], points: [] };
       if (R.spans.length) {
-        R.spans.forEach((sp) => { const runs = sp.runs || [sp.cable], L = spW(sp), ae = runs.filter((k) => meth(k) === 'AE').length * L, ug = runs.filter((k) => meth(k) === 'UG').length * L; // (beta 6.4: as its length is written)
+        R.spans.forEach((sp) => { const runs = sp.runs || [sp.cable], L = spC(sp) /* (2.45.1 / beta 6.9: + its allowance) */, ae = runs.filter((k) => meth(k) === 'AE').length * L, ug = runs.filter((k) => meth(k) === 'UG').length * L; // (beta 6.4: as its length is written)
           out.spans.push({ ia: sp.ia, ib: sp.ib, v: { PMI_TOTAL_CABLE_LENGTH: pmiL ? runs.length * L : L, PMI_AERIAL_CABLE_LENGTH: ae, PMI_UG_CABLE_LENGTH: ug } }); });
         if (pmiL) QC.loops.forEach(([id, cab, len]) => out.points.push({ id, v: { PMI_TOTAL_CABLE_LENGTH: len, ...(meth(cab) === 'AE' ? { PMI_AERIAL_CABLE_LENGTH: len } : meth(cab) === 'UG' ? { PMI_UG_CABLE_LENGTH: len } : {}) } }));
       }
@@ -12251,7 +12269,9 @@
           ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each (Plan style › 20 m loops at boxes)' : ' and not drawn'}.`] : [])];
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
-      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Plan style › Plan file › Count the loops in the cable lengths (PMI))'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe or Bayantel (or owned by Globe or Bayantel: Globe\'s own, beta 6.7); RTA Converge / local coop / other (PLDT pole) = existing poles by owner (CONVERGE / an electric company, coop or power / PLDT), and an RTA row of its own for each other owner (beta 6.6: added to the PMI table and the BOQ tables)' + (pmiExtraRows.length ? `: ${pmiExtraRows.map((x) => x[0]).join(', ')}` : '') + '; fiber termination = fibers of the new ODFs; hybrid closure = new closures; the UG route (each span once, as its length is written) by how its first new UG cable is laid (beta 6.7: set on the cable in Route; HDD for air-blown fiber and open trench for a conventional UG cable unless set): proposed HDD = the drilled spans whole, and on a trenched span its road crossings (the road\'s width and 3 m each side, as drawn); open trench, micro trench and the shallow trench with or without concrete (rows added to the PMI table when used) = the trenched spans less their road crossings; a span set on its own (Route: tap the span) counts by its own way; maxcell inner duct = the conventional UG cable\'s route, crossings included; proposed conduit (a row for each size and runs used) = the UG route in it, in metres of route; proposed manhole / service box = the new ones.',
+      // 2.45.1 / beta 6.9: the span length allowance, said (0 %: said too, no figure changed)
+      pctA ? `Cable lengths include a ${pctA} % span length allowance (Plan style \u203a Cables): each span's extra cable for sag and wastage, in whole metres (its length as written × ${pctA} %, rounded: a 31 m span ${allowM(31, pctA)} m), each run, in the PMI's total, aerial and underground cable lengths and each sheet's BOQ table; the loops are added without it. The span lengths written on the plan stay as measured, and the trenches, HDD, conduit and poles have no allowance.` : 'Cable lengths: no span length allowance (Plan style \u203a Cables: 0 %), the spans as written.',
+      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? `spans${pctA ? ` + their ${pctA} % span length allowance` : ''} + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)` : `spans${pctA ? ` + their ${pctA} % span length allowance` : ''} only (the maintenance loops not counted: Plan style › Plan file › Count the loops in the cable lengths (PMI))`};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe or Bayantel (or owned by Globe or Bayantel: Globe\'s own, beta 6.7); RTA Converge / local coop / other (PLDT pole) = existing poles by owner (CONVERGE / an electric company, coop or power / PLDT), and an RTA row of its own for each other owner (beta 6.6: added to the PMI table and the BOQ tables)' + (pmiExtraRows.length ? `: ${pmiExtraRows.map((x) => x[0]).join(', ')}` : '') + '; fiber termination = fibers of the new ODFs; hybrid closure = new closures; the UG route (each span once, as its length is written) by how its first new UG cable is laid (beta 6.7: set on the cable in Route; HDD for air-blown fiber and open trench for a conventional UG cable unless set): proposed HDD = the drilled spans whole, and on a trenched span its road crossings (the road\'s width and 3 m each side, as drawn); open trench, micro trench and the shallow trench with or without concrete (rows added to the PMI table when used) = the trenched spans less their road crossings; a span set on its own (Route: tap the span) counts by its own way; maxcell inner duct = the conventional UG cable\'s route, crossings included; proposed conduit (a row for each size and runs used) = the UG route in it, in metres of route; proposed manhole / service box = the new ones.',
       ...(() => { const U = rp.ugLaid || {}, C0 = rp.ugConduit || {}, nm = { hdd: 'HDD', open: 'open trench', shc: 'shallow trench with concrete', sh: 'shallow trench without concrete', micro: 'micro trench' }; if (!Object.keys(C0).length) return []; // beta 6.7: how each UG cable is laid, and the conduit by size and runs (the PMI has no conduit rows)
         const F0 = fibers(), runs = F0.filter((f) => !f.ex && isUG(f.cab)).sort((x, y) => x.n - y.n).map((f) => { const own = f.path.slice(1).map((b, i) => [f.path[i], b]).map(([a, b]) => [a, b, ugSpanOf(a, b, F0)]).filter(([, , u]) => u && u.own && u.n === f.n); // (beta 6.7: and its spans laid otherwise)
           return `RUN ${f.n} (${CAB[f.cab].short}): ${ugTxt(ugOf(f))}${own.length ? `; span${own.length > 1 ? 's' : ''} laid otherwise: ${own.map(([a, b, u]) => `${fibName(a)}–${fibName(b)} ${ugTxt(u)}`).join(', ')}` : ''}`; });
@@ -12497,15 +12517,18 @@
   /* beta 6.6 (the owner: "yes always same with the CEF"): every export counts a span as the plan writes its length, whole metres
      (Math.round, as the span length text), each run: the Survey quantities (Excel BOQ), the Route and spans Excel, the plan's PMI */
   const spanW = (sp) => Math.round(+(sp && sp.len) || 0);
-  const routeW = (R) => { let total = 0, cable = 0; const by = {}; (R.spans || []).forEach((sp) => { const L = spanW(sp), rs = sp.runs || [sp.cable]; total += L; cable += L * rs.length; rs.forEach((k) => { by[k] = (by[k] || 0) + L; }); }); return { total, cable, by }; };
-  const fibW = (f, R) => { const m = new Map((R.spans || []).map((sp) => [[sp.ia, sp.ib].map(String).sort().join('|'), spanW(sp)])); let t = 0, miss = false; (f.path || []).forEach((id, i) => { if (!i) return; const k = [f.path[i - 1], id].map(String).sort().join('|'); if (m.has(k)) t += m.get(k); else miss = true; }); return miss && !t ? Math.round(+f.len || 0) : t; };
+  /* 2.45.1 / beta 6.9: allow: the span length allowance of the spans, each run (allowM: each span's in whole metres; pct: Plan style ›
+     Cables unless given); fibWA: a fiber's spans as written and their allowance, [spans, allowance] */
+  const routeW = (R, pct) => { const p = pct == null ? allowPct() : pct; let total = 0, cable = 0, allow = 0; const by = {}; (R.spans || []).forEach((sp) => { const L = spanW(sp), rs = sp.runs || [sp.cable]; total += L; cable += L * rs.length; allow += allowM(L, p) * rs.length; rs.forEach((k) => { by[k] = (by[k] || 0) + L; }); }); return { total, cable, by, allow }; };
+  const fibWA = (f, R, pct) => { const m = new Map((R.spans || []).map((sp) => [[sp.ia, sp.ib].map(String).sort().join('|'), spanW(sp)])); let t = 0, a = 0, miss = false; (f.path || []).forEach((id, i) => { if (!i) return; const k = [f.path[i - 1], id].map(String).sort().join('|'); if (m.has(k)) { t += m.get(k); a += allowM(m.get(k), pct || 0); } else miss = true; }); if (miss && !t) { t = Math.round(+f.len || 0); a = allowM(t, pct || 0); } return [t, a]; };
+  const fibW = (f, R) => fibWA(f, R, 0)[0];
   function surveyQty(pts, col) { // (beta 6.0: col.loops: each counted loop [point id, cable, length], for the BOQ table of each GEO sheet)
     const rp = pts.filter((p) => ROUTE_ELS.includes(elemOf(p))), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); // v2.42.20: + the fibers
     const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
-    const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen();
-    keys.forEach((k) => { lenBy[k] = 0; polesBy[k] = new Set(); loopsBy[k] = 0; });
-    R.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { lenBy[k] += spanW(sp); polesBy[k].add(sp.ia); polesBy[k].add(sp.ib); })); // v2.42.18: each run (beta 6.6: as the plan writes it)
-    const RW = routeW(R); // beta 6.6
+    const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen(), pct = allowPct(), allowBy = {}; // (2.45.1 / beta 6.9: pct, allowBy: the span length allowance)
+    keys.forEach((k) => { lenBy[k] = 0; polesBy[k] = new Set(); loopsBy[k] = 0; allowBy[k] = 0; });
+    R.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { lenBy[k] += spanW(sp); allowBy[k] = (allowBy[k] || 0) + allowM(spanW(sp), pct); polesBy[k].add(sp.ia); polesBy[k].add(sp.ib); })); // v2.42.18: each run (beta 6.6: as the plan writes it)
+    const RW = routeW(R, pct); // beta 6.6
     const cabAt = (id) => { const sp = R.spans.find((x) => x.ia === id || x.ib === id); return sp ? sp.cable : null; };
     let loops = 0, loopsOff = 0, loopM = 0, nBox = 0; const loopMBy = {}; keys.forEach((k) => { loopMBy[k] = 0; });
     // v2.42.16: the loops on poles (the surveyor's, as the plan draws them, and the ones the app adds in an As-Plan) and the one each
@@ -12525,6 +12548,11 @@
     keys.forEach((k) => { if (lenBy[k] || k) add(`SPAN_${tag(k)}`, r1(lenBy[k]), 'm', `Spans with ${nm(k)}`); });
     add('SPAN_AE', r1(keys.filter((k) => k && CAB[k].method === 'AE').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Aerial (AE) spans');
     add('SPAN_UG', r1(keys.filter((k) => k && CAB[k].method === 'UG').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Underground (UG) spans');
+    if (pct) { // 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables), in the FOC lengths below (0 %: no rows, as before)
+      add('ALLOW_PCT', pct, '%', `Span length allowance (Plan style › Cables): extra cable on each span for sag and wastage, each span's in whole metres (its length as written × ${pct} %, rounded), each run. In FOC_<cable>, FOC_TOTAL, DE and FIBER_<n>; not in SPAN_…`);
+      keys.forEach((k) => { if (lenBy[k]) add(`ALLOW_${tag(k)}`, r1(allowBy[k]), 'm', `Span length allowance (${pct} %) on ${nm(k)}`); });
+      add('ALLOW_TOTAL', r1(RW.allow), 'm', `Span length allowance (${pct} %), all spans (each run)`);
+    }
     add('MLOOP_LEN', ml, 'm', 'Maintenance loop length on a 72C pole, unless set on the record (Administration → Field standards)');
     add('MLOOP_LEN_L12', 10, 'm', 'Maintenance loop length on a 12C pole, unless set on the record'); // v2.42.18
     add('MLOOP_M', r1(loopM), 'm', 'All maintenance loops: their lengths added (each loop its own)'); // v2.42.18
@@ -12535,13 +12563,13 @@
     if (svPurpose() === 'As-plan') add('MLOOP_AUTO', nAutoOf(LA), 'each', `Maintenance loops added by the app where the survey had none: ${loopRule}`); // v2.42.16
     if (svPurpose() === 'As-built') { const need = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), open = pts.filter((p) => need.has(p.id) && elemOf(p) === 'Pole' && !(p.boq && p.boq.mloop) && !OWN.has(p.id)).length; add('MLOOP_UNANSWERED', open, 'each', 'Poles on the route whose maintenance loop was not answered (MLoop or No loop): check them'); }
     keys.forEach((k) => { if (k || loopsBy[k]) add(`MLOOP_${tag(k)}`, loopsBy[k], 'each', `Maintenance loops on ${nm(k)}`); });
-    keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + loopMBy[k]), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + loops (each its own length; by default ${isLight(k) ? 10 : ml} m on a pole, ${BOX_LOOP_M} m at a handhole, manhole or service box)`); });
-    add('FOC_TOTAL', r1(RW.cable + loopM), 'm', 'All FOC: spans (each run) + loops');
-    add('DE', r1(RW.cable), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops (each run)');
+    keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + allowBy[k] + loopMBy[k]), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + ${pct ? `span length allowance (${pct} %) + ` : ''}loops (each its own length; by default ${isLight(k) ? 10 : ml} m on a pole, ${BOX_LOOP_M} m at a handhole, manhole or service box)`); });
+    add('FOC_TOTAL', r1(RW.cable + RW.allow + loopM), 'm', `All FOC: spans (each run) + ${pct ? `span length allowance (${pct} %) + ` : ''}loops`); // (2.45.1 / beta 6.9: + the allowance)
+    add('DE', r1(RW.cable + RW.allow), 'cable-m', `Detailed engineering: FOC length without the maintenance loops (each run)${pct ? `: spans + span length allowance (${pct} %)` : ''}`);
     if (R.fib && R.fib.planned.length) { // v2.42.20: each fiber, its spans and its loops
       add('FIBERS', R.fib.planned.length, 'each', 'Fibers (new cable), each from its start to its end; existing cables drawn on the plan are not counted');
-      R.fib.planned.forEach((f) => { const lm = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n).reduce((t, e) => t + e.len, 0) : 0, a = fibEnd(f, 'from', R.fib.by), b = fibEnd(f, 'to', R.fib.by);
-        add(`FIBER_${f.n}`, r1(fibW(f, R) + lm), 'm', `Fiber ${f.n} · ${CAB[f.cab] ? CAB[f.cab].label : 'cable not set'} · ${a.ref || a.kind} → ${b.ref || b.kind}: spans ${r1(fibW(f, R))} m + loops ${r1(lm)} m`); });
+      R.fib.planned.forEach((f) => { const lm = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n).reduce((t, e) => t + e.len, 0) : 0, a = fibEnd(f, 'from', R.fib.by), b = fibEnd(f, 'to', R.fib.by), [fw, fa] = fibWA(f, R, pct); // (2.45.1 / beta 6.9: + its spans' allowance)
+        add(`FIBER_${f.n}`, r1(fw + fa + lm), 'm', `Fiber ${f.n} · ${CAB[f.cab] ? CAB[f.cab].label : 'cable not set'} · ${a.ref || a.kind} → ${b.ref || b.kind}: spans ${r1(fw)} m + ${pct ? `allowance ${r1(fa)} m + ` : ''}loops ${r1(lm)} m`); });
     }
     keys.forEach((k) => { if (k || polesBy[k].size) add(`POLES_${tag(k)}`, polesBy[k].size, 'each', `Route points (poles, handholes, ODF…) on ${nm(k)} spans`); });
     add('SPANS_LONG', R.long, 'each', `Spans longer than ${pol().maxSpan || 200} m`);
@@ -12575,7 +12603,8 @@
     const Q = surveyQty(pts), rows = [[{ v: `SURVEY QUANTITIES — ${S.project}`, s: st.title }], [{ v: 'The figures the BOQ / BOM rules use (rules to come). Each has a code for the formulas.', s: st.info }], [],
       ['Code', 'Quantity', 'Unit', 'What it counts'].map((v) => ({ v, s: st.header }))];
     Q.rows.forEach(([c, q, u, d]) => rows.push([{ v: c, s: st.label }, typeof q === 'number' ? { v: q, s: st.center } : q, u, d]));
-    rows.push([], [{ v: 'Span lengths are straight lines between the pins (no sag). Cable type and method come from each span (route builder); loops from each pole record (MLoop).', s: st.info }]);
+    const pct = allowPct(); // (2.45.1 / beta 6.9: the note says the allowance; the same rows at 0 %)
+    rows.push([], [{ v: `Span lengths are straight lines between the pins (no sag). Cable type and method come from each span (route builder); loops from each pole record (MLoop).${pct ? ` FOC lengths (FOC_…, FOC_TOTAL, DE, FIBER_…) add the span length allowance (ALLOW_…: ${pct} %, Plan style › Cables) for sag and wastage.` : ''}`, s: st.info }]);
     return { name: 'Survey quantities', cols: [24, 12, 10, 70], rows, freezeRow: 4 };
   }
   function boqSheet(pts, st, plan) {
@@ -12600,6 +12629,7 @@
     if (!Rt.spans.length) { toast('No route yet. Use the route button on the map to link poles.', 4000); return; }
     const R = window.PoleReports, st = R.STYLES, lbl = (v) => ({ v, s: st.label });
     const longest = Rt.spans.reduce((m, s) => (s.len > m.len ? s : m), Rt.spans[0]);
+    const pct = allowPct(), RWt = routeW(Rt, pct); // 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables): its rows and columns only when set (0 %: as before)
     const summary = [
       [{ v: `ROUTE AND SPANS — ${S.project}`, s: st.title }],
       [lbl('Generated'), fmtTime(new Date().toISOString())],
@@ -12608,6 +12638,7 @@
       [],
       [lbl('Total route length (m)'), routeW(Rt).total], // (beta 6.6: each span as the plan writes it)
       ...(routeW(Rt).cable > routeW(Rt).total ? [[lbl('Cable on the spans, each run (m)'), routeW(Rt).cable]] : []), // v2.42.18
+      ...(pct ? [[lbl(`Span length allowance, ${pct} % (m)`), RWt.allow], [lbl('Cable with the allowance, each run (m)'), RWt.cable + RWt.allow]] : []), // 2.45.1 / beta 6.9
       ...(Rt.fib && Rt.fib.list.length ? [[lbl('Fibers (sheet Fibers)'), `${Rt.fib.planned.length} new${Rt.fib.list.some((f) => f.ex) ? `, ${Rt.fib.list.filter((f) => f.ex).length} existing (drawn only)` : ''}`]] : []), // v2.42.20
       [lbl('Spans'), Rt.spans.length],
       [lbl('Spans longer than maximum'), { v: Rt.long, s: Rt.long ? st.bad : st.good }],
@@ -12623,11 +12654,11 @@
       [lbl('Junction poles (3+ spans)'), Rt.junction],
       [lbl('Route points not linked'), { v: Rt.off, s: Rt.off ? st.bad : st.cell }],
       [],
-      [{ v: 'Span lengths are straight lines between pole pins, not cable lengths, in whole metres as the plan writes them: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
+      [{ v: pct ? `Span lengths are straight lines between pole pins, in whole metres as the plan writes them. The span length allowance (${pct} %, Plan style › Cables) is each span's extra cable for sag and wastage, in whole metres: Spans › Allowance and Cable (m), the last two columns; add the maintenance loops per your design standard (Fibers › Cable (m) has them).` : 'Span lengths are straight lines between pole pins, not cable lengths, in whole metres as the plan writes them: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
     ];
-    const spanRows = [['No.', 'From', 'To', 'Run', 'Length (m)', 'Longer than maximum', 'Cable', 'Method', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
+    const spanRows = [['No.', 'From', 'To', 'Run', 'Length (m)', 'Longer than maximum', 'Cable', 'Method', 'From lat', 'From lon', 'To lat', 'To lon', ...(pct ? [`Allowance ${pct} % (m)`, 'Cable (m)'] : [])].map((v) => ({ v, s: st.header }))]; // (2.45.1 / beta 6.9: the allowance and the cable last, so every column before keeps its place)
     Rt.spans.forEach((s, i) => (s.fibers && s.fibers.length ? s.fibers.slice().sort((x, y) => x.n - y.n).map((f) => [f.cab, `F${f.n}`]) : (s.runs || [s.cable]).map((k, r) => [k, r + 1])).forEach(([k, run]) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: run, s: st.center }, /* v2.42.20: the fiber (F1, F2…) */ { v: spanW(s), s: s.long ? st.bad : st.cell }, /* (beta 6.6: as the plan writes it) */
-      { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, CAB[k] ? CAB[k].label : { v: 'not set', s: st.bad }, CAB[k] ? CAB[k].method : '', { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]))); // v2.29: cable, method; v2.42.18: a row per run
+      { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, CAB[k] ? CAB[k].label : { v: 'not set', s: st.bad }, CAB[k] ? CAB[k].method : '', { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }, ...(pct ? [allowM(spanW(s), pct), spanW(s) + allowM(spanW(s), pct)] : [])]))); // v2.29: cable, method; v2.42.18: a row per run (2.45.1 / beta 6.9: + its allowance, its cable)
     const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Pole details', 'Remarks', 'Size (BOQ)'].map((v) => ({ v, s: st.header }))];
     pts.forEach((p, i) => {
       const info = Rt.poles[p.id] || { role: 'On a pole (not a route point)', degree: '', deflection: null }, u = C.utmForward(p.lat, p.lon, S.zone, p.lat < 0), el = elemOf(p);
@@ -12637,15 +12668,15 @@
     });
     const fibSheet = (() => { // v2.42.20: each fiber: its ends, its spans, its loops, its cable length and its way
       if (!Rt.fib || !Rt.fib.list.length) return null; const LA = autoLoops(projPoints(), Rt), all = fibers(), by = Rt.fib.by, r1 = (v) => Math.round(v * 10) / 10;
-      const rows = [['Fiber', 'Side', 'Cable', 'New / existing', 'From', 'Start', 'To', 'End', 'Points', 'Spans', 'Route (m)', 'Loops', 'Loops (m)', 'Cable (m)', 'Way'].map((v) => ({ v, s: st.header }))];
-      Rt.fib.list.forEach((f) => { const E = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n) : [], lm = E.reduce((t, e) => t + e.len, 0), a = fibEnd(f, 'from', by), b = fibEnd(f, 'to', by);
+      const rows = [['Fiber', 'Side', 'Cable', 'New / existing', 'From', 'Start', 'To', 'End', 'Points', 'Spans', 'Route (m)', 'Loops', 'Loops (m)', 'Cable (m)', 'Way', ...(pct ? [`Allowance ${pct} % (m)`] : [])].map((v) => ({ v, s: st.header }))]; // (2.45.1 / beta 6.9: + its spans' allowance, last; Cable (m) with it)
+      Rt.fib.list.forEach((f) => { const E = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n) : [], lm = E.reduce((t, e) => t + e.len, 0), a = fibEnd(f, 'from', by), b = fibEnd(f, 'to', by), fa = fibWA(f, Rt, pct)[1];
         rows.push([`Fiber ${f.n}`, fibSide(f, all, by), f.ex ? `Existing ${exCores(f)}C` : CAB[f.cab] ? CAB[f.cab].label : 'not set', f.ex ? 'Existing (drawn only)' : 'New', /* v2.42.21: an existing cable's size */ `${a.kind === 'Pole' ? '' : `${a.kind} `}${a.ref}`, a.state, `${b.kind === 'Pole' ? '' : `${b.kind} `}${b.ref}`, b.state,
-          f.path.length, f.spans, fibW(f, Rt), f.ex ? '' : E.length, f.ex ? '' : r1(lm), f.ex ? '' : r1(fibW(f, Rt) + lm), f.path.map(fibName).join(' → ')]); });
-      return { name: 'Fibers', cols: [9, 7, 22, 18, 22, 9, 22, 9, 7, 7, 10, 7, 10, 10, 70], rows, freezeRow: 1 };
+          f.path.length, f.spans, fibW(f, Rt), f.ex ? '' : E.length, f.ex ? '' : r1(lm), f.ex ? '' : r1(fibW(f, Rt) + fa + lm), f.path.map(fibName).join(' → '), ...(pct ? [f.ex ? '' : fa] : [])]); });
+      return { name: 'Fibers', cols: [9, 7, 22, 18, 22, 9, 22, 9, 7, 7, 10, 7, 10, 10, 70, ...(pct ? [13] : [])], rows, freezeRow: 1 };
     })();
     const parts = R.buildXlsxParts([
       { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', `A${summary.length}:B${summary.length}`] },
-      { name: 'Spans', cols: [6, 15, 15, 6, 11, 12, 24, 8, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:L${spanRows.length}` },
+      { name: 'Spans', cols: [6, 15, 15, 6, 11, 12, 24, 8, 12, 13, 12, 13, ...(pct ? [13, 10] : [])], rows: spanRows, freezeRow: 1, autoFilter: `A1:${pct ? 'N' : 'L'}${spanRows.length}` },
       ...(fibSheet ? [fibSheet] : []),
       { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30, 30, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:N${poleRows.length}` },
       ...(boqOn() ? [boqSheet(pts, st, await planFor()), qtySheet(pts, st)] : []), // v2.26 (v2.26.1: As-Plan / As-Built, planned against built; v2.29: quantities)
@@ -13817,7 +13848,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', null, 'pmiLoops', 'bool'], ['dxfBoqGrid', null, 'dxfBoqGrid', 'bool'], ['dxfRoads', null, 'dxfRoads', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI; beta 6.7, UX step 4: in Plan style only, its copy under Settings gone; the roads kept)
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], /* (2.45.1 / beta 6.9: focPct: Plan style › Cables, its own handlers) */ ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', null, 'pmiLoops', 'bool'], ['dxfBoqGrid', null, 'dxfBoqGrid', 'bool'], ['dxfRoads', null, 'dxfRoads', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI; beta 6.7, UX step 4: in Plan style only, its copy under Settings gone; the roads kept)
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {
@@ -19783,7 +19814,7 @@
     const T = tmTeam(c.name), ck = T && T.accepted ? String(T.accepted.byName || T.accepted.by || '') : '';
     const foot = `EXPORTED BY ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' - ').toUpperCase()} - G-eSAA ${VER_LABEL}`; // the line under the frame of every sheet
     return { sketch: plan ? JSON.stringify(plan.sk) : null, photos, logos: await cefLogos(), tab: c.tab || '',
-      app: { job: job && cefJobCtx[job] ? job : '', by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
+      app: { job: job && cefJobCtx[job] ? job : '', by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, focPct: allowPct(), /* 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables) on its UG cable */ lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
         gps: 'geolocation' in navigator, canLogo: cefCanLogo(), logoNote: cefLogoNote(), guide: S.cefGuide !== false, sign: cefSign(), dxf: cefDxfSet(), ...(c.over || {}) } }; // (beta 4.2: sign, the names on the sheet; beta 4.3: dxf, the choices of the DXF)
   }
   /** The editor saves as the user works. Nothing is written when the sketch did not change, so that looking at a plan never makes it

@@ -560,7 +560,7 @@ function tabRoute() {
   }
   if (s.total > 0.05) {
     const row = (a, v) => v > 0.05 ? '<tr><td>' + a + '</td><td class="r">' + f1(v) + ' m</td></tr>' : '', tot = (a, v) => '<tr class="tot"><td>' + a + '</td><td class="r">' + f1(v) + ' m</td></tr>';
-    h += '<h3>Cable length' + (many ? ' · cable ' + (cabN + 1) : '') + '</h3><table class="t">' + row('AE, pole to pole', s.aerial) + row('AE loops (' + s.nloop + ')', s.loop) + (s.ae > 0.05 ? tot('Total FOC AE', s.ae) : '') + ['ug', 'xug', 'ladder', 'open', 'liquid', 'wall'].map(k => row('UG: ' + LEG[k].n.toLowerCase(), s[k])).join('') + row('UG: up and down (riser, exit conduit, drops)', s.vert) + row('UG: inside the cabin, porthole to ODF', s.inside) + (s.ugt > 0.05 ? tot('Total FOC UG', s.ugt) : '') + '</table>';
+    h += '<h3>Cable length' + (many ? ' · cable ' + (cabN + 1) : '') + '</h3><table class="t">' + row('AE, pole to pole', s.aerial) + row('AE loops (' + s.nloop + ')', s.loop) + (s.ae > 0.05 ? tot('Total FOC AE', s.ae) : '') + ['ug', 'xug', 'ladder', 'open', 'liquid', 'wall'].map(k => row('UG: ' + LEG[k].n.toLowerCase(), s[k])).join('') + row('UG: up and down (riser, exit conduit, drops)', s.vert) + row('UG: inside the cabin, porthole to ODF', s.inside) + row('UG: span length allowance (' + ALLOW_PCT + ' %, the app\'s Plan style › Cables)', s.allow) + (s.ugt > 0.05 ? tot('Total FOC UG', s.ugt) : '') + '</table>';      /* (2.45.1 / beta 6.9: + the allowance) */
     h += '<p class="hint">The app adds the up-and-down parts itself: up the riser pipe to the closure, out of the ground at an exit conduit, down into the cabinet. Buried runs are measured at their depth.</p>';
   }
   if (many && g.sum.total > 0.05) h += '<p class="hint"><b>All ' + g.parts.filter(q => q.sum.total > 0.05).length + ' cables:</b> FOC AE ' + f1(g.sum.ae) + ' m · FOC UG ' + f1(g.sum.ugt) + ' m.</p>';
@@ -586,7 +586,7 @@ function tabPhotos() {
 function tabTable() {
   let h = '<p class="hint">This table fills itself from the sketch. It goes on the isometric sheet.</p><table class="t"><tr><th>No.</th><th>List of activity</th><th>Type</th><th>Qty</th><th>Length</th></tr>';
   cefTable(S).forEach((r, i) => { h += '<tr><td>' + (i + 1) + '</td><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td><td class="r">' + esc(r[2]) + '</td><td class="r">' + esc(r[3]) + '</td></tr>'; });
-  return h + '</table><p class="hint" style="margin-top:10px">' + focFormula(S).map(esc).join('<br>') + '</p><p class="hint">How it counts: AE and UG are two cables, each with its own length. An ODF inside a cabin is counted with the others, and cable drawn inside a cabin is part of the UG length. Each proposed riser pole brings one concrete encasement. The closure where the two cables meet is counted even when the app drew it. G.I. riser pipe is the pipe up the pole, from the ground to the closure. Loop holders are the loops on the AE fiber; loops in hand holes and service boxes are taken as given and are not drawn. Exit conduits are the ones you placed plus the ones the app adds where the UG cable comes out of the ground. Open trench conduit is the UG fiber in new conduit, plus any proposed conduit, encasement or trench drawn where the fiber does not run.</p>';
+  return h + '</table><p class="hint" style="margin-top:10px">' + focFormula(S).map(esc).join('<br>') + '</p><p class="hint">How it counts: AE and UG are two cables, each with its own length. An ODF inside a cabin is counted with the others, and cable drawn inside a cabin is part of the UG length.' + (ALLOW_PCT ? ' The UG length has the span length allowance of the app, ' + ALLOW_PCT + ' % (Plan style › Cables), added once to each UG cable.' : '') + ' Each proposed riser pole brings one concrete encasement. The closure where the two cables meet is counted even when the app drew it. G.I. riser pipe is the pipe up the pole, from the ground to the closure. Loop holders are the loops on the AE fiber; loops in hand holes and service boxes are taken as given and are not drawn. Exit conduits are the ones you placed plus the ones the app adds where the UG cable comes out of the ground. Open trench conduit is the UG fiber in new conduit, plus any proposed conduit, encasement or trench drawn where the fiber does not run.</p>';      /* (2.45.1 / beta 6.9: the allowance said) */
 }
 function checks() {
   const c = [], s = S.site, g = geo(S), rg = routeGeom(S), np = S.photos.filter(p => !p.placed).length;
@@ -596,7 +596,7 @@ function checks() {
   c.push(S.els.some(e => TYPES[e.t].g === 'tower') ? [1, 'A tower is on the plan.'] : [0, 'No tower on the plan.']);
   { const nd = rg.parts.filter(p => p.sum.total > 0.05).length, w = nd > 1 ? ' (' + nd + ' cables)' : '';      /* (14 Nov) */
     c.push(rg.sum.ae > 0.05 ? [1, 'AE fiber drawn: ' + f1(rg.sum.ae) + ' m with loops' + w + '.'] : [0, 'No AE fiber drawn.']);
-    c.push(rg.sum.ugt > 0.05 ? [1, 'UG fiber drawn: ' + f1(rg.sum.ugt) + ' m' + w + '.'] : [0, 'No UG fiber drawn.']); }
+    c.push(rg.sum.ugt > 0.05 ? [1, 'UG fiber drawn: ' + f1(rg.sum.ugm) + ' m' + w + '.'] : [0, 'No UG fiber drawn.']); }      /* (2.45.1 / beta 6.9: as drawn, without the allowance) */
   for (const n of rg.notes) c.push([0, n]);
   for (const w of rg.warn) c.push([0, 'UG leg ' + (w.leg + 1) + ' runs through ' + w.names.join(', ') + '.']);
   if (cables(S).some(q => q.ug.pts.length > 1) && !S.els.some(e => e.t === 'odf' || (e.t === 'cabin' && e.inside && e.inside.els.some(q => q.t === 'odf')))) c.push([0, 'No ODF on the plan for the UG fiber to end on.']);
@@ -1673,7 +1673,7 @@ function penAdd(Q) {
   if (L.ae.length > 1) setA(L.ae); else if (inA) setA([]);
   if (L.ug.length > 1) setU(L.ug); else if (inU) setU([]);
   { const g0 = routeGeom(S), g = g0.parts[cabN] || g0, ua = R.ug.pts.length, aa = R.ae.pts.length;
-    say(L.how === 'none' ? 'Aerial (AE) all the way: nothing drawn carries it. For an underground cable tap UG, or draw the trench, conduit or ladder.' : aa > 1 && ua > 1 ? 'AE ' + f1(g.sum.ae) + ' m to the riser pole · UG ' + f1(g.sum.ugt) + ' m from it' : ua > 1 ? 'UG cable, ' + f1(g.sum.ugt) + ' m · it follows what is drawn' : 'AE cable, ' + f1(g.sum.ae) + ' m'); }
+    say(L.how === 'none' ? 'Aerial (AE) all the way: nothing drawn carries it. For an underground cable tap UG, or draw the trench, conduit or ladder.' : aa > 1 && ua > 1 ? 'AE ' + f1(g.sum.ae) + ' m to the riser pole · UG ' + f1(g.sum.ugm) + ' m from it' : ua > 1 ? 'UG cable, ' + f1(g.sum.ugm) + ' m · it follows what is drawn' : 'AE cable, ' + f1(g.sum.ae) + ' m'); }      /* (2.45.1 / beta 6.9: as drawn: ugm) */
   refresh(true);
 }
 function penUndo() {
@@ -2019,6 +2019,7 @@ async function start() {
   let A = null; try { A = HOST ? await HOST.init(JOB) : null; } catch (e) { A = null; }
   if (!A) { $('#nohost').hidden = false; document.querySelector('.app').hidden = true; return; }
   APP = Object.assign(APP, A.app || {}); VIEW = APP.viewOnly || '';
+  setAllowPct(APP.focPct);      /* 2.45.1 / beta 6.9: the app's span length allowance (Plan style › Cables) on the UG cable's length */
   if (!APP.sign || typeof APP.sign !== 'object') { let g = null; try { g = JSON.parse(localStorage.getItem('cef-sign') || 'null'); } catch (e) { g = null; } APP.sign = g && typeof g === 'object' ? g : {}; }      /* (22:24) the names on the sheet */
   if (!APP.dxf || typeof APP.dxf !== 'object') { let g = null; try { g = JSON.parse(localStorage.getItem('cef-dxf') || 'null'); } catch (e) { g = null; } APP.dxf = g && typeof g === 'object' ? g : {}; }      /* (14 Nov) the choices of the DXF */
   IMG = Object.assign({}, A.photos || {});

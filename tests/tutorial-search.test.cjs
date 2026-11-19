@@ -93,6 +93,8 @@ const LINES = [
   // beta 6.8: a proposed pole placed by hand (no photo), on the map and on the Drawing; a pole deleted on a cable keeps it joined
   ['6.8', '!proposed pole · !pole without photo · proposed pole pin · add proposed pole · pin · pole not photographed · pp-0001', 'mappin drawedit'],
   ['6.8', '!plot pole · !place pole on drawing · proposed pole on drawing', 'drawedit mappin'],
+  // 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables), on the cable lengths of the plan, BOQ, Excel and CEF
+  ['6.9', '!span length allowance · allowance · extra cable · sag · wastage · foc % · cable length allowance', 'planstyle boq'],
   ['6.8', '!delete pole on cable · !cable cut · cable broken · deleted pole · missing span', 'route'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
@@ -388,9 +390,15 @@ test('(b) Find a setting finds a setting by the words of its choices and hint, i
   assert.equal(first('sheet split'), 'Sheet split (Tidy)');
   assert.equal(first('grid split'), 'Sheet split (Tidy)'); // (its hint: "(grid split)")
   assert.equal(first('callout'), 'Where they are written'); // (its choice: Box with a line (callout))
-  assert.equal(first('foc'), 'Extra cable on each span, FOC % (Simple drawing)');
-  // (UX step 5 fixes: FOC in the label's name, so the Tutorial's search lists it as a setting too: strong, label > 0)
-  assert.ok(G.settings('foc', PL_INDEX).some((r) => PL_INDEX[r.i].label === 'Extra cable on each span, FOC % (Simple drawing)' && r.strong && r.label > 0));
+  // 2.45.1 / beta 6.9: the Simple drawing's Extra cable on each span (FOC %) is Plan style › Cables › Span length allowance (one row, one key);
+  // each word of it in the label's name, so the Tutorial's search lists it as a setting too (strong, label > 0)
+  const ALLOW = 'Span length allowance: extra cable for sag and wastage, FOC %';
+  for (const q of ['foc', 'foc %', 'span length allowance', 'allowance', 'extra cable', 'sag', 'wastage']) {
+    assert.equal(first(q), ALLOW, q);
+    assert.ok(G.settings(q, PL_INDEX).some((r) => PL_INDEX[r.i].label === ALLOW && r.strong && r.label > 0), `${q}: listed by the Tutorial`);
+    assert.equal(PL_INDEX[G.settings(q, PL_INDEX)[0].i].where, 'Plan style › Cables', q);
+  }
+  assert.ok(!PL_INDEX.some((e) => /Extra cable on each span/.test(e.label)), 'the old Simple drawing row is gone');
   assert.equal(first('utm'), 'Map zone (UTM)');
   assert.equal(first('keymap'), 'Owner colour key on the plan');
   assert.ok(G.settings('logo', PL_INDEX).slice(0, 3).some((r) => PL_INDEX[r.i].label === 'Company template'), 'logo: the Company template row (Company logo)');

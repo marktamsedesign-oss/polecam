@@ -90,6 +90,7 @@ async def main():
         pg = ctx.pages[0]; errs = []
         pg.on('pageerror', lambda e: errs.append('PAGEERROR ' + str(e)))
         await pg.goto(BASE + '/index.html'); await W(pg, 1500)
+        await pg.evaluate("() => { __polecam.S.exp.focPct = 0; __polecam.persist(); }")  # 2.45.1 / beta 6.9: no span length allowance (Plan style › Cables): this test's PMI and FOC figures are the spans and loops as before
         await pg.fill('#pfName', 'Mark Tamse'); await pg.fill('#pfMobile', '09171234567'); await pg.fill('#pfEmail', 'mark@example.com')
         await pg.click('#pfCreateBox summary'); await pg.click('#pfCreate'); await W(pg, 400); await pg.fill('#admPin', '1234'); await pg.fill('#admPin2', '1234'); await pg.click('#admUnlock'); await W(pg, 600)
         await pg.fill('#admName', 'Globe OSP'); await common.sheet_companies(pg, ['GLOBE', 'SAMPLE VENDOR'], admins=['GLOBE'])
