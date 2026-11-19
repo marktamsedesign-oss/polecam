@@ -35,6 +35,17 @@ TESTS = ['image-preparation.test.cjs', 'photo-save.spec.cjs', 'dxf-cleanup.test.
     'v237/t237e.py v24218/tests/t237a_v18.py v2356/t2356a.py v2356/t2356b_v24.py v2355/t2355h.py v2355/t2355i.py v2351/t2354f.py v2351/t2353e.py '
     'v243/t2351d_v2432.py v235/t235c.py v24226/t229a_v26.py v229/t229b.py v235/t235a_v24.py v235/t235b_v24.py v234/t234a_v24.py v225/tutall.py '
     'v225/tour.py v2357/t2357a.py').split()]
+# beta 6.8 (UX step 6; reviewer): the app as the tests expect it: the repository's org.json (it ties the website to the owner's
+# organisation) answered 404, so a new phone may create its own company list (#pfCreateBox) as the tests do; the rest as http.server
+SERVE = '''import functools, http.server, sys
+class H(http.server.SimpleHTTPRequestHandler):
+    def send_head(self):
+        if self.path.split('?')[0].split('#')[0].rstrip('/').endswith('/org.json'): self.send_error(404, 'no org.json in the tests'); return None
+        return super().send_head()
+    def log_message(self, *a): pass
+http.server.ThreadingHTTPServer.allow_reuse_address = True
+http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), functools.partial(H, directory=sys.argv[2])).serve_forever()
+'''
 SELF_SKIPS = {'t24333e': {'template/seed.dxf', 'old/v2.42.28'}}  # parts it skips by itself, with a SKIP line (see its log)
 DXF_USE = re.compile(r"doDxf|SEED\b|dxfseed|plan_export|dxfTpl|GeDxfTpl")
 
@@ -54,6 +65,7 @@ def needs(f):
     out = {x for x in out if not (x.startswith('fx/') or x.startswith('large/') or x.startswith('roads')) or x.count('/') == 1}
     return sorted(out - SELF_SKIPS.get(name_of(f), set()))
 ALONE = {'t2357a'}; REPEAT_FULL = {'t229b': 20}; TIMEOUT = 1800
+TIMEOUT_OF = {'tutall': 4200}  # beta 6.8 (UX step 6): tutall walks every Show me twice (about 580): some 35 minutes
 
 def name_of(f): return os.path.basename(f).split('.')[0] if not f.endswith(('.cjs', '.js')) else os.path.basename(f)
 
@@ -141,7 +153,7 @@ def main():
         nonlocal srv
         if srv: return
         if not port_free(PORT): sys.exit(f'Port {PORT} is in use: close what uses it (the tests serve the app there).')
-        srv = subprocess.Popen([sys.executable, '-m', 'http.server', str(PORT), '--bind', '127.0.0.1', '--directory', REPO], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); time.sleep(1.2)
+        srv = subprocess.Popen([sys.executable, '-c', SERVE, str(PORT), REPO], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); time.sleep(1.2)
     def stop():
         nonlocal srv
         if srv: srv.terminate(); srv.wait(); srv = None; time.sleep(0.5)
@@ -163,9 +175,9 @@ def main():
                 cmd = ['node', '--test', path] if kind == 'node-test' else ['node', path] if kind == 'node' else [sys.executable, path]
                 log = os.path.join(RES, f'{nm}{f"_{k + 1}" if runs > 1 else ""}.log')
                 try:
-                    r = subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True, timeout=TIMEOUT, errors='replace'); out = r.stdout + r.stderr; rc = r.returncode
+                    r = subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True, timeout=TIMEOUT_OF.get(nm, TIMEOUT), errors='replace'); out = r.stdout + r.stderr; rc = r.returncode
                 except subprocess.TimeoutExpired as e:
-                    out = (e.stdout or '') + (e.stderr or '') if isinstance(e.stdout, str) else ''; out += f'\nTIMEOUT after {TIMEOUT} s'; rc = -9
+                    out = (e.stdout or '') + (e.stderr or '') if isinstance(e.stdout, str) else ''; out += f'\nTIMEOUT after {TIMEOUT_OF.get(nm, TIMEOUT)} s'; rc = -9
                 open(log, 'w', encoding='utf-8').write(out)
                 c = counts(out, kind); crashed = rc != 0 or 'Traceback (most recent call last)' in out
                 res.append((c, crashed, out))

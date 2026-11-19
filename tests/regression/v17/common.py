@@ -22,6 +22,7 @@ async def launch(p, udir, video, geo=None, project=True, keep_draft=False, keep_
     await ctx.route('https://tile.openstreetmap.org/**', lambda r: r.abort())
     await ctx.route('https://server.arcgisonline.com/**', lambda r: r.abort())
     await ctx.route('https://script.google.com/**', sheet_route)  # v2.23: companies come from the online sheet (a test may route its own after this)
+    await ctx.route('**/org.json', no_org)  # beta 6.8 (UX step 6): the repository's org.json ties the website to one organisation: a test phone makes its own list
     if project: await ctx.add_init_script(TEST_PROJECT_JS)
     if not keep_draft: await ctx.add_init_script(NO_DRAFT_JS)
     if not keep_sample: await ctx.add_init_script(NO_SAMPLE_JS)
@@ -106,6 +107,9 @@ async def open_groups_later(pg, ms=400):
 # v2.23: the admin's companies come only from the online Google Sheet: a mocked sheet for the tests
 SHEET_MOCK = {'companies': [], 'admins': [], 'name': 'Test sheet'}
 SHEET_URL = 'https://script.google.com/macros/s/TEST/exec'
+async def no_org(route):
+    # beta 6.8 (UX step 6; reviewer): org.json answered 404 (as run_all.py's server does), so #pfCreateBox shows on a new phone
+    await route.fulfill(status=404, body='no org.json in the tests')
 async def sheet_route(route):
     if route.request.method == 'POST':
         return await route.fulfill(status=200, content_type='application/json', body='{"ok":true}')

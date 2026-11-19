@@ -257,6 +257,8 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .drwsetbtn svg{width:20px;height:20px;flex:none}.drwsetbtn .sm{display:none}
 @media (max-width:374px){.drwsetbtn{padding:0 9px}.drwsetbtn .lg{display:none}.drwsetbtn .sm{display:inline}} /* (a 360 px phone: Style, the title keeps its room) */
 .drwnote{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:6;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;width:max-content;max-width:min(560px,calc(100% - 24px));padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.97);color:#1b1b1b;border:1.5px solid var(--accent);box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:calc(13px * var(--fs))}.drwnote[hidden]{display:none}.drwnote span{flex:1 1 200px}
+.drwnote{top:calc(44px * var(--fs) + 14px)}#drawWrap:has(> #drawXHid:not([hidden])) > .drwnote{top:calc(116px + 6px * var(--fs))} /* beta 6.8 (UX step 6; reviewer): under the top chips (Legend, the drawing shown, N hidden), never over them; a touch on the plan puts it away */
+@media (max-width:899px){.drwnote{left:12px;right:calc(var(--tap) + 24px);transform:none;width:auto;max-width:none}} /* (a phone: clear of the round tools at the right) */
 .pssub{margin:4px 0 8px}
 .psstd{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;border:1px solid var(--line);border-left:5px solid var(--ok);border-radius:10px;padding:10px 12px;background:var(--surface);margin:0 0 10px;font-size:calc(13.5px * var(--fs));line-height:1.4}
 .psstd.off{border-left-color:#f08c00}.psstd[hidden]{display:none}.psstdt{flex:1 1 220px;min-width:0}.psstdt b{display:block}
@@ -377,6 +379,7 @@ body.deskpane #projPane,body.deskpane #topbar{transition:opacity .2s}body.deskpa
 .tutsteps{list-style:none;margin:8px 0 0;padding:0;counter-reset:st}
 .tutsteps li{counter-increment:st;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px 10px 44px;margin:0 0 10px;font-size:calc(14.5px * var(--fs));line-height:1.45}
 .tutsteps li.tutbest{border-color:#f08c00;box-shadow:0 0 0 1px #f08c00}/* beta 6.7 (UX step 1): the step the search found */
+.tutsteps li.tutbest:focus{outline:none}.tutsteps li.tutbest:focus-visible{outline:3px solid var(--hi);outline-offset:2px}/* beta 6.8 (UX step 6): focused when the topic opens */
 .tutsteps li::before{content:counter(st);position:absolute;left:12px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font-size:calc(12px * var(--fs));font-weight:800}
 .tutsteps li.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .tutsteps .show{margin-top:8px}
@@ -387,7 +390,8 @@ body.deskpane #projPane,body.deskpane #topbar{transition:opacity .2s}body.deskpa
 #tutTip .row{margin-top:10px;display:flex;gap:8px;justify-content:flex-end}#tutTip .hint{margin-top:6px}
 #tutTip .tuthead{display:flex;align-items:center;gap:8px;font-size:calc(12px * var(--fs));color:var(--muted);font-weight:700}#tutTip .tuthead span{flex:1}
 #tutTip .tutx{width:32px;height:32px;min-height:32px;background:none;border:0;color:var(--muted);font-size:18px}#tutTip .tuttext{margin-top:2px}
-#tutTip{max-height:42vh;overflow:auto}#tutTip .tutmin{width:32px;height:32px;min-height:32px;background:none;border:0;color:var(--muted);font-size:16px}
+#tutTip{max-height:42vh;overflow:auto}#tutTip:focus{outline:none}#tutTip:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
+#tutTip:not(.mini) .row{position:sticky;bottom:-12px;z-index:1;margin:10px -14px -12px;padding:8px 14px 12px;background:var(--surface);border-radius:0 0 14px 14px;box-shadow:0 -8px 8px -6px var(--surface)} /* beta 6.8 (UX step 6; reviewer): a tip taller than its room scrolls, its buttons stay in view */#tutTip .tutmin{width:32px;height:32px;min-height:32px;background:none;border:0;color:var(--muted);font-size:16px}
 #tutTip.mini{padding:4px 6px 4px 12px;max-width:300px;left:auto;right:12px;border-radius:999px}#tutTip.mini>:not(.tuthead){display:none}#tutTip.mini .tuthead{cursor:pointer}
 #tutTour{width:100%;margin:4px 0 2px}
 .warnline.bad{color:var(--bad)}
@@ -842,6 +846,7 @@ button.xgh::before{content:'›';display:inline-block;font-size:calc(17px * var(
 #export .xother{order:890}
 .xfoot{order:900;display:flex;flex-wrap:wrap;gap:8px}.xfoot .btn{flex:1 1 auto}.xagain{border-style:dashed;color:var(--accent);white-space:normal;text-align:left;min-height:44px;padding:6px 14px}
 .xmodebar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;background:var(--soft);border:1px solid var(--accent);border-radius:var(--r);padding:10px 12px}.xmodebar .t{flex:1 1 200px;display:flex;flex-direction:column;gap:2px}.xmodebar small{color:var(--muted);font-size:calc(12.5px * var(--fs))}
+#export > .body{scroll-padding-bottom:calc(64px * var(--fs) + 24px)} /* beta 6.8 (UX step 6; reviewer): Tab to a control under the sticky button: it scrolls clear of it */
 #export .xgo{order:950;position:sticky;bottom:0;z-index:3;background:var(--bg);padding-top:8px;box-shadow:0 -10px 10px -4px var(--bg)}
 #export #resultBox{order:960}
 #export #bkName,#export #resStepsName{overflow-wrap:anywhere} /* beta 6.7 (UX step 3 fixes; review): a long file name with no spaces wraps (it pushed the sheet sideways on a phone) */
@@ -1793,7 +1798,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
     <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div></details>
     <div class="drwtools">
-      <button class="round" id="drawEdit" type="button" aria-pressed="false" aria-label="Edit route on the Drawing: draw cables, put poles on or off, place and move towers, OLTs and ODCs" title="Edit route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="m13.5 7 3 3"/></svg></button>
+      <button class="round" id="drawEdit" type="button" aria-pressed="false" aria-label="Edit route on the Drawing: draw cables, put poles on or off, place proposed poles, place and move towers, OLTs and ODCs" title="Edit route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="m13.5 7 3 3"/></svg></button>
       <button class="round" id="drawCef" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="CEF plans of the tower sites" title="CEF plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16"/></svg><i class="pdot" aria-hidden="true"></i></button>
       <button class="round" id="drawSpl" type="button" hidden aria-label="Splicing details of this project" title="Splicing details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h6l4 4 4-4h6M2 16h6l4-4 4 4h6"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg><i class="pdot" aria-hidden="true"></i></button>
       <button class="round" id="drawFit" type="button" aria-label="Fit: the whole drawing" title="Fit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
@@ -1938,11 +1943,11 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         </details></div></details>
       <details class="stgrp stsec" id="stCl" data-scene="street" data-find="Clamp types" data-tut="planstyle"><summary><span class="t"><b>Clamp types</b><small class="secsum"></small></span></summary><div class="secbody">
         <div class="strow" data-dim="clamp" data-find="Where they are written"><span class="lbl">Where they are written</span><div class="seg" id="stClPlace" role="radiogroup" aria-label="Where the clamp types are written"><button type="button" class="chip small" data-v="label">In the pole label</button><button type="button" class="chip small" data-v="tag">Small box (tag)</button><button type="button" class="chip small" data-v="callout">Box with a line (callout)</button></div></div>
-        <div class="strow" data-dim="clamp clpos" data-find="Side of the box"><span class="lbl">Side of the box</span><div class="seg" id="stClPos" role="radiogroup" aria-label="Side of the box"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="up">Above</button><button type="button" class="chip small" data-v="down">Below</button><button type="button" class="chip small" data-v="left">Left</button><button type="button" class="chip small" data-v="right">Right</button></div></div>
+        <div class="strow" data-dim="clamp cltidy clpos" data-find="Side of the box"><span class="lbl">Side of the box</span><div class="seg" id="stClPos" role="radiogroup" aria-label="Side of the box"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="up">Above</button><button type="button" class="chip small" data-v="down">Below</button><button type="button" class="chip small" data-v="left">Left</button><button type="button" class="chip small" data-v="right">Right</button></div></div>
         <details class="stcs"><summary>Colours and sizes</summary>
           <div class="strow" data-dim="clamp" data-findx="Clamp type colour"><span class="lbl">Colour <output id="stClColO"></output></span><div class="sws" id="stClCol" role="radiogroup" aria-label="Clamp type colour"></div></div>
-          <div class="strow" data-dim="clamp clpos" data-findx="Box text size"><label class="lbl" for="stClH">Box text size <output id="stClHO"></output></label><input type="range" id="stClH" min="1" max="5" step="0.25"></div>
-          <div class="strow" data-dim="clamp clpos" data-findx="Frame"><span class="lbl">Frame</span><div class="seg" id="stClBox" role="radiogroup" aria-label="Frame round the box"><button type="button" class="chip small" data-v="1">Box</button><button type="button" class="chip small" data-v="0">None</button></div></div>
+          <div class="strow" data-dim="clamp cltidy clpos" data-findx="Box text size"><label class="lbl" for="stClH">Box text size <output id="stClHO"></output></label><input type="range" id="stClH" min="1" max="5" step="0.25"></div>
+          <div class="strow" data-dim="clamp cltidy clpos" data-findx="Frame"><span class="lbl">Frame</span><div class="seg" id="stClBox" role="radiogroup" aria-label="Frame round the box"><button type="button" class="chip small" data-v="1">Box</button><button type="button" class="chip small" data-v="0">None</button></div></div>
           <div class="strow" data-dim="clamp" data-findx="Hardware of a 12-core cable"><span class="lbl">Hardware of a 12-core cable (RET×2 SC×4)</span><div class="seg" id="stClHw" role="radiogroup" aria-label="Hardware of a 12-core cable"><button type="button" class="chip small" data-v="1">Show</button><button type="button" class="chip small" data-v="0">Hide</button></div><small class="sthint">RET retention clamps, SC suspension clamps, on a pole with only a 12-core cable.</small></div>
         </details></div></details>
       <details class="stgrp stsec" id="stRoute" data-scene="street" data-find="Cables" data-tut="planstyle"><summary><span class="t"><b>Cables</b><small class="secsum"></small></span></summary><div class="secbody">
@@ -2151,7 +2156,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
           <label class="swrow" for="dxfPdf" id="dxfPdfRow"><span class="t"><b>Add a PDF of each sheet</b><small>The sheets on A3, drawn by the app from each AutoCAD file, in the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfPdf"><i aria-hidden="true"></i></span></label>
           <label class="swrow" for="dxfCef" id="dxfCefRow" hidden><span class="t"><b>Add the CEF plans</b><small>The CEF plan of each tower site (PDF, DXF, KML, photos), each in its own folder of the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfCef" checked><i aria-hidden="true"></i></span></label>
         </div>
-        <div class="xone" id="xOneBox" hidden><p class="xonehint" id="xOneHint">Only the drawing shown on the Drawing. Uses credits, as the plan drawing does. The first one locks the splicing fibers as issued.</p><div class="xparts" id="xOneParts" role="list"></div></div>
+        <div class="xone" id="xOneBox" hidden><p class="xonehint" id="xOneHint">Only the drawing shown on the Drawing.</p><div class="xparts" id="xOneParts" role="list"></div></div>
         <p class="xonehint" id="dxfOutNote" hidden></p>
       </div>
       <details class="xmore"><summary>More options</summary><div class="opts">
