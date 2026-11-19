@@ -776,7 +776,9 @@ function isoRun(S, r, sc, A, O, rg) {
       if (S.room) { const zc = Math.max(zz + 0.15, num(S.site.fh, 2.8)); for (const sg of [-1, 1]) sc.line([q.p[0] + q.v[0] * sg, q.p[1] + q.v[1] * sg, zz], [q.p[0] + q.v[0] * sg, q.p[1] + q.v[1] * sg, zc], 'dt'); }
       else if (!inTower(q.p) && zz - gz > 0.3) { if (O) O.push({ post: [[q.p[0], q.p[1], gz], [q.p[0], q.p[1], zz]] }); tube(sc, [q.p[0], q.p[1], gz], [q.p[0], q.p[1], zz - 0.07], 0.035, 0.035, lay, 6); sc.line([q.p[0] + q.v[0], q.p[1] + q.v[1], zz - 0.07], [q.p[0] - q.v[0], q.p[1] - q.v[1], zz - 0.07], lay); sc.poly(sqr(q.p, 0.12, 0).map(t => [t[0], t[1], gz + 0.004]), lay, 1); }
     };
-    for (let j = 0; j + 1 < B.length; j++) { const span = B[j + 1] - B[j], m = Math.max(1, Math.ceil(span / (S.room ? 2 : 3) - 1e-6)); for (let k = j ? 1 : 0; k <= m; k++) hold(Wk.at(B[j] + span * k / m)); }
+    const BK = isWallLad(r) ? ladBrackets(S, r) : [];      /* 2.45.1 / beta 6.9: on the wall: a bracket from the wall under the ladder, with its plate down the wall and a brace */
+    for (const k of BK) { const z = zAt(Wk.at(k.s)) - 0.07, f = [k.p[0] + k.n[0] * hw, k.p[1] + k.n[1] * hw], m = [(k.w[0] + f[0]) / 2, (k.w[1] + f[1]) / 2]; sc.line([k.w[0], k.w[1], z], [f[0], f[1], z], lay); sc.line([k.w[0], k.w[1], z], [k.w[0], k.w[1], z - 0.25], lay); sc.line([k.w[0], k.w[1], z - 0.25], [m[0], m[1], z], lay); }
+    if (!BK.length) for (let j = 0; j + 1 < B.length; j++) { const span = B[j + 1] - B[j], m = Math.max(1, Math.ceil(span / (S.room ? 2 : 3) - 1e-6)); for (let k = j ? 1 : 0; k <= m; k++) hold(Wk.at(B[j] + span * k / m)); }
   }
   else if (ug && r.kind === 'conduit') {                  /* buried: two pipes, one on top of the other. Three lines: under the lower pipe, where the two touch, over the upper one */
     const g0 = groundZ(S, P[0]), zb = g0 - dpR, Q = P.map(q => [q[0], q[1]]);
@@ -999,6 +1001,10 @@ function buildIso0(S, o) {
     for (const q of C.odfs) { box(q.poly, q.z0, q.z1, q.st === 'P' ? 'np' : 'nd'); const m = [(q.poly[0][0] + q.poly[2][0]) / 2, (q.poly[0][1] + q.poly[2][1]) / 2]; inLab.push({ q, ap: P3([m[0], m[1], (q.z0 + q.z1) / 2]) }); }
     for (const q of C.walls) for (const sd of q.sides) { FB.push({ k: 'pl', pts: sd.map(p => P3([p[0], p[1], q.z1])), lay: 'nd', close: false }); for (const p of [sd[0], sd[sd.length - 1]]) FB.push({ k: 'pl', pts: [P3([p[0], p[1], q.z0]), P3([p[0], p[1], q.z1])], lay: 'nd', close: false }); }      /* partition walls: their top and their ends */
     for (const l of C.legs) FB.push({ k: 'pl', pts: [P3(l.a), P3(l.b)], lay: 'fh', close: false });
+    for (const q of C.lads) { const lay = q.st === 'P' ? 'np' : 'nd';      /* 2.45.1 / beta 6.9: the cable ladders inside, at their height: rails, rungs, and the brackets of one on the wall */
+      for (const rl of q.rails) FB.push({ k: 'pl', pts: rl.map(P3), lay, close: false }); for (const k of q.rungs) FB.push({ k: 'pl', pts: k.map(P3), lay, close: false });
+      for (const k of q.brk) { FB.push({ k: 'pl', pts: [P3(k[2]), P3(k[0]), P3(k[1])], lay, close: false }); FB.push({ k: 'pl', pts: [P3(k[2]), P3([(k[0][0] + k[1][0]) / 2, (k[0][1] + k[1][1]) / 2, k[0][2]])], lay, close: false }); }
+      if (nameOn(S, 'ladder')) inLab.push({ q, ap: P3(q.mid) }); }
   }
   /* the fibers go on last and are never hidden: the plan must show all of them */
   let fgrp = null;      /* (19:25) the cable that is being drawn: the name of its block */

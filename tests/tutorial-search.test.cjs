@@ -44,6 +44,9 @@ const LINES = [
   ['6.4', 'span length sheet', 'plandxf'],
   ['6.4/6.6', '!lengths add up', 'boq'],
   ['6.6', '!cef lengths · cef table', 'cef'],
+  ['6.9', '!cable ladder wall · wall mounted ladder · ladder on the wall · ladder bracket', 'cef'],
+  ['6.9', '!porthole · port hole', 'cef'],
+  ['6.9', '!exit conduit · ug fiber into the cabin', 'cef'],
   ['6.7', '!open trench · underground · conduit · foc ug', 'ugmethod cef'],
   ['6.6/6.7', '!loops at boxes · handhole loop · odf loop', 'planstyle boq'],
   // beta 6.7 (UX step 2): the topics and words of step 2

@@ -114,7 +114,7 @@ function legend(G, x, y, S, w, h) {
 function detailPages(S) {
   const cab = [], odc = [], pages = [], at = (d, x, y, w, h) => Object.assign({ x, y, w, h }, d);
   for (const d of details(S)) {
-    if (d.k === 'cabin') { const R = syncRoom(d.el.inside, d.el); cab.push([{ title: d.title + ' - FLOOR PLAN', iso: 0, make: (th, box) => buildTop(R, { th, box, dims: true, labels: true }).prims }, { title: d.title + ' - ISOMETRIC', iso: 1, make: (th, box) => buildIso(R, { th, box }).prims }]); }
+    if (d.k === 'cabin') { const R0 = syncRoom(d.el.inside, d.el), V = (((R0.route || {}).ug || {}).pts || []).length > 1 ? null : viaRoute(S, d.el), R = V ? Object.assign({}, R0, { route: V }) : R0; cab.push([{ title: d.title + ' - FLOOR PLAN', iso: 0, make: (th, box) => buildTop(R, { th, box, dims: true, labels: true }).prims }, { title: d.title + ' - ISOMETRIC', iso: 1, make: (th, box) => buildIso(R, { th, box }).prims }]); }
     else odc.push({ title: d.title, iso: 1, make: (th, box) => buildIso(S, { th, box, only: d.el.id, clip: 1 }).prims });
   }
   if (cab.length === 1 && odc.length) {                 /* one cabin and some cabinets: the cabin on the left, the cabinets down the right side, which suits their tall shape */
@@ -128,7 +128,7 @@ function detailPages(S) {
     pages.push(pg);
   }
   return pages;
-}
+}      /* (2.45.1 / beta 6.9: the inside of a cabin with no cable of its own drawn shows the cable the UG fiber of the site makes in it) */
 /* what is mounted where: every rack and cabinet with its items, top unit first */
 function rackRows(S) {
   const rows = [], add = (M, pre) => { for (const h of M.els) if (h.t === 'odc' || h.t === 'rack') for (const q of rackSlots(M, h).slice().sort((a, b) => (a.bay || 0) - (b.bay || 0) || b.u - a.u)) rows.push([pre + elLabel0(M, h) + (bayN(h) > 1 ? ' RACK ' + (q.bay + 1) : ''), elLabel0(M, q.e) + (q.e.t === 'odf' && q.e.size && !q.e.name ? ' ' + q.e.size : ''), uText(q), q.e.st === 'P' ? 'PROP.' : 'EXIS.']); };
