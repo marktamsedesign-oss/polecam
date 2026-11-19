@@ -1001,7 +1001,7 @@
     if (c.left) { cnt.className = 'count'; cnt.innerHTML = 'Still to answer: <b>' + c.left + '</b>'; }
     else if (c.status === 'fix') { var nx = c.shortOwn.length + c.sizeIssues.length, wx = !c.sizeIssues.length ? 'leg' : !c.shortOwn.length ? 'size' : 'thing'; cnt.className = 'count fix'; cnt.innerHTML = 'Fix <b>' + nx + '</b> ' + wx + (nx === 1 ? '' : 's'); }
     else if (c.status === 'confirm') { cnt.className = 'count confirm'; cnt.innerHTML = 'Ready · <b>' + c.confirm.length + '</b> to confirm'; }
-    else { cnt.className = 'count ready'; cnt.innerHTML = 'Ready · Export'; }
+    else { cnt.className = 'count ready'; cnt.innerHTML = 'Ready · Export the drawings'; }
     var html = c.qs.map(function (q) {
       var cls = 'pill' + (q.key === ST.cur && !ST.edit ? ' cur' : '') + (q.key === 'ready' ? '' : q.done ? ' done' : ' todo');
       return '<button type="button" class="' + cls + '" data-act="goto" data-arg="' + esc(q.key) + '">' + esc(pillText(q)) + '</button>';
@@ -1244,7 +1244,7 @@
       html += kicker(built ? 'As-Built' : 'As-Plan') + '<h2>Ready, ' + c.confirm.length + ' fact' + (c.confirm.length === 1 ? '' : 's') + ' to confirm</h2><p class="lead">The live ports at ' + esc(c.confirm.join(' and ')) + ' are not sure yet, so the fibers there assume nothing is live. The drawing prints LIVE PORTS TBC until you mark them.</p>' +
         c.confirm.map(function (n) { var f = (c.plan.fdus || []).filter(function (x) { return x.name === n; })[0]; return f ? '<div class="btnrow"><button type="button" class="btn" data-act="goto" data-arg="' + esc('live:' + f.id) + '">Mark the live ports at ' + esc(n) + '</button></div>' : ''; }).join('');
     } else html += kicker(built ? 'As-Built' : 'As-Plan') + '<h2>Ready</h2><p class="lead">Nothing left to answer. Tap anything on the drawing to change it.</p>';
-    html += '<div class="btnrow"><button type="button" class="btn ' + (c.status === 'ready' ? 'go ' : '') + '" data-act="export">' + (c.status === 'ready' || c.left ? 'Export' : 'Export anyway') + '</button><button type="button" class="btn" data-act="sheets">See the A3 sheets</button></div>' +
+    html += '<div class="btnrow"><button type="button" class="btn ' + (c.status === 'ready' ? 'go ' : '') + '" data-act="export">' + (c.status === 'ready' || c.left ? 'Export the drawings' : 'Export the drawings anyway') + '</button><button type="button" class="btn" data-act="sheets">See the A3 sheets</button></div>' +
       '<button type="button" class="link" data-act="sizesJump">FDU and cable sizes, fibers per buffer ›</button>';
     if (A.locked) html += '<div class="ck info"><div>Fibers are locked since the first export, so they stay as issued.<small>A new leg fits around them. Moving a leg by hand still works.</small><button type="button" class="btn small" data-act="unlock">Let the app choose again</button></div></div>';
     html += '<h3>Fibers check</h3>' + (c.status === 'fix' ? '' : c.sizeIssues.map(sizeIssueBox).join('')) + (legs.length ? legs.map(function (l) {
@@ -1874,8 +1874,9 @@
     openOverlay(head('Export the drawings') + '<div class="sbd">' + warn +
       '<h3>Which drawings</h3><button type="button" class="sw" role="switch" data-view="sld" aria-checked="true"><span class="tx"><b>Single line diagram</b><span>One A3 sheet</span></span><span class="tg"></span></button>' +
       '<button type="button" class="sw" role="switch" data-view="detailed" aria-checked="true"><span class="tx"><b>Splicing details</b><span>Every fiber, splice and port</span></span><span class="tg"></span></button>' +
-      '<h3>Save as</h3><div class="btnrow"><button type="button" class="btn primary" data-fmt="pdf">PDF</button><button type="button" class="btn primary" data-fmt="dxf">DXF</button><button type="button" class="btn go" data-fmt="zip">Both (ZIP)</button></div>' +
-      '<p class="note">The DXF opens in any CAD program (R12). ' + (c.unnamed.length ? c.unnamed.length + ' cable ID' + (c.unnamed.length === 1 ? '' : 's') + ' print as TBF.' : '') + (ST.A.locked || (APP && ST.view) ? '' : ' The first export locks the fibers so they stay as issued.') +
+      (ST.A.locked || (APP && ST.view) ? '' : '<div class="ck info"><div>The first export locks the fibers as issued.</div></div>') + /* beta 6.7 (UX step 3): said before the buttons */
+      '<h3>Save as</h3><div class="btnrow"><button type="button" class="btn primary" data-fmt="pdf">PDF</button><button type="button" class="btn primary" data-fmt="dxf">AutoCAD (DXF)</button><button type="button" class="btn go" data-fmt="zip">Both (ZIP)</button></div>' +
+      '<p class="note">The DXF opens in any CAD program (R12, an older AutoCAD file version). ' + (c.unnamed.length ? c.unnamed.length + ' cable ID' + (c.unnamed.length === 1 ? '' : 's') + ' print as TBF.' : '') +
       (locksNow().wait ? ' Fibers on an existing cable lock once its live ports and tubes are answered.' : '') + '</p></div>');
   }
 

@@ -14,7 +14,7 @@ screen without the Format dropdown. On the 10 km sample with 12 PLDT poles (a ty
  5. the ODC is drawn as its cabinet (layers G-ESAA PROPOSED / EXISTING ODC, ODC written in it), not with the LCP model; the vicinity
     circle is yellow
  6. Export screen: no Format dropdown; FORMATS ticks: one shows its card and button; two show both cards without their buttons and
-    one button "Export 2 formats (one ZIP)"; no page errors"""
+    one button "Make 2 files (one ZIP)" (beta 6.7, UX step 3: Several at once); no page errors"""
 import asyncio, sys, os, shutil, json, zipfile, time, urllib.parse, io, re, collections
 # v2.42.8: the plan DXF is written with CRLF line ends (AutoCAD's own); ezdxf.read() on a text stream expects universal newlines
 class _UStringIO(io.StringIO):
@@ -174,19 +174,20 @@ async def main():
         toast = await run_export(pg, 'doDxf'); f2 = await save(pg, 'plan_pldt.zip'); await close_sheets(pg)
         P2, jp2, rd2, names2 = plans(f2); p2 = list(P2.values())[0]
         hs = sorted({round(e.dxf.height, 2) for e in p2['nums']}); cols = sorted({e.dxf.get('color', 256) for e in p2['nums']})
-        check('2. on the Drawing: What to export PLDT · Number only, clamp types off (Plan settings); Export opens the DXF card listing that drawing; one DXF: the numbers 1 to 12 only, 3 m high, yellow, in 7 m circles with leader lines; no clamp types; no photos',
-              sum2 == '1 drawing: PLDT poles · Number' and seq2['n'] == n_pl and card['card'] and card['files'] == [f'PLDT poles {n_pl}'] and card['ca'] is False and len(P2) == 1
+        check('2. on the Drawing: Drawings PLDT · Number only, clamp types off (Plan style); Export opens the DXF card listing that drawing; one DXF: the numbers 1 to 12 only, 3 m high, yellow, in 7 m circles with leader lines; no clamp types; no photos',
+              sum2 == '1 · PLDT poles · Number' and seq2['n'] == n_pl and card['card'] and card['files'] == [f'PLDT poles {n_pl}'] and card['ca'] is False and len(P2) == 1
               and sorted(int(e.dxf.text) for e in p2['nums']) == list(range(1, n_pl + 1)) and hs == [3.0] and cols == [2] and len(p2['circ']) == n_pl and all(abs(c.dxf.radius - 3.5) < 0.01 for c in p2['circ']) and len(p2['lead']) >= 10
               and not [t for t in p2['texts'] if CT.match(t)] and not p2['imgs'] and not jp2 and f'numbered: only PLDT poles (PLDT) ({n_pl})' in toast,
               (sum2, seq2, card, hs, cols, len(p2['circ']), len(p2['lead']), toast, names2[:4]))
         # 3. the drawing style
-        await close_sheets(pg); await pg.click('#drawBtn'); await W(pg, 1500); await pg.click('#drawSetBtn'); await W(pg, 500); await pg.click('#psStyle'); await W(pg, 500)  # v2.42.28: Drawing style in Plan settings
+        await close_sheets(pg); await pg.click('#drawBtn'); await W(pg, 1500); await pg.click('#drawSetBtn'); await W(pg, 500); await pg.click('#plTabA'); await W(pg, 400)  # beta 6.7 (UX step 4): Plan style › Advanced: Pole numbers and Box names, with their Colours and sizes
+        await pg.evaluate("() => ['stNum', 'stId'].forEach((id) => { const d = document.getElementById(id); d.open = true; d.querySelectorAll('details.stcs').forEach((x) => { x.open = true; }); })"); await W(pg, 400)
         await pg.click('#stNumCol .sw2[aria-label^="red"]'); await W(pg, 150)
         await pg.fill('#stNumH', '4'); await pg.dispatch_event('#stNumH', 'input'); await W(pg, 150)
         await pg.click('#stIdBold .chip[data-v="1"]'); await W(pg, 150); await pg.click('#stIdCol .sw2[aria-label^="cyan"]'); await W(pg, 300)
         await pg.screenshot(path=OUT + '/style.png', full_page=True)
         st = await pg.evaluate("({ sum: document.getElementById('stSum').textContent, pl: __polecam.S.plStyle, svgText: [...document.querySelectorAll('#stPrev text')].map((t) => [t.textContent, t.getAttribute('fill'), t.getAttribute('font-weight')]) })")
-        await pg.click('#stDone'); await W(pg, 300); await pg.go_back(); await W(pg, 400)  # (and Plan settings closed)
+        await pg.click('#stDone'); await W(pg, 300)  # (beta 6.7, UX step 4: Plan style closed; the Drawing under it)
         await pg.click('#drawDxf'); await W(pg, 900)
         toast = await run_export(pg, 'doDxf'); f3 = await save(pg, 'plan_style.zip'); await close_sheets(pg)
         P3, _, rd3, _ = plans(f3); p3 = list(P3.values())[0]
@@ -194,7 +195,7 @@ async def main():
         check('3. the drawing style: the numbers red and 4 m in the DXF; the NAP IDs bold (style G-ESAA BOLD, arialbd) and cyan; the preview shows them; the README names the style',
               sorted({round(e.dxf.height, 2) for e in p3['nums']}) == [4.0] and {e.dxf.get('color', 256) for e in p3['nums']} == {1} and nap_ids and all(e.dxf.style == 'G-ESAA BOLD' and e.dxf.get('color', 256) == 4 for e in nap_ids)
               and p3['doc'].styles.get('G-ESAA BOLD').dxf.font == 'arialbd.ttf' and any(t[0] == 'NAP-0001' and t[1] == '#00ffff' and t[2] == '800' for t in st['svgText']) and 'Numbers: red, 4 m high' in rd3,
-              (st['pl'], len(nap_ids), [(e.dxf.style, e.dxf.get('color', 256)) for e in nap_ids[:3]], [l for l in rd3.splitlines() if l.startswith('Drawing style')]))
+              (st['pl'], len(nap_ids), [(e.dxf.style, e.dxf.get('color', 256)) for e in nap_ids[:3]], [l for l in rd3.splitlines() if l.startswith('Plan style')]))
         # 4. several drawings in one export
         async def sets(pg):  # v2.42.14: three more drawings added in the DXF card: every point with photos and numbers; electric poles, numbers; PLDT, numbers
             # (v2.42.28: set as the table does: the same four drawings; the PLDT one twice)
@@ -218,12 +219,13 @@ async def main():
         # 6. the Export screen
         await open_card(pg, 'doKmz')
         x1 = await pg.evaluate("""() => ({ fmt: !!document.getElementById('xFormat'), ticks: [...document.querySelectorAll('#xMultiList input')].map((c) => [c.value, c.checked]),
-          shown: [...document.querySelectorAll('#export .xcard:not(.xoff)')].map((c) => c.querySelector('button[id^=do]').id), ownBtn: document.getElementById('doKmz').getClientRects().length > 0, go: !document.getElementById('xGoBox').hidden })""")
-        await pg.check('#xMultiList input[value="doCsv"]'); await W(pg, 300)
-        x2 = await pg.evaluate("""() => ({ shown: [...document.querySelectorAll('#export .xcard:not(.xoff)')].map((c) => c.querySelector('button[id^=do]').id), btns: ['doKmz', 'doCsv'].map((id) => document.getElementById(id).getClientRects().length > 0), go: !document.getElementById('xGoBox').hidden, label: document.getElementById('xMultiGo').textContent })""")
+          shown: [...document.querySelectorAll('#export .xcard.xopen')].map((c) => c.querySelector('button[id^=do]').id), ownBtn: document.getElementById('doKmz').getClientRects().length > 0, go: !document.getElementById('xGoBox').hidden })""")
+        # beta 6.7 (UX step 3): the ticks are kept for Several at once, not shown: ticked by evaluate + change, as t2427d_v28 does
+        await pg.evaluate("() => { const L = document.getElementById('xMultiList'); L.querySelectorAll('input').forEach((c) => { c.checked = ['doKmz', 'doCsv'].includes(c.value); }); L.dispatchEvent(new Event('change', { bubbles: true })); }"); await W(pg, 300)
+        x2 = await pg.evaluate("""() => ({ shown: [...document.querySelectorAll('#export .xcard.xmany')].map((c) => c.querySelector('button[id^=do]').id), btns: ['doKmz', 'doCsv'].map((id) => document.getElementById(id).getClientRects().length > 0), go: !document.getElementById('xGoBox').hidden, label: document.getElementById('xMultiGo').textContent })""")
         await pg.screenshot(path=OUT + '/export_two.png', full_page=False)
-        check('6. Export: no Format dropdown; FORMATS ticks: one (KMZ) shows its card and its button; two (KMZ, CSV) show both cards without their own buttons and one "Export 2 formats (one ZIP)"; no page errors',
-              not x1['fmt'] and x1['shown'] == ['doKmz'] and x1['ownBtn'] and not x1['go'] and sorted(x2['shown']) == ['doCsv', 'doKmz'] and x2['btns'] == [False, False] and x2['go'] and x2['label'] == 'Export 2 formats (one ZIP)' and not errs,
+        check('6. Export: no Format dropdown; FORMATS ticks: one (KMZ) shows its card and its button; two (KMZ, CSV) show both cards without their own buttons and one "Make 2 files (one ZIP)"; no page errors',
+              not x1['fmt'] and x1['shown'] == ['doKmz'] and x1['ownBtn'] and not x1['go'] and sorted(x2['shown']) == ['doCsv', 'doKmz'] and x2['btns'] == [False, False] and x2['go'] and x2['label'] == 'Make 2 files (one ZIP)' and not errs,
               (x1, x2, errs[:3]))
         await ctx.close()
     print(f'{sum(checks)}/{len(checks)} passed')

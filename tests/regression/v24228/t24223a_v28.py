@@ -143,7 +143,7 @@ async def main():
         check('C7. the loop at the DN lies on the cable as drawn: its straight line on a fiber\'s lane (each end within 0.6 m: under the 0.70 mm line at 1 : 1100) and along it (within 4°)', len(lp) == 1 and lres and all(d0 <= 0.6 and da <= 4 for d0, da in lres), (len(lp), lres))
         # ---- the Drawing, the style sheet
         await close_sheets(pg); await pg.click('#drawBtn'); await W(pg, 1500); await pg.screenshot(path=OUT + '/drawing.png')
-        await pg.click('#drawSetBtn'); await W(pg, 500); await pg.click('#psStyle'); await W(pg, 600); sm = await pg.inner_text('#stSum')
+        await pg.click('#drawSetBtn'); await W(pg, 600); sm = await pg.inner_text('#stSum')  # (beta 6.7, UX step 4: Plan style; the summary in its fold for support)
         check('D1. the Drawing opens; the style sheet: cable labels on, each cable its own with its run (no two-of-one-cable wording)', not await pg.locator('#stCabWord').count() and 'up to 3 for each cable in a grid' in sm and 'PROPOSED 72C FIG-8 AE (RUN 1)' in sm, sm[:240])
         # ---- the cable labels off: no run labels; the cable's name along the route again (the only tag then)
         await pg.evaluate("() => { const S = __polecam.S; S.plStyle = { ...(S.plStyle || {}), cab: { on: false, word: 'a' } }; __polecam.persist(); }")

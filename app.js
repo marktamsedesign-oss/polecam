@@ -182,10 +182,17 @@
     quality: 'strict', readId: false, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'addr', 'utm', 'time', 'by', 'project'], naming: 'id', /* (beta 6.4: + addr, the address) */
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfBoqGrid: true, dxfRows: null, dxfRowSel: 0, dxfLabels: 'std' }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfBoqGrid: true, dxfRows: null, dxfRowSel: 0, dxfLabels: 'std', dxfRoads: true }, /* beta 6.7 (UX step 4; critic): dxfRoads kept (Plan style › Plan file), on as before */ // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
+  /* beta 6.7 (UX step 3, 4; the owner: Tidy is the company standard; the RTA/JPA legend is not part of it): the company standard look of
+     the plan, the one place it is set. Export › Plan drawing › Look and Plan style's card say Company standard ✓ or what differs; Use
+     company standard sets these keys only. PL_NEW_ON_STD: a new install (nothing saved yet) starts on it (its Pole labels: Tidy); a phone
+     that had the app keeps what it had (Standard where it never chose). false: new installs stay on Standard (DEF.exp). */
+  const PL_STD = { dxfLabels: 'tidy', rtaOn: true, photoSize: 18, photoStamp: 'addr', dxfClampType: true, boxLoops: false, dxfBoqGrid: true };
+  const PL_NEW_ON_STD = true;
+  const S_NEW = (() => { try { return !localStorage.getItem(`${STORE}.settings`); } catch (e) { return true; } })(); // beta 6.7 (UX step 4): nothing saved yet
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem(`${STORE}.settings`) || '{}')); } catch (e) { return { ...DEF }; } })();
   applyHand();
   let persistWarned = 0, pointsLost = false; // v2.42.4: pointsLost: the records did not load at start
@@ -202,6 +209,8 @@
   if (S.quality !== 'normal') S.quality = 'strict';
   if (!S.v17) { S.v17 = 1; S.quality = 'strict'; S.maxSpan = 200; S.dropSatTiles = true; }
   S.exp = { ...DEF.exp, ...(S.exp || {}) };
+  if (S_NEW && PL_NEW_ON_STD) S.exp.dxfLabels = PL_STD.dxfLabels; // beta 6.7 (UX step 4): a new install on the company standard
+  if (S_NEW) S.plNotice = 1; // beta 6.7 (UX step 4): it never had Plan settings and Drawing style: no "now one screen" note
   // beta 6.4: the Address stamp field (road, barangay, city from the road pack): on for those who had every field on (as they came); a
   // choice of one's own (some fields off) is kept as it was, Address off: it is one tap away in Settings and Export
   if (!S.v64addr) { const f = S.exp.stampFields; if (Array.isArray(f) && !f.includes('addr') && ['id', 'coords', 'utm', 'time', 'by', 'project'].every((k) => f.includes(k))) S.exp.stampFields = DEF.exp.stampFields.slice(); S.v64addr = 1; }
@@ -868,10 +877,10 @@
     if (id === 'editor' && drwEd) drwEdSoon(); // beta 6.7: a tower placed on the Drawing: its record saved (or not)
     if (id === 'editor') { document.body.classList.remove('edopen'); if (typeof ppxRefresh === 'function') ppxRefresh(); } // beta 4.1
     if (id === 'dupSheet' && dupRes) { const r = dupRes; dupRes = null; r(null); } // beta 3.3: Back: decided later
-    if (id === 'drwStyle' && stack.includes('planSet')) renderPlanSet(); // v2.42.28: the clamp types may have changed there
-    if (id === 'export' || id === 'planSet') { // v2.42.28
+    if (id !== 'export' && stack[stack.length - 1] === 'export') xBackOn(); // beta 6.7 (UX step 3 fixes): Export on top again (Look › Change ›, Get the roads…): its Plan drawing row anew
+    if (id === 'export' || id === 'drwStyle') { // v2.42.28 (beta 6.7, UX step 4: Plan style, docked as Plan settings was)
       $(id).classList.remove('side'); if (id === 'export') $('export').classList.remove('plan');
-      if (!['export', 'planSet'].some((k) => stack.includes(k) && $(k).classList.contains('side'))) document.body.classList.remove('drwside');
+      if (!['export', 'drwStyle'].some((k) => stack.includes(k) && $(k).classList.contains('side'))) document.body.classList.remove('drwside');
       if (stack.includes('drawing') && drw) { renderDrawBar(); drawSeqSoon(); drawDrawing(); renderDrawLegend(); }
     }
     if (id !== 'editor' && ed) scheduleDraft(); // back on the record from the camera, the marks or a photo: kept safe (v2.21)
@@ -908,11 +917,13 @@
       fold(c, hints, hints[0]);
     });
     document.querySelectorAll('.xcard').forEach((card) => {
+      if (card.closest('#export')) return; // beta 6.7 (UX step 3): an Export row says what you get in its open row (You get), never folded
       const head = card.querySelector(':scope > .head'), p = head && head.querySelector('p'); if (!p) return;
       p.className = 'hint'; fold(card, [p], head.nextSibling);
     });
   }
   setupHelp();
+  document.querySelectorAll('details.help').forEach((d) => { d.open = !!S.showHelp; }); // beta 6.7 (UX step 4): the ⓘ written in the page (Plan style's) follow Settings › Show help too
   // v2.18: text is Small unless another size was chosen; Very small added
   const applyTextSize = () => { const v = [0.8, 0.9, 1, 1.15, 1.3, 1.45].includes(+S.textScale) ? +S.textScale : 0.9; document.documentElement.style.setProperty('--fs', String(v)); $('setTextSize').value = String(v); };
   applyTextSize();
@@ -1832,6 +1843,7 @@
     $('drawInfo').hidden = true; $('drawLabels').setAttribute('aria-pressed', 'true'); $('drawMapMenu').hidden = true;
     $('drawLegend').open = S.drawLegendOpen != null ? S.drawLegendOpen !== false : window.innerWidth > 700; // folded on a phone until opened
     renderDrawMap(); setWhat(deskOn() && S.drwWhatDesk !== false, false); renderDrawBar(); renderDrawLegend(); // v2.42.28: What to export
+    if (!again) plNoticeShow(); // beta 6.7 (UX step 4): once, on a phone that had Plan settings and Drawing style: "now one screen: Plan style"
     if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: the CEF plans of the tower sites
     if (splHooks.drawSync) splHooks.drawSync(); // beta 4.6: the splicing details
     try { renderCredit(); } catch (e) { /* not ready */ } // v2.42.7: the balance at the upper right
@@ -2283,7 +2295,7 @@
   function renderDrawBar() { xNow(renderDrawBar0); } // (beta 6.2: its counts as exported)
   function renderDrawBar0() {
     const R0 = dxfRows(), i = rowIdx(), many = R0.length > 1;
-    $('drawWhatV').textContent = `${R0.length} drawing${many ? 's' : ''}: ${R0.slice(0, 2).map(rowShort).join(', ')}${R0.length > 2 ? ` +${R0.length - 2}` : ''}`;
+    $('drawWhatV').textContent = `${R0.length} · ${R0.slice(0, 2).map(rowShort).join(', ')}${R0.length > 2 ? ` +${R0.length - 2}` : ''}`; // (beta 6.7, UX step 3: Drawings: 1 · Every point · Photo)
     $('drawPv').hidden = false; $('drawPv').title = rowText(R0[i]);
     $('drawPvT').innerHTML = `${many ? `<b>${i + 1}/${R0.length}</b>` : ''}${C.xmlEsc(rowShort(R0[i]))}`;
     $('drawPvPrev').hidden = !many; $('drawPvNext').hidden = !many;
@@ -2302,7 +2314,7 @@
   }
   $('drawWhat').addEventListener('click', () => setWhat($('drawWhatBox').hidden, true));
   $('mxClose').addEventListener('click', () => setWhat(false, true));
-  $('mxGo').addEventListener('click', () => openPlanExport());
+  $('mxGo').addEventListener('click', () => setWhat(false, true)); // beta 6.7 (UX step 3): Done (the Drawing bar has one Export: Export plan)
   /** v2.41: the legend of the preview (only what this project has). */
   function renderDrawLegend() {
     const pts = drw ? drw.items : [], has = (f) => pts.some(f), rows = [];
@@ -2329,7 +2341,7 @@
     $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join('');
   }
   $('drawDxf').addEventListener('click', () => openPlanExport()); // v2.42.28: Export the plan, over the Drawing (beside it on a computer)
-  $('drawSetBtn').addEventListener('click', () => openPlanSet()); // v2.42.28: Plan settings (Drawing style is in it)
+  $('drawSetBtn').addEventListener('click', () => openStyle()); // v2.42.28 (beta 6.7, UX step 4: Plan style, on the tab used last)
   /* v2.41: the drawing style, the user's preference (on this phone): the numbers beside the points (colour, circle colour, height,
      circle, distance, leader line, where), the IDs of the points on the cable (bold, colour, height) and the vicinity map (circle and
      route colour and width). Defaults: the numbers yellow, 3 m high in a 7 m circle, 2 m from the point with a leader line, at the
@@ -2345,6 +2357,19 @@
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
     crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room', icons: true }, /* beta 6.7: icons: Drawing style › Landmarks › Icons */
     pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0, idForm: 'auto' }, span: { h: 0, color: 0 }, photo: { size: 18, near: 16, stamp: 'addr' }, grid: { split: 0, pos: 'tr', h: 0, color: 0, leaders: 'auto' } }; /* beta 6.0: Photos: near its pole within 8-40 mm on the A3 sheet; Grid: leader lines only when there is no other way (auto) or allowed */ /* beta 6.0: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+  /* (PL_STD, the company standard, is defined beside DEF: beta 6.7, UX step 4) */
+  /** What differs from the company standard: [[setting, now]] (the look only: pole numbers are the project's). */
+  function plStdDiff() {
+    const P = plStyle(), E = S.exp, out = [], tidy = E.dxfLabels === 'tidy' ? 'tidy' : 'std', st = P.photo.stamp || 'off';
+    if (tidy !== PL_STD.dxfLabels) out.push(['Pole labels', tidy === 'tidy' ? 'Tidy' : 'Standard']);
+    if (!!(P.num.rta && P.num.rta.on) !== PL_STD.rtaOn) out.push(['Pole number colours', P.num.rta && P.num.rta.on ? 'By pole owner' : 'One colour']);
+    if (P.photo.size !== PL_STD.photoSize) out.push(['Photos', phName(P.photo.size)]);
+    if (st !== PL_STD.photoStamp) out.push(['Photo stamp', { off: 'Off', ll: 'Lat-long', addr: 'Lat-long + address' }[st] || 'Off']);
+    if ((E.dxfClampType !== false) !== PL_STD.dxfClampType) out.push(['Clamp types', E.dxfClampType !== false ? 'On' : 'Off']);
+    if (!!P.cab.boxLoops !== PL_STD.boxLoops) out.push(['Loops at boxes', P.cab.boxLoops ? 'Written' : 'Not written']);
+    if ((E.dxfBoqGrid !== false) !== PL_STD.dxfBoqGrid) out.push(['BOQ table on each sheet', E.dxfBoqGrid !== false ? 'On' : 'Off']);
+    return out;
+  }
   /* Drawing style › Photos: the long side of every pole and point photo on the plan, in metres of the drawing where the poles stand
      25 m apart or more (closer, the plan draws them smaller, to two thirds, as before). Normal (18 m) is the size before; 6 to 40 m. */
   const PH_SIZES = [[12, 'Small'], [18, 'Normal'], [24, 'Large'], [30, 'Extra large']];
@@ -2390,7 +2415,7 @@
      the legend goes, and the standard four again */
   function renderRta(P, seg, o) {
     const R = P.num.rta, box = $('stRtaList'); if (!box) return;
-    seg('stRtaOn', R.on ? '1' : '0'); $('stRtaRow').classList.toggle('dim', !R.on); seg('stRtaLeg', R.legend);
+    seg('stRtaOn', R.on ? '1' : '0'); seg('stRtaLeg', R.legend); // (beta 6.7, UX step 4: greyed with its reason by plDims)
     o('stRtaHint', R.on ? 'Each pole’s number and its circle in its category’s colour: a proposed or new pole red; an existing pole by its pole owner (the pole form); every other owner of the project gets a category and a colour of its own; Globe’s own poles (GT, Bayantel) red (proposed) or blue (existing), always. Poles with no owner and the other points: the Number colour below. The PMI counts the same poles in its RTA rows, a row added for each other owner.' : 'Off: every number in the Number colour below, as before.');
     const cats = rtaCats(R, typeof projPoints === 'function' ? projPoints() : []);
     box.innerHTML = '';
@@ -2414,7 +2439,7 @@
     $('stRtaOwnL').innerHTML = opts.map((x) => `<option value="${C.xmlEsc(x)}"></option>`).join(''); $('stRtaOwn').value = ''; $('stRtaTxt').value = ''; $('stRtaTxt').dataset.auto = '1';
     const usedC = new Set(rtaCats(R, projPoints()).map((x) => String(x.color).toLowerCase())); rtaNewCol = RTA_AUTO_COLS.find((x) => !usedC.has(x)) || '#ff8000'; $('stRtaNew').hidden = false; const pick = (k) => { rtaNewCol = k; rtaSws($('stRtaNewCol'), rtaNewCol, pick); }; pick(rtaNewCol); setTimeout(() => $('stRtaOwn').focus(), 0); };
   const rtaOwnerNow = () => $('stRtaOwn').value.replace(/\s+/g, ' ').trim();
-  function openStyle() { DSP.reset(); renderStyle(); openSheet('drwStyle'); setTimeout(() => { DSP.reset(); DSP.onScroll(); }, 0); } // (the settings from the top, the preview large)
+  /* (openStyle, Plan style's way in: beside renderPlanSet; beta 6.7, UX step 4) */
   function renderStyle() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic;
     const sw = (id, val, zero, part, key) => { const box = $(id); box.innerHTML = '';
@@ -2428,16 +2453,16 @@
       inp.addEventListener('change', () => setPl(part, key, inp.value.toLowerCase())); lb.append(inp, own ? '' : 'Own…'); box.appendChild(lb); };
     sw('stClCol', P.clamp.color, 'By layer', 'clamp', 'color'); // v2.42.21
     if ($('stPoleTidy')) $('stPoleTidy').hidden = S.exp.dxfLabels !== 'tidy'; // beta 4.7: Pole labels Tidy: which pole settings apply
-    { const Q = P.pole, Z = P.span, hh = (id, v, def, auto) => { if (document.activeElement !== $(id)) $(id).value = String(v || def); $(id + 'Auto').setAttribute('aria-pressed', String(!v)); $(id + 'O').textContent = v ? `${v} m · ${mmOf(v)} mm` : auto; }; // beta 4.3
+    { const Q = P.pole, Z = P.span, hh = (id, v, def, auto) => { if (document.activeElement !== $(id)) $(id).value = String(v || def); $(id + 'Auto').setAttribute('aria-pressed', String(!v)); $(id + 'O').textContent = v ? `${mmOf(v)} mm` : auto; }; // beta 4.3 (beta 6.7, UX step 4: mm on the printed sheet only)
       sw('stPoleIdCol', Q.idColor, 'Auto', 'pole', 'idColor'); sw('stPoleOwnCol', Q.ownColor, 'Auto', 'pole', 'ownColor'); sw('stPoleLlCol', Q.llColor, 'Auto', 'pole', 'llColor'); sw('stSpanCol', Z.color, 'Auto', 'span', 'color');
-      hh('stPoleIdH', Q.idH, 2.2, 'auto (2.2 m · 2.0 mm)'); hh('stPoleOwnH', Q.ownH, Q.idH || 2.2, 'auto (as the pole ID)'); hh('stPoleLlH', Q.llH, 1.2, 'auto (1.2 m · 1.1 mm)'); hh('stSpanH', Z.h, 2, 'auto (2.0 m · 1.8 mm)');
+      hh('stPoleIdH', Q.idH, 2.2, 'auto (2.0 mm)'); hh('stPoleOwnH', Q.ownH, Q.idH || 2.2, 'auto (as the pole ID)'); hh('stPoleLlH', Q.llH, 1.2, 'auto (1.1 mm)'); hh('stSpanH', Z.h, 2, 'auto (1.8 mm)');
       $('stPoleIdColO').textContent = Q.idColor ? colName(Q.idColor) : 'auto (as the template)'; $('stPoleOwnColO').textContent = Q.ownColor ? colName(Q.ownColor) : 'auto (as the pole ID)'; $('stPoleLlColO').textContent = Q.llColor ? colName(Q.llColor) : 'auto (by layer)'; $('stSpanColO').textContent = Z.color ? colName(Z.color) : 'auto (by layer)'; }
     sw('stNumCol', N.color, null, 'num', 'color'); sw('stNumBCol', N.bcolor, 'Same as the number', 'num', 'bcolor'); sw('stIdCol', I.color, 'By layer (as before)', 'id', 'color'); sw('stVicCol', V.circle, null, 'vic', 'circle'); sw('stVicRCol', V.route, 'By cable', 'vic', 'route');
     const o = (id, t) => { $(id).textContent = t; };
     o('stClColO', P.clamp.color ? colName(P.clamp.color) : 'by layer'); // v2.42.21
     o('stNumColO', colName(N.color)); o('stNumBColO', N.bcolor ? colName(N.bcolor) : 'as the number'); o('stIdColO', I.color ? colName(I.color) : 'by layer'); o('stVicColO', colName(V.circle)); o('stVicRColO', V.route ? colName(V.route) : 'by cable');
     [['stNumH', N.h], ['stNumD', N.d], ['stNumG', N.g], ['stIdH', I.h], ['stVicW', V.circleW], ['stVicRW', V.routeW], ['stClH', P.clamp.h]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
-    o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
+    o('stNumHO', `${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${mmOf(N.g)} mm`); o('stIdHO', `${mmOf(I.h)} mm`); // (beta 6.7, UX step 4: mm on the printed sheet) o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
     renderRta(P, seg, o); // beta 6.5: Numbers › Colour by RTA/JPA category
     seg('stPoleIdForm', P.pole.idForm); o('stPoleIdFormHint', { auto: 'Tidy: its type over its number (CC over 123456, as the Standard labels and earlier versions draw it); on one line, CC-123456, only where the stacked block finds no room.', stack: 'Tidy: always its type over its number (CC over 123456), as the Standard labels.', line: 'Tidy: always on one line, CC-123456 (a proposed pole: PROP.POLE \u00b7 its height).' }[P.pole.idForm] + ' No tag: NPT. Standard labels always stack them.'); // beta 6.2
@@ -2450,30 +2475,27 @@
       o('stGridHint', `Tidy: ${G.split ? `every GEO sheet shows 1/${G.split} of the template\u2019s cell (${Math.round(440 / G.split)} m), at ${G.split} times its scale; the plan keeps it even where labels lack room (they are listed under Drawing checks)` : `the plan picks the largest grid, 1/1 to 1/4 of the template\u2019s cell, at which every label has a place, no sheet has more than two pole blocks over a road or two photos away from their pole${G.leaders === 'allow' ? '' : ', and no pole\u2019s block needs a line to its pole'}`}. Standard keeps the template\u2019s cell. The sheet\u2019s name is drawn under the details, which stay readable over it.`); }
     seg('stNumLeader', N.leader ? '1' : '0'); seg('stNumPlace', N.place); seg('stIdBold', I.bold ? '1' : '0');
     seg('stVicZoom', V.zoom ? '1' : '0'); seg('stVicArea', V.area ? '1' : '0'); if (document.activeElement !== $('stVicLbl')) $('stVicLbl').value = V.label; if (document.activeElement !== $('stVicLh')) $('stVicLh').value = String(V.lh); o('stVicLhO', `${V.lh} m`); // beta 3.9
-    $('drwStyle').querySelectorAll('[data-dim="vicarea"]').forEach((r) => r.classList.toggle('dim', !V.area));
     seg('stCabPer', String(P.cab.per)); seg('stSiteName', P.site.name); seg('stOdfPlace', P.odf.place); seg('stOdfLbl', P.odf.lbl); // v2.42.26
     seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); seg('stLmIcons', P.crowd.icons ? '1' : '0'); /* beta 6.7 */ // beta 3.8
     seg('stSiteMove', P.site.move); seg('stSiteArrow', P.site.arrow ? '1' : '0'); sw('stSiteACol', P.site.acol, 'As the tower', 'site', 'acol');
     [['stCrowdMin', P.crowd.min], ['stCrowdMove', P.crowd.move]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
-    o('stCrowdMinO', `${P.crowd.min} % of the size you set`); o('stCrowdMoveO', `${P.crowd.move} m · ${mmOf(P.crowd.move)} mm`);
+    o('stCrowdMinO', `${P.crowd.min} % of the size you set`); o('stCrowdMoveO', `${mmOf(P.crowd.move)} mm`);
     o('stSiteAColO', P.site.acol ? (P.site.acol === 7 ? 'white · black on the PDF' : colName(P.site.acol)) : 'as the tower');
-    $('drwStyle').querySelectorAll('[data-dim="auto"]').forEach((r) => r.classList.toggle('dim', !P.crowd.auto));
-    $('drwStyle').querySelectorAll('[data-dim="tower"]').forEach((r) => r.classList.toggle('dim', P.site.move === 'point'));
     $('stCabW').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(!!P.cab.w[b.dataset.k])));
-    if (document.activeElement !== $('stCabH')) $('stCabH').value = String(P.cab.h || 1.3); $('stCabHAuto').setAttribute('aria-pressed', String(!P.cab.h)); o('stCabHO', P.cab.h ? `${P.cab.h} m · ${mmOf(P.cab.h)} mm` : 'auto (1.0–1.3 m by the poles\u2019 spacing)');
+    if (document.activeElement !== $('stCabH')) $('stCabH').value = String(P.cab.h || 1.3); $('stCabHAuto').setAttribute('aria-pressed', String(!P.cab.h)); o('stCabHO', P.cab.h ? `${mmOf(P.cab.h)} mm` : 'auto (0.9–1.2 mm, by the poles\u2019 spacing)');
     o('stCabReads', `Reads: ${['F72', 'L12', 'U144'].map((k, i) => runLbl(cabWords(k), i + 1) || '(nothing)').join(' · ')}`);
-    ['stCabPer', 'stCabH', 'stCabW'].forEach((id) => { const r = $(id).closest('.strow'); if (r) r.classList.toggle('dim', !P.cab.on); });
-    seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0'); seg('stBoxLoop', P.cab.boxLoops ? '1' : '0'); /* (beta 6.6) */ seg('stCabRoute', P.cab.route); drawRoutePreview(P); // (beta 6.1)
-    o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); });
+    seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0'); seg('stCabRoute', P.cab.route); drawRoutePreview(P); // (beta 6.1)
+    o('stClHO', `${mmOf(P.clamp.h)} mm`); // (beta 6.7, UX step 4: the rows greyed with their reason by plDims: clamp types off, In the pole label)
     { const Z = P.photo.size; // Drawing style › Photos
       $('stPhSize').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === Z)));
       if (document.activeElement !== $('stPhL')) $('stPhL').value = String(Z);
-      o('stPhO', `${phName(Z)} · ${phTidyMm(Z)} mm printed`); // (beta 6.4; beta 6.7: Standard too)
+      o('stPhO', `${phTidyMm(Z)} mm on the printed sheet${PH_SIZES.some(([v]) => v === Z) ? '' : ' (your own size)'}`); // (beta 6.4; beta 6.7: Standard too; UX step 4: the readout of Basic › Photos on the plan)
       { const nm = P.photo.near; if (document.activeElement !== $('stPhNear')) $('stPhNear').value = String(nm); o('stPhNearO', `${nm} mm on the A3 sheet: about ${[1, 2, 3, 4].map((k) => `${Math.round(nm / 0.6135 / k)} m at 1/${k}`).join(', ')}`); } // beta 6.0: a photo is near its pole within this (its centre), at the company template's scale
-      seg('stPhStamp', P.photo.stamp); { const mm = phTidyMm(Z), /* (beta 6.7) */ fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' ? 'Off' : `text about ${fsMm.toFixed(1)} mm high on the sheet`); } // beta 6.4 (an upright photo: the coordinates across its width)
+      seg('stPhStamp', P.photo.stamp); { const mm = phTidyMm(Z), /* (beta 6.7) */ fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' ? '' : `text ${fsMm.toFixed(1)} mm high`); } // beta 6.4 (an upright photo: the coordinates across its width; beta 6.7, UX step 4: short, in Basic)
       o('stPhHint', `Every photo on the plan is printed ${phTidyMm(Z)} mm on its long side on the A3 sheet (Small 9, Normal 18, Large 36, Extra large 48 mm; your own size in metres at 1:1100), the same for every pole and point. Where a photo has no free place near its pole it goes where there is room, with a thin line to its pole; only where there is no place at all is that photo drawn smaller, as little as it needs (listed in the README), never left out. The pole comes first, then its details and number, then its photo.${S.exp.dxfLabels === 'tidy' ? ' Pole labels Tidy: at any grid split; bigger photos may make Auto choose a finer grid.' : ` Standard: ${(phTidyMm(Z) * 1.1).toFixed(0)} m on the drawing (1:1100).`}`); } // (beta 6.7: one size for all, a line where needed)
     o('stSum', plSummary());
-    DSP.render(P); drawVicPreview(P); // (beta 3.8: the scene the user works on)
+    DSP.soon(); drawVicPreview(P); // (beta 3.8: the scene the user works on; beta 6.7, UX step 4: drawn after a 150 ms pause)
+    renderPlanSet(); plDims(P); plSums(P); // beta 6.7 (UX step 4): the Basic rows, the company standard, the greyed rows' reasons, each section's summary
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
   }
   [['stNumH', 'num', 'h'], ['stNumD', 'num', 'd'], ['stNumG', 'num', 'g'], ['stIdH', 'id', 'h'], ['stVicW', 'vic', 'circleW'], ['stVicRW', 'vic', 'routeW'], ['stClH', 'clamp', 'h'], ['stCrowdMin', 'crowd', 'min'], ['stCrowdMove', 'crowd', 'move']].forEach(([id, part, key]) => $(id).addEventListener('input', () => setPl(part, key, +$(id).value)));
@@ -2485,7 +2507,6 @@
   $('stNumPlace').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'place', b.dataset.v); });
   $('stRtaOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) rtaSet(plStyle().num.rta.cats, b.dataset.v === '1'); }); // beta 6.5
   $('stRtaLeg').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) rtaSet(plStyle().num.rta.cats, null, { legend: b.dataset.v }); }); // beta 6.6: where the RTA/JPA LEGEND goes
-  $('stBoxLoop').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('cab', 'boxLoops', b.dataset.v === '1'); }); // beta 6.6: the loops at boxes and entrances written
   $('stRtaReset').addEventListener('click', () => { $('stRtaNew').hidden = true; rtaSet(RTA_STD.map((x) => ({ ...x })), null, { off: [] }); });
   $('stRtaAdd').addEventListener('click', () => rtaNewOpen());
   $('stRtaCancel').addEventListener('click', () => { $('stRtaNew').hidden = true; });
@@ -2506,8 +2527,13 @@
   [['stPoleIdH', 'pole', 'idH'], ['stPoleOwnH', 'pole', 'ownH'], ['stPoleLlH', 'pole', 'llH'], ['stSpanH', 'span', 'h']].forEach(([id, part, key]) => { $(id).addEventListener('input', () => setPl(part, key, +$(id).value)); $(id + 'Auto').addEventListener('click', () => setPl(part, key, 0)); }); // beta 4.3
   $('stCabH').addEventListener('input', () => setPl('cab', 'h', +$('stCabH').value)); $('stCabHAuto').addEventListener('click', () => setPl('cab', 'h', 0));
   $('stCabW').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; const w = { ...plStyle().cab.w, [b.dataset.k]: !plStyle().cab.w[b.dataset.k] }; setPl('cab', 'w', w); });
-  $('stClOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.exp.dxfClampType = b.dataset.v === '1'; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }); // (the Drawing's CA button too)
-  $('stReset').addEventListener('click', () => { delete S.plStyle; S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Drawing style: the defaults', 2000); }); // (v2.42.21: clamp types on again)
+  /* beta 6.7 (UX step 4; critic: Reset… and Use company standard did different things with nothing to tell them apart): Reset… puts every
+     look choice back, Basic to the company standard (PL_STD) and Advanced to its defaults (PL_DEF), and says so first; never this
+     project's pole numbers nor the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). */
+  $('stReset').addEventListener('click', async () => {
+    if (!(await ask('Reset Plan style?', 'Every look choice goes back: Basic to the company standard, Advanced (sizes, colours, cables, tower site, location map, map sheets) to its defaults. Not changed: this project’s pole numbers and the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). Use company standard, at the top, changes only the Basic look and keeps your Advanced choices.', [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
+    delete S.plStyle; S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Plan style: the company standard and the defaults', 2500);
+  });
   $('stDone').addEventListener('click', () => closeSheet());
   $('stPhSize').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'size', +b.dataset.v); }); // Drawing style › Photos: Small, Normal, Large, Extra large
   $('stPhStamp').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'stamp', b.dataset.v); }); // beta 6.4: Stamp on the photos: Off, Lat-long, Lat-long + address
@@ -2644,6 +2670,18 @@
       const ct = S.exp.dxfClampType !== false, Cl = P.clamp, inL = !ct || Cl.place === 'label', N = P.num, lines = [], out = [];
       const clT = p.hw ? (ct && Cl.hw ? p.hw : '') : p.cl ? (ct ? p.cl : p.cl.replace(/^[A-Z0-9]+ /, '')) : '';
       const PP = P.pole, hI = PP.idH || 2.2; // beta 4.3: the pole's ID, its owner's name and its lat/long in their own height and colour (Auto: as before)
+      /* beta 6.7 (UX step 4; critic: the preview shows what Basic changes): Pole labels Tidy: one block off the road, beside its pole with no
+         line to it, the ID as set (CC over 123456, or CC-123456), then the clamps, owner and lat/long in smaller text (Tidy sizes them) */
+      if (S.exp.dxfLabels === 'tidy' && dxfMode() === 'tpl') {
+        const sm = hI * 0.72;
+        if (p.pre && PP.idForm === 'line') lines.push({ t: `${p.pre}-${p.id}`, h: hI, c: PP.idColor || 3, st: 'pid' });
+        else { if (p.pre) lines.push({ t: p.pre, h: hI, c: PP.idColor || 7, st: 'pid' }); lines.push({ t: p.id, h: hI, c: PP.idColor || 3, st: 'pid' }); }
+        if (clT && inL) lines.push({ t: clT, h: sm, c: ct ? Cl.color || 4 : 4, st: 'clamp' });
+        if (p.own) lines.push({ t: p.own, h: sm, c: PP.ownColor || PP.idColor || 3, st: 'pown' });
+        if (p.ll) lines.push({ t: p.ll, h: sm * 0.8, c: PP.llColor || 7, italic: true, serif: true, st: 'pll' });
+        out.push(Blk({ id: `b${p.k}`, pri: 80, lines, shrink: true, lead: false, ax: p.x, ay: p.y, ar: 1.3,
+          spots: ring({ ax: p.x, ay: p.y, ar: 1.3, def: (d) => ({ cx: p.x + 1.8 + d.w / 2, cy: p.y - 1.8 - d.h / 2 }), pref: (ux, uy) => (uy > -0.1 ? 6 : 0) + (ux < -0.3 ? 0.8 : 0) }) }));
+      } else {
       if (p.pre) lines.push({ t: p.pre, h: hI, c: PP.idColor || 7, st: 'pid' });
       lines.push({ t: p.id, h: hI, c: PP.idColor || 3, st: 'pid' });
       if (clT && inL) lines.push({ t: clT, h: hI, c: ct ? Cl.color || 4 : 4, st: 'clamp' });
@@ -2651,6 +2689,7 @@
       if (p.ll) lines.push({ t: p.ll, h: PP.llH ? PP.llH * 1.1 / 1.2 : 1.1, c: PP.llColor || 7, italic: true, serif: true, st: 'pll' });
       out.push(Blk({ id: `b${p.k}`, pri: 80, lines, shrink: true, lead: true, ax: p.x, ay: p.y, ar: 1.3, leadMin: 2.5,
         spots: ring({ ax: p.x, ay: p.y, ar: 1.3, def: (d) => (opts && opts.left ? { cx: p.x - 2.2 - d.w / 2, cy: p.y + 0.3 - d.h / 2 } : { cx: p.x + 2.2 + d.w / 2, cy: p.y + 0.3 - d.h / 2 }), pref: (ux, uy) => (ux < -0.3 ? 1.2 : 0) + (uy > 0.3 ? 2.5 : 0) }) }));
+      }
       const R0 = N.d / 2, half = Math.max(R0, N.h * 0.46, N.h / 2), dir = N.place === 'out' ? (opts && opts.outDir) || [0, -1] : (opts && opts.dir) || [-0.985, -0.17], dist = 1.1 + N.g + half;
       out.push({ id: `n${p.k}`, st: 'num', pri: 90, ax: p.x, ay: p.y, size: () => ({ w: half * 2, h: half * 2 }),
         spots: () => { const o = [{ cx: p.x + dir[0] * dist, cy: p.y + dir[1] * dist, d: 0, cost: 0 }], a0 = Math.atan2(dir[1], dir[0]);
@@ -2835,76 +2874,95 @@
       [x0, x0 + C].forEach((x) => mk(g, 'line', { x1: x, y1: 0, x2: x, y2: 70, stroke: PAL[6], 'stroke-width': 0.3 })); [y0, y0 + C].forEach((y) => mk(g, 'line', { x1: 0, y1: y, x2: 120, y2: y, stroke: PAL[6], 'stroke-width': 0.3 }));
     }
     /* state and layout */
-    let scene = 'street', compact = false, big = false, wired = false, last = null, shrink = 220; // (shrink: how much shorter the preview gets; the settings stay put)
-    const NAMES = { street: 'Street', photo: 'Photos', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Vicinity map', grid: 'Grid' };
+    let scene = 'street', compact = false, big = false, wired = false, last = null, shrink = 220, soonT = 0, pickAt = 0; // (shrink: how much shorter the preview gets; the settings stay put)
+    const NAMES = { street: 'Street', photo: 'Photos', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Location map', grid: 'Map sheets' };
     const body = () => $('drwStyle').querySelector('.dsbody'), col = () => $('dsPrevCol');
+    /* beta 6.7 (UX step 4): no part chips: the scene is the one of the Advanced section opened (Basic: the street, or the photos while a
+       photo row is changed); only that scene is drawn, after a 150 ms pause while settings change (slow phones) */
     function render(P) {
-      wire(); P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
+      wire(); clearTimeout(soonT); soonT = 0; P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
       const C = { auto: P.crowd.auto, min: P.crowd.min / 100, move: P.crowd.move, leader: P.crowd.leader, streets: P.crowd.streets, marks: P.crowd.marks, mark: $('dsMark').checked };
-      $('drwStyle').querySelectorAll('.dsscenes [data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === scene)));
-      $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = !g.dataset.scene.split(' ').includes(scene); }); // beta 3.9: only the settings of the part picked (beta 4.3: a group can belong to several parts)
       let r = null;
       if (scene === 'vic') { while (svg.firstChild) svg.removeChild(svg.firstChild); drawVicPreview(P, svg); }
       else if (scene === 'grid') gridPrev(P, svg); // beta 6.0
       else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scene === 'photo' ? scPhoto(P, C) : scStreet(P, C), C);
       svg.setAttribute('preserveAspectRatio', compact ? 'xMidYMid slice' : 'xMidYMid meet');
       const cap = $('dsCap'); cap.textContent = '';
-      const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · `; const b = document.createElement('span');
-      if (!r) b.textContent = scene === 'grid' ? `the sheet\u2019s name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, the details over it` : 'the route and the project area';
+      const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · ${r && dxfMode() === 'tpl' ? `${S.exp.dxfLabels === 'tidy' ? 'Tidy' : 'Standard'} labels · ` : ''}`; const b = document.createElement('span'); // (beta 6.7, UX step 4: Basic's Pole labels, said)
+      if (!r) b.textContent = scene === 'grid' ? `the sheet’s name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, the details over it` : 'the route and the project area';
       else { b.className = `ov ${r.clashes ? 'bad' : 'good'}`; b.textContent = r.clashes ? `${r.clashes} label${r.clashes > 1 ? 's' : ''} overlap` : 'nothing overlaps'; }
       cap.append(a, b); if (scene === 'photo') cap.append(` · ${phTidyMm(P.photo.size)} mm photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
       svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
       last = { scene, clashes: r ? r.clashes : 0, skipped: r ? r.skipped : 0, ids: r ? r.ids : [] };
       markPicked();
     }
+    function soon() { if (soonT) return; soonT = setTimeout(() => { soonT = 0; if (!$('drwStyle').hidden) render(); }, 150); }
     /* beta 4.3 (MarkT): a label of the preview is tapped: the settings that are its own come into view and are marked, and the label is framed.
-       ST: the label's kind -> the rows (or the whole group) of its settings. */
-    const ST = { num: ['stNum'], pid: ['stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClOn', 'stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stId'],
-      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks', 'stLmIcons'], photo: ['stPh'], route: ['stCabRoute', 'stCabOn', 'stCabPer', 'stCabH', 'stCabW'] }; // (beta 6.7: route, the cable itself)
-    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmarks', photo: 'the photos', route: 'the fiber cable: how it runs between points, and its labels' };
+       ST: the label's kind -> its rows. beta 6.7 (UX step 4; critic): the rows' one home: Basic (the photos: size and stamp) or the Advanced
+       section (opened, with its Colours and sizes); Clamp types on/off is Basic's switch, the rest of the clamp boxes Advanced's. */
+    const ST = { num: ['stNumCol', 'stNumBCol', 'stNumH', 'stNumD', 'stNumG', 'stNumLeader', 'stNumPlace'], pid: ['stPoleIdForm', 'stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stIdBold', 'stIdCol', 'stIdH'],
+      cab: ['stCabOn', 'stCabW', 'stCabPer', 'stCabH'], street: ['stCrowdStreets'], mark: ['stLmIcons', 'stCrowdMarks'], photo: ['stPhSize', 'stPhStamp'], route: ['stCabRoute', 'stCabOn', 'stCabW', 'stCabPer', 'stCabH'] }; // (beta 6.7: route, the cable itself)
+    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner’s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the box names (NAPs, closures, boxes)', cab: 'the cable names', street: 'the street names', mark: 'the landmarks', photo: 'the photos', route: 'the fiber cable: how it runs between points, and its name' };
     let picked = null, pickT = 0;
-    const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow')) : null; }).filter(Boolean);
+    const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow, .psrow, .swrow')) : null; }).filter(Boolean); // (beta 6.7, UX step 4: a Basic row too)
     function markPicked() {
       const svg = $('stPrev'); if (!svg) return; svg.querySelectorAll('.dspick').forEach((x) => x.remove()); if (!picked) return;
       svg.querySelectorAll(`[data-st="${picked}"]`).forEach((el) => { let b = null; try { b = el.getBBox(); } catch (e) { b = null; } if (!b || !(b.width > 0)) return;
         const tf = el.getAttribute('transform'), r = mk(svg, 'rect', { x: (b.x - 0.5).toFixed(2), y: (b.y - 0.4).toFixed(2), width: (b.width + 1).toFixed(2), height: (b.height + 0.8).toFixed(2), fill: 'none', stroke: '#ffd43b', 'stroke-width': 0.28, 'stroke-dasharray': '1.2 0.7', class: 'dspick', 'pointer-events': 'none' }); if (tf) r.setAttribute('transform', tf); });
     }
+    /** Brings a row of Plan style into view under the preview (sticky on a phone). */
+    function toRow(top) { const bd = body(); if (!bd || !top) return; const rb = bd.getBoundingClientRect(), rt = top.getBoundingClientRect(), pc = col(), stick = narrow() && pc ? pc.getBoundingClientRect().bottom - rb.top : 0; bd.scrollTop += rt.top - rb.top - Math.max(12, stick + 10); }
     function pick(key) {
-      const rows = rowsOf(key); if (!rows.length) return false; const grp = rows[0].closest('.stgrp') || rows[0], scs = (grp.dataset.scene || scene).split(' ');
-      picked = key; if (!scs.includes(scene)) { scene = scs[0]; } render();
+      const rows = rowsOf(key); if (!rows.length) return false;
+      // beta 6.7 (UX step 4): its tab, its section and its Colours and sizes opened (the scene stays: the label tapped is in it)
+      pickAt = Date.now(); const pane = rows[0].closest('[role="tabpanel"]'); if (pane) plTab(pane.id === 'plAdv' ? 'advanced' : 'basic', null, true);
+      rows.forEach((x) => { for (let d = x.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) if (!d.open) d.open = true; });
+      picked = key; render();
       const root = $('drwStyle'); root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); rows.forEach((x) => x.classList.add('sthl'));
-      const bd = body(), top = rows[0]; if (bd && top) { const rb = bd.getBoundingClientRect(), rt = top.getBoundingClientRect(), pc = col(), stick = narrow() && pc ? pc.getBoundingClientRect().bottom - rb.top : 0; bd.scrollTop += rt.top - rb.top - Math.max(12, stick + 10); }
+      toRow(rows[0]);
       const cap = $('dsCap'); if (cap) { const s = document.createElement('span'); s.className = 'dspk'; s.textContent = ` · ${ST_NAME[key] || key}: settings marked below`; cap.append(s); }
       clearTimeout(pickT); pickT = setTimeout(() => { root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); }, 9000);
       return true;
     }
-    function setScene(sn) { if (sn === scene || !NAMES[sn]) return; scene = sn; picked = null; render(); const bd = body(); if (bd && !$('drwStyle').hidden && (bd.clientWidth >= 720 || !compact)) bd.scrollTop = 0; } // (beta 3.9: its settings from their top)
+    function setScene(sn) { if (sn === scene || !NAMES[sn]) return; scene = sn; picked = null; render(); } // (beta 6.7, UX step 4: the settings stay where they are)
+    const picking = () => Date.now() - pickAt < 400; // (a section opened by a tap on the preview keeps the scene tapped)
     const narrow = () => { const bd = body(); return !bd || bd.clientWidth < 720; };
     function setCompact(on) {
-      if (on === compact) return; const c = col(), h0 = c.getBoundingClientRect().height; compact = on; c.classList.toggle('compact', on);
-      $('stPrev').setAttribute('preserveAspectRatio', on ? 'xMidYMid slice' : 'xMidYMid meet'); const d = c.getBoundingClientRect().height - h0; if (on && d < 0) shrink = -d; body().scrollTop += d; // (the settings stay where they were)
+      if (on === compact) return; const c = col(), h0 = c.getBoundingClientRect().height, st0 = body().scrollTop; compact = on; c.classList.toggle('compact', on);
+      $('stPrev').setAttribute('preserveAspectRatio', on ? 'xMidYMid slice' : 'xMidYMid meet'); const d = c.getBoundingClientRect().height - h0; if (on && d < 0) shrink = -d; body().scrollTop = st0 + d; // (the settings stay where they were; beta 6.7, UX step 4: from where it was, as the end of the list may have moved it already: the last row stayed half under the foot)
     }
     function onScroll() {
       const bd = body(); if (!bd || $('drwStyle').hidden) return; const nb = narrow(); $('dsBig').hidden = !nb;
       if (!nb || big) { if (compact) setCompact(false); return; }
       if (!compact && bd.scrollTop > 150 + shrink) setCompact(true); else if (compact && bd.scrollTop < 20) setCompact(false); // (the gap: no back and forth at the threshold)
     }
-    function reset() { picked = null; compact = false; big = false; const c = col(); if (c) c.classList.remove('compact'); if ($('dsBig')) $('dsBig').textContent = 'Bigger'; const bd = body(); if (bd) bd.scrollTop = 0; }
+    function setBig(on) { big = !!on; const c = col(); if (c) c.classList.toggle('big', big); const b = $('dsBig'); if (b) { b.setAttribute('aria-pressed', String(big)); b.setAttribute('aria-label', big ? 'Make the preview smaller' : 'Enlarge the preview'); b.title = b.getAttribute('aria-label'); } }
+    function reset() { picked = null; compact = false; setBig(false); const c = col(); if (c) c.classList.remove('compact', 'kbd'); const bd = body(); if (bd) bd.scrollTop = 0; }
     function wire() {
       if (wired) return; wired = true;
       const root = $('drwStyle');
-      root.querySelector('.dsscenes').addEventListener('click', (e) => { const b = e.target.closest('[data-scene]'); if (b) setScene(b.dataset.scene); });
-      root.querySelectorAll('.stgrp[data-scene]').forEach((g) => { const go = () => { const L = g.dataset.scene.split(' '); if (!L.includes(scene)) setScene(L[0]); }; g.addEventListener('pointerdown', go); g.addEventListener('focusin', go); });
+      // beta 6.7 (UX step 4): an Advanced section opened shows its part of the plan (Plan file: the scene stays); kept for next time
+      root.querySelectorAll('details.stsec').forEach((d) => d.addEventListener('toggle', () => {
+        if (!d.open) return; if (S.plOpen !== d.id) { S.plOpen = d.id; persist(); }
+        if (!picking() && d.dataset.scene) setScene(d.dataset.scene.split(' ')[0]);
+      }));
+      // Basic: the street; the photos while a photo row is changed
+      $('plBasic').addEventListener('pointerdown', (e) => { if (e.target.closest('#plPhRow, #plStampRow')) setScene('photo'); else if (e.target.closest('.plb')) setScene('street'); });
+      $('plBasic').addEventListener('focusin', (e) => { if (e.target.closest('#plPhRow, #plStampRow')) setScene('photo'); });
       // beta 4.3: a tap on the preview: the label under the finger, or the nearest one within reach (the labels are small on a phone); on empty ground the marks go
       $('stPrev').addEventListener('click', (e) => { let best = null; $('stPrev').querySelectorAll('[data-st]').forEach((el) => { const r = el.getBoundingClientRect(); if (!(r.width > 0 || r.height > 0)) return;
           const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right), dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom), d = Math.hypot(dx, dy), ar = r.width * r.height; if (d <= 14 && (!best || d < best.d || (d === best.d && ar < best.ar))) best = { d, ar, k: el.getAttribute('data-st') }; });
         if (best) pick(best.k); else if (picked) { picked = null; root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); render(); } });
       $('dsMark').addEventListener('change', () => render());
-      $('dsBig').addEventListener('click', () => { big = !big; $('dsBig').textContent = big ? 'Smaller' : 'Bigger'; if (big) setCompact(false); else onScroll(); });
+      $('dsBig').addEventListener('click', () => { setBig(!big); if (big) setCompact(false); else onScroll(); }); // (beta 6.7, UX step 4: its own button in the preview's corner; a tap on the preview picks a label)
       body().addEventListener('scroll', onScroll, { passive: true });
+      // beta 6.7 (UX step 4; critic): a phone's keyboard open for a text or number: the preview folds away, back when it closes
+      const typing = (t) => t && t.matches && t.matches('#drwStyle .dsctl input[type=text], #drwStyle .dsctl input[type=number], #drwStyle .dsctl input[type=search], #drwStyle .dsctl input:not([type])'); // (beta 6.7, UX step 5: Find a setting too)
+      root.addEventListener('focusin', (e) => { if (typing(e.target) && narrow()) col().classList.add('kbd'); });
+      root.addEventListener('focusout', (e) => { if (typing(e.target)) setTimeout(() => { if (!typing(document.activeElement)) col().classList.remove('kbd'); }, 0); });
       window.addEventListener('resize', () => { if (!$('drwStyle').hidden) onScroll(); });
     }
-    return { render, setScene, reset, onScroll, pick, picked: () => picked, scene: () => scene, stats: () => last, compact: () => compact };
+    return { render, soon, setScene, reset, onScroll, pick, toRow, picked: () => picked, scene: () => scene, stats: () => last, compact: () => compact };
   })();
   /* Find: search the project's pins by ID, element, status or defect; tap one to fly to it on the map and open it. */
   function openFind() { $('findQ').value = ''; renderFind(); openSheet('find'); setTimeout(() => $('findQ').focus(), 120); }
@@ -5099,7 +5157,7 @@
      tap on Settings → Camera → Photos per pin: a phone with none stored never chose (the old default 2 was never stored) and now gets
      1; a phone with one stored keeps it, 2 included. */
   const PH_DOC_DEF = { report: 'all', compl: 'all', defpdf: 'all', kmz: 'all', zip: 'main', ai: 'all' };
-  const PH_DOCS = [['report', 'Photo report · PDF'], ['compl', 'Completion report · PDF'], ['defpdf', 'Deficiency list and rectification · PDF'], ['kmz', 'Google Earth · KMZ balloon'], ['zip', 'Geotagged photos · ZIP'], ['ai', 'Photos for AI training · ZIP'], ['dxf', 'AutoCAD · DXF and plan PDF']];
+  const PH_DOCS = [['report', 'Photo report'], ['compl', 'Completion report'], ['defpdf', 'Deficiency List and progress of the fixes (PDF)'], ['kmz', 'Google Earth map (KMZ) balloon'], ['zip', 'Photos with their locations (ZIP)'], ['ai', 'Photos for teaching the app (ZIP)'], ['dxf', 'Plan drawing and its PDF']]; // (beta 6.7, UX step 3: the Export rows' names)
   function phSetOf(name) {
     const P = name ? pmeta(name).phSet : null, T = name && typeof tmTeam === 'function' ? tmTeam(name) : null;
     if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp === true && P.idpV === 2, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true }; // (beta 5.0: only a coordinator who ticked it since 2.44.5)
@@ -9046,7 +9104,7 @@
     const m = pmeta(), pts = projPoints(), n = pts.length, ex = m.exports || {}, cat = taskCat();
     const last = pts.reduce((t, p) => (p.updated > t ? p.updated : t), '');
     const fresh = (kinds) => kinds.some((k) => ex[k] && ex[k] > last);
-    const go = { cef: () => closeAll().then(() => cefHooks.open && cefHooks.open()), cefx: () => closeAll().then(() => cefHooks.open && cefHooks.open(null, { tab: 'export' })), capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => { exportPick = isAcc() ? 'doPdf' : 'doKmz'; $('exportBtn').click(); }), backup: () => closeAll().then(() => { exportPick = 'doBackup'; $('exportBtn').click(); }),
+    const go = { cef: () => closeAll().then(() => cefHooks.open && cefHooks.open()), cefx: () => closeAll().then(() => cefHooks.open && cefHooks.open(null, { tab: 'export' })), capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => { exportPick = wfExportKey(); $('exportBtn').click(); }), /* beta 6.7 (UX step 3): As-Plan and As-Built the Plan drawing, Audit the Google Earth map, acceptance the Deficiency List */ backup: () => closeAll().then(() => { exportPick = 'doBackup'; $('exportBtn').click(); }),
       route: () => closeAll().then(() => { if (!routeMode) setRouteMode(true); }), form: () => { $('curMore').open = true; $('mSite').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('mSite').focus(); },
       fat: () => $('startFat').click(), share: () => guard(sharePackage), next: () => closeAll().then(() => { const t = nextTarget(); if (t) openVisit(t.r.id, true); else toast('No pin left to visit'); }) };
     const steps = [];
@@ -9060,8 +9118,10 @@
         steps.push({ t: 'Site, ODF / ODC and POI', s: `${tick(g.site)} site · ${tick(g.odf)} ODF / ODC · ${tick(g.poi)} POI (closure or handhole)${g.nap ? ` · ${g.nap} NAP` : ''} · needed to complete`, done: g.site && g.odf && g.poi, go: 'capture', label: 'Capture' });
       } else steps.push({ t: purpose === 'Audit' ? 'Audit the network elements' : 'Site, ODC / ODF, NAP and closures as built', s: others ? svCountText(pts) : purpose === 'Audit' ? 'Closures, NAP, ODF, handholes… with remarks on what you find' : 'Photo of the site, ODC / ODF, NAP and closures used in the build', done: others > 0, go: 'capture', label: 'Capture' });
       steps.push({ t: 'Link the route', s: !R.spans.length ? 'Tap the route button: link in capture order, then fix branches' : `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${R.long} over ${pol().maxSpan} m · ${R.off} not linked`, done: routePts().length > 1 && R.spans.length > 0 && R.off === 0 && !R.long, go: 'route', label: 'Route' });
-      steps.push({ t: 'Export for design', s: fresh(['kmz', 'dxf', 'csv']) ? 'KMZ / DXF / CSV made after the last change' : 'KMZ for Google Earth, DXF for AutoCAD, CSV, photos', done: n > 0 && fresh(['kmz', 'dxf', 'csv']), go: 'export', label: 'Export' });
-      steps.push({ t: 'Back up the project', s: fresh(['backup']) ? `Backup made ${fmtTime(ex.backup)}` : 'Export → Backup, keep the ZIP on Drive or a PC', done: n > 0 && fresh(['backup']), go: 'backup', label: 'Backup' });
+      // beta 6.7 (UX step 3; critic): As-Plan and As-Built: the plan drawing (its template ZIP or One PDF: planAt; the simple DXF: dxf); Audit: the Google Earth map (or the DXF, the CSV)
+      if (BOQ_PURPOSES.includes(purpose)) { const pl = (!!m.planAt && m.planAt > last) || fresh(['dxf']); steps.push({ t: 'Export the plan drawing', s: pl ? 'Plan drawing made after the last change' : 'Export → Plan drawing: AutoCAD files (ZIP) or One PDF to print', done: n > 0 && pl, go: 'export', label: 'Export' }); }
+      else steps.push({ t: 'Export the Google Earth map', s: fresh(['kmz', 'dxf', 'csv']) ? 'KMZ / DXF / CSV made after the last change' : 'Export → Google Earth map (KMZ), the plan drawing or the pole list', done: n > 0 && fresh(['kmz', 'dxf', 'csv']), go: 'export', label: 'Export' });
+      steps.push({ t: 'Back up the project', s: fresh(['backup']) ? `Backup made ${fmtTime(ex.backup)}` : 'Export → Backup of the project; keep the ZIP on Drive or a PC', done: n > 0 && fresh(['backup']), go: 'backup', label: 'Backup' });
     } else if (cat === 'PAT') {
       const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open').length;
       const formOk = !!(m.site && m.contractor && (m.vendorRep || (S.user && S.user.name))); // the Globe representative is optional (v2.10)
@@ -9135,7 +9195,7 @@
     const btn = $('wfNext'), pm = pmeta();
     if (pm.completedAt && ['PAT', 'Cleanup'].includes(W.cat)) { btn.hidden = true; return; } // v2.22: the next stage's buttons take over
     if (W.next) { btn.hidden = false; btn.textContent = `Next: ${W.next.t}`; btn.onclick = () => W.go[W.next.go](); }
-    else { btn.hidden = false; btn.textContent = W.cat === 'Survey' ? 'All done — export again after changes' : 'All done'; btn.onclick = () => W.go.export(); }
+    else { btn.hidden = false; btn.textContent = W.cat === 'Survey' ? 'All done — export again after changes' : 'All done'; btn.onclick = () => closeAll().then(() => $('exportBtn').click()); } // (beta 6.7, UX step 3: Export on the row used last)
   }
   const PURPOSE_LABEL = { 'CEF-plan': 'CEF-Plan', 'As-plan': 'As-Plan Creation', 'As-built': 'As-Built Creation', Audit: 'Audit', PAT: 'PAT', Cleanup: 'Defect Rectification', FAT: 'FAT' };
   const STAGE_LABEL = { survey: 'Survey', PAT: 'PAT', Cleanup: 'Defect Cleanup', FAT: 'FAT' };
@@ -9194,7 +9254,7 @@
       });
       ['mSite', 'mContractor', 'mVendorRep', 'mGlobe', 'mDate'].forEach((id) => { $(id).disabled = patClosed(); }); // the signed form stays as it was (v2.16)
       $('accActs').hidden = m.stage === 'FAT'; renderShareWarn('shareWarn');
-      $('sendPatLbl').textContent = m.stage === 'Cleanup' ? 'Share cleanup KMZ · for the FAT' : 'Share PAT KMZ · for defect cleanup / FAT';
+      $('sendPatLbl').textContent = m.stage === 'Cleanup' ? 'Hand on: Share the cleanup KMZ' : 'Hand on: Share the PAT KMZ'; // (beta 6.7, UX step 3: as Export's Hand on row)
       renderStageActs(m);
     }
     if (!acc) $('accActs').hidden = true;
@@ -9619,7 +9679,7 @@
     if (m.completedAt && S.team && !isAdmin() && !(await adminApproves(`Reopening the completed project “${S.project}”`))) return;
     const ok = m.completedAt
       ? await ask('Undo complete?', `The task is no longer marked complete${col ? `, and the ${col} is cleared in the online sheet` : ''}.${pat ? ' The PAT is unlocked: its elements and items can be changed and removed again.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Undo', value: true, primary: true }])
-      : await ask(pat ? 'Complete and lock the PAT?' : 'Mark the task complete?', `Today is recorded as the completion date${col ? ` (${col} in the online sheet)` : ''}. You can also export the completion report (Export → Completion report).${pat ? `\n\nThe PAT is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}` : ''}`, [{ label: 'Cancel', value: false }, { label: pat ? 'Complete and lock' : 'Mark complete', value: true, primary: true }]);
+      : await ask(pat ? 'Complete and lock the PAT?' : 'Mark the task complete?', `Today is recorded as the completion date${col ? ` (${col} in the online sheet)` : ''}. The Completion report does this too (Export › Completion report).${pat ? `\n\nThe PAT is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}` : ''}`, [{ label: 'Cancel', value: false }, { label: pat ? 'Complete and lock' : 'Mark complete', value: true, primary: true }]);
     if (!ok) return;
     if (pat) LOG.info('pat.lock', { on: !m.completedAt, admin: isAdmin() });
     markComplete(!m.completedAt, 'tagged'); renderProjects(); renderPoles();
@@ -9775,6 +9835,7 @@
       // v2.16: the report completes the task, and completing a PAT locks it: asked first
       if (taskCat() === 'PAT' && patNoDefects()) { await completeNoDefects(); if (!pmeta().completedAt) return; } // v2.23: no defects: PAT and FAT done
       else if (taskCat() === 'FAT') { if (!(await completeFat('report'))) return; } // v2.42.5: the FAT is completed with the inspector's approval QR
+      else if (taskCat() !== 'PAT' && !(await ask('Finish the task?', `The completion report marks “${S.project}” complete${progressFields(S.project).some(([f]) => f === 'surveyDone') ? ' and sends today\u2019s date to the online sheet' : ''}. It can be undone in Projects (Undo complete).`, [{ label: 'Cancel', value: false }, { label: 'Finish and make the report', value: true, primary: true }]))) return; // beta 6.7 (UX step 3): asked first, as in a PAT
       else if (taskCat() === 'PAT' && !(await ask('Complete and lock the PAT?', `The completion report marks the PAT complete. It is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Complete and lock', value: true, primary: true }]))) return;
       markComplete(true, 'report');
     }
@@ -9928,7 +9989,20 @@
   /** Remembers which outputs were made from this project and when, for the workflow checklist. */
   function noteExport(kind, project) {
     S.meta = S.meta || {}; const m = { ...pmeta(project || S.project) }; m.exports = { ...(m.exports || {}), [kind]: new Date().toISOString() }; S.meta[project || S.project] = m; persist();
+    xMetaSoon(); // beta 6.7 (UX step 3 fixes)
   }
+  /** beta 6.7 (UX step 3; critic): the plan drawing made (the template ZIP, its One PDF): the next step Export the plan drawing is done.
+      Kept beside the export kinds (the ZIP stays 'zip', the One PDF 'pdf'), so the completion report's list of exports is unchanged. */
+  function notePlan() { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), planAt: new Date().toISOString() }; persist(); xMetaSoon(); }
+  /* beta 6.7 (UX step 3 fixes; review): a file made with Export open: its badges anew (★ Next step moves on from the Plan drawing to
+     Back up the project once the plan is made) and the Completion report's button (Make the report again once complete). Once, after
+     the export noted what it made. */
+  let xMetaT = 0;
+  function xMetaSoon() {
+    if (xMetaT) return;
+    xMetaT = setTimeout(() => { xMetaT = 0; if ($('export').hidden || !stack.includes('export')) return; try { xBadges(xNextKey()); complRender(); } catch (e) { LOG.warn('export.badges', errInfo(e)); } }, 0);
+  }
+  let xBtnKey = '', xResKey = ''; // beta 6.7 (UX step 3 fixes; review): the row whose button was pressed; the row the file in Your file is ready came from ('*': Several at once)
   let xCollect = null; // v2.28: while exporting several formats at once, the files are gathered here
   let resultInside = null; // v2.42.28: the plan's files in plain words, shown with the result
   function offerResult(blob, name) {
@@ -9939,7 +10013,7 @@
     noteExport(kind);
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
     $('resultCredit').textContent = creditNote; $('resultCredit').hidden = !creditNote; creditNote = ''; // v2.42.7: what this export used
-    $('resultBox').hidden = false;
+    $('resultBox').hidden = false; $('resSteps').hidden = true; $('resSteps').open = false;
     { const ins = resultInside; resultInside = null; $('resultInsideBox').hidden = !ins; $('resultInsideBox').open = false; $('resultInside').innerHTML = ins ? ins.map(([ic, n, t]) => `<div><span class="ic">${ic}</span><span><b>${C.xmlEsc(n)}</b><small>${C.xmlEsc(t)}</small></span></div>`).join('') : '';
       if (ins) { // v2.43: folded to one line (the files are listed when it is opened)
         const n = (k) => ins.filter((x) => x[0] === k).length;
@@ -9948,6 +10022,9 @@
       } }
     $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
     $('resShare').hidden = false; // v2.30: always offered; a browser that cannot share this kind of file says what to do instead
+    // beta 6.7 (UX step 3 fixes; review): Your file is ready stays under the row it came from (the row whose button made it, else the open
+    // row; Several at once: at the foot), not under whichever row is opened next (a CSV under Make the Google Earth map)
+    { const oc = document.querySelector('#export .xcard.xopen'); xResKey = xMany ? '*' : xBtnKey || (oc ? xKey(oc) : '*'); xBtnKey = ''; if (!$('export').hidden) xLayout(); }
     $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   $('resSave').addEventListener('click', async () => {
@@ -9966,15 +10043,54 @@
     setTimeout(() => URL.revokeObjectURL(u), 60000);
     toast('Saved to Downloads');
   });
-  $('resShare').addEventListener('click', () => { if (lastResult) guard(() => shareFile(lastResult.blob, lastResult.name, lastResult.blob.type)); }); // v2.30: one send path for every Share button
-  /* Export screen: one format at a time, picked from the Format dropdown (the last choice is kept per Survey / acceptance). */
+  $('resShare').addEventListener('click', () => {
+    if (!lastResult) return;
+    if (NATIVE) { guard(() => shareFile(lastResult.blob, lastResult.name, lastResult.blob.type)); return; } // v2.30: one send path for every Share button
+    /* beta 6.7 (UX step 3; UX spec §1.6): on the website, Your file is ready is the one box: Share… opens the phone's share sheet straight
+       from the tap; a browser that cannot hand this file to another app shows the 3 steps here, behind ⓘ. The Ready to send panel
+       (sendSheet) stays for every Share outside Export: Projects, Share several projects, Hand on, the CEF and splicing hand-offs. */
+    const r = lastResult, file = new File([r.blob], r.name, { type: r.blob.type || 'application/octet-stream' }), ext = (r.name.split('.').pop() || '').toLowerCase();
+    const can = !!(navigator.share && navigator.canShare && (() => { try { return navigator.canShare({ files: [file] }); } catch (e) { return false; } })());
+    const steps = (why) => { $('resStepsWhy').textContent = why; $('resStepsName').textContent = r.name; $('resSteps').hidden = false; $('resSteps').open = true; try { $('resSteps').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* old WebView */ } };
+    if (!can) { steps(`This browser cannot pass a .${ext} file straight to another app: send it in 3 steps`); return; }
+    navigator.share({ files: [file], title: r.name }).catch((e) => {
+      if (e && e.name === 'AbortError') return; // the user closed the share sheet
+      LOG.warn('web.share.fail', { name: e && e.name, msg: String(e && e.message).slice(0, 120) });
+      steps(`The share sheet refused this file (${(e && (e.name || e.message)) || 'unknown reason'}): send it in 3 steps`);
+    });
+  });
+  /* ---- beta 6.7 (UX step 3; the owner: "make the Export button user friendly, intuitive and easy to understand by the non-technical
+     users"): one screen, "What do you need?". Each .xcard is a row named by its purpose under a plain heading (data-group; in a PAT,
+     cleanup or FAT data-group-acc when it differs); its head is the row button. One row is open at a time: the project's next step when
+     that step is an export (★ Next step), else the row used last (S.xLast, survey / acceptance / CEF-Plan), else the first. An open row
+     shows You get, a few choices, More options and its own button, sticky at the foot. Several at once (one ZIP) turns the rows into
+     ticks (#xMultiList keeps them, as before: a change there still opens the row, or Several at once for two or more); the last set
+     is offered again (Again, S.xMulti). Nothing that makes a file changed. ---- */
   let exportPick = null;
-  const xKey = (card) => card.querySelector('button[id^="do"]').id;
-  function exportCards() { return [...document.querySelectorAll('#export .xcard')].filter((c) => { const g = c.closest('#accExports, #surveyExports'); return (!g || !g.hidden) && (c.id !== 'boqCard' || boqOn()) && (c.id !== 'prCard' || !isAcc()); }); } // (beta 3.5: the Photo report: surveys) // v2.26.1: the BOQ in As-Plan and As-Built only
+  const xKey = (card) => { const b = card.querySelector(':scope > button[id^="do"], :scope > #xShare'); return b ? b.id : ''; };
+  const xMode = () => (isAcc() ? 'acc' : S.project && isCefProj() ? 'cef' : 'survey');
+  function exportCards() {
+    const acc = isAcc(), cef = !acc && !!S.project && isCefProj();
+    return [...document.querySelectorAll('#export .xcard')].filter((c) => {
+      const g = c.closest('#accExports, #surveyExports'); if ((g && g.hidden) || c.hidden) return false;
+      if (c.id === 'cefCard') return cef; // (a CEF-Plan project: its CEF plan and its backup; the owner, UX spec §7.4)
+      if (cef) return xKey(c) === 'doBackup';
+      if (xKey(c) === 'doRectPdf' && taskCat() === 'PAT') return false; // (beta 6.7, UX step 3: Progress of the fixes: in a cleanup and a FAT)
+      return (c.id !== 'boqCard' || boqOn()) && (c.id !== 'prCard' || !acc); // (beta 3.5: the Photo report: surveys) // v2.26.1: the BOQ in As-Plan and As-Built only
+    });
+  }
   const xName = (c) => c.querySelector('.head b').textContent;
   const xTicked = () => [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value);
-  /** v2.41: the formats are ticked in one list (the Format dropdown is gone): one ticked shows its card with its own Export button,
-      several show their cards (their options) and one button for a ZIP with them all. The last choice is kept (survey / acceptance). */
+  const xCard = (key) => (key ? [...document.querySelectorAll('#export .xcard')].find((c) => xKey(c) === key) || null : null);
+  const xSolo = (c) => !!c && 'solo' in c.dataset; // (the Hand on and CEF plan rows make no file here: not in Several at once)
+  /** beta 6.7 (UX step 3): the ticks of before (S.xPick) read once: the first is the row used last, two or more the Again set. */
+  function xMigrate() {
+    if (!S.xPick) return;
+    const L = { ...(S.xLast || {}) }, M = { ...(S.xMulti || {}) };
+    ['survey', 'acc'].forEach((m) => { const v = S.xPick[m], a = (Array.isArray(v) ? v : v ? [v] : []).filter((x) => typeof x === 'string'); if (a.length && !L[m]) L[m] = a[0]; if (a.length > 1 && !M[m]) M[m] = a; });
+    S.xLast = L; S.xMulti = M; delete S.xPick; persist();
+  }
+  xMigrate();
   /* ---- v2.43 beta 2.1: what the plan drawing reads from this phone that is not downloaded yet: the road pack of the project's
      region (its roads, and the barangays and cities of the RoW table) and an offline map of its area (the vicinity map). Each says
      what is missing and opens Maps at that download. ---- */
@@ -9997,6 +10113,7 @@
         H.push(`<div class="r"><span class="ic" aria-hidden="true">🛣</span><span class="tx"><b>${e(nm)}</b> is not on this phone. Without it ${tpl ? 'the barangay and city / municipality table stays blank, and ' : ''}the roads come from the internet (none without signal).</span><button class="btn sm primary" type="button" data-need="roads" data-region="${e(rg)}">Get the roads</button></div>`);
       });
     }
+    if (tpl && !S.dxfSeed && !seedBusy) H.push(`<div class="r"><span class="ic" aria-hidden="true">📐</span><span class="tx"><b>No company template on this phone</b>${seedId() ? ': your admin shares it. Get it now (once: it stays on this phone), or the plan drawing gets it first.' : ': the plan is drawn on it. Ask your admin to share it, or load the file they sent you.'}</span><button class="btn sm primary" type="button" data-need="tpl">Get it</button></div>`); // beta 6.7 (UX step 3)
     if (N && N.map && tpl) H.push(`<div class="r"><span class="ic" aria-hidden="true">🗺</span><span class="tx"><b>The offline map of this area</b> is not on this phone. The vicinity map then needs the internet${navigator.onLine === false ? ' (offline now: it is drawn from the roads only)' : '; without signal it is drawn from the roads only'}.</span><button class="btn sm" type="button" data-need="map">Download the map</button></div>`);
     box.innerHTML = H.length ? `<p class="hd">Not downloaded yet for this drawing</p>${H.join('')}` : '';
     box.hidden = !H.length;
@@ -10023,32 +10140,176 @@
     target.classList.add('guide'); target.scrollIntoView({ block: 'center' });
     LOG.info('plan.need.guide', { what, region, found });
   }
-  $('dxfNeed').addEventListener('click', (ev) => { const b = ev.target.closest('[data-need]'); if (b) guard(() => mapsGuide(b.dataset.need, b.dataset.region || ''), 'Maps not opened'); });
+  $('dxfNeed').addEventListener('click', (ev) => { const b = ev.target.closest('[data-need]'); if (!b) return;
+    if (b.dataset.need === 'tpl') { if (seedId()) { $('dxfTplGet').click(); return; } openStyle('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psTpl')), 120); return; } // beta 6.7 (UX step 3): the template, as Plan style › Plan file › Get the template does
+    guard(() => mapsGuide(b.dataset.need, b.dataset.region || ''), 'Maps not opened'); });
   $('dxfRoads').addEventListener('change', () => { try { renderDxfNeed(); } catch (e) { /* not shown */ } });
-  function showExport(pick) {
-    renderDxfTpl(); // v2.30
-    try { renderDxfNeed(); } catch (e) { LOG.warn('plan.need', errInfo(e)); } // v2.43 beta 2.1
-    const cards = exportCards(), acc = isAcc(), keys = cards.map(xKey), kept = (S.xPick || {})[acc ? 'acc' : 'survey'];
-    const keep = (Array.isArray(kept) ? kept : kept ? [kept] : []).filter((k) => keys.includes(k));
-    const want = pick && keys.includes(pick) ? [pick] : keep.length ? keep : keys.slice(0, 1);
-    const box = $('xMultiList'); box.innerHTML = '';
-    cards.forEach((c) => { const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = xKey(c); cb.checked = want.includes(cb.value); l.append(cb, document.createTextNode(xName(c))); box.appendChild(l); });
-    $('boqCardText').textContent = svPurpose() === 'As-built' && !acc // v2.26.1
-      ? 'What was built, by size, against the As-Plan (its KMZ as this project\u2019s reference): planned, built and the difference, with the IDs, the planned elements not found and what was built outside the plan. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.'
-      : 'What the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.';
-    applyXPick();
+  /* ---- beta 6.7 (UX step 3): the rows, their groups and badges, which one is open, Several at once ---- */
+  const XGH = { client: 'For the client or office', photos: 'Photos', lists: 'Lists and quantities', finish: 'Finish and keep', team: 'For the app team', handon: 'Hand on to the next stage', forms: 'Forms and reports', mapphotos: 'Map and photos' };
+  const XGROUPS = { survey: ['client', 'photos', 'lists', 'finish', 'team'], acc: ['handon', 'forms', 'mapphotos', 'finish', 'team'], cef: ['client', 'finish'] };
+  const XFOLDED = new Set(['team']); // For the app team (Photos for teaching the app: not needed for the task): folded
+  let xMany = false, xTeamOpen = false;
+  const xGroupOf = (c) => (isAcc() && c.dataset.groupAcc) || c.dataset.group || '';
+  /** The headings of the groups (made once, in the body). */
+  function xHeads() {
+    const body = $('export').querySelector('.body'), H = {};
+    Object.keys(XGH).forEach((g) => {
+      let h = body.querySelector(`:scope > .xgh[data-gh="${g}"]`);
+      if (!h) {
+        h = document.createElement(XFOLDED.has(g) ? 'button' : 'div'); h.className = 'xgh'; h.dataset.gh = g;
+        if (XFOLDED.has(g)) { h.type = 'button'; h.setAttribute('aria-expanded', 'false'); h.addEventListener('click', () => { xTeamOpen = h.getAttribute('aria-expanded') !== 'true'; xLayout(); }); }
+        else { h.setAttribute('role', 'heading'); h.setAttribute('aria-level', '3'); }
+        body.insertBefore(h, $('xOther'));
+      }
+      H[g] = h;
+    });
+    return H;
+  }
+  /** The rows in their groups: CSS order (the body is a flex column; the cards stay where they are), the headings, the fold; the Ready
+      box under the row it came from. */
+  function xLayout() {
+    const cards = exportCards(), shown = new Set(cards), H = xHeads(), groups = XGROUPS[xMode()] || [];
+    document.querySelectorAll('#export .xcard').forEach((c) => { c.classList.toggle('xoff', !shown.has(c)); c.style.order = ''; c.classList.remove('xfold'); });
+    Object.values(H).forEach((h) => { h.hidden = true; });
+    groups.forEach((g, gi) => {
+      const mine = cards.filter((c) => xGroupOf(c) === g); if (!mine.length) return;
+      const h = H[g], fold = XFOLDED.has(g) && !xMany, open = !fold || xTeamOpen || mine.some((c) => c.classList.contains('xopen'));
+      h.hidden = false; h.style.order = String(10 + gi * 100); h.textContent = fold ? `${XGH[g]} (${mine.length})` : XGH[g];
+      if (fold) h.setAttribute('aria-expanded', String(open));
+      mine.forEach((c, i) => { c.style.order = String(12 + gi * 100 + i * 2); c.classList.toggle('xfold', !open); });
+    });
+    // Your file is ready: under the row it came from (xResKey; beta 6.7 UX step 3 fixes), at the foot when that row is folded or not shown
+    const oc = document.querySelector('#export .xcard.xopen'), rc = xResKey ? xCard(xResKey) : oc, at = !xMany && rc && shown.has(rc) && !rc.classList.contains('xfold') && rc.style.order ? rc : null;
+    $('resultBox').style.order = at ? String(+at.style.order + 1) : '';
+  }
+  /** The row of the project's next step when that step is an export ('' otherwise). */
+  const wfExportKey = () => (isAcc() ? 'doPdf' : drawOn() ? 'doDxf' : 'doKmz');
+  function xNextKey() {
+    let W = null; try { W = workflowModel(); } catch (e) { return ''; }
+    const n = W && W.next; if (!n) return '';
+    return { export: wfExportKey(), backup: 'doBackup', complete: 'doCompletion', share: 'xShare', cef: 'doCef', cefx: 'doCef' }[n.go] || '';
+  }
+  /** The badges: ★ Next step; Uses credits (credits on, a project that is not the sample or free); Finishes the task; Locks the PAT; Marks it sent. */
+  function xBadges(next) {
+    const acc = isAcc(), cat = taskCat(), c0 = creditOf(), cr = !acc && !pmeta().sample && !creditFree() && !!(c0 && c0.on);
+    document.querySelectorAll('#export .xcard').forEach((c) => {
+      const k = xKey(c), want = (c.dataset.badge || '').split(/\s+/), B = [];
+      if (k && k === next) B.push(['next', '★ Next step']);
+      if ((want.includes('credits') || k === 'doCompletion') && cr) B.push(['credits', 'Uses credits']); // (the completion report: the KMZ in it)
+      if (want.includes('finish')) B.push(['finish', 'Finishes the task']);
+      if ((want.includes('finish') || want.includes('lock')) && cat === 'PAT') B.push(['lock', 'Locks the PAT']);
+      if (want.includes('sent')) B.push(['sent', 'Marks it sent']);
+      const box = c.querySelector('.xbadges'); if (box) box.innerHTML = B.map(([cl, t]) => `<span class="xbadge ${cl}">${t}</span>`).join('');
+    });
+  }
+  /** The ticks of #xMultiList (one per row that makes a file), ids ticked. */
+  function xBoxes(ids) {
+    const box = $('xMultiList'), cards = exportCards().filter((c) => !xSolo(c)), keys = cards.map(xKey).join(',');
+    if (box.dataset.keys !== keys) {
+      box.innerHTML = ''; box.dataset.keys = keys;
+      cards.forEach((c) => { const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = xKey(c); l.append(cb, document.createTextNode(xName(c))); box.appendChild(l); });
+    }
+    box.querySelectorAll('input').forEach((cb) => { cb.checked = ids.includes(cb.value); });
+  }
+  function xRemember(k) { if (!k) return; const m = xMode(); if ((S.xLast || {})[m] === k) return; S.xLast = { ...(S.xLast || {}), [m]: k }; persist(); }
+  /** Brings a row to the top of the sheet (its head; a row near the top: the sheet from its top, What do you need? in view). */
+  function xScrollTo(c, smooth) {
+    const body = $('export').querySelector('.body');
+    requestAnimationFrame(() => { const first = exportCards().filter((x) => x.offsetParent).sort((a, b2) => a.getBoundingClientRect().top - b2.getBoundingClientRect().top)[0] === c; // (the first row: What do you need? stays in view)
+      const t = c.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 8, top = first || t < body.clientHeight * 0.3 ? 0 : t;
+      if (smooth && body.scrollTo) body.scrollTo({ top, behavior: 'smooth' }); else body.scrollTop = top; });
+  }
+  /** Opens one row and closes the others ('' : none open). */
+  function xOpen(key, how) {
+    how = how || {}; const c = xCard(key);
+    document.querySelectorAll('#export .xcard').forEach((x) => { const on = x === c; x.classList.toggle('xopen', on); const h = x.querySelector(':scope > .head'); if (h && !xMany) h.setAttribute('aria-expanded', String(on)); });
+    xBoxes(c ? [key] : []);
+    if (c && XFOLDED.has(xGroupOf(c))) xTeamOpen = true;
+    xLayout();
+    if (c && how.scroll !== false) xScrollTo(c, how.smooth);
+    if (c && how.focus) requestAnimationFrame(() => { const h = c.querySelector(':scope > .head'); if (h && !$('export').hidden) try { h.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } }); // (critic: the focus on the row that opens)
+  }
+  /** Several at once: every row a tick (its head), the ticked rows open with their names and choices, their own buttons hidden; one
+      button for a ZIP with them all. */
+  function xManyOn(ids) {
+    xMany = true; $('export').classList.add('xmode'); $('xModeBar').hidden = false; $('xGoBox').hidden = false; if ($('export').classList.contains('plan')) { $('export').classList.add('planall'); $('xOther').hidden = true; } // (from Export plan: every row)
+    document.querySelectorAll('#export .xcard').forEach((x) => { x.classList.remove('xopen'); const h = x.querySelector(':scope > .head'); if (h) { h.setAttribute('role', 'checkbox'); h.removeAttribute('aria-expanded'); } });
+    xBoxes(ids); applyXPick(); xLayout(); xAgainRender();
+    $('export').querySelector('.body').scrollTop = 0;
+    try { $('xOneAtATime').focus({ preventScroll: true }); } catch (e) { /* old WebView */ }
+  }
+  function xManyOff(key) {
+    if (xMany) { xMany = false; $('export').classList.remove('xmode'); $('xModeBar').hidden = true; } $('xGoBox').hidden = true;
+    document.querySelectorAll('#export .xcard').forEach((x) => { x.classList.remove('xmany'); const h = x.querySelector(':scope > .head'); if (h) { h.removeAttribute('role'); h.removeAttribute('aria-checked'); } });
+    dxfOutRender(); xOpen(key || '', { focus: true }); xAgainRender();
   }
   function applyXPick() {
-    const ids = xTicked(), many = ids.length > 1, shown = new Set(exportCards());
-    document.querySelectorAll('#export .xcard').forEach((c) => { const b = c.querySelector('button[id^="do"]'), on = !!b && shown.has(c) && ids.includes(b.id); c.classList.toggle('xoff', !on); c.classList.toggle('xmany', on && many); });
-    $('xGoBox').hidden = ids.length === 1; $('xMultiGo').disabled = !ids.length;
-    $('xMultiGo').textContent = ids.length ? `Export ${ids.length} formats (one ZIP)` : 'Tick a format above';
-    $('xMultiInfo').hidden = !many;
+    const ids = xTicked(), shown = new Set(exportCards()), n = ids.length;
+    document.querySelectorAll('#export .xcard').forEach((c) => { const on = xMany && shown.has(c) && ids.includes(xKey(c)); c.classList.toggle('xmany', on); const h = c.querySelector(':scope > .head'); if (h && xMany) h.setAttribute('aria-checked', String(on)); });
+    $('xMultiGo').disabled = n < 2; $('xMultiGo').textContent = n >= 2 ? `Make ${n} files (one ZIP)` : n === 1 ? 'Tick one more' : 'Tick two or more';
+    if (xMany && n >= 2) { S.xMulti = { ...(S.xMulti || {}), [xMode()]: ids }; persist(); }
+    dxfOutRender();
   }
-  $('xMultiList').addEventListener('change', () => { S.xPick = { ...(S.xPick || {}), [isAcc() ? 'acc' : 'survey']: xTicked() }; persist(); applyXPick(); });
+  /** Several at once (one ZIP)… and Again: the last set (shown when one is kept). */
+  function xAgainRender() {
+    const many = exportCards().filter((c) => !xSolo(c)), keys = many.map(xKey), set = ((S.xMulti || {})[xMode()] || []).filter((k) => keys.includes(k)), b = $('xAgain');
+    b.hidden = set.length < 2 || xMany; if (!b.hidden) b.textContent = `Again: ${set.map((k) => xName(xCard(k))).join(' + ')} (one ZIP)`;
+    $('xManyBtn').hidden = many.length < 2; $('xFoot').hidden = $('xManyBtn').hidden && b.hidden;
+  }
+  /** The project's line of the Completion report: its button (again, once complete) and what it does in this kind of task. */
+  function complRender() {
+    const m = pmeta(), cat = taskCat();
+    $('doCompletion').textContent = m.completedAt ? 'Make the report again' : 'Finish the task and make the report';
+    $('complGet').textContent = cat === 'PAT' ? 'page 1 with the sign-off, then the photos of each deficiency. This also completes and locks the PAT, and sends the date to the online sheet.'
+      : cat === 'FAT' ? 'page 1 with the sign-off and the inspector’s approval (it needs the inspector’s approval QR), then the photos of each deficiency. This also marks the FAT complete.'
+        : cat === 'Cleanup' ? 'page 1 with the sign-off, then the photos of each item as found and fixed. This also marks the cleanup complete.'
+          : 'page 1 with the sign-off, then the photos and the BOQ. This also marks the task complete and sends the date to the online sheet.';
+  }
+  function showExport(pick, opts) {
+    opts = opts || {};
+    renderDxfTpl(); // v2.30
+    try { renderDxfNeed(); } catch (e) { LOG.warn('plan.need', errInfo(e)); } // v2.43 beta 2.1
+    if (xMany) xManyOff(''); // (Export always opens one row at a time)
+    xTeamOpen = false;
+    const cards = exportCards(), acc = isAcc(), keys = cards.map(xKey), next = xNextKey(), last = (S.xLast || {})[xMode()];
+    xBadges(next); complRender();
+    $('boqCardText').textContent = svPurpose() === 'As-built' && !acc // v2.26.1
+      ? 'what was built, by size, against the As-Plan (its KMZ as this project’s reference): planned, built and the difference, with the IDs, the planned elements not found and what was built outside the plan. The same BOQ is in the Completion report and in Route and span lengths.'
+      : 'what the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and span lengths.';
+    const want = pick && keys.includes(pick) ? pick : next && keys.includes(next) ? next : last && keys.includes(last) ? last : keys[0] || '';
+    if (pick && keys.includes(pick)) xRemember(pick);
+    dxfOutRender(); xOpen(want, { focus: !opts.noFocus }); xAgainRender();
+  }
+  /** beta 6.7 (UX step 3 fixes; review): Export on top again after a screen opened over it (Look › Change ›: Plan settings and its Drawing
+      style; Get the roads: Maps; the CEF editor, the splicing details): what they change is shown anew. Before, the Look line still said
+      "Your own · 1 change: Pole labels: Standard" after Tidy was chosen there. The open row, the ticks and the scroll stay. */
+  function xBackOn() {
+    if ($('export').hidden) return;
+    try { renderDxfTpl(); renderDxfNeed(); xBadges(xNextKey()); complRender(); } catch (e) { LOG.warn('export.back', errInfo(e)); }
+  }
+  // a row's head: opens it (closes the others), or closes it; in Several at once, its tick
+  $('export').addEventListener('click', (e) => {
+    const h = e.target.closest && e.target.closest('#export .xcard > .head'); if (!h) return;
+    const c = h.parentElement, k = xKey(c); if (!k) return;
+    if (xMany) { const cb = $('xMultiList').querySelector(`input[value="${k}"]`); if (cb) { cb.checked = !cb.checked; applyXPick(); } return; }
+    if (c.classList.contains('xopen')) { xOpen('', { scroll: false }); return; }
+    xRemember(k); xOpen(k, { smooth: true });
+  });
+  // the row used: kept (the bar's Export opens on it next time); not while Several at once makes its files. beta 6.7 (UX step 3 fixes):
+  // the row whose button was pressed (a tap, Show me, the next step, the tests' click()) is where Your file is ready goes
+  $('export').addEventListener('click', (e) => { if (xCollect) return; const b = e.target.closest && e.target.closest('#export .xcard > button:not(.head)'); if (!b) return; xBtnKey = xKey(b.parentElement); if (e.isTrusted) xRemember(xBtnKey); }, true);
+  $('xMultiList').addEventListener('change', () => { // (the tests tick here: one ticked opens its row, two or more open Several at once)
+    const ids = xTicked();
+    if (xMany) { applyXPick(); return; }
+    if (ids.length > 1) xManyOn(ids); else if (ids.length === 1) { xRemember(ids[0]); xOpen(ids[0]); }
+  });
+  $('xManyBtn').addEventListener('click', () => { const oc = document.querySelector('#export .xcard.xopen'), k = oc && !xSolo(oc) ? xKey(oc) : ''; xManyOn(k ? [k] : []); });
+  $('xAgain').addEventListener('click', () => { const keys = exportCards().filter((c) => !xSolo(c)).map(xKey); xManyOn(((S.xMulti || {})[xMode()] || []).filter((k) => keys.includes(k))); });
+  $('xOneAtATime').addEventListener('click', () => { const ids = xTicked(); xManyOff(ids[0] || (S.xLast || {})[xMode()] || ''); });
+  $('xOther').addEventListener('click', () => { $('export').classList.add('planall'); $('xOther').hidden = true; xLayout(); }); // Export plan: the other rows too
   $('xMultiGo').addEventListener('click', async () => {
     const ids = [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value);
-    if (ids.length < 2) { toast('Tick two or more formats (one format: use its own Export button below)', 4000); return; }
+    if (ids.length < 2) { toast('Tick two or more (one file: Back to one at a time, then its own button)', 4000); return; }
     xCollect = []; const failed = [];
     try {
       for (const id of ids) {
@@ -10139,15 +10400,16 @@
     const n = N.length, ids = N.map((p) => p.id), it = n === 1 ? 'it' : 'them';
     const go = () => { exportPick = pick; planExport = pl; xGo = true; $('exportBtn').click(); };
     LOG.info('export.loose', { n });
+    // beta 6.7 (UX step 3): Fix now · Leave them out of the files · Export as they are (were Fix, Hide, Leave); the same three answers
     const v = ask(`${n} pole${n === 1 ? '' : 's'} on no cable`, N.slice(0, 6).map(looseName).join(' · ') + (n > 6 ? ` +${n - 6} more` : ''), [
-      { label: `Fix: put ${it} on a cable, one at a time on the map`, caption: 'Fix', sub: 'on the map', value: 'fix', primary: true, tile: true, icon: 'i-wrench' },
-      { label: `Hide: leave ${it} out of the exports`, caption: 'Hide', sub: 'not exported', value: 'hide', tile: true, icon: 'i-eyeoff' },
-      { label: `Leave: export ${it} as ${n === 1 ? 'it is' : 'they are'}, on no cable`, caption: 'Leave', sub: 'export as is', value: 'leave', tile: true, icon: 'i-check' },
+      { label: `Fix now: put ${it} on a cable, one at a time on the map`, caption: 'Fix now', sub: 'on the map', value: 'fix', primary: true, tile: true, icon: 'i-wrench' },
+      { label: `Leave ${it} out of the files: not exported`, caption: `Leave ${it} out of the files`, sub: 'not exported', value: 'hide', tile: true, icon: 'i-eyeoff' },
+      { label: `Export ${it} as ${n === 1 ? 'it is' : 'they are'}, on no cable`, caption: n === 1 ? 'Export as it is' : 'Export as they are', sub: 'on no cable', value: 'leave', tile: true, icon: 'i-check' },
       { label: 'Cancel', value: null, x: true }]);
     requestAnimationFrame(() => { const b = $('askBox').querySelector('.btn.tile.primary'); if (b && !$('askBox').hidden) b.focus({ preventScroll: true }); });
     const a = await v;
     if (a === 'leave') { xLeave(ids); go(); }
-    else if (a === 'hide') { const k = await xHideSet(ids, true); if (k) toast(`${k === 1 ? looseName(N[0]) : `${k} poles`} hidden: left out of the exports (Show in exports, in ${k === 1 ? 'its' : 'each'} record, takes ${k === 1 ? 'it' : 'one'} back)`, 5000); go(); }
+    else if (a === 'hide') { const k = await xHideSet(ids, true); if (k) toast(`${k === 1 ? looseName(N[0]) : `${k} poles`} left out of the files (Show in exports, in ${k === 1 ? 'its' : 'each'} record, takes ${k === 1 ? 'it' : 'one'} back)`, 5000); go(); }
     else if (a === 'fix') xfStart(ids, pick, pl);
   }
   /* ---- Fix: the walk ---- */
@@ -10206,10 +10468,10 @@
   }
   function xfRender() {
     if (!xf) return; const id = xf.ids[xf.i], p = points.find((x) => x.id === id), nm = looseName(p), on = xfOn(id), hid = !on && !!(p && p.xHide);
-    $('xfNow').innerHTML = `${xf.i + 1} of ${xf.ids.length} · <b>${hEsc(nm)}</b>${on ? ' <span class="ok">✓ on a cable</span>' : hid ? ' <span class="off">hidden</span>' : ''}`;
+    $('xfNow').innerHTML = `${xf.i + 1} of ${xf.ids.length} · <b>${hEsc(nm)}</b>${on ? ' <span class="ok">✓ on a cable</span>' : hid ? ' <span class="off">left out</span>' : ''}`;
     $('xfPrev').disabled = xf.i === 0; $('xfNext').disabled = xf.i >= xf.ids.length - 1;
-    const hb = $('xfHide'); hb.hidden = on; hb.querySelector('use').setAttribute('href', hid ? '#i-eye' : '#i-eyeoff'); hb.querySelector('span').textContent = hid ? 'Show' : 'Hide';
-    hb.setAttribute('aria-label', hid ? `Show ${nm} in the exports again` : `Hide ${nm}: leave it out of the exports`); hb.title = hb.getAttribute('aria-label');
+    const hb = $('xfHide'); hb.hidden = on; hb.querySelector('use').setAttribute('href', hid ? '#i-eye' : '#i-eyeoff'); hb.querySelector('span').textContent = hid ? 'Put back' : 'Leave out'; // (beta 6.7, UX step 3: were Hide, Show)
+    hb.setAttribute('aria-label', hid ? `Put ${nm} back in the files` : `Leave ${nm} out of the files`); hb.title = hb.getAttribute('aria-label');
   }
   function xfSoon() { if (xf && !xf.t) xf.t = setTimeout(xfCheck, 0); }
   /** After each change to the route: the pole now on a cable moves the walk to the next pole on no cable (a moment later). */
@@ -10230,7 +10492,7 @@
   async function xfFinish() {
     if (!xf) return; const X = xf; xfStop();
     const on = X.ids.filter(xfOn).length, hid = X.ids.filter((id) => !xfOn(id) && (points.find((p) => p.id === id) || {}).xHide).length, rest = X.ids.length - on - hid;
-    const v = await ask(rest ? 'Back to Export?' : 'Done. Back to Export?', [on ? `${on} put on a cable` : '', hid ? `${hid} hidden` : '', rest ? `${rest} still on no cable` : ''].filter(Boolean).join(' · '),
+    const v = await ask(rest ? 'Back to Export?' : 'Done. Back to Export?', [on ? `${on} put on a cable` : '', hid ? `${hid} left out` : '', rest ? `${rest} still on no cable` : ''].filter(Boolean).join(' · '),
       [{ label: 'Not now', value: false }, { label: 'Export', value: true, primary: true, icon: 'i-export' }]);
     if (!v || S.project !== X.proj) return;
     if (routeMode) setRouteMode(false);
@@ -10242,8 +10504,8 @@
   $('xfHide').addEventListener('click', async () => {
     if (!xf) return; const id = xf.ids[xf.i], p = points.find((x) => x.id === id); if (!p) return; const on = !p.xHide;
     if (!(await xHideSet([id], on)) || !xf) return;
-    if (!on) { xfRender(); toast(`${looseName(p)} is in the exports again`, 2500); return; }
-    toast(`${looseName(p)} hidden: left out of the exports`, 2500); xfNextOpen();
+    if (!on) { xfRender(); toast(`${looseName(p)} is back in the files`, 2500); return; }
+    toast(`${looseName(p)} left out of the files`, 2500); xfNextOpen();
   });
   /** The record: "Hidden from the exports" with Show in exports (a survey record hidden and on no cable). */
   function renderEdXHide() {
@@ -10253,26 +10515,57 @@
   }
   $('edXShow').addEventListener('click', async () => { const id = ed && ed.id, p = points.find((x) => x.id === id); if (!p) return; if (await xHideSet([id], false)) toast(`${looseName(p)} is in the exports again`, 2500); });
   $('exportBtn').addEventListener('click', () => {
-    if (cefHooks.isCef && cefHooks.isCef()) { planExport = false; exportPick = null; cefHooks.open(null, { tab: 'export' }); return; } // v2.44: a CEF-Plan project exports from its plan
+    // beta 6.7 (UX step 3; the owner, UX spec §7.4): a CEF-Plan project opens Export too: its CEF plan row (open, starred) and its backup
     if (xGo) xGo = false; // (poles on no cable: answered)
-    else if (exportPick !== 'doBackup' && !isAcc()) { const N = looseNew(); if (N) { const pick = exportPick, pl = planExport; exportPick = null; planExport = false; looseAsk(N, pick, pl); return; } } // a pole on no cable: Fix, Hide or Leave first
+    else if (exportPick !== 'doBackup' && !isAcc()) { const N = looseNew(); if (N) { const pick = exportPick, pl = planExport; exportPick = null; planExport = false; looseAsk(N, pick, pl); return; } } // a pole on no cable: Fix now, Leave them out or Export as they are first
     if (xf) xfStop(); // (Export opened during the Fix walk)
-    const pl0 = planExport; planExport = false; // v2.42.28: Export the plan (from the Drawing)
-    const acc = isAcc(), hidN = acc ? 0 : xHiddenIds().size, n = projPoints().length - hidN;
-    $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}${hidN ? ` · ${hidN} hidden (not exported)` : ''}`;
+    const pl0 = planExport; planExport = false; // v2.42.28: Export plan (from the Drawing)
+    const acc = isAcc(), cef = !acc && isCefProj(), hidN = acc ? 0 : xHiddenIds().size, n = projPoints().length - hidN;
+    $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : cef ? `CEF plan “${S.project}”` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}${hidN ? ` · ${hidN} hidden (not exported)` : ''}`;
     $('accExports').hidden = !acc; $('surveyExports').hidden = acc; $('namingRow').hidden = acc; // acceptance photos are named after the form items
     const stg = pmeta().stage || 'PAT';
     $('xShareBox').hidden = !acc || stg === 'FAT';
-    if (acc && stg !== 'FAT') { $('xShareLbl').textContent = stg === 'Cleanup' ? 'Share cleanup KMZ' : 'Share PAT KMZ'; $('xShareFor').textContent = stg === 'Cleanup' ? 'for the FAT' : 'for defect cleanup / FAT'; renderShareWarn('xShareWarn'); }
+    if (acc && stg !== 'FAT') { // beta 6.7 (UX step 3): Hand on to the next stage
+      const cl = stg === 'Cleanup'; $('xShareName').textContent = cl ? 'Hand on to the FAT inspector' : 'Hand on to the cleanup team and the FAT'; $('xShareLbl').textContent = cl ? 'Share the cleanup KMZ' : 'Share the PAT KMZ';
+      $('xShareFor').textContent = cl ? 'One KMZ with the fixed items, for the FAT inspector' : 'One locked KMZ with every defect, for the cleanup team and the FAT';
+      $('xShareGet').textContent = cl ? 'one KMZ with every item, fixed and open, and its photos, sent through the share sheet; the FAT phone opens it in G-eSAA.' : 'one locked KMZ with every defect and its photos, sent through the share sheet. An unfinished PAT is completed and locked first (you are asked).';
+      $('xShareBox').dataset.find = cl ? 'Hand on to the FAT inspector' : 'Hand on to the cleanup team and the FAT'; $('xShareBox').dataset.tut = cl ? 'cleanup' : 'patdone'; renderShareWarn('xShareWarn'); // (beta 6.7, UX step 5 fixes: its ? opens the cleanup's step)
+    }
+    $('bkName').textContent = `${fileBase()}_BACKUP.zip`; $('bkMbx').hidden = !(mbxOn() && !acc && !pmeta().sample); // beta 6.7 (UX step 3): the backup's name; the team mailbox
     $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; syncExpUi(); syncPhDocUi(); // (beta 3.5: All / Main)
     { const o = S.prOpt || {}; if (o.per) $('prPer').value = o.per; if (o.num) $('prNum').value = o.num; if (o.by) $('prBy').value = o.by; if (o.loc) $('prLoc').value = o.loc; } // beta 3.5
+    const pl = pl0 && !acc && !cef; // v2.42.28: Export plan (from the Drawing): the Plan drawing row, the others under Other exports ›
+    $('export').classList.toggle('plan', pl); $('export').classList.remove('planall'); $('export').classList.toggle('side', pl && deskOn() && stack.includes('drawing')); if ($('export').classList.contains('side')) document.body.classList.add('drwside');
     showExport(exportPick); exportPick = null; renderCredit(); creditNote = ''; // v2.42.6 (v2.42.7: a new export, no old note)
-    const pl = pl0 && !acc; // v2.42.28: Export the plan (from the Drawing): the DXF card only
-    $('export').classList.toggle('plan', pl); $('export').classList.toggle('side', pl && deskOn() && stack.includes('drawing')); if ($('export').classList.contains('side')) document.body.classList.add('drwside');
-    $('exportTitle').textContent = pl ? 'Export the plan' : 'Export';
+    $('xOther').hidden = !pl || exportCards().length < 2;
+    $('exportTitle').textContent = 'Export';
     $('sigEdit').hidden = true; $('sigChange').textContent = 'Change'; $('sigChange').setAttribute('aria-expanded', 'false');
-    $('resultBox').hidden = true; $('resultInsideBox').hidden = true; openSheet('export');
+    $('resultBox').hidden = true; $('resultInsideBox').hidden = true; $('resSteps').hidden = true; xBtnKey = ''; xResKey = ''; openSheet('export');
   });
+  /* beta 6.7 (UX step 3): under the Backup button: Restore a backup… (#doRestore, the same restoreZip), Send the project to your team
+     leader (Projects › Share: its own file, bundleZip, not this backup), Send through the team mailbox, Several projects in one file. */
+  $('bkShare').addEventListener('click', () => guard(() => shareProject(S.project)));
+  $('bkMbx').addEventListener('click', () => { if (mbxOn()) openMbxSend(S.project, mbxModeOf(S.project)); });
+  $('bkMany').addEventListener('click', () => $('bulkShareBtn').click());
+  $('doCef').addEventListener('click', () => closeAll().then(() => cefHooks.open && cefHooks.open(null, { tab: 'export' }))); // a CEF-Plan project: the CEF editor on Check and export
+  /** beta 6.7 (UX step 3): Plan drawing › What to make: AutoCAD files (ZIP) or One PDF to print (S.exp.planOut). The One PDF needs the
+      Drawing (not an Audit) and the company template; Several at once puts the AutoCAD files in its ZIP. */
+  const planOut = () => (S.exp.planOut === 'onepdf' ? 'onepdf' : 'files');
+  function dxfOutRender() {
+    const card = $('dxfCard'), seg = $('dxfOut'); if (!card || !seg) return;
+    const tpl = dxfMode() === 'tpl', can = drawOn() && !isAcc(), one = can && tpl && planOut() === 'onepdf' && !xMany;
+    card.dataset.out = one ? 'onepdf' : 'files'; seg.hidden = !can;
+    $('dxfDescTpl').hidden = !tpl || one; $('dxfDescSimple').hidden = tpl; $('dxfDescOne').hidden = !one; // beta 6.7 (UX step 3 fixes; review): You get: the One PDF when it is chosen
+    seg.querySelectorAll('.chip').forEach((b) => { const on = b.dataset.v === (one ? 'onepdf' : 'files'); b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; if (b.dataset.v === 'onepdf') { b.setAttribute('aria-disabled', String(!tpl)); b.title = tpl ? '' : 'Needs the company template'; } });
+    const t = xMany ? 'Several at once: the AutoCAD files go in the ZIP (the One PDF is made one at a time).' : can && !tpl ? 'One PDF to print needs the company template: tap it to get it.' : '';
+    $('dxfOutNote').textContent = t; $('dxfOutNote').hidden = !t;
+  }
+  $('dxfOut').addEventListener('click', (e) => {
+    const b = e.target.closest('.chip'); if (!b || xMany) return;
+    if (b.dataset.v === 'onepdf' && dxfMode() !== 'tpl') { $('xOnePdf').click(); return; } // (it says what it needs and opens Plan settings)
+    S.exp.planOut = b.dataset.v === 'onepdf' ? 'onepdf' : 'files'; persist(); dxfOutRender(); renderOneBox();
+  });
+  $('dxfOut').addEventListener('keydown', (e) => { if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; e.preventDefault(); const b = $('dxfOut').querySelector(`[data-v="${planOut() === 'onepdf' ? 'files' : 'onepdf'}"]`); if (b) { b.click(); const n = $('dxfOut').querySelector('[aria-checked="true"]'); if (n) n.focus(); } }); // (a radio group: the arrows move the choice)
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
   /** v2.42.4: each record's photo file name as the Photos export names it (by the naming setting, numbered when the same), '' without a photo. */
   function photoNames(pts, have) {
@@ -10571,8 +10864,8 @@
     ['dxfPhotos', 'dxfPhotoW', 'setSym'].forEach((k) => { const el = $(k); const row = el && (el.closest('.opt2') || el.closest('label')); if (row) row.hidden = tpl; });
     const el = $('dxfTplInfo'); el.classList.toggle('ok', !!info && !stale && !seedBusy);
     el.textContent = seedBusy ? 'Getting the plan template from your admin…'
-      : info ? `✓ Plan template ready on this phone (${info.name})${stale ? ' — your admin has shared a newer one: tap Update' : ''}. Tap Export DXF.`
-        : id ? 'Your admin has shared the plan template. Tap Get the template (once: it stays on this phone), or just tap Export DXF.'
+      : info ? `✓ Plan template ready on this phone (${info.name})${stale ? ' — your admin has shared a newer one: tap Update' : ''}. Export → Plan drawing uses it.`
+        : id ? 'Your admin has shared the plan template. Tap Get the template (once: it stays on this phone), or just make the plan drawing (Export → Plan drawing).'
           : 'No plan template yet. Ask your admin to share it, or load the template file they sent you.';
     $('dxfTplGet').hidden = !id || (!!info && !stale); $('dxfTplGet').disabled = !!seedBusy;
     $('dxfTplGet').textContent = stale ? 'Update the template' : 'Get the template';
@@ -10582,7 +10875,8 @@
     $('dxfTplLoad').hidden = !!id && pol().userTpl !== true; // v2.41: the admin's template only, unless the admin lets users load their own
     $('dxfTplBox').querySelector('.dxflogo').hidden = !tpl; if (tpl) renderLogo(); // v2.34
     renderDxfMarks(); // v2.40 (v2.42.28: the card in both kinds of DXF)
-    if (!$('planSet').hidden) renderPlanSet();
+    if (!$('drwStyle').hidden) renderPlanSet(); // (beta 6.7, UX step 4: Plan style)
+    dxfOutRender(); // beta 6.7 (UX step 3 fixes): You get follows What to make (the AutoCAD ZIP or the One PDF)
   }
   $('dxfMode').addEventListener('change', () => { S.exp.dxfMode = $('dxfMode').value; persist(); renderDxfTpl(); });
   /* v2.40: which points of the plan get their photo or number. v2.41: by group: the electric poles together (concrete, wood, steel),
@@ -10718,7 +11012,7 @@
     if (!$('numBox')) return;
     const c = numCfg(); $('numProject').checked = c.mode === 'project'; $('numOwner').checked = c.mode === 'owner'; $('numKeep').checked = c.keep; $('numRenum').checked = !c.keep;
     const st = (pmeta().nums || {})[c.mode] || {}, n = Object.keys(st).length;
-    $('numInfo').textContent = `${c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1; one drawing per owner is clearest.' : 'One number per point, 1, 2, 3… along the cable.'} ${c.keep ? (n ? `${n} numbers given so far: a point added later takes the next one.` : 'Given at the first export, then kept.') : 'Given again at each export.'} Table · CSV has them in its first column (no).`;
+    $('numInfo').textContent = `${c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1; one drawing per owner is clearest.' : 'One number per point, 1, 2, 3… along the cable.'} ${c.keep ? (n ? `${n} numbers given so far: a point added later takes the next one.` : 'Given at the first export, then kept.') : 'Given again at each export.'} The Pole list for the RTA (CSV) has them in its first column (no).`;
   }
   /* ---- v2.42.28: What to export. A row for every point, each pole owner (and each kind of other point: ODF, sites, handholes…),
      and any put together on one drawing; a column for photos, numbers, both. Each tick is one drawing of the export: S.exp.dxfRows,
@@ -10762,7 +11056,7 @@
     });
     box.innerHTML = h; box._g = G;
     $('mxN').textContent = `${R.length} drawing${R.length === 1 ? '' : 's'}`;
-    $('mxGo').textContent = R.length === 1 ? 'Export' : `Export ${R.length} drawings`;
+    $('mxGo').textContent = 'Done';
     const mk = keys;
     $('mxMix').innerHTML = mxMix
       ? `<div class="mxmix"><span class="lbl">ON ONE DRAWING</span><div class="chips">${mk.map((k) => `<button type="button" class="chip small" data-k="${C.xmlEsc(k)}" aria-pressed="${mxMix.has(k)}">${C.xmlEsc(chipName(k))}</button>`).join('')}</div><div class="row"><button type="button" class="btn small primary" id="mxMixAdd"${mxMix.size >= 2 ? '' : ' disabled'}>Add the row</button><button type="button" class="lnkbtn" id="mxMixNo">Cancel</button></div></div>`
@@ -10770,7 +11064,7 @@
     const c = numCfg(), np = projPoints().filter((p) => markKey(p)).length;
     $('mxNumP').setAttribute('aria-pressed', String(c.mode === 'project')); $('mxNumO').setAttribute('aria-pressed', String(c.mode === 'owner'));
     $('mxNumP').textContent = `Whole project${np ? `, 1–${np}` : ''}`;
-    $('mxNumInfo').textContent = c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1, on its drawing and in Table · CSV (column no).' : 'One count along the cable, the same in Table · CSV (column no).';
+    $('mxNumInfo').textContent = c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1, on its drawing and in the Pole list for the RTA (column no).' : 'One count along the cable, the same in the Pole list for the RTA (column no).';
   }
   /** The table's place: What to export on the Drawing, or the DXF card for a survey without the Drawing (Audit). */
   function mxHome(inCard) {
@@ -10802,7 +11096,7 @@
   /** Once in a project, the first numbers for a pole owner: each owner's from 1 (one RTA list each), or one count for the project. */
   async function askOwnerNums() {
     setNumCfg({ asked: true });
-    const v = await ask('Number each owner’s poles from 1?', 'For one RTA list per pole owner: each owner’s poles 1, 2, 3… on its drawing and in Table · CSV (column no). Or one count along the cable for the whole project, as now. You can change it later, under this table or in Plan settings.',
+    const v = await ask('Number each owner’s poles from 1?', 'For one RTA list per pole owner: each owner’s poles 1, 2, 3… on its drawing and in the Pole list for the RTA (column no). Or one count along the cable for the whole project, as now. You can change it later, under this table or in Plan style.',
       [{ label: 'Whole project', value: 'project' }, { label: 'Each owner from 1', value: 'owner', primary: true }]);
     if (v === 'owner') { setNumCfg({ mode: 'owner' }); renderNums(); mxChanged(); toast('Numbers: each pole owner’s from 1', 3000); }
   }
@@ -10831,13 +11125,16 @@
     renderSig(); renderNums();
     if (!$('dxfFiles')) return;
     const tpl = dxfMode() === 'tpl', R = dxfRows(), pts = xNow(projPoints), np = pts.filter((p) => elemOf(p) === 'Pole').length, RM = xNow(routeModel), info = S.dxfSeed, stale = seedStale(); // (what the export makes: not the poles hidden from it)
-    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan settings › Template and logo)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan settings › Template and logo.'];
+    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan style › Plan file)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan style › Plan file.'];
     $('dxfSum').innerHTML = `<span class="nm">${C.xmlEsc(S.project || '')}</span><span class="mt">${C.xmlEsc([pu === 'As-built' ? 'As-Built' : pu === 'As-plan' ? 'As-Plan' : pu, `${np} pole${np === 1 ? '' : 's'}`, `${RM.spans.length} span${RM.spans.length === 1 ? '' : 's'}`, fmtLen(RM.total)].filter(Boolean).join(' · '))}</span><span class="${st[0]}">${C.xmlEsc(st[1])}</span>`;
-    $('dxfFiles').hidden = !tpl; $('dxfFilesLbl').hidden = !tpl; $('dxfWhat').hidden = !tpl || !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl; $('dxfCefRow').hidden = !tpl || !(cefHooks.plansN && cefHooks.plansN(S.project)); // (beta 4.1: shown when the project holds a CEF plan)
+    $('dxfFilesBox').hidden = !tpl; $('dxfWhatRow').hidden = !tpl; $('dxfWhat').hidden = !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl; $('dxfCefRow').hidden = !tpl || !(cefHooks.plansN && cefHooks.plansN(S.project)); // (beta 4.1: shown when the project holds a CEF plan)
+    // beta 6.7 (UX step 3): Drawings (1 · Every point · Photo) and Look (the company standard, or what differs from it)
+    $('dxfWhatV').textContent = `${R.length} · ${R.slice(0, 2).map(rowShort).join(', ')}${R.length > 2 ? ` +${R.length - 2}` : ''}`;
+    { const D = tpl ? plStdDiff() : []; $('dxfLookV').textContent = !tpl ? 'Simple drawing: points and photos' : D.length ? `Your own · ${D.length} change${D.length === 1 ? '' : 's'}: ${D.map(([k, v]) => `${k}: ${v}`).join(' · ')}` : 'Company standard ✓'; }
     const inCard = tpl && !drawOn() && !isAcc(); mxHome(inCard); if (inCard) mxRender(); // no Drawing (an Audit survey): the table here
-    $('dxfFilesLbl').textContent = R.length === 1 ? '1 DRAWING' : `${R.length} DRAWINGS · ONE DXF EACH${S.exp.dxfPdf ? ' AND ONE PDF' : ''}`;
+    $('dxfFilesLbl').textContent = R.length === 1 ? 'FILES IN THE ZIP · 1 DRAWING' : `FILES IN THE ZIP · ${R.length} DRAWINGS · ONE DXF EACH${S.exp.dxfPdf ? ' AND ONE PDF' : ''}`;
     $('dxfFiles').innerHTML = R.map((r, i) => { const n = r.pts.includes('*') ? null : rowSel(r, pts).ids.length; return `<div class="dxffile"><span class="n">${i + 1}</span><span>${C.xmlEsc(mxRowName(r))}${n != null ? ` <small>${n}</small>` : ''}</span><span class="m">${mxIcon(r.mode)}${MX_SHORT[r.mode]}</span></div>`; }).join('');
-    $('doDxf').textContent = tpl && R.length > 1 ? `Export ${R.length} drawings` : 'Export DXF';
+    $('doDxf').textContent = tpl && R.length > 1 ? `Make ${R.length} plan drawings` : 'Make the plan drawing'; // beta 6.7 (UX step 3): worded like the row
     renderDxfLbl(tpl); // beta 4.7
     if (splHooks.need) splHooks.need(); // beta 4.6: the CEF plan and the splicing details still to make
     sigLine();
@@ -10847,7 +11144,7 @@
   /** The names on the sheet in one line (Change opens the four fields). */
   function sigLine() {
     const L = [['design', 'Design Engineer'], ['project', 'Project Engineer'], ['head', 'Project Manager'], ['cse', 'CSE Lead']], set = L.filter(([k]) => String(S.sig[k] || '').trim()), blank = L.length - set.length;
-    $('sigLine').innerHTML = (set.length ? set.map(([k, l]) => `<span><small>${l}</small><b>${C.xmlEsc(String(S.sig[k]).trim())}</b></span>`).join('') : '<span>None yet</span>')
+    $('sigLine').innerHTML = `<b>${set.length} of ${L.length} filled</b>` + (set.length ? `<small>${set.map(([k, l]) => `${l}: ${C.xmlEsc(String(S.sig[k]).trim())}`).join(' · ')}</small>` : '') // beta 6.7 (UX step 3): Names on the sheet · 2 of 4 filled
       + `<small>${blank ? `${blank === L.length ? 'All' : blank} left blank, to sign by hand` : 'All four set'}${String(S.sig.cse || '').trim() ? '' : '. The CSE Lead comes from the online sheet when it has one'}.</small>`;
     // beta 4.3 (MarkT): the three names of the CEF sheets are here too (the CEF editor has the same ones under Check and export): shown when the project holds a CEF plan
     const cefOn = !!(cefHooks.plansN && cefHooks.plansN(S.project)); if ($('sigCefBox')) $('sigCefBox').hidden = !cefOn;
@@ -10895,47 +11192,308 @@
   SIG_CEF.forEach(([id, k]) => { const el = $(id); if (!el) return; el.addEventListener('input', () => { cefSetSign({ ...cefSign(), [k]: el.value }); }); el.addEventListener('change', () => { renderSig(); sigLine(); }); });
   /* v2.42.28: the DXF card's links: What to export (on the Drawing) and Plan settings */
   $('dxfWhat').addEventListener('click', () => { const under = stack.includes('drawing'); closeSheet().then(() => { if (!under) { if (!drawOn()) { toast('The Drawing is for As-Plan and As-Built surveys'); return; } openDrawing(); } if (!$('drawing').hidden) setWhat(true, deskOn()); }); });
-  $('dxfSetBtn').addEventListener('click', () => openPlanSet());
+  $('dxfSetBtn').addEventListener('click', () => openStyle('basic')); // beta 6.7 (UX step 4): Look · Change › opens Plan style › Basic
   $('dxfPdf').addEventListener('change', () => setTimeout(renderDxfMarks, 0));
   /* beta 4.7: Pole labels on the plan: Standard (each pole's details and coordinates turned with the cable, as before) or Tidy (one
      straight label per pole: tag · type, then its clamps, owner and lat/long in smaller text), on the company template only; kept with the export settings */
   function renderDxfLbl(tpl) {
     const row = $('dxfLblRow'); if (!row) return;
-    row.hidden = !tpl; const v = S.exp.dxfLabels === 'tidy' ? 'tidy' : 'std';
+    const v = S.exp.dxfLabels === 'tidy' ? 'tidy' : 'std'; // (beta 6.7, UX step 4: Plan style › Basic; with the Simple drawing greyed, not hidden)
     row.querySelectorAll('.chip').forEach((b) => { const on = b.dataset.v === v; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
-    $('dxfLblSub').textContent = v === 'tidy' ? 'Along the cable, off the road, never overlapping' : 'Turned along the cable'; // (beta 4.8)
+    $('dxfLblSub').textContent = v === 'tidy' ? 'Tidy: one block per pole, nothing on top of anything, finer sheets where crowded.' : 'Standard: each pole\u2019s details beside it, turned along the cable, as before.'; // (beta 4.8; beta 6.7, UX step 4: one line)
   }
-  $('dxfLbl').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b || !b.dataset.v) return; S.exp.dxfLabels = b.dataset.v === 'tidy' ? 'tidy' : 'std'; persist(); renderDxfLbl(dxfMode() === 'tpl'); });
-  $('dxfLbl').addEventListener('keydown', (e) => { if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; e.preventDefault(); S.exp.dxfLabels = S.exp.dxfLabels === 'tidy' ? 'std' : 'tidy'; persist(); renderDxfLbl(dxfMode() === 'tpl'); const b = $('dxfLbl').querySelector('[aria-checked="true"]'); if (b) b.focus(); }); // (a radio group: the arrows move the choice)
+  $('dxfLbl').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b || !b.dataset.v) return; plLabels(b.dataset.v); }); // (beta 6.7, UX step 4: the preview, the company standard and the greyed rows follow)
+  $('dxfLbl').addEventListener('keydown', (e) => { if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; e.preventDefault(); plLabels(S.exp.dxfLabels === 'tidy' ? 'std' : 'tidy'); const b = $('dxfLbl').querySelector('[aria-checked="true"]'); if (b) b.focus(); }); // (a radio group: the arrows move the choice)
   SIG_IDS.forEach(([id]) => { const el = $(id); if (el) el.addEventListener('input', () => sigLine()); });
-  /* ---- v2.42.28: Plan settings: how every drawing of the plan export looks and is numbered, in one place: Drawing style, clamp types
-     on the plan (the CA button of the Drawing before), pole numbers, the loops in the PMI cable lengths, the template and logo, the
-     kind of DXF and its options. On a computer, over the Drawing, it opens beside the plan. */
+  /* ---- beta 6.7 (UX step 4; the owner: "PLAN Settings ... see if it overlaps with the design style or it can be merge with design style.
+     Design Style: make this settings simpler, more intuitive and easy to catch by non-technical users"): Plan style, Plan settings (v2.42.28)
+     and Drawing style (v2.41) in one screen: the company standard (PL_STD), Basic (Pole labels, Pole number colours, Photos on the plan and
+     their stamp, Clamp types, 20 m loops at boxes, BOQ table on each map sheet, Pole numbers in this project) and Advanced (12 sections,
+     folded; the one opened shows its part of the plan in the preview). Every control kept its id and its stored key: nobody's setting
+     changes by itself. On a computer, over the Drawing, it opens beside the plan (✎ ends first). ---- */
   function renderPlanSet() {
     if (!$('psCA')) return;
-    const ca = S.exp.dxfClampType !== false, c = numCfg(), tpl = dxfMode() === 'tpl';
-    $('psCA').checked = ca; $('psCASum').textContent = ca ? 'On: the type before the size (CA 8-10, GCA, 2A, DEG, RL)' : 'Off: the sizes only (the types stay in the BOQ, KMZ and CSV)';
-    $('psNumSum').textContent = `${c.mode === 'owner' ? 'Each owner from 1 (one RTA list each)' : 'Whole project, along the cable'} · ${c.keep ? 'kept once given' : 'renumbered at each export'}`;
-    $('psLoopSum').textContent = S.exp.pmiLoops !== false ? 'Counted in total, aerial and underground' : 'The spans only';
-    { const bl = plStyle().cab.boxLoops; $('psBoxLoop').checked = bl; $('psBoxLoopSum').textContent = bl ? 'Written beside each handhole, manhole, service box and ODF, site or ODC entrance: the plan\u2019s numbers add up to the tables' : 'Not written (the PMI and the BOQ tables count them all the same)'; } // beta 6.7 (the owner: "i do not see 'Clamp types and cable labels'")
-    $('psTplSum').textContent = !tpl ? 'Not used by the simple DXF' : seedBusy ? 'Getting it from your admin…' : S.dxfSeed ? `✓ ${S.dxfSeed.name}${seedStale() ? ' · a newer one is shared' : ''}` : seedId() ? 'Shared by your admin: got at the first export' : 'No template on this phone yet';
-    $('psKindSum').textContent = `${tpl ? 'On the company plan template' : 'Simple: points and photos at UTM'} · UTM ${S.zone}N`;
+    const ca = S.exp.dxfClampType !== false, tpl = dxfMode() === 'tpl', noProj = !S.project;
+    $('psCA').checked = ca; $('psCASum').textContent = ca ? 'For example CA 8-10. Off: the sizes only.' : 'Off: the sizes only (the types stay in the BOQ, KMZ and CSV).';
+    // Pole numbers in this project (critic: Plan style opened from Settings with no project: said, and its choices off)
+    ['numProject', 'numOwner', 'numKeep', 'numRenum'].forEach((id) => { $(id).disabled = noProj; });
+    $('psNumSum').textContent = noProj ? 'Open a project to set its pole numbers.' : 'Each owner from 1 gives one RTA list per owner. Saved in this project.';
+    $('psLoopSum').textContent = S.exp.pmiLoops !== false ? 'On: counted in the total, aerial and underground lengths.' : 'Off: the spans only.';
+    $('psBoxLoop').checked = plStyle().cab.boxLoops; $('psBoxLoopSum').textContent = 'Beside handholes, manholes, service boxes, ODFs. Counted in the tables either way.';
+    $('psTplSum').textContent = !tpl ? 'not used by the Simple drawing' : seedBusy ? 'getting it from your admin…' : S.dxfSeed ? `✓ ${S.dxfSeed.name}${seedStale() ? ' · a newer one is shared' : ''}` : seedId() ? 'shared by your admin: got at the first export' : 'none on this phone yet';
+    $('psKindSum').textContent = tpl ? 'Company plan' : 'Simple';
+    renderDxfLbl(tpl);
+    // the banners: no template on this phone (Get it); the Simple drawing (Basic's look is the company plan's: greyed, no company standard card)
+    $('plBanTpl').hidden = !tpl || !!S.dxfSeed; $('plBanTplGet').textContent = seedId() ? 'Get it' : 'Load it ›'; $('plBanTplGet').disabled = !!seedBusy;
+    $('plBanSimple').hidden = tpl;
+    $('plBasic').querySelectorAll('.plb:not(#psNum)').forEach((r) => r.classList.toggle('dim', !tpl));
+    planStdRender(tpl);
   }
-  function openPlanSet() {
-    if (toSheet('planSet')) return;
-    renderDxfTpl(); syncExpUi(); renderNums(); renderPlanSet();
-    const side = stack.includes('drawing') && deskOn(); $('planSet').classList.toggle('side', side); if (side) document.body.classList.add('drwside');
-    openSheet('planSet');
+  /** The company standard in words, from PL_STD (one place: flipping it there changes this). */
+  const plStdText = () => [PL_STD.dxfLabels === 'tidy' ? 'Tidy labels' : 'Standard labels', PL_STD.rtaOn ? 'owner colours' : 'one number colour', `photos ${phName(PL_STD.photoSize)}${PL_STD.photoStamp === 'off' ? '' : `, stamped ${PL_STD.photoStamp === 'addr' ? 'lat-long + address' : 'lat-long'}`}`, PL_STD.dxfClampType ? 'clamp types' : 'clamp sizes only', ...(PL_STD.boxLoops ? ['20 m loops written'] : []), ...(PL_STD.dxfBoqGrid ? ['BOQ table on each sheet'] : [])].join(' · ');
+  function planStdRender(tpl) {
+    const box = $('psStd'); if (!box) return; const D = plStdDiff();
+    box.hidden = !tpl; box.classList.toggle('off', D.length > 0); // (critic: the Simple drawing has none of these: no card)
+    $('psStdT').innerHTML = D.length ? `<b>Your own: ${D.length} change${D.length === 1 ? '' : 's'} from the company standard</b>${C.xmlEsc(D.map(([k, v]) => `${k}: ${v}`).join(' · '))}` : `<b>✓ Company standard</b>${C.xmlEsc(plStdText())}`;
+    $('psStdUse').hidden = !D.length;
   }
-  $('psStyle').addEventListener('click', () => openStyle());
-  $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderPlanSet(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
-  ['pmiLoops', 'dxfMode', 'setZone'].forEach((id) => $(id).addEventListener('change', () => setTimeout(renderPlanSet, 0)));
-  $('psBoxLoop').addEventListener('change', () => { setPl('cab', 'boxLoops', $('psBoxLoop').checked); renderPlanSet(); toast($('psBoxLoop').checked ? 'The loops at boxes and ODF entrances are written on the plan' : 'The loops at boxes and ODF entrances: counted, not written', 2500); }); // beta 6.7: the same setting as Drawing style › Loops
+  /** Use company standard: the PL_STD keys only (the Basic look); the Advanced choices and the project's numbers stay. */
+  function useStd() {
+    const P = plStyle();
+    S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid;
+    S.plStyle = { ...P, num: { ...P.num, rta: { ...P.num.rta, on: PL_STD.rtaOn } }, photo: { ...P.photo, size: PL_STD.photoSize, stamp: PL_STD.photoStamp }, cab: { ...P.cab, boxLoops: PL_STD.boxLoops } };
+    persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Company standard ✓ (your Advanced choices are kept)', 2500);
+  }
+  $('psStdUse').addEventListener('click', useStd);
+  /** Pole labels Tidy or Standard (Basic, and the Switch of a greyed row). */
+  function plLabels(v) { S.exp.dxfLabels = v === 'tidy' ? 'tidy' : 'std'; persist(); renderStyle(); }
+  /* critic: a setting that does nothing in the current mode stays, greyed, with its reason and a Switch (never hidden): [is it greyed,
+     the reason, the button, what it does]. A row lists its groups in data-dim; the first one that applies is said. */
+  const PL_DIM = {
+    clamp: [() => S.exp.dxfClampType === false, 'Only with Clamp types beside each pole', 'Switch on', () => { S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }],
+    tidy: [() => S.exp.dxfLabels !== 'tidy', 'Only with Tidy labels', 'Switch to Tidy', () => plLabels('tidy')],
+    notidy: [() => S.exp.dxfLabels === 'tidy', 'Not used with Tidy labels', 'Switch to Standard', () => plLabels('std')],
+    clpos: [(P) => P.clamp.place === 'label', 'Not used with “In the pole label”', 'Use a small box', () => setPl('clamp', 'place', 'tag')],
+    cab: [(P) => !P.cab.on, 'Only with the cable name on', 'Switch on', () => setPl('cab', 'on', true)],
+    auto: [(P) => !P.crowd.auto, 'Only with Fit automatically', 'Switch', () => setPl('crowd', 'auto', true)],
+    tower: [(P) => P.site.move === 'point', 'Only with Move it aside', 'Switch', () => setPl('site', 'move', 'auto')],
+    vicarea: [(P) => !P.vic.area, 'Only when the project area circle is shown', 'Show it', () => setPl('vic', 'area', true)],
+    rta: [(P) => !P.num.rta.on, 'Only with Pole number colours: By pole owner', 'Switch', () => rtaSet(plStyle().num.rta.cats, true)],
+  };
+  let plDimN = 0;
+  function plDims(P) {
+    $('drwStyle').querySelectorAll('[data-dim]').forEach((row) => {
+      const g = row.dataset.dim.split(' ').find((k) => PL_DIM[k] && PL_DIM[k][0](P)), ctl = row.querySelectorAll(':scope > .seg, :scope > .sws, :scope > input, :scope > .stauto, :scope > .rtalist');
+      row.classList.toggle('dim', !!g);
+      let w = row.querySelector(':scope > .dimwhy');
+      if (!g) { if (w) w.hidden = true; ctl.forEach((c) => { c.removeAttribute('aria-disabled'); c.removeAttribute('aria-describedby'); }); return; }
+      if (!w) {
+        w = document.createElement('div'); w.className = 'dimwhy'; w.id = `plWhy${++plDimN}`; w.innerHTML = '<span></span><button type="button" class="btn sm"></button>';
+        w.lastChild.addEventListener('click', () => { const D = PL_DIM[w.dataset.g]; if (D) D[3](); });
+        const lb = row.querySelector(':scope > .lbl'); if (lb) lb.after(w); else row.prepend(w);
+      }
+      const D = PL_DIM[g]; w.hidden = false; w.dataset.g = g; w.firstChild.textContent = D[1]; w.lastChild.textContent = D[2];
+      ctl.forEach((c) => { c.setAttribute('aria-disabled', 'true'); c.setAttribute('aria-describedby', w.id); });
+    });
+  }
+  /** Each Advanced section, closed, says what it is set to (e.g. Pole numbers: Keep · owner colours on · key Off). */
+  function plSums(P) {
+    const on = (b) => (b ? 'on' : 'off'), c = numCfg(), set = (id, t) => { const d = $(id), x = d && d.querySelector(':scope > summary .secsum'); if (x) x.textContent = t; };
+    set('stNum', `${S.project ? `${c.keep ? 'Keep the numbers' : 'Renumber at each export'} · ` : ''}owner colours ${on(P.num.rta.on)} · key ${{ off: 'Off', boq: 'under the BOQ tables', sheet: 'on the LEGENDS sheet' }[P.num.rta.legend]}`);
+    set('stPole', `Pole ID ${{ auto: 'Auto', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · sizes ${[P.pole.idH, P.pole.ownH, P.pole.llH, P.span.h].some(Boolean) ? 'your own' : 'Auto'}`);
+    set('stId', `${P.id.bold ? 'Bold' : 'Normal'} · ${P.id.h} m high`);
+    set('stCl', S.exp.dxfClampType === false ? 'Clamp types off (Basic)' : `${{ label: 'In the pole label', tag: 'Small box (tag)', callout: 'Box with a line (callout)' }[P.clamp.place]}${P.clamp.place !== 'label' ? ` · side ${{ auto: 'Auto', up: 'above', down: 'below', left: 'left', right: 'right' }[P.clamp.pos]}` : ''}`);
+    set('stRoute', `${P.cab.route === 'straight' ? 'Straight from point to point' : 'Follows the road'} · name ${on(P.cab.on)}`);
+    set('stPh', `${phName(P.photo.size)} · ${phTidyMm(P.photo.size)} mm · near its pole ${P.photo.near} mm`);
+    set('stCrowd', P.crowd.auto ? 'Fit automatically' : 'Leave as they are');
+    set('stLm', `Icons ${on(P.crowd.icons)} · names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]}`);
+    set('stSite', `Name ${{ on: 'on the tower', top: 'top', side: 'side', bottom: 'bottom' }[P.site.name]} · ${P.site.move === 'point' ? 'kept at its point' : 'moved aside'} · ODF ${P.odf.place === 'auto' ? 'Auto' : P.odf.place}`);
+    set('stVic', `Zoom ${on(P.vic.zoom)} · circle ${P.vic.area ? 'shown' : 'hidden'}`);
+    set('stGrid', `Split ${P.grid.split ? `1/${P.grid.split}` : 'Auto'} · sheet name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}`);
+    set('stFile', `${dxfMode() === 'tpl' ? (S.dxfSeed ? 'Company template ✓' : 'Company plan, no template yet') : 'Simple drawing'} · UTM ${S.zone}N · loops in the PMI ${on(S.exp.pmiLoops !== false)}`);
+  }
+  /** An Advanced section by its id (stNum…) or the tutorial's part (numbers, sheets, file…); null for none. */
+  const plSec = (k) => { if (!k) return null; const d = $(k) || $(TUT_PLPART[k] || ''); return d && d.matches('#plAdv details.stsec') ? d : null; };
+  /** Basic or Advanced (and the section asked opened): the preview follows (Basic: the street; Advanced: the open section's part). keep:
+      the scene stays (a label tapped on the preview). The tab used last is kept (S.plTab), as the section opened last (S.plOpen). */
+  function plTab(t, sec, keep) {
+    const adv = t === 'advanced';
+    [['plTabB', !adv], ['plTabA', adv]].forEach(([id, on]) => { $(id).setAttribute('aria-selected', String(on)); $(id).tabIndex = on ? 0 : -1; });
+    $('plBasic').hidden = adv; $('plAdv').hidden = !adv;
+    if (S.plTab !== (adv ? 'advanced' : 'basic')) { S.plTab = adv ? 'advanced' : 'basic'; persist(); }
+    const d = adv ? plSec(sec) : null; if (d && !d.open) d.open = true;
+    if (!keep) { const o = d || (adv ? [...$('plAdv').querySelectorAll('details.stsec[open]')].pop() : null); DSP.setScene(o && o.dataset.scene ? o.dataset.scene.split(' ')[0] : 'street'); }
+    return d;
+  }
+  /** Plan style: tab 'basic' or 'advanced' (else the one used last), sec: an Advanced section (its id or part) to open and show. top
+      (beta 6.7, UX step 5 fixes, round 2): no section brought into view (the one opened last stays as it is): Find a setting's turn. */
+  function openStyle(tab, sec, top) {
+    const t = tab === 'advanced' || tab === 'basic' ? tab : sec ? 'advanced' : S.plTab === 'advanced' ? 'advanced' : 'basic', s2 = sec || (t === 'advanced' && !top ? S.plOpen : '');
+    if (toSheet('drwStyle')) { const d = plTab(t, s2); setTimeout(() => { if (d) DSP.toRow(d); }, 0); return; }
+    renderDxfTpl(); syncExpUi(); renderNums();
+    const side = stack.includes('drawing') && deskOn(); if (side && drwEd) drwEditSet(false); $('drwStyle').classList.toggle('side', side); if (side) document.body.classList.add('drwside'); // (beside the plan it would cover ✎'s route bar: ✎ ends first)
+    DSP.reset(); if ($('plFindQ').value) { $('plFindQ').value = ''; plFindRender(); } plFindReset(); const d = plTab(t, s2); renderStyle(); DSP.render(); openSheet('drwStyle'); // (beta 6.7, UX step 5: Find a setting empty at each opening)
+    setTimeout(() => { const bd = $('drwStyle').querySelector('.dsbody'); if (bd) bd.scrollTop = 0; DSP.onScroll(); if (d) DSP.toRow(d); }, 0); // (from the top, the preview large; a section asked: in view)
+  }
+  /** v2.42.28's Plan settings: Plan style › Basic (the old name kept for the tests and the tutorial's planset). */
+  function openPlanSet() { openStyle('basic'); }
+  ['plTabB', 'plTabA'].forEach((id) => $(id).addEventListener('click', () => { const adv = id === 'plTabA', d = plTab(adv ? 'advanced' : 'basic', adv ? S.plOpen : ''); if (d) setTimeout(() => DSP.toRow(d), 0); }));
+  // the tabs from the keyboard (critic; ARIA tabs): the arrows go to the other tab, Home to Basic, End to Advanced; the tab chosen has focus
+  document.querySelector('#drwStyle .pltabs').addEventListener('keydown', (e) => {
+    const k = e.key; if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(k)) return; e.preventDefault();
+    const adv = k === 'End' ? true : k === 'Home' ? false : $('plAdv').hidden; plTab(adv ? 'advanced' : 'basic', adv ? S.plOpen : ''); $(adv ? 'plTabA' : 'plTabB').focus();
+  });
+  $('plRtaLink').addEventListener('click', () => { plTab('advanced', 'stNum'); setTimeout(() => DSP.toRow($('stRtaRow')), 0); }); // Owner colours and key ›
+  $('plBanTplGet').addEventListener('click', () => { if (seedId()) { $('dxfTplGet').click(); return; } plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psTpl')), 0); });
+  $('plBanSimpleGo').addEventListener('click', () => { plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psKind')), 0); });
+  $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderStyle(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
+  ['pmiLoops', 'dxfMode', 'setZone', 'dxfBoqGrid', 'dxfRoads'].forEach((id) => $(id).addEventListener('change', () => setTimeout(() => { if (!$('drwStyle').hidden) renderStyle(); }, 0)));
+  $('psBoxLoop').addEventListener('change', () => { setPl('cab', 'boxLoops', $('psBoxLoop').checked); toast($('psBoxLoop').checked ? 'The 20 m loops at boxes and ODF entrances are written on the plan' : 'The loops at boxes and ODF entrances: counted, not written', 2500); }); // beta 6.7: one setting (S.plStyle.cab.boxLoops)
+  $('goPlanStyle').addEventListener('click', () => openStyle()); // Settings › Exports and files › Plan style ›
+  /* the one-time note (critic: never a dialog; only on a phone that had the old screens: a new install has S.plNotice set at start; not
+     under automation, where it could cover what a test taps: force, the tests' own check of it) */
+  function plNoticeShow(force) { if (S.plNotice && !force) return; if (!force && navigator.webdriver) return; S.plNotice = 1; persist(); $('drawPlNote').hidden = false; }
+  $('drawPlNoteShow').addEventListener('click', () => { $('drawPlNote').hidden = true; openStyle('basic'); });
+  $('drawPlNoteOk').addEventListener('click', () => { $('drawPlNote').hidden = true; });
+  /* ---- beta 6.7 (UX step 5; spec §5 step 5; the owner: "Ensure every new feature to be on [the tutorial] to search it if needed"):
+     Find a setting. Every row of Plan style carries its label (data-find; data-findx in Colours and sizes and the Simple drawing's
+     own fields): the index is made from them once, and GESAA_TUTORIAL.settings ranks it with the Tutorial's word rules (other
+     spellings, endings, short words at the start of a word). Plan style's Find a setting box lists them; the Tutorial's search
+     shows the best ones first as "Setting · Sheet split (Tidy) · Plan style › Map sheets", Show me. A result opens its tab and
+     section (and its Colours and sizes) and marks the row, as a label tapped on the preview does. ---- */
+  let plIdx = null;
+  /** [{ label, where, text, el, tab, sec, main, when, need, why, how }]: the rows of Plan style (Basic and Advanced) by their label, in
+      the screen's order. need, why, how (beta 6.7, UX step 5 fixes; data-findneed, -findwhy, -findhow): a row the other choices hide
+      (the Simple drawing's own rows while the company plan is made): the row that shows it (Kind of drawing), when it is used, what to do. */
+  function plIndex() {
+    if (plIdx) return plIdx;
+    const words = (el) => { // its text nodes, a space between (chips side by side: Auto 1/1 1/2, not Auto1/11/2), less its help, reasons, values and rows
+      const c = el.cloneNode(true); c.querySelectorAll('details.help, .dimwhy, .findwhy, output, .secsum, .qhelp, .nopv, [data-find], [data-findx]').forEach((x) => x.remove());
+      const w = document.createTreeWalker(c, NodeFilter.SHOW_TEXT), out = []; while (w.nextNode()) out.push(w.currentNode.nodeValue); return out.join(' ').replace(/\s+/g, ' ').trim();
+    };
+    plIdx = [...$('drwStyle').querySelectorAll('[data-find], [data-findx]')].filter((el) => el.closest('#plBasic, #plAdv')).map((el) => {
+      const isSec = el.matches('details.stsec'), sec = isSec ? el : el.closest('details.stsec'), basic = !!el.closest('#plBasic'), nd = el.closest('[data-findneed]');
+      const where = ['Plan style', isSec ? 'Advanced' : basic ? 'Basic' : sec ? sec.dataset.find : '', el.closest('details.stcs') ? 'Colours and sizes' : ''].filter(Boolean).join(' › ');
+      return { label: el.dataset.find || el.dataset.findx, where, text: isSec ? '' : words(el), el, tab: basic ? 'basic' : 'advanced', sec: sec ? sec.id : '', main: basic,
+        when: /\btidy\b/.test(el.dataset.dim || '') ? 'Tidy' : el.closest('#dxfSimpleOpts') ? 'Simple drawing' : '', // (main: a Basic choice; when: Sheet split (Tidy) works with Tidy: GESAA_TUTORIAL.settings)
+        need: nd ? nd.dataset.findneed : '', why: nd ? nd.dataset.findwhy || '' : '', how: nd ? nd.dataset.findhow || '' : '', offIf: nd ? nd.dataset.findoff || '' : '' };
+    });
+    return plIdx;
+  }
+  /** beta 6.7 (UX step 5 fixes; reviewer): the row is hidden by the other choices (the Simple drawing's own rows while the company plan
+      is made: renderDxfTpl). A closed section or the other tab does not count: the row is opened. beta 6.7 (UX step 5 fixes, round 2;
+      reviewer): told by the setting itself (data-findoff: PL_OFF), not by the screen: renderDxfTpl sets the screen only when Plan style
+      or Export opens, so right after launch the Tutorial's search read the Simple drawing's rows as shown. The screen still tells for a
+      row with no data-findoff. */
+  const PL_OFF = { tpl: () => dxfMode() === 'tpl' }; // (data-findoff="tpl": hidden while Kind of drawing is the company plan)
+  const plOff = (e) => { if (e.offIf && PL_OFF[e.offIf]) return PL_OFF[e.offIf](); for (let x = e.el; x && !x.matches('#plBasic, #plAdv'); x = x.parentElement) if (x.hidden) return true; return false; };
+  /** Where a row is, and when it is used if it is hidden now: Plan style › Plan file · only with the Simple drawing (beta 6.7). */
+  const plWhere = (r) => (r.off && r.e.why ? `${r.e.where} · ${r.e.why}` : r.e.where);
+  /** The settings for q, the best first: [{ e (the row), score, label (words in its label), strong (every word in its label or place),
+      off (hidden now: plOff; of equal scores, the rows that can be used now first) }]. */
+  function plFind(q) {
+    const T = window.GESAA_TUTORIAL, I = plIndex(); if (!T || !T.settings) return [];
+    return T.settings(q, I).map((r) => ({ ...r, e: I[r.i], off: plOff(I[r.i]) })).sort((a, b) => b.score - a.score || a.off - b.off || a.i - b.i);
+  }
+  const PL_FIND_N = 8;
+  function plFindRender() {
+    const inp = $('plFindQ'), box = $('plFindRes'), n = $('plFindN'), q = inp.value.trim(), T = window.GESAA_TUTORIAL, Q = q && T && T.query ? T.query(q) : null;
+    box.innerHTML = '';
+    if (!q) { box.hidden = true; n.textContent = ''; return; }
+    const R = Q ? plFind(q) : [];
+    n.textContent = R.length ? `${R.length} setting${R.length === 1 ? '' : 's'} found${R.length > PL_FIND_N ? `: the best ${PL_FIND_N}` : ''}. Tap one to go to it.` : `No setting called “${q}”.`;
+    R.slice(0, PL_FIND_N).forEach((r) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'plfr';
+      const x = document.createElement('b'); tutRich(x, r.e.label, Q.mark); const w = document.createElement('small'); w.textContent = plWhere(r); if (r.off) w.className = 'off';
+      b.append(x, w); b.addEventListener('click', () => plFindGo(r.e)); box.appendChild(b);
+    });
+    const t = document.createElement('button'); t.type = 'button'; t.className = 'linkbtn plfrtut'; t.textContent = `Search the Tutorial for “${q}” ›`;
+    t.addEventListener('click', () => { $('tutQ').value = q; openTutorial(); }); box.appendChild(t);
+    box.hidden = false;
+  }
+  let plMarkT = 0, plPend = null; // (plPend: beta 6.7, UX step 5 fixes: the row asked for, hidden by Kind of drawing; marked once it shows)
+  /** beta 6.7 (UX step 5 fixes): the note in the row marked in place of a hidden one (why, what to do), read with its control
+      (aria-describedby); plWhy() takes it away. */
+  function plWhy(row, text, ctl) {
+    const old = $('plFindWhy');
+    if (old) { document.querySelectorAll('[aria-describedby~="plFindWhy"]').forEach((c) => { const v = c.getAttribute('aria-describedby').split(' ').filter((x) => x && x !== 'plFindWhy').join(' '); if (v) c.setAttribute('aria-describedby', v); else c.removeAttribute('aria-describedby'); }); old.remove(); }
+    if (!row || !text) return;
+    const n = document.createElement('small'); n.id = 'plFindWhy'; n.className = 'findwhy'; n.setAttribute('role', 'status'); n.textContent = text; row.appendChild(n);
+    if (ctl) ctl.setAttribute('aria-describedby', [ctl.getAttribute('aria-describedby'), 'plFindWhy'].filter(Boolean).join(' '));
+  }
+  /** The row found: its section and Colours and sizes opened, marked (orange, for 9 s) and brought in under the preview; focus on it.
+      o (beta 6.7, UX step 5 fixes): note, a line shown in the row; focus, the control to focus instead of the row. */
+  function plMark(el, o) {
+    const root = $('drwStyle'); if (!el || root.hidden) return;
+    for (let d = el.parentElement && el.parentElement.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) if (!d.open) d.open = true;
+    if (el.matches('details') && !el.open) el.open = true;
+    if (!el.getClientRects().length) { const s = el.closest('details.stsec'); if (s) el = s; } // (beta 6.7, UX step 5 fixes: a row still hidden: its section, never nothing)
+    root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); el.classList.add('sthl');
+    plWhy(o && o.note ? el : null, o && o.note, o && o.focus);
+    DSP.toRow(el); setTimeout(() => { if (el.classList.contains('sthl') && !root.hidden) DSP.toRow(el); }, 350); // (again once the preview has folded or not)
+    const f = (o && o.focus) || (el.matches('details') ? el.querySelector(':scope > summary') : el); if (!f.matches('summary, button, input, select, a') && !f.hasAttribute('tabindex')) f.tabIndex = -1;
+    try { f.focus({ preventScroll: true }); } catch (x) { /* an old browser */ }
+    clearTimeout(plMarkT); plMarkT = setTimeout(() => el.classList.remove('sthl'), 9000);
+  }
+  /** A setting found (in Plan style or the Tutorial): Plan style opens on its tab and section (over the screen the Tutorial was opened
+      on), the row marked. A row the other choices hide (beta 6.7, UX step 5 fixes; reviewer: Photo width, FOC % while the company plan
+      is made): the row that shows it (Kind of drawing) is marked instead, with why and what to do; once it is changed, the row. */
+  async function plFindGo(e) {
+    if (!e || !e.el) return;
+    while (['tutTopic', 'tutorial'].includes(tutTop())) await closeSheet();
+    $('plFindQ').value = ''; plFindRender(); plFindReset(); // (beta 6.7, UX step 5 fixes, round 2: no mark or note left from before)
+    const need = e.need && plOff(e) ? $(e.need) : null; // (from the setting itself: right after launch too, before renderDxfTpl has run)
+    if (need) {
+      const ns = need.closest('details.stsec'), name = e.when && e.label.endsWith(`(${e.when})`) ? e.label.slice(0, -(e.when.length + 2)).trim() : e.label;
+      openStyle(need.closest('#plBasic') ? 'basic' : 'advanced', ns ? ns.id : ''); plPend = e;
+      setTimeout(() => plMark(need, { note: `${name}: ${e.why}. ${e.how}`.trim(), focus: need.querySelector('select, input, button') }), 80);
+      return;
+    }
+    plPend = null; openStyle(e.tab, e.sec);
+    setTimeout(() => plMark(e.el), 80);
+  }
+  /** beta 6.7 (UX step 5 fixes): the Tutorial's More ›: Plan style (over the screen the Tutorial was opened on), Find a setting
+      with the same words, every setting found listed. */
+  async function plFindIn(q) {
+    while (['tutTopic', 'tutorial'].includes(tutTop())) await closeSheet();
+    // (beta 6.7, UX step 5 fixes, round 2; reviewer: Plan style used last on Advanced reopened its section and scrolled to it, the list
+    // asked for 900 px or more above the screen: here, the tab used last but no section brought in, nothing marked, and from the top)
+    plFindReset(); openStyle(undefined, '', true); $('plFindQ').value = q; plFindRender();
+    setTimeout(() => { // (beta 6.7, UX step 5 fixes: focus on the first setting found, not lost to the page; no keyboard opened)
+      const root = $('drwStyle'); if (root.hidden) return; const bd = root.querySelector('.dsbody'), f = $('plFindRes').querySelector('.plfr') || $('plFindQ');
+      for (let k = 0; k < 2; k++) { if (bd) bd.scrollTop = 0; DSP.onScroll(); } // (beta 6.7 round 2: Find a setting and its results under the preview; twice: a folded preview unfolding at the top moves the list down by as much)
+      try { f.focus({ preventScroll: true }); } catch (x) { /* an old browser */ }
+      const shown = (el) => { const r = el.getBoundingClientRect(), b = bd ? bd.getBoundingClientRect() : { top: 0, bottom: innerHeight }, pc = $('dsPrevCol'), pb = pc && bd && bd.clientWidth < 720 ? pc.getBoundingClientRect().bottom : b.top; // (narrow: the preview over the list, as DSP.toRow)
+        return r.height > 0 && r.top >= Math.max(b.top, pb) - 1 && r.bottom <= b.bottom + 1; };
+      if (bd && !(shown($('plFindBox')) && shown(f))) DSP.toRow($('plFind')); // (beta 6.7 round 2: the box and its first result in view, never under the preview or the footer)
+    }, 60);
+  }
+  /** Plan style opened afresh: no note, nothing asked, nothing marked (beta 6.7, UX step 5 fixes; round 2: the orange mark too). */
+  function plFindReset() { plPend = null; plWhy(null); clearTimeout(plMarkT); $('drwStyle').querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); }
+  $('dxfMode').addEventListener('change', () => { // (beta 6.7, UX step 5 fixes: after renderDxfTpl's own: the row asked for is shown now: marked; or the note goes)
+    const e = plPend; plPend = null; if (!e || $('drwStyle').hidden) { plWhy(null); return; }
+    if (!plOff(e)) setTimeout(() => plMark(e.el), 60); else plWhy(null);
+  });
+  $('plFindQ').addEventListener('input', plFindRender);
+  $('plFindQ').addEventListener('keydown', (e) => {
+    const first = $('plFindRes').querySelector('.plfr');
+    if (e.key === 'Enter') { e.preventDefault(); if (first) first.click(); }
+    else if (e.key === 'ArrowDown' && first) { e.preventDefault(); first.focus(); }
+    else if (e.key === 'Escape' && $('plFindQ').value) { e.preventDefault(); $('plFindQ').value = ''; plFindRender(); } // (else Esc closes the panel, as before)
+  });
+  $('plFindRes').addEventListener('keydown', (e) => { // the arrows go through the results; Esc back to the box
+    const B = [...$('plFindRes').querySelectorAll('button')], k = B.indexOf(document.activeElement); if (k < 0) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const j = k + (e.key === 'ArrowDown' ? 1 : -1); if (j < 0) $('plFindQ').focus(); else if (B[j]) B[j].focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); $('plFindQ').focus(); }
+  });
+  /* beta 6.7 (UX step 5): the ? of each Export row (in its You get line) and of each Plan style section (beside its title, open): the
+     tutorial step that says the row's label (GESAA_TUTORIAL.help; data-tut: the topic tried first, then words of its own; a section:
+     the step that also says the most of its rows), opened over the screen: Back comes back to it. */
+  function qhelpFor(el) {
+    const T = window.GESAA_TUTORIAL; if (!T || !T.help) return null;
+    const tut = (el.closest('#export') && isAcc() && el.dataset.tutacc) || el.dataset.tut; // (beta 6.7, UX step 5 fixes: a row a PAT, cleanup or FAT shares with a survey: its acceptance step)
+    const [topic, ...more] = String(tut || '').split(' ').filter(Boolean), rows = el.matches('details.stsec') ? [...el.querySelectorAll('[data-find]')].map((x) => x.dataset.find) : [];
+    return T.help([el.dataset.find, ...rows, ...(more.length ? [more.join(' ')] : [])], { topic, admin: tutAdmin() });
+  }
+  function qhelpOpen(el) {
+    const h = qhelpFor(el), t = h && tutTopics().find((x) => x.id === h.id);
+    LOG.info('qhelp', { row: el.dataset.find, topic: h ? h.id : '', step: h ? h.step + 1 : 0 });
+    if (!t) { $('tutQ').value = el.dataset.find || ''; openTutorial(); return; }
+    openTutTopic(t, null, h.step);
+  }
+  document.querySelectorAll('#export .xcard[data-find], #drwStyle details.stsec[data-find]').forEach((el) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'qhelp'; b.textContent = '?';
+    const named = () => { b.setAttribute('aria-label', `Help: ${el.dataset.find} (opens its step in the Tutorial)`); b.title = `How it works: ${el.dataset.find}`; };
+    named(); new MutationObserver(named).observe(el, { attributes: true, attributeFilter: ['data-find'] }); // (beta 6.7, UX step 5 fixes: a label changed at run time, as a cleanup's Hand on to the FAT inspector)
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); qhelpOpen(el); });
+    if (el.matches('details')) el.querySelector(':scope > summary').after(b);
+    else { const g = el.querySelector(':scope > .xget'); if (g) g.prepend(b); else el.querySelector(':scope > .head').after(b); }
+  });
   /** Export the plan: the Export screen with the DXF card only, over the Drawing (beside it on a computer). */
   let planExport = false;
   /** An open screen brought back to the top (the ones above it closed): true when it was open. */
   function toSheet(id) { if (!stack.includes(id)) return false; if (stack[stack.length - 1] !== id) closeSheet().then(() => toSheet(id)); return true; }
-  function openPlanExport() { if (toSheet('export')) return; exportPick = 'doDxf'; planExport = true; $('exportBtn').click(); }
+  function openPlanExport() { if (toSheet('export')) return; if (drwEd && deskOn()) drwEditSet(false); exportPick = 'doDxf'; planExport = true; $('exportBtn').click(); } // (beta 6.7, UX step 3; critic: on a computer the docked panel would cover ✎'s route bar: ✎ ends first)
   $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
   $('dxfTplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; busy('Reading the plan template…'); try { await storeSeed(await f.text(), f.name, 'file'); } finally { busy(false); } }, 'Template not loaded'));
   /** v2.31: the admin's template, fetched and kept: the Android app through Android (Google Drive allows it); the website tries the
@@ -11287,23 +11845,8 @@
     logoGet().then((r) => { const img = $('dxfLogoImg'); if (r) { img.src = `data:${r.type};base64,${r.data}`; img.hidden = false; } else { img.hidden = true; img.removeAttribute('src'); } }).catch(() => {});
   }
   $('dxfLogoSet').addEventListener('click', () => { if (cefHooks.canLogo && !cefHooks.canLogo()) { toast('Company logo: your coordinator sets it', 5000); return; } $('dxfLogoFile').value = ''; $('dxfLogoFile').click(); });
-  $('dxfLogoFile').addEventListener('change', (e) => guard(async () => {
-    const f = e.target.files[0]; if (!f) return; const co = (S.user && S.user.company) || ''; if (!co) throw new Error('Choose your company in Your details first');
-    busy('Preparing the logo…');
-    try {
-      const L = await logoPrepare(f), at = new Date().toISOString();
-      await logoStore({ co, at, ...L });
-      let shared = false;
-      if (S.team && S.team.src && S.team.src.url && navigator.onLine !== false) {
-        busy('Sharing the logo with your company…');
-        try {
-          const j = await cloudRequest({ url: S.team.src.url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'setLogo', company: co, type: L.type, data: L.data, at, ...(keyMode() ? { ckey: S.companyKey } : {}), ...(isAdmin() && S.onlineAdminKey ? { key: S.onlineAdminKey } : {}) }) });
-          shared = !!(j && j.ok); if (!shared) LOG.warn('logo.share', { error: j && j.error });
-        } catch (e2) { LOG.warn('logo.share', errInfo(e2)); }
-      }
-      toast(shared ? `Logo saved and shared with ${co} users` : 'Logo saved on this phone (not shared: the online sheet did not take it)', 4500);
-    } finally { busy(false); }
-  }, 'Logo not saved'));
+  // beta 6.7 (UX step 4): Plan style › Plan file › Company logo runs the same code as Settings › Exports and files › Company logo (one logo)
+  $('dxfLogoFile').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) guard(() => cefLogoSet(f), 'Logo not saved').then(() => renderLogo()); });
   async function exportPlanDxf(pts, o) {
     const one = !!(o && o.one); // beta 4.6: One PDF (the plan, the CEF plan, the splicing details): only the plan's sheets are made here, of the drawing the Drawing shows
     if (!window.GeDxfTpl) await loadScript('dxftpl.js');
@@ -11543,7 +12086,7 @@
     head.splice(0, head.length, ...head.filter(Boolean));
     const readme = [...head,
       `Clamp types: ${showCT ? 'on the plan, before the clamp size (e.g. CA 8-10, 2A 10-12)' : 'left off the plan (the clamp size only); they are in the BOQ, the KMZ and the CSV'}.`,
-      `Drawing style: ${plSummary()}${S.exp.dxfLabels === 'tidy' ? ' · Pole labels: Tidy (Tidy sets the sizes of the texts, symbols, numbers and photos on the map; the crowded-places rule is for the other labels)' : ''}.`, // (beta 4.7, 4.8)
+      `Plan style: ${plSummary()}${S.exp.dxfLabels === 'tidy' ? ' · Pole labels: Tidy (Tidy sets the sizes of the texts, symbols, numbers and photos on the map; the crowded-places rule is for the other labels)' : ''}.`, // (beta 4.7, 4.8)
       `${nLoc > 1 ? `The points are in ${nLoc} places more than 1 km apart: each has its own VICINITY MAP and KEYMAP sheet, and its own GEO sheets (cells named with the place's number first: 1A-1, 2A-1). ` : ''}Vicinity map${nLoc > 1 ? 's' : ''}: ${vicSay.map((t, k) => (nLoc > 1 ? `place ${k + 1}: ${t}` : t)).join('; ')}; the project area circled. Roads and building names are drawn round the route only (the cells of the GEO sheets and 60 m round them), not over the whole vicinity area.`,
       `Title blocks: ${known ? `${[sName, sPla].filter(Boolean).join('_')} / ${sSerial || '(no serial number)'} from the online sheet's project details` : 'no project details from the online sheet: the project\'s location text is used'}; company ${logo ? 'logo COMPANY_LOGO' : 'name (no logo set)'}; title ${m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN'}.`,
       ...(siteFieldsOf().length ? [`Site details (Project details): ${siteFieldsOf().map(([k2, v2]) => `${k2}: ${v2}`).join(' · ')}.`] : []),
@@ -11558,8 +12101,8 @@
         const entIds = [...OWN.entries()].filter(([, v]) => v === 'entrance').map(([id]) => id), nEntP = entIds.length, nOwn = (q.MLOOP_OWN || 0) - nEntP; // v2.42.18: an entrance loop is counted, not drawn
         const nEnt = entIds.reduce((t, id) => t + (LA.fib && LA.fib.list.has(id) ? LA.fib.list.get(id).length : 1), 0); // (v2.42.24: one for each cable at an entrance, as the quantities count them)
         const nb = q.MLOOP_BOX || 0, onPoles = (q.MLOOP_COUNT || 0) - nb - nEnt, own = nOwn > 0 ? ` (${nOwn} of them with a NAP, an LCP, a hybrid closure, a dummy NAP or a riser: each has its loop)` : '';
-        const box = [...(nb ? [`Handholes, manholes and service boxes: a ${BOX_LOOP_M} m loop each (${nb}), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each box (Drawing style)' : ' and not drawn: a box has its loop'}.`] : []),
-          ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each (Drawing style)' : ' and not drawn'}.`] : [])];
+        const box = [...(nb ? [`Handholes, manholes and service boxes: a ${BOX_LOOP_M} m loop each (${nb}), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each box (Plan style › 20 m loops at boxes)' : ' and not drawn: a box has its loop'}.`] : []),
+          ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each (Plan style › 20 m loops at boxes)' : ' and not drawn'}.`] : [])];
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
       `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe or Bayantel (or owned by Globe or Bayantel: Globe\'s own, beta 6.7); RTA Converge / local coop / other (PLDT pole) = existing poles by owner (CONVERGE / an electric company, coop or power / PLDT), and an RTA row of its own for each other owner (beta 6.6: added to the PMI table and the BOQ tables)' + (pmiExtraRows.length ? `: ${pmiExtraRows.map((x) => x[0]).join(', ')}` : '') + '; fiber termination = fibers of the new ODFs; hybrid closure = new closures; the UG route (each span once, as its length is written) by how its first new UG cable is laid (beta 6.7: set on the cable in Route; HDD for air-blown fiber and open trench for a conventional UG cable unless set): proposed HDD = the drilled spans whole, and on a trenched span its road crossings (the road\'s width and 3 m each side, as drawn); open trench, micro trench and the shallow trench with or without concrete (rows added to the PMI table when used) = the trenched spans less their road crossings; a span set on its own (Route: tap the span) counts by its own way; maxcell inner duct = the conventional UG cable\'s route, crossings included; proposed conduit (a row for each size and runs used) = the UG route in it, in metres of route; proposed manhole / service box = the new ones.',
@@ -11567,36 +12110,36 @@
         const F0 = fibers(), runs = F0.filter((f) => !f.ex && isUG(f.cab)).sort((x, y) => x.n - y.n).map((f) => { const own = f.path.slice(1).map((b, i) => [f.path[i], b]).map(([a, b]) => [a, b, ugSpanOf(a, b, F0)]).filter(([, , u]) => u && u.own && u.n === f.n); // (beta 6.7: and its spans laid otherwise)
           return `RUN ${f.n} (${CAB[f.cab].short}): ${ugTxt(ugOf(f))}${own.length ? `; span${own.length > 1 ? 's' : ''} laid otherwise: ${own.map(([a, b, u]) => `${fibName(a)}–${fibName(b)} ${ugTxt(u)}`).join(', ')}` : ''}`; });
         return [`Underground route by how it is laid: ${Object.entries(U).map(([k, v]) => `${nm[k] || k} ${(Math.round(v * 10) / 10).toFixed(1)} m`).join(', ')}${Object.keys(U).some((k) => k !== 'hdd') ? ' (a trenched cable\'s road crossings in PROPOSED HDD)' : ''}${runs.length ? ` · ${runs.join(' · ')}` : ''}. Conduit, as the CEF plan (a PROPOSED CONDUIT row for each in the PMI and the sheets' BOQ, in metres of route; the pipe is route × runs): ${Object.entries(C0).map(([k, v]) => { const [r, c] = k.split('x'); return `${r} run${+r > 1 ? 's' : ''} of ${c} mm: ${(+v).toFixed(1)} m of route (${(+v * +r).toFixed(1)} m of pipe)`; }).join('; ')}.`]; })(),
-      ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan settings): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split), as its length reads there (whole metres; the PMI too, beta 6.4); a loop, a pole, a new ODF's fibers and a new closure count where their point is, a loop as its length is written; so the written lengths add up to each table and the sheets to the PMI${S.exp.dxfLabels === 'tidy' ? '. Tidy: each span length is written on the GEO sheet that holds the middle of its span, never across a sheet line' : ''}${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 6.0
+      ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan style): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split), as its length reads there (whole metres; the PMI too, beta 6.4); a loop, a pole, a new ODF's fibers and a new closure count where their point is, a loop as its length is written; so the written lengths add up to each table and the sheets to the PMI${S.exp.dxfLabels === 'tidy' ? '. Tidy: each span length is written on the GEO sheet that holds the middle of its span, never across a sheet line' : ''}${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 6.0
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (PROP.POLE / height / clamp)') + ', existing electric pole on ELECTRIC POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / pole tag or NPT)') + ', telco pole on GT-POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / ID)') + '; new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), LCPs (1:4 and double, a kind of NAP on its pole), the ODC (G-eSAA's cabinet symbol, layers G-ESAA PROPOSED / EXISTING ODC: the template has no ODC model), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
       ...(() => { const A = routeAdvice(R); return A.length ? [`Route check (${A.length}): ${A.map((a) => a.text).join(' · ')}.`] : []; })(),
-      PS.cab.route === 'straight' ? 'Cables between points (Drawing style): straight from point to point.' : (() => { const g = (k) => outs.reduce((t, o) => { const c = (o.out.report.cableRoute || {})[k]; return c ? { n: t.n + c.spans, f: t.f + c.following, s: t.s + c.straightM, d: t.d + c.drawnM } : t; }, { n: 0, f: 0, s: 0, d: 0 }), A = g('aerial'), U = g('ug'), say = (x, w) => (x.n ? `${w}: ${x.f} of ${x.n} span${x.n > 1 ? 's' : ''} follow a curve${x.f ? `, their lines ${(x.d - x.s).toFixed(1)} m longer in all than straight (${x.s ? (100 * (x.d - x.s) / x.s).toFixed(1) : 0} %)` : ''}` : ''); // beta 6.1
-        if (!outs.some((o) => (o.out.report.cableRoute || {}).roads)) return 'Cables between points (Drawing style): follow the road; this plan has no road lines (no OpenStreetMap roads or road pack for its area), so they are drawn straight from point to point.';
-        return `Cables between points (Drawing style): follow the road. Between two points along the same road (handholes, manholes, service boxes, risers and poles underground; poles aerial) the cable's line follows the road's centre line and its curves, at the cable's own side of the road; a span across a road, round a corner onto another road, along a straight road or away from any road is drawn straight. The span lengths written on the plan and the BOQ stay the surveyed ones${[say(A, 'aerial'), say(U, 'underground')].filter(Boolean).length ? ` (${[say(A, 'aerial'), say(U, 'underground')].filter(Boolean).join('; ')})` : ''}. The app's Drawing screen still draws them straight (it has no road lines; the roads come in when the plan is exported).`; })(),
+      PS.cab.route === 'straight' ? 'Cables between points (Plan style › Cables): straight from point to point.' : (() => { const g = (k) => outs.reduce((t, o) => { const c = (o.out.report.cableRoute || {})[k]; return c ? { n: t.n + c.spans, f: t.f + c.following, s: t.s + c.straightM, d: t.d + c.drawnM } : t; }, { n: 0, f: 0, s: 0, d: 0 }), A = g('aerial'), U = g('ug'), say = (x, w) => (x.n ? `${w}: ${x.f} of ${x.n} span${x.n > 1 ? 's' : ''} follow a curve${x.f ? `, their lines ${(x.d - x.s).toFixed(1)} m longer in all than straight (${x.s ? (100 * (x.d - x.s) / x.s).toFixed(1) : 0} %)` : ''}` : ''); // beta 6.1
+        if (!outs.some((o) => (o.out.report.cableRoute || {}).roads)) return 'Cables between points (Plan style › Cables): follow the road; this plan has no road lines (no OpenStreetMap roads or road pack for its area), so they are drawn straight from point to point.';
+        return `Cables between points (Plan style › Cables): follow the road. Between two points along the same road (handholes, manholes, service boxes, risers and poles underground; poles aerial) the cable's line follows the road's centre line and its curves, at the cable's own side of the road; a span across a road, round a corner onto another road, along a straight road or away from any road is drawn straight. The span lengths written on the plan and the BOQ stay the surveyed ones${[say(A, 'aerial'), say(U, 'underground')].filter(Boolean).length ? ` (${[say(A, 'aerial'), say(U, 'underground')].filter(Boolean).join('; ')})` : ''}. The app's Drawing screen still draws them straight (it has no road lines; the roads come in when the plan is exported).`; })(),
       `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0} of the ${rp.counts.poisGiven || 0} named in OpenStreetMap round the route (its area and 250 m round it; not written: ${rp.counts.poisOutside || 0} outside the GEO sheets, ${rp.counts.poisNoRoom || 0} with no free room beside them, ${rp.counts.poisDuplicate || 0} repeated names)${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
       S.exp.dxfLabels === 'tidy' ? (() => { const sz = (outs.find((o) => o.out.report.tidy && o.out.report.tidy.sizes) || { out: { report: { tidy: {} } } }).out.report.tidy.sizes, grs = outs.map((o) => (o.out.report.tidy || {}).grid).filter((g) => g && g.n), gN = grs.length ? grs[0].n : 1; // beta 4.7, 4.8: the whole map tidy
-        return 'Pole labels: Tidy. The map is laid out so that nothing sits on anything else. The NAP, loop and closure symbols are drawn at most 0.7 of the width of the street they are on, the numbers\' circles at most as wide as the street. Each pole has one block, turned along the fiber cable that serves it (along its road when no cable passes it) and reading the right way up: its number in its circle (when it is numbered), ' + ({ auto: 'its type over its tag (CC over 123456, as the Standard labels; NPT when it has no tag), on one line (CC-123456) only where the stacked block finds no room', stack: 'its type over its tag (CC over 123456, as the Standard labels; NPT when it has no tag)', line: 'its type and tag on one line (CC-123456; NPT when it has no tag)' }[PS.pole.idForm] || 'its type over its tag') + (() => { const F = outs.map((o) => (o.out.report.tidy || {}).idForm).filter(Boolean), n = F.reduce((t, f) => t + (f.oneLineForRoom || 0), 0), all = F.reduce((t, f) => t + (f.stacked || 0) + (f.oneLine || 0), 0); return PS.pole.idForm === 'auto' && all ? ` (here ${n ? `${n} of ${all} on one line for room: ${F.flatMap((f) => f.which || []).slice(0, 12).join(', ')}${n > 12 ? '\u2026' : ''}` : `all ${all} stacked`})` : ''; })() + ', then, in smaller text, its clamps and 12C hardware, its owner and its latitude and longitude; its photo (' + `${phTidyMm(PS.photo.size)} mm on its long side as printed, Drawing style \u203a Photos` + ') stands upright (square to the sheet) on the side away from the road, near its pole, wherever the block, which keeps the place nearest its pole, leaves room (a quarter smaller, or on its own near the pole, where it has none: listed under Drawing checks): beside the block where the block is by the pole; by the pole itself where the block sits further out with its line (where there is no room near the pole, beside the block, listed under Drawing checks). The block sits beside its pole just past the edge of the road, lined up along the street, or further out with a thin grey line to it, nearer its own pole than any other where it can be; over a road only where no other place is free (listed under Drawing checks). The IDs of the NAPs and closures and the loop lengths are straight labels beside their symbol; span lengths and cable labels run along their cable, inside the street where there is room'
+        return 'Pole labels: Tidy. The map is laid out so that nothing sits on anything else. The NAP, loop and closure symbols are drawn at most 0.7 of the width of the street they are on, the numbers\' circles at most as wide as the street. Each pole has one block, turned along the fiber cable that serves it (along its road when no cable passes it) and reading the right way up: its number in its circle (when it is numbered), ' + ({ auto: 'its type over its tag (CC over 123456, as the Standard labels; NPT when it has no tag), on one line (CC-123456) only where the stacked block finds no room', stack: 'its type over its tag (CC over 123456, as the Standard labels; NPT when it has no tag)', line: 'its type and tag on one line (CC-123456; NPT when it has no tag)' }[PS.pole.idForm] || 'its type over its tag') + (() => { const F = outs.map((o) => (o.out.report.tidy || {}).idForm).filter(Boolean), n = F.reduce((t, f) => t + (f.oneLineForRoom || 0), 0), all = F.reduce((t, f) => t + (f.stacked || 0) + (f.oneLine || 0), 0); return PS.pole.idForm === 'auto' && all ? ` (here ${n ? `${n} of ${all} on one line for room: ${F.flatMap((f) => f.which || []).slice(0, 12).join(', ')}${n > 12 ? '\u2026' : ''}` : `all ${all} stacked`})` : ''; })() + ', then, in smaller text, its clamps and 12C hardware, its owner and its latitude and longitude; its photo (' + `${phTidyMm(PS.photo.size)} mm on its long side as printed, Plan style \u203a Photos on the plan` + ') stands upright (square to the sheet) on the side away from the road, near its pole, wherever the block, which keeps the place nearest its pole, leaves room (a quarter smaller, or on its own near the pole, where it has none: listed under Drawing checks): beside the block where the block is by the pole; by the pole itself where the block sits further out with its line (where there is no room near the pole, beside the block, listed under Drawing checks). The block sits beside its pole just past the edge of the road, lined up along the street, or further out with a thin grey line to it, nearer its own pole than any other where it can be; over a road only where no other place is free (listed under Drawing checks). The IDs of the NAPs and closures and the loop lengths are straight labels beside their symbol; span lengths and cable labels run along their cable, inside the street where there is room'
           + (sz && sz.mm ? `. Every text of the route prints at one of two sizes on the A3 PDF: ${sz.mm[0]} mm (the first line, IDs, loop lengths, numbers) and ${sz.mm[1]} mm (the other lines, span lengths, cable labels); ${(sz.l1 / gN).toFixed(2)} m and ${(sz.sm / gN).toFixed(2)} m high in the drawing` : '')
-          + (grs.length ? `. The grid of the GEO sheets is the same for the whole plan, its cells ${grs.map((g) => `${g.cell} m`).join(', ')} across${gN > 1 ? ` (1/${gN} of the template's), every GEO sheet at ${gN} times the template's scale` : ' (the template\'s)'}${grs[0].mode === 'fixed' ? `: the split chosen in Drawing style \u203a Grid (1/${gN}), kept even where a label had no free place` : `: Auto (Drawing style \u203a Grid), the largest grid, 1/1 to 1/4 of the template's cell, at which every label found a free place at these sizes and no GEO sheet has more than two pole blocks over a road or two photos away from their pole${(S.plStyle && S.plStyle.grid && S.plStyle.grid.leaders === 'allow') ? '' : ', and no pole\'s block needs a thin line to its pole (Leader lines: only when there is no other way)'} (those cover nothing else and are listed under Drawing checks; the next finer grid was tried only beyond that: ${grs[0].tried ? grs[0].tried.map((t) => `${t.cell} m, ${t.sheets} sheets: ${t.bad} without a place, ${t.over} over a road (at most ${t.overMax || 0} on a sheet)`).join('; ') : ''})`}; the sheets named by row letter and column number (A-1, B-2 \u2026) as the key map shows them, each sheet's name in its corner under the details, which stay readable over it` : '')
+          + (grs.length ? `. The grid of the GEO sheets is the same for the whole plan, its cells ${grs.map((g) => `${g.cell} m`).join(', ')} across${gN > 1 ? ` (1/${gN} of the template's), every GEO sheet at ${gN} times the template's scale` : ' (the template\'s)'}${grs[0].mode === 'fixed' ? `: the split chosen in Plan style \u203a Map sheets (1/${gN}), kept even where a label had no free place` : `: Auto (Plan style \u203a Map sheets), the largest grid, 1/1 to 1/4 of the template's cell, at which every label found a free place at these sizes and no GEO sheet has more than two pole blocks over a road or two photos away from their pole${(S.plStyle && S.plStyle.grid && S.plStyle.grid.leaders === 'allow') ? '' : ', and no pole\'s block needs a thin line to its pole (Leader lines: only when there is no other way)'} (those cover nothing else and are listed under Drawing checks; the next finer grid was tried only beyond that: ${grs[0].tried ? grs[0].tried.map((t) => `${t.cell} m, ${t.sheets} sheets: ${t.bad} without a place, ${t.over} over a road (at most ${t.overMax || 0} on a sheet)`).join('; ') : ''})`}; the sheets named by row letter and column number (A-1, B-2 \u2026) as the key map shows them, each sheet's name in its corner under the details, which stay readable over it` : '')
           + (rp.landmarks && (rp.landmarks.placed || rp.landmarks.namesLeftOut) ? `. Landmark names make room for the pole details: 1.6 mm high on the A3 sheet, a little further or smaller (to 1.3 mm) where the room is short${rp.landmarks.shrunk ? ` (${rp.landmarks.shrunk} drawn smaller, the smallest ${rp.landmarks.smallestMm} mm)` : ''}; a name with no room even then is wrapped onto two or three lines, else shortened with the usual abbreviations (ELEMENTARY SCHOOL → ES, NATIONAL HIGH SCHOOL → NHS, HIGH SCHOOL → HS, ELEMENTARY → ELEM., SCHOOL → SCH., BARANGAY → BRGY., STREET → ST., HOSPITAL → HOSP., CENTER → CTR. and the like; whole words only), else both${[[rp.landmarks.wrapped, 'wrapped'], [rp.landmarks.abbreviated, 'abbreviated'], [rp.landmarks.abbreviatedAndWrapped, 'abbreviated and wrapped']].some(([v]) => v) ? ` (${[[rp.landmarks.wrapped, 'wrapped'], [rp.landmarks.abbreviated, 'abbreviated'], [rp.landmarks.abbreviatedAndWrapped, 'abbreviated and wrapped']].filter(([v]) => v).map(([v, t]) => `${v} ${t}`).join(', ')})` : ''}${rp.landmarks.namesLeftOut ? `; ${rp.landmarks.namesLeftOut} left out (no room even so; their icons kept where they fit)` : ''}` : '') // beta 6.0 (beta 6.1: wrapped, abbreviated)
           + (outs.some((o) => (o.out.report.notes || []).some((n) => /^(Tidy labels|Tidy photos|Photos with no free place)/.test(n))) ? '. Where no free place was found, the label or photo is listed under Drawing checks above' : '') + '.'; })()
         : 'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
-      ...(PS.num.rta.on ? [`Pole numbers coloured by RTA/JPA category (Drawing style › Numbers), number and circle in one colour: ${[...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => `${x.text} ${colName(x.color)} (${rtaN.get(x)})${x.auto ? ', added for its owner' : ''}`).join(', ')}; other poles and points ${colName(PS.num.color)} (${Math.max(0, rows.filter((r) => r.el === 'Pole').length - [...rtaN.values()].reduce((t, v) => t + v, 0))} poles). A proposed or new pole is red, a Globe or Bayantel pole blue when existing (Globe's own, no RTA), the others by their pole owner as the PMI's RTA rows${pmiExtraRows.length ? ` (rows added to the PMI and the BOQ tables: ${pmiExtraRows.map(([lb]) => lb).join(', ')})` : ''}. RTA/JPA LEGEND: ${{ off: 'off (Drawing style › Numbers › Legend)', boq: 'under the BOQ table on each GEO sheet', sheet: 'on the LEGENDS sheet' }[PS.num.rta.legend]}.`] : []), // beta 6.5 (6.6: Globe, automatic owners, the legend's place)
-      `Loops at handholes, manholes, service boxes and ODF, site and ODC entrances (Drawing style \u203a Loops at boxes and entrances): counted in the PMI and the BOQ tables; ${PS.cab.boxLoops ? `written on the plan beside each (${boxLoopN} points), so the written numbers add up to the tables` : 'not written on the plan (as before): the tables count them all the same'}.`, // beta 6.6
+      ...(PS.num.rta.on ? [`Pole numbers coloured by RTA/JPA category (Plan style › Pole number colours), number and circle in one colour: ${[...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => `${x.text} ${colName(x.color)} (${rtaN.get(x)})${x.auto ? ', added for its owner' : ''}`).join(', ')}; other poles and points ${colName(PS.num.color)} (${Math.max(0, rows.filter((r) => r.el === 'Pole').length - [...rtaN.values()].reduce((t, v) => t + v, 0))} poles). A proposed or new pole is red, a Globe or Bayantel pole blue when existing (Globe's own, no RTA), the others by their pole owner as the PMI's RTA rows${pmiExtraRows.length ? ` (rows added to the PMI and the BOQ tables: ${pmiExtraRows.map(([lb]) => lb).join(', ')})` : ''}. RTA/JPA LEGEND: ${{ off: 'off (Plan style › Pole numbers › Owner colour key)', boq: 'under the BOQ table on each GEO sheet', sheet: 'on the LEGENDS sheet' }[PS.num.rta.legend]}.`] : []), // beta 6.5 (6.6: Globe, automatic owners, the legend's place)
+      `Loops at handholes, manholes, service boxes and ODF, site and ODC entrances (Plan style \u203a 20 m loops at boxes): counted in the PMI and the BOQ tables; ${PS.cab.boxLoops ? `written on the plan beside each (${boxLoopN} points), so the written numbers add up to the tables` : 'not written on the plan (as before): the tables count them all the same'}.`, // beta 6.6
       ...(() => { const R0 = outs.map((o2) => o2.out.report), cnt = (k) => R0.reduce((t, r) => t + ((r.counts || {})[k] || 0), 0), cl = R0.reduce((t, r) => t + ((r.closureLabels || {}).labelled || 0), 0), gb = rows.filter((r) => r.gtbt).length, Z = PS.photo.size; // beta 6.7
-        return [`Photos on the plan (Drawing style \u203a Photos): every one printed ${phTidyMm(Z)} mm on its long side (${phName(Z)}) where there is room, else further out with a thin line to its pole; only where there is no place at all is that photo drawn smaller (listed with its size), never left out. The pole comes first, then its details, then its photo.`,
+        return [`Photos on the plan (Plan style \u203a Photos on the plan): every one printed ${phTidyMm(Z)} mm on its long side (${phName(Z)}) where there is room, else further out with a thin line to its pole; only where there is no place at all is that photo drawn smaller (listed with its size), never left out. The pole comes first, then its details, then its photo.`,
           ...(gb ? [`Existing Globe and Bayantel poles (${gb}): a circle filled blue, to tell them from the other telco poles.`] : []),
           ...(cnt('existingArms') ? [`Existing extension arms and 10-pin alley arms on the poles (${cnt('existingArms')}): the template's model of that arm, as a new one, in blue, with its name.`] : []),
           ...(cl ? [`Proposed closures (${cl}): PROPOSED CLOSURE and the closure's ID in red, with a red arrow to the pentagon.`] : []),
-          `Landmarks (Drawing style \u203a Landmarks): icons ${PS.crowd.icons ? 'on' : 'off'}, names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[PS.crowd.marks]}.`]; })(),
+          `Landmarks (Plan style \u203a Landmarks): icons ${PS.crowd.icons ? 'on' : 'off'}, names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[PS.crowd.marks]}.`]; })(),
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
     { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
       resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}${S.exp.dxfLabels === 'tidy' ? 'Pole labels: Tidy. ' : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']), ...(cefFiles.length ? [['CEF', `${new Set(cefFiles.map((f) => f.name.split('/')[0])).size} CEF plan folder${new Set(cefFiles.map((f) => f.name.split('/')[0])).size === 1 ? '' : 's'}`, 'The CEF plan of each tower site: its PDF, DXF, KML and photos']] : []),
         ...(files.length ? [['JPG', `${files.length} picture${files.length === 1 ? '' : 's'}`, 'Photos, vicinity map, logo: keep them next to the drawings, or AutoCAD shows empty boxes (AutoCAD 2021: see README)']] : []), ['TXT', 'README.txt', 'What the plan holds, with the pole numbers of each drawing']]; }
-    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, ...cefFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
+    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, ...cefFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`); notePlan(); // beta 6.7 (UX step 3)
     { const A = routeAdvice(R), o0 = outs[0], MK0 = o0.out.report.marks || [];
       toast(`Plan: ${many ? `${outs.length} drawings · ` : ''}${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'}${!many && o0.st.no.size ? ` · numbered: ${o0.st.what} (${MK0.length})` : ''} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}${noPack.length ? ` · no road pack for ${noPack.map(({ region }) => region || 'a place').join(', ')}: its ROW table is blank (see the README)` : ''}`, noPack.length ? 9000 : 5000); }
   }
@@ -12760,6 +13303,10 @@
     el.textContent = '';
     const mark = (host, str) => {
       if (str.includes('{site}')) str = str.replace(/\{site\}/g, tutSite() || 'https://<your website>/*'); // after the bold / italic split: its * is not markup
+      if (typeof words === 'function') { // beta 6.7 (UX step 1): the search's own test of a word (GESAA_TUTORIAL.query(q).mark), so the words marked are the words it found
+        str.split(/([A-Za-z0-9À-ɏ'’-]+)/).forEach((x, i) => { if (!x) return; if (i % 2 && words(x)) { const m = document.createElement('mark'); m.textContent = x; host.appendChild(m); } else host.appendChild(document.createTextNode(x)); });
+        return;
+      }
       if (!words || !words.length) { host.appendChild(document.createTextNode(str)); return; }
       const re = new RegExp(`([\\w'’-]*(?:${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})[\\w'’-]*)`, 'ig'); // the whole word
       str.split(re).forEach((x, i) => { if (!x) return; if (i % 2) { const m = document.createElement('mark'); m.textContent = x; host.appendChild(m); } else host.appendChild(document.createTextNode(x)); });
@@ -12771,42 +13318,72 @@
       const h = document.createElement(bold ? 'b' : 'i'); mark(h, bold ? part.slice(2, -2) : part.slice(1, -1)); el.appendChild(h);
     });
   }
-  const tutHay = (t) => [t.title, t.kw, t.cat, ...t.steps.map((x) => x.t)].join(' ').toLowerCase().replace(/\*/g, '');
-  /** A search word without its ending, so "approve" finds "approval" and "deleting" finds "delete". */
-  const tutStem = (w) => (w.length > 4 ? w.replace(/(ings?|ed|es|s|e|al)$/, '') : w);
+  /** beta 6.7 (UX step 1): a step's text cut to about 110 characters around the first word found, so the snippet shows it. */
+  function tutSnip(text, mark) {
+    const plain = String(text || '').replace(/\*/g, ''); if (plain.length <= 110) return plain;
+    let at = -1; if (typeof mark === 'function') { const re = /[A-Za-z0-9À-ɏ'’-]+/g; let m; while ((m = re.exec(plain))) if (mark(m[0])) { at = m.index; break; } }
+    if (at < 70) return `${plain.slice(0, 108)}…`;
+    const from = plain.lastIndexOf(' ', at - 30) + 1 || at - 30;
+    return `…${plain.slice(from, from + 104)}${from + 104 < plain.length ? '…' : ''}`;
+  }
   function renderTutList() {
-    const adm = tutAdmin(), q = $('tutQ').value.trim().toLowerCase(), words = q.split(/\s+/).filter((w) => w.length > 1).map(tutStem);
+    const adm = tutAdmin(), q = $('tutQ').value.trim(), TUT = window.GESAA_TUTORIAL || {};
+    // beta 6.7 (UX step 1): the search is GESAA_TUTORIAL.search (tutorial.js): ranked by title, kw and steps, with other spellings
+    const Q = q && TUT.search && TUT.query ? TUT.query(q) : null, words = Q ? Q.mark : null;
     if (!adm) tutAudSel = 'user';
     $('tutAud').hidden = !adm;
     [...$('tutAud').children].forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aud === tutAudSel)));
-    $('tutWho').textContent = words.length ? '' : adm ? `You are a user of the admin company${pol().owner ? ` (${pol().owner})` : ''}: the user guide and the admin guide.` : 'How to use G-eSAA. Tap a topic; “Show me” opens the screen and points at the button.';
+    $('tutWho').textContent = words ? '' : adm ? `You are a user of the admin company${pol().owner ? ` (${pol().owner})` : ''}: the user guide and the admin guide.` : 'How to use G-eSAA. Tap a topic; “Show me” opens the screen and points at the button.';
     const all = tutTopics(), L = $('tutList'); L.innerHTML = '';
     if (!all.length) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = 'The tutorial is not loaded on this phone: open G-eSAA once with internet.'; L.appendChild(p); return; }
-    let list = words.length ? all.filter((t) => words.every((w) => tutHay(t).includes(w))) : all.filter((t) => t.aud === tutAudSel);
-    if (words.length) list = list.map((t, i) => ({ t, i, s: words.filter((w) => t.title.toLowerCase().includes(w)).length })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.t);
+    const byId = new Map(all.map((t) => [t.id, t])), at = new Map();
+    let list = all.filter((t) => t.aud === tutAudSel);
+    if (words) list = TUT.search(q, { admin: adm }).filter((r) => byId.has(r.id)).map((r) => { at.set(r.id, r.step); return byId.get(r.id); });
+    // beta 6.7 (UX step 5): the settings of Plan style whose label (or place) says every word, at most 3, first: Show me opens it there.
+    // (beta 6.7, UX step 5 fixes; reviewer: on a small screen or with large text, 3 rows pushed the topics below the screen: there, the best one
+    // only, and More › opens Plan style's Find a setting with the same words)
+    const strong = words && TUT.settings ? plFind(q).filter((r) => r.strong && r.label > 0) : [];
+    const fs = +getComputedStyle(document.documentElement).getPropertyValue('--fs') || 1, room = innerHeight / fs >= 600 ? 3 : 1, sets = strong.slice(0, room);
+    if (sets.length) {
+      const h = document.createElement('div'); h.className = 'tutcat tutsethd'; const ht = document.createElement('span'); ht.textContent = strong.length > sets.length ? 'Settings in Plan style' : strong.length === 1 ? 'A setting in Plan style' : `${strong.length} settings in Plan style`; h.appendChild(ht); // (more: no count, Find a setting lists more, by their hints too)
+      if (strong.length > sets.length) { const a = document.createElement('button'); a.type = 'button'; a.className = 'linkbtn tutsetall'; a.textContent = 'More ›'; a.setAttribute('aria-label', `More settings for “${q}”: Find a setting in Plan style`); a.addEventListener('click', () => plFindIn(q)); h.appendChild(a); }
+      L.appendChild(h);
+      sets.forEach((r) => {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'tutset'; b.dataset.setting = r.e.label;
+        const t = document.createElement('span'); t.className = 't';
+        const k = document.createElement('span'); k.className = 'k'; k.textContent = 'SETTING';
+        const n = document.createElement('b'); tutRich(n, r.e.label, words);
+        const w = document.createElement('small'); w.textContent = plWhere(r); if (r.off) w.className = 'off'; // (beta 6.7, UX step 5 fixes: · only with the Simple drawing)
+        const go = document.createElement('em'); go.textContent = 'Show me ›';
+        t.append(k, n, w); b.append(t, go); b.setAttribute('aria-label', `Setting: ${r.e.label}, in ${plWhere(r)}. Show me`);
+        b.addEventListener('click', () => plFindGo(r.e)); L.appendChild(b);
+      });
+    }
     if (!list.length) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = `No topic for “${q}”. Try another word, e.g. photo, PAT, invite, offline.`; L.appendChild(p); return; }
-    if (words.length) { const h = document.createElement('div'); h.className = 'tutcat'; h.textContent = `${list.length} topic${list.length === 1 ? '' : 's'} found`; L.appendChild(h); }
+    if (words) { const h = document.createElement('div'); h.className = 'tutcat'; h.textContent = `${list.length} topic${list.length === 1 ? '' : 's'} found`; L.appendChild(h); }
     let cat = '';
     const shut = S.tutShut || {};
     list.forEach((t) => {
-      if (!words.length && t.cat !== cat) { // v2.28: each subject folds open or shut
+      if (!words && t.cat !== cat) { // v2.28: each subject folds open or shut
         cat = t.cat; const c0 = cat, n = list.filter((x) => x.cat === c0).length;
         const h = document.createElement('button'); h.type = 'button'; h.className = 'tutcat tutfold'; h.dataset.cat = c0; h.setAttribute('aria-expanded', String(!shut[c0]));
         h.innerHTML = `<span></span><b>${n}</b><em aria-hidden="true">${shut[c0] ? '▸' : '▾'}</em>`; h.firstChild.textContent = c0;
         h.addEventListener('click', () => { S.tutShut = { ...(S.tutShut || {}), [c0]: !(S.tutShut || {})[c0] }; persist(); renderTutList(); });
         L.appendChild(h);
       }
-      if (!words.length && shut[t.cat]) return;
+      if (!words && shut[t.cat]) return;
       const b = document.createElement('button'); b.type = 'button'; b.className = 'tuttopic'; b.dataset.topic = t.id;
-      if (words.length && adm) { const a = document.createElement('span'); a.className = 'aud'; a.textContent = t.aud === 'admin' ? 'ADMIN GUIDE' : 'USER GUIDE'; b.appendChild(a); }
+      if (words && adm) { const a = document.createElement('span'); a.className = 'aud'; a.textContent = t.aud === 'admin' ? 'ADMIN GUIDE' : 'USER GUIDE'; b.appendChild(a); }
       const n = document.createElement('b'); tutRich(n, t.title, words); b.appendChild(n);
-      const hit = words.length ? t.steps.find((x) => words.some((w) => x.t.toLowerCase().replace(/\*/g, '').includes(w))) : null;
-      const sub = document.createElement('span'); const plain = (hit || t.steps[0]).t.replace(/\*/g, ''); tutRich(sub, plain.length > 110 ? `${plain.slice(0, 108)}…` : plain, words); b.appendChild(sub);
-      b.addEventListener('click', () => openTutTopic(t, words));
+      const k = words ? at.get(t.id) : -1, hit = k >= 0 ? t.steps[k] : null; // beta 6.7: the step with the most query words
+      if (hit) b.dataset.step = String(k);
+      const sub = document.createElement('span'); tutRich(sub, tutSnip((hit || t.steps[0]).t, words), words); b.appendChild(sub);
+      b.addEventListener('click', () => openTutTopic(t, words, k));
       L.appendChild(b);
     });
   }
-  function openTutTopic(t, words) {
+  /** at (beta 6.7, UX step 1): the step the search found best: the topic opens on it, marked (tutbest). */
+  function openTutTopic(t, words, at) {
     if (!t) return;
     tutCur = t;
     $('tutTopicTitle').textContent = t.title;
@@ -12815,6 +13392,7 @@
     const ol = $('tutSteps'); ol.innerHTML = '';
     t.steps.forEach((st, i) => {
       const li = document.createElement('li'), d = document.createElement('div'); tutRich(d, st.t, words || []); li.appendChild(d);
+      if (i === at) li.classList.add('tutbest');
       if (st.go || st.hl) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm show'; b.textContent = 'Show me'; b.addEventListener('click', () => tutStart(t, i)); li.appendChild(b); }
       ol.appendChild(li);
     });
@@ -12822,7 +13400,9 @@
     $('tutPrev').disabled = k <= 0; $('tutNext').disabled = k < 0 || k >= seq.length - 1;
     $('tutPrev').onclick = () => openTutTopic(seq[k - 1]); $('tutNext').onclick = () => openTutTopic(seq[k + 1]);
     if (stack[stack.length - 1] !== 'tutTopic') openSheet('tutTopic');
-    $('tutTopic').querySelector('.body').scrollTop = 0;
+    const bd = $('tutTopic').querySelector('.body'); bd.scrollTop = 0;
+    const li = at > 0 ? ol.children[at] : null; // beta 6.7 (UX step 1): open at the step the search found (the first step: from the top)
+    if (li) bd.scrollTop = Math.max(0, li.getBoundingClientRect().top - bd.getBoundingClientRect().top - 12);
   }
   function openTutorial() { renderTutList(); openSheet('tutorial'); }
 
@@ -12831,20 +13411,34 @@
      (whatever screen it opens: camera, record, dialog…); Next › moves on without it; ✕ ends the tour. While a dialog is open
      the tip waits; it never leaves an open record or the camera by itself. */
   const TUT_SCREEN = { map: '', projects: 'projects', newProject: 'newProj', projectDetails: 'projects', records: 'list', export: 'export', settings: 'settings',
-    profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin', planset: 'planSet', team: 'teamSheet', mbxset: 'mbxSetSheet' };
+    profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin', planset: 'drwStyle', planstyle: 'drwStyle', team: 'teamSheet', mbxset: 'mbxSetSheet' };
+  /* beta 6.7 (UX step 1, 4): go 'planstyle' (Plan style; 'planset' is its old name) or 'planstyle:<part>': basic, advanced, or the
+     Advanced section that is the part (opened, its part of the plan in the preview). */
+  const TUT_PLPART = { numbers: 'stNum', details: 'stPole', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
+  const tutGoBase = (go) => String(go || '').split(':')[0];
+  const tutHlEl = (st) => { try { return st && st.hl ? document.querySelector(st.hl) : null; } catch (e) { return null; } };
+  /** beta 6.7 (UX step 4): Plan style's tab and Advanced section for a step: its part, else where its control is. */
+  const tutPlanAt = (go, st) => {
+    const part = String(go || '').split(':')[1] || '', el = tutHlEl(st), sec = TUT_PLPART[part] ? $(TUT_PLPART[part]) : el && el.closest('#plAdv details.stsec');
+    return { tab: part === 'basic' ? 'basic' : part === 'advanced' || sec || (el && el.closest('#plAdv')) ? 'advanced' : 'basic', sec: sec ? sec.id : '' };
+  };
+  const tutPlanOn = (go, st) => { const a = tutPlanAt(go, st); return tutTop() === 'drwStyle' && $(a.tab === 'advanced' ? 'plAdv' : 'plBasic').hidden === false && (!a.sec || $(a.sec).open); };
   const tutTop = () => stack[stack.length - 1] || '';
-  const tutOnScreen = (go) => (go === 'map' ? !stack.length : go === 'projectDetails' ? tutTop() === 'projects' && $('curMore').open : tutTop() === TUT_SCREEN[go]);
+  const tutOnScreen = (go, st) => { const g = tutGoBase(go); return g === 'map' ? !stack.length : g === 'projectDetails' ? tutTop() === 'projects' && $('curMore').open : g === 'planstyle' || g === 'planset' ? tutPlanOn(go, st) : tutTop() === TUT_SCREEN[g]; };
   const tutModal = () => ['askBox', 'pinBox', 'promptBox', 'qrShow', 'busy', 'qrScan'].some((id) => { const e = $(id); return e && !e.hidden; });
   const tutBusyScreen = () => stack.includes('editor') || stack.includes('camera'); // never closed by the tour
   let tutTour = null, tutTimer = 0;
-  async function tutGo(go) {
-    switch (go) {
+  async function tutGo(go, st) {
+    switch (tutGoBase(go)) {
       case 'projects': if (tutTop() !== 'projects') openProjects(); break;
       case 'newProject': if (tutTop() !== 'projects') openProjects(); await tutWait(150); openNewProject(); break;
       case 'projectDetails': if (tutTop() !== 'projects') openProjects(); await tutWait(150); $('curMore').open = true; break;
       case 'records': if (tutTop() !== 'list') $('listBtn').click(); break;
       case 'export': if (tutTop() !== 'export') $('exportBtn').click(); break;
-      case 'planset': if (tutTop() !== 'planSet') openPlanSet(); break; // v2.42.28
+      case 'planset': case 'planstyle': { // v2.42.28; beta 6.7 (UX step 1): planstyle, planstyle:<part>; UX step 4: Plan style's tab and section
+        const a = tutPlanAt(go, st); openStyle(a.tab, a.sec); await tutWait(120); // (a section without a control: its heading just under the preview)
+        break;
+      }
       case 'team': if (tutTop() !== 'teamSheet') { if (tutTop() !== 'settings') { $('settingsBtn').click(); await tutWait(150); } $('goTeam').click(); } break; // v2.43
       case 'mbxset': if (tutTop() !== 'mbxSetSheet') { if (tutTop() !== 'settings') { $('settingsBtn').click(); await tutWait(150); } $('goMbx').click(); } break; // beta 3.4
       case 'settings': if (tutTop() !== 'settings') $('settingsBtn').click(); break;
@@ -12859,17 +13453,35 @@
   async function tutScreen(st) {
     const tour = tutTour; if (!tour) return;
     tour.pending = null;
-    if (!st.go || tutOnScreen(st.go)) return;
+    if (!st.go || tutOnScreen(st.go, st)) return;
     if (tutModal() || tutBusyScreen()) { tour.pending = st; return; }
     // back to the step's base screen when it is open underneath (Settings or Projects), else to the map; then on to the screen
     const base = ['settings', 'profile', 'admin', 'camera', 'exports', 'maps', 'storage', 'log'].includes(st.go) ? 'settings' : ['projects', 'newProject', 'projectDetails'].includes(st.go) ? 'projects' : '';
     if (base && stack.includes(base)) { while (tutTop() !== base) await closeSheet(); } else await closeAll();
-    try { await tutGo(st.go); if (st.go === 'export' && st.hl && !$('export').hidden) { const card = /^#do[A-Za-z]+$/.test(st.hl) ? st.hl.slice(1) : /^#(dxf[A-Za-z]+|sigBox)$/.test(st.hl) ? 'doDxf' : ''; if (card) showExport(card); } } catch (e) { LOG.warn('tut.go', errInfo(e)); }
+    try { await tutGo(st.go, st); if (st.go === 'export' && st.hl && !$('export').hidden) { const card = tutXCard(st) || (/^#do[A-Za-z]+$/.test(st.hl) ? st.hl.slice(1) : /^#(dxf[A-Za-z]+|sigBox)$/.test(st.hl) ? 'doDxf' : ''); if (card) showExport(card); } } catch (e) { LOG.warn('tut.go', errInfo(e)); }
     await tutWait(400);
+  }
+  /** beta 6.7 (UX step 1): the Export card that holds the step's control (its "do…" button id; #prCard, #sigBox… too), or ''. */
+  const tutXCard = (st) => { const el = tutHlEl(st), c = el && el.closest('#export .xcard'), k = c ? xKey(c) : ''; return k && exportCards().includes(c) ? k : ''; }; // (beta 6.7, UX step 3: the row's own button id: doBackup, not the Restore link under it)
+  /** beta 6.7 (UX step 1): on the screen on top, what hides the step's control is opened: its tab (Plan style's Basic | Advanced),
+      its Export card, the closed folds (details: an Advanced section, its Colours and sizes) around it. true: something was opened. */
+  function tutUnfold(el) {
+    const sh = el.closest('section.sheet'); if (!sh || sh.hidden || sh.id !== tutTop()) return false;
+    let did = false;
+    const pane = el.closest('[role="tabpanel"][hidden]'), tab = pane && pane.id ? sh.querySelector(`[role="tab"][aria-controls="${pane.id}"]`) : null; // (Plan style's Basic | Advanced, step 4)
+    if (tab) { tab.click(); did = true; }
+    const xc = el.closest('#export .xcard'), xk = xc ? xKey(xc) : ''; // beta 6.7 (UX step 3): the row is opened (one at a time); Several at once for its ticks and its ZIP button
+    if (xk && exportCards().includes(xc) && !xc.classList.contains('xopen') && !xc.classList.contains('xmany')) { showExport(xk); did = true; }
+    if (!xMany && el.closest('#xMulti, #xGoBox') && sh.id === 'export') { xManyOn([]); did = true; }
+    for (let d = el.closest('details:not([open])'); d; d = d.parentElement ? d.parentElement.closest('details:not([open])') : null) {
+      if (el.tagName !== 'SUMMARY' || el.parentElement !== d) { d.open = true; did = true; } // (a fold's own title shows while it is shut)
+    }
+    return did;
   }
   /** The first control of the step that is on screen (not under another screen), or null. */
   function tutTarget(st) {
     if (!st || !st.hl) return null;
+    const tour = tutTour, cur = !!tour && tour.t.steps[tour.i] === st;
     const onTop = (el) => { // on screen and not under another screen, a fixed footer or a dialog
       const r = el.getBoundingClientRect();
       if (r.bottom < 4 || r.top > innerHeight - 4 || r.right < 0 || r.left > innerWidth) return false;
@@ -12882,10 +13494,11 @@
         const g = el.closest('#admMain > .group.shut'); if (g) { g.classList.remove('shut'); g.querySelector(':scope > h3').setAttribute('aria-expanded', 'true'); }
         const dz = el.closest('details:not([open])'); if (dz) dz.open = true;
       }
+      if (cur && tour.unfolded !== tour.i && tutUnfold(el)) tour.unfolded = tour.i; // beta 6.7: once per step (the user may fold it again)
       if (!el.getClientRects().length || el.closest('[hidden]')) continue;
       if (onTop(el)) return el;
       if (tutTour && tutTour.scrolled !== tutTour.i) { // once per step (the user may scroll away): bring it into view
-        tutTour.scrolled = tutTour.i; el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        tutTour.scrolled = tutTour.i; if (el.closest('#drwStyle .dsctl')) { const r = el.closest('.strow, .psrow, .psstd'), bd = $('drwStyle').querySelector('.dsbody'); DSP.toRow(r && bd && r.getBoundingClientRect().height < bd.clientHeight * 0.4 ? r : el); } else el.scrollIntoView({ block: 'center', inline: 'nearest' }); // (beta 6.7, UX step 4: Plan style: just under its sticky preview)
         if (onTop(el)) return el;
       }
     }
@@ -12906,7 +13519,7 @@
   async function tutStart(t, i) {
     tutEnd();
     while (['tutTopic', 'tutorial'].includes(tutTop())) await closeSheet();
-    tutTour = { t, i, el: null, pending: null, scrolled: -1 };
+    tutTour = { t, i, el: null, pending: null, scrolled: -1, unfolded: -1 };
     document.addEventListener('click', tutTapped, true);
     await tutScreen(t.steps[i]); tutRender();
     tutTimer = setInterval(tutTrack, 300);
@@ -12965,7 +13578,7 @@
       const r = el.getBoundingClientRect(), pad = 6;
       Object.assign(spot.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + 2 * pad}px`, height: `${r.height + 2 * pad}px` });
     }
-    const away = !!st.go && !tutOnScreen(st.go); // the step's screen is not open: Open it › (or it opens when a dialog closes)
+    const away = !!st.go && !tutOnScreen(st.go, st); // the step's screen is not open: Open it › (or it opens when a dialog closes)
     const o = tip.querySelector('.tutopen'); if (o) o.hidden = !away || !!tour.pending;
     const w = tip.querySelector('.tutwhen'); if (w) w.hidden = !!el || modal || away;
     const d = tip.querySelector('.tutdo'); if (d) d.hidden = !el;
@@ -13004,7 +13617,8 @@
   /** Each export card's own All / Main (the same setting as Settings → Camera; a coordinator's, for his projects, shows and is locked). */
   function syncPhDocUi() {
     const L = phSetOf(S.project);
-    document.querySelectorAll('select.phdoc').forEach((sl) => { sl.value = phDoc(sl.dataset.k); sl.disabled = L.locked; sl.title = L.locked ? `Set by ${L.by} for this project` : ''; });
+    document.querySelectorAll('select.phdoc').forEach((sl) => { sl.value = phDoc(sl.dataset.k); sl.disabled = L.locked; sl.title = L.locked ? `Set by ${L.by} for this project` : '';
+      if (sl.closest('#export')) { let h = sl.parentElement.querySelector(':scope > .phdochint'); if (!h) { h = document.createElement('small'); h.className = 'phdochint'; sl.insertAdjacentElement('afterend', h); } h.textContent = L.locked ? `Set by ${L.by} for this project` : 'Default: Settings › Camera'; } }); // beta 6.7 (UX step 3; critic)
     document.querySelectorAll('select.phdoc option[value="all"]').forEach((x) => { const sl = x.closest('select'), k = sl.dataset.k, stage = k === 'defpdf' || !!sl.closest('#accExports'); if (k === 'ai') return;
       x.textContent = k === 'zip' ? 'All (the main one ID.jpg, the others ID_2.jpg…)' : stage ? 'All photos of each stage' : 'All photos of the pin'; }); // (beta 6.7: no count: + Add photo goes past the photos per pin)
   }
@@ -13031,7 +13645,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', 'pmiLoops2', 'pmiLoops', 'bool'], ['dxfBoqGrid', null, 'dxfBoqGrid', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI, also under Settings)
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', null, 'pmiLoops', 'bool'], ['dxfBoqGrid', null, 'dxfBoqGrid', 'bool'], ['dxfRoads', null, 'dxfRoads', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI; beta 6.7, UX step 4: in Plan style only, its copy under Settings gone; the roads kept)
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {
@@ -13042,7 +13656,7 @@
       if (el.value !== String(S.exp[key])) { S.exp[key] = DEF.exp[key]; el.value = String(S.exp[key]); persist(); } // a value this version no longer offers
     }));
     ['stampFields', 'stampFields2'].forEach((id) => $(id).querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(S.exp.stampFields.includes(c.dataset.v)))));
-    [['setZone', 'setZone2', 'zone'], ['setSym', 'setSym2', 'sym'], ['setTxt', 'setTxt2', 'txt']].forEach(([a, b, key]) => { $(a).value = String(S[key]); $(b).value = String(S[key]); });
+    [['setZone', 'zone'], ['setSym', 'sym'], ['setTxt', 'txt']].forEach(([a, key]) => { const el = $(a); if (el) el.value = String(S[key]); }); // (beta 6.7, UX step 4; critic: S.zone, S.sym, S.txt: Plan style › Plan file only, their Settings copies setZone2, setSym2, setTxt2 gone)
   }
   Object.entries(expIds).forEach(([key, ids]) => ids.forEach(([id, kind]) => {
     const el = $(id); if (!el) return;
@@ -13053,8 +13667,8 @@
     const set = new Set(S.exp.stampFields); if (set.has(c.dataset.v)) set.delete(c.dataset.v); else set.add(c.dataset.v);
     S.exp.stampFields = DEF.exp.stampFields.filter((f) => set.has(f)); persist(); syncExpUi();
   }));
-  [['setZone', 'setZone2']].forEach((ids) => ids.forEach((id) => $(id).addEventListener('change', () => { S.zone = +$(id).value; persist(); syncExpUi(); $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; })));
-  [['setSym', 'sym'], ['setSym2', 'sym'], ['setTxt', 'txt'], ['setTxt2', 'txt']].forEach(([id, key]) => $(id).addEventListener('change', () => { const v = +$(id).value; if (v > 0) { S[key] = v; persist(); } syncExpUi(); }));
+  $('setZone').addEventListener('change', () => { S.zone = +$('setZone').value; persist(); syncExpUi(); $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; });
+  [['setSym', 'sym'], ['setTxt', 'txt']].forEach(([id, key]) => $(id).addEventListener('change', () => { const v = +$(id).value; if (v > 0) { S[key] = v; persist(); } syncExpUi(); }));
   syncExpUi();
   $('goExports').addEventListener('click', () => {
     syncExpUi();
@@ -13065,13 +13679,17 @@
     $('savePreview').textContent = NATIVE ? `Files go to: ${savePath('…').shown.replace(/\/…$/, '/')}` : 'Website version: your browser saves to its Downloads folder.';
     ['setSaveBase', 'setSaveFolder', 'setSaveByProject'].forEach((id) => { $(id).disabled = !NATIVE; });
   }
+  /* beta 6.7 (UX step 4; critic): Reset to defaults resets what this screen shows (the Export rows' defaults: photo copies, stamp and
+     its fields, file names, KMZ, Deficiency List PDF) and the save folder; never the plan's choices (Plan style › Reset…), the drawings
+     of the plan, the One PDF or the zone (they were reset here too before). */
+  const EXP_RESET_KEYS = [...new Set(EXP_PAIRS.filter(([, b]) => b && $(b) && $(b).closest('#setExports')).map(([, , key]) => key))].concat('stampFields'); // (the keys of the controls on this screen)
   $('expReset').addEventListener('click', async () => {
-    if (!(await ask('Reset export settings?', 'Photo size, stamp, file names, KMZ, PDF, Excel and DXF options and the save folder go back to their defaults.', [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
-    S.exp = JSON.parse(JSON.stringify(DEF.exp)); S.zone = DEF.zone; S.sym = DEF.sym; S.txt = DEF.txt;
+    if (!(await ask('Reset these export settings?', 'Photo copies (size, quality), the stamp on the photo files and what it shows, file names, Google Earth (KMZ) and the Deficiency List PDF go back to their defaults, and the save folder too. Plan style (how the plan looks, the template, the UTM zone) is not changed.', [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
+    EXP_RESET_KEYS.forEach((k) => { S.exp[k] = JSON.parse(JSON.stringify(DEF.exp[k])); });
     S.saveBase = DEF.saveBase; S.saveFolder = DEF.saveFolder; S.saveByProject = DEF.saveByProject; persist();
-    syncExpUi(); $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`;
+    syncExpUi();
     $('setSaveBase').value = S.saveBase; $('setSaveFolder').value = S.saveFolder; $('setSaveByProject').checked = true; updateSavePreview();
-    toast('Export settings reset to the defaults', 2500);
+    toast('Export settings reset to the defaults (Plan style unchanged)', 2500);
   });
   $('setSaveBase').addEventListener('change', () => { S.saveBase = $('setSaveBase').value; persist(); updateSavePreview(); });
   $('setSaveFolder').addEventListener('change', () => { S.saveFolder = $('setSaveFolder').value.trim() || 'G-eSAA'; persist(); updateSavePreview(); });
@@ -18594,7 +19212,7 @@
       if (!$('idPfxMenu').hidden) { $('idPfxMenu').hidden = true; return; } // the ID prefix menu
       $('edClose').click(); return; // with changes not saved it asks first (Esc again: keep editing)
     }
-    if ((top === 'export' || top === 'planSet') && $(top).classList.contains('side')) { e.preventDefault(); closeSheet(); return; } // v2.42.28: a panel beside the plan
+    if ((top === 'export' || top === 'drwStyle') && $(top).classList.contains('side')) { e.preventDefault(); closeSheet(); return; } // v2.42.28: a panel beside the plan (beta 6.7, UX step 4: Plan style)
     if (top === 'drawing' && !$('drawWhatBox').hidden) { e.preventDefault(); setWhat(false, false); return; }
     if (!stack.length && map._popup) map.closePopup();
   }
@@ -18761,7 +19379,7 @@
     ppMenuFor = name; btn.setAttribute('aria-expanded', 'true');
     const m = pmeta(name), acc = m.mode === 'acceptance', menu = $('ppMenu'); menu.innerHTML = '';
     const items = [...(name !== S.project ? [['Open this project', () => ppOpen(name), 'first']] : []), ['Zoom to the project', () => ppGo(name)], ['Share…', () => guard(() => shareProject(name))],
-      [acc ? 'Export…' : 'Export DXF…', () => ppAct(name, () => { exportPick = acc ? null : 'doDxf'; $('exportBtn').click(); })],
+      [acc ? 'Export…' : 'Export plan…', () => ppAct(name, () => { exportPick = acc ? null : 'doDxf'; planExport = !acc; $('exportBtn').click(); })], /* beta 6.7 (UX step 3): as the Drawing's Export plan */
       [m.completedAt ? 'Undo complete…' : 'Mark complete…', () => ppAct(name, () => $('doneBtn').click())], null,
       ['Delete…', () => guard(() => deleteProject(name)), 'del']];
     for (const it of items) {
@@ -18829,7 +19447,7 @@
   $('ppOpenShared').addEventListener('click', () => { ppMenuClose(); $('openShared').click(); }); // v2.43 beta 2.1: beside + New
   $('ppShareMany').addEventListener('click', () => { ppMenuClose(); $('bulkShareBtn').click(); });
   if (deskMQ) { const ch = () => { deskLayout(); deskRender(); if (!$('drawing').hidden) setWhat(deskOn() && S.drwWhatDesk !== false, false);
-      if (stack.includes('drawing')) { [['export', () => $('export').classList.contains('plan')], ['planSet', () => true]].forEach(([k, f]) => { if (stack.includes(k) && f()) $(k).classList.toggle('side', deskOn()); }); document.body.classList.toggle('drwside', deskOn() && ['export', 'planSet'].some((k) => stack.includes(k) && $(k).classList.contains('side'))); } }; /* v2.42.28 */ if (deskMQ.addEventListener) deskMQ.addEventListener('change', ch); else if (deskMQ.addListener) deskMQ.addListener(ch); }
+      if (stack.includes('drawing')) { [['export', () => $('export').classList.contains('plan')], ['drwStyle', () => stack.indexOf('drwStyle') > stack.indexOf('drawing')]].forEach(([k, f]) => { if (stack.includes(k) && f()) $(k).classList.toggle('side', deskOn()); }); document.body.classList.toggle('drwside', deskOn() && ['export', 'drwStyle'].some((k) => stack.includes(k) && $(k).classList.contains('side'))); } }; /* v2.42.28 */ if (deskMQ.addEventListener) deskMQ.addEventListener('change', ch); else if (deskMQ.addListener) deskMQ.addListener(ch); }
   { let rz = 0; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (deskOn()) deskLayout(); }, 150); }); }
   deskLayout();
 
@@ -19685,34 +20303,42 @@
       ...(skip.cef && skip.cef.length ? [[splIcon('i-cef'), 'CEF plan', `Not made yet for ${andList(skip.cef)}: not in this PDF`, true]] : []), // (also when another site's plan is in it)
       ...(skip.spl && !has('spl') ? [[splIcon('i-splice'), 'Splicing details', 'Not made yet: not in this PDF', true]] : [])];
     LOG.info('export.one', { parts: said.map((x) => `${x.kind}:${x.pages}`).join(','), mb: +(bytes.length / 1048576).toFixed(2) });
-    offerResult(new Blob([bytes], { type: 'application/pdf' }), `${fileBase()}_${tag}.pdf`);
+    offerResult(new Blob([bytes], { type: 'application/pdf' }), `${fileBase()}_${tag}.pdf`); notePlan(); // beta 6.7 (UX step 3)
     toast(`One PDF: ${said.reduce((t, x) => t + x.pages, 0)} pages · ${said.filter((x) => x.pages).map((x) => x.label.replace(/ · .*$/, '')).filter((v, i, a) => a.indexOf(v) === i).join(' + ')}`, 5000);
   }
   splHooks.onePdf = (pdfFiles, cefFiles) => onePdfFinish(pdfFiles, cefFiles);
-  /** The tile in Export the plan: the plans it puts together (the CEF plan in an As-Plan, or when the project has one), each with a dot:
-      green made, amber not made yet. after: back from a plan opened by its question: the tile is shown again (one tap to go on). */
+  /** beta 6.7 (UX step 3; was the round tile): under Plan drawing › One PDF to print, what goes in it, each with a dot: green made, amber
+      not made yet or not finished (Plan ✓ · CEF plan: not made for X · Splicing details: 3 fibers to place). after: back from a plan opened
+      by its question: One PDF to print is chosen again and its button pulses (one tap to go on). */
   let oneTok = 0;
   function renderOneBox(after) {
     const box = $('xOneBox'), btn = $('xOnePdf'); if (!box || !btn) return;
+    dxfOutRender();
     const on = drawOn() && !isAcc(); box.hidden = !on; if (!on) { onePending = ''; return; }
-    const tpl = dxfMode() === 'tpl'; btn.classList.toggle('off', !tpl); { const sub = btn.querySelector('.xsub'); if (sub) { sub.hidden = tpl; sub.textContent = tpl ? '' : 'Needs your plan template'; } } // (Simple DXF: shown, with what it needs; a tap says how)
-    const name = S.project, M = plansMissing(name), haveCef = cefPlans(name).length > 0, cefOn = svPurpose(name) === 'As-plan' || haveCef, splOn = M.cab;
-    btn.querySelectorAll('[data-p="cef"]').forEach((el) => { el.hidden = !cefOn; }); btn.querySelectorAll('[data-p="spl"]').forEach((el) => { el.hidden = !splOn; });
-    { const pl = btn.querySelectorAll('.xplus'); if (pl[1]) pl[1].hidden = !cefOn || !splOn; if (pl[0]) pl[0].hidden = !cefOn && !splOn; }
-    const dot = (k, st) => { const d = btn.querySelector(`.xp[data-p="${k}"] .pdot`); if (d) d.className = `pdot${st ? ` ${st}` : ''}`; };
-    dot('cef', M.cef.length ? 'miss' : haveCef ? 'ok' : ''); dot('spl', M.spl ? 'miss' : splOn && spliceStarted(name) ? 'ok' : '');
-    const all = ['the plan', ...(cefOn ? ['the CEF plan'] : []), ...(splOn ? ['the splicing details'] : [])], miss = [...(M.cef.length ? ['the CEF plan'] : []), ...(M.spl ? ['the splicing details'] : [])];
-    const label = (todo) => { const lbl = tpl ? `One PDF: ${andList(all)}${miss.length ? ` (${andList(miss)}: not made yet)` : ''}${todo ? ` (the splicing details: ${todo})` : ''}` : 'One PDF: it needs your company’s plan template (Plan settings)'; btn.setAttribute('aria-label', lbl); btn.title = lbl; };
-    label('');
-    if (splOn && !M.spl && spliceStarted(name)) { const tok = ++oneTok; splReady(name).then((r) => { if (tok !== oneTok || S.project !== name || r.st === 'ok') return; dot('spl', 'miss'); label(splTodo(r)); }, (e) => LOG.warn('export.one.state', errInfo(e))); } // (not finished: amber, as on the Drawing)
-    if (after && onePending === name) { onePending = ''; btn.classList.remove('pulse'); void btn.offsetWidth; btn.classList.add('pulse'); setTimeout(() => btn.classList.remove('pulse'), 4000); try { btn.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* old WebView */ } }
+    const tpl = dxfMode() === 'tpl', name = S.project, M = plansMissing(name), haveCef = cefPlans(name).length > 0, cefOn = svPurpose(name) === 'As-plan' || haveCef, splOn = M.cab;
+    const parts = [['plan', 'Plan', 'ok', '']];
+    if (cefOn) parts.push(['cef', 'CEF plan', M.cef.length ? 'miss' : 'ok', M.cef.length ? `not made for ${andList(M.cef.map((p) => recName(p) || p.poleId || 'the tower site'))}` : '']);
+    if (splOn) parts.push(['spl', 'Splicing details', M.spl ? 'miss' : 'ok', M.spl ? 'not made yet' : '']);
+    $('dxfDescOne').textContent = `one PDF to print, with a bookmark for each part: ${andList(parts.map(([k]) => ({ plan: 'the plan', cef: 'the CEF plans', spl: 'the splicing details' })[k]))}.`; // beta 6.7 (UX step 3 fixes): You get, with the parts this project has
+    const draw = () => {
+      $('xOneParts').innerHTML = parts.map(([k, t, st, v]) => `<span role="listitem" data-p="${k}"><i class="${st === 'miss' ? 'miss' : ''}" aria-hidden="true"></i>${C.xmlEsc(t)}${v ? `: ${C.xmlEsc(v)}` : ' ✓'}</span>`).join('');
+      const lbl = tpl ? `One PDF: ${andList(parts.map((x) => x[1].toLowerCase()))}${parts.some((x) => x[2] === 'miss') ? ` (${parts.filter((x) => x[2] === 'miss').map((x) => `${x[1].toLowerCase()}: ${x[3]}`).join('; ')})` : ''}` : 'One PDF: it needs your company’s plan template (Plan style › Plan file)';
+      btn.title = lbl;
+    };
+    draw();
+    if (splOn && !M.spl && spliceStarted(name)) { const tok = ++oneTok; splReady(name).then((r) => { if (tok !== oneTok || S.project !== name || r.st === 'ok') return; const sp = parts.find((x) => x[0] === 'spl'); if (sp) { sp[2] = 'miss'; sp[3] = splTodo(r); } draw(); }, (e) => LOG.warn('export.one.state', errInfo(e))); } // (not finished: amber, as on the Drawing)
+    if (after && onePending === name) {
+      onePending = ''; if (tpl) { S.exp.planOut = 'onepdf'; persist(); dxfOutRender(); }
+      if (!$('export').hidden && !xMany) xOpen('doDxf', { scroll: false });
+      btn.classList.remove('pulse'); void btn.offsetWidth; btn.classList.add('pulse'); setTimeout(() => btn.classList.remove('pulse'), 4000); try { btn.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* old WebView */ }
+    }
   }
   $('xOnePdf').addEventListener('animationend', () => $('xOnePdf').classList.remove('pulse'));
   $('xOnePdf').addEventListener('click', () => xguard(async () => {
     if (dxfMode() !== 'tpl') { // (Simple DXF: the plan's sheets of the One PDF are drawn on the company template)
-      const v = await ask('One PDF needs your plan template', 'The plan’s sheets in the One PDF are drawn on your company’s template, as Export DXF draws them. Load the template in Plan settings, then come back here.',
-        [{ label: 'Cancel', value: false }, { label: 'Plan settings', value: true, primary: true }]);
-      if (v && $('dxfSetBtn')) $('dxfSetBtn').click(); return;
+      const v = await ask('One PDF needs your plan template', 'The plan’s sheets in the One PDF are drawn on your company’s template, as the Plan drawing draws them. Load the template in Plan style › Plan file, then come back here.',
+        [{ label: 'Cancel', value: false }, { label: 'Plan style', value: true, primary: true }]);
+      if (v) openStyle('advanced', 'stFile'); return; // (beta 6.7, UX step 4: Plan style › Plan file)
     }
     const pts = needPoints(); if (!pts) return;
     const name = S.project, M = plansMissing(name), view = !!cefLockText(name), gaps = [];
@@ -19785,7 +20411,7 @@
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
     fibHw: (pid) => { const p = points.find((x) => x.poleId === pid); return p ? hwOf(p, routeModel()) : null; },
     fibQty: () => surveyQty(projPoints()).rows, boqRows: () => { const P = projPoints(), fb = boqFilled(P); return [...boqGroups(P, fb).groups.values()].map((g) => [g.item, g.size, g.forWhat, g.qty]); },
-    /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
+    /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), openStyle: (t, sec) => openStyle(t, sec), plStdDiff: () => plStdDiff(), plNoticeShow: () => plNoticeShow(true), /* beta 6.7 (UX step 4) */ setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
     /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
     fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers(),
     packs: { here: (lat, lon) => { const h = packsHere(lat, lon); return h ? { reg: h.reg, road: { have: h.road.have, get: h.road.get && h.road.get.name }, map: { have: h.map.have, get: h.map.get && h.map.get.name } } : null; }, regions: (p) => packRegions(p), pop: () => (pkpNow ? { reg: pkpNow.reg, list: pkpNow.list.map((p) => p.name) } : null), check: () => packPopCheck(), index: () => loadPackIndex(), prog: () => Object.fromEntries(packProg), get: (name) => { const p = packCatalog().find((x) => x.name === name); if (p) startPackDl(p); return !!p; } }, // beta 3.8 (tests)

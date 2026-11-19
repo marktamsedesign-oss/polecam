@@ -117,7 +117,7 @@ async def main():
         mc = await pg.evaluate("() => [__polecam.S.project, !document.getElementById('askBox').hidden, document.getElementById('askTitle').textContent]")
         await pg.keyboard.press('Escape'); await W(pg, 300); mc2 = await pg.evaluate("() => [document.getElementById('askBox').hidden, !!__polecam.S.meta.RIVERSIDE_B.completedAt]")
         check('P6. ⋯: Open this project, Zoom to the project, Share, Export DXF, Mark complete, Delete; Esc closes it. Mark complete opens that project and asks as in Projects; Esc: cancelled',
-              items == ['Open this project', 'Zoom to the project', 'Share…', 'Export DXF…', 'Mark complete…', 'Delete…'] and mh and mc[0] == 'RIVERSIDE_B' and mc[1] and mc[2] in ('Mark the task complete?', 'Not ready to complete') and mc2 == [True, False], (items, mh, mc, mc2))
+              items == ['Open this project', 'Zoom to the project', 'Share…', 'Export plan…', 'Mark complete…', 'Delete…'] and mh and mc[0] == 'RIVERSIDE_B' and mc[1] and mc[2] in ('Mark the task complete?', 'Not ready to complete') and mc2 == [True, False], (items, mh, mc, mc2))
         await pg.evaluate("() => { __polecam.S.project = 'SAMPLE_STREET_A'; __polecam.persist(); __polecam.renderPoles(); }"); await W(pg, 500)
         await pg.click('#ppNew'); await W(pg, 500); npv = await pg.evaluate("!document.getElementById('newProj').hidden"); await close_sheets(pg)
         # ---- keys on the main map

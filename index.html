@@ -232,7 +232,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .drwhint{position:absolute;left:12px;right:calc(var(--tap) + 24px);bottom:12px;margin:0;background:rgba(255,255,255,.93);color:#343a40;border-radius:10px;padding:6px 10px;font-size:calc(12px * var(--fs));box-shadow:0 2px 8px rgba(0,0,0,.1)}.drwhint[hidden]{display:none}
 .drwcef{min-width:250px;max-width:min(360px,calc(100vw - var(--tap) - 46px));max-height:60vh;overflow:auto}.drwcef .cefrow{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 0;border-top:1px solid var(--line)}.drwcef .cefrow:first-child{border-top:0}.drwcef .cefrow span{flex:1;min-width:0;font-size:calc(13px * var(--fs));overflow-wrap:anywhere}.drwcef .cefrow small{display:block;color:var(--muted)}.drwcef p{margin:4px 0;font-size:calc(13px * var(--fs));color:var(--muted)}
 #drawInfo .btn{margin:4px 0 0 8px;vertical-align:middle;white-space:nowrap}@media (max-width:700px){#drawInfo .btn{display:block;margin:6px 0 0}}
-.strow.sthl,.stgrp.sthl{outline:2px solid #f08c00;outline-offset:3px;border-radius:8px;background:rgba(240,140,0,.09)}#stPrev [data-st]{cursor:pointer}.dscap .dspk{color:#e8590c;font-weight:600}
+.strow.sthl,.stgrp.sthl,.psrow.sthl{outline:2px solid #f08c00;outline-offset:3px;border-radius:8px;background:rgba(240,140,0,.09)}#stPrev [data-st]{cursor:pointer}.dscap .dspk{color:#e8590c;font-weight:600}
 .drwbar{align-items:center;gap:8px;flex-wrap:nowrap;position:relative}.drwbar select{min-height:44px;flex:0 1 128px;min-width:84px;padding:0 6px}
 .drwicon{flex:none;width:52px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);display:grid;place-items:center;padding:0}.drwicon svg{width:34px;height:26px}
 .drwicon[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -243,16 +243,84 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .dxfrows{display:flex;flex-direction:column;gap:8px}.dxfrow{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}.dxfrowhd{display:flex;align-items:center;gap:8px}.dxfrowhd b{flex:1}.dxfrow .hint{margin:0}.dxfchips{display:flex;flex-wrap:wrap;gap:6px}#dxfRowAdd{align-self:flex-start}
 @media (max-width:420px){.drwbar{gap:6px;padding-left:10px;padding-right:10px}.drwbar #drawDxf{padding:0 10px}.drwicon{width:44px}.drwbar select{flex-basis:104px;min-width:78px}}
 /* v2.41: the drawing style */
-.stprev,.stvic{background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line)}.stprev svg{display:block;width:100%;height:auto}.stvic{max-width:300px}.stroute{margin:4px 0 8px}.stvic svg{display:block;width:100%;height:auto}
-.strow.dim{opacity:.5}
+.stprev,.stvic{background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line)}.stprev>svg{display:block;width:100%;height:auto}.stvic{max-width:300px}.stroute{margin:4px 0 8px}.stvic svg{display:block;width:100%;height:auto}
+.strow.dim>:not(.lbl):not(.dimwhy),.psrow.dim>:not(.dimwhy){opacity:.45} /* beta 6.7 (UX step 4): greyed, its reason and Switch not */
 /* beta 3.8: Drawing style: the preview beside the settings on a computer (it stays while they scroll); on a phone at the top, smaller as they scroll */
 #drwStyle .body.dsbody{padding:0;gap:0;display:block;container-type:inline-size}
 .dsprevcol{position:sticky;top:0;z-index:3;background:var(--bg);padding:10px max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
-.dsscenes{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}.dsscenes::-webkit-scrollbar{display:none}.dsscenes .chip{flex:none}.dsscenes .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.dsprevcol .stprev svg{display:block;width:100%;height:auto}
-.dsprevcol.compact .stprev svg{height:112px} /* (beta 3.9: the parts stay above it: they pick the settings) */
-#drwStyle .stgrp[hidden]{display:none}.dsctl .stgrp:not([hidden]){border-top:0;margin-top:4px}
+.dsprevcol .stprev>svg{display:block;width:100%;height:auto}
+.dsprevcol.compact .stprev>svg{height:112px} /* (beta 3.9) */
 #stVicLbl{min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;text-transform:none}
+/* beta 6.7 (UX step 4): Plan style (Plan settings and Drawing style in one): the Drawing's button with its word, the one-time note, the
+   company standard, Basic | Advanced, the sections and their Colours and sizes, greyed rows with their reason, the preview on a phone */
+.drwsetbtn{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.12);color:inherit;font:inherit;font-weight:700;font-size:calc(14px * var(--fs));flex:none;cursor:pointer;white-space:nowrap}
+.drwsetbtn svg{width:20px;height:20px;flex:none}.drwsetbtn .sm{display:none}
+@media (max-width:374px){.drwsetbtn{padding:0 9px}.drwsetbtn .lg{display:none}.drwsetbtn .sm{display:inline}} /* (a 360 px phone: Style, the title keeps its room) */
+.drwnote{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:6;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;width:max-content;max-width:min(560px,calc(100% - 24px));padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.97);color:#1b1b1b;border:1.5px solid var(--accent);box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:calc(13px * var(--fs))}.drwnote[hidden]{display:none}.drwnote span{flex:1 1 200px}
+.pssub{margin:4px 0 8px}
+.psstd{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;border:1px solid var(--line);border-left:5px solid var(--ok);border-radius:10px;padding:10px 12px;background:var(--surface);margin:0 0 10px;font-size:calc(13.5px * var(--fs));line-height:1.4}
+.psstd.off{border-left-color:#f08c00}.psstd[hidden]{display:none}.psstdt{flex:1 1 220px;min-width:0}.psstdt b{display:block}
+.pltabs{display:flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:var(--surface);margin:4px 0 6px}
+.pltabs [role=tab]{flex:1;min-height:42px;border:0;border-radius:999px;background:none;color:var(--ink);font:inherit;font-weight:700;font-size:calc(14.5px * var(--fs));cursor:pointer}
+.pltabs [role=tab][aria-selected=true]{background:var(--ink);color:var(--bg)}
+.plpane[hidden]{display:none}
+/* beta 6.7 (UX step 5): Find a setting (Plan style); the ? of each Export row and Plan style section; a setting found in the Tutorial */
+.plfind{margin:2px 0 6px}
+.plfindbox{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 6px 0 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.plfindbox:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.plfindbox svg{width:18px;height:18px;flex:none;color:var(--muted)}
+.plfindbox input{flex:1;min-width:0;border:0;background:none;padding:8px 0;color:var(--ink);font:inherit;font-size:calc(15px * var(--fs));outline:0}
+.plfindn{margin:6px 4px 0;color:var(--muted);font-size:calc(12.5px * var(--fs))}.plfindn:empty{display:none}
+.plfindres{display:flex;flex-direction:column;gap:6px;margin:6px 0 2px}.plfindres[hidden]{display:none}
+.plfr{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;min-height:44px;padding:8px 12px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;color:var(--ink);font:inherit;cursor:pointer}
+.plfr b{font-size:calc(14.5px * var(--fs))}.plfr small{color:var(--muted);font-size:calc(12px * var(--fs))}.plfr:focus-visible{outline:3px solid var(--hi);outline-offset:1px}
+.plfr mark,.tutset mark{background:#ffe066;color:inherit;border-radius:3px;padding:0 1px}
+.plfrtut{align-self:flex-start;min-height:40px;text-align:left}
+.qhelp{display:inline-grid;place-items:center;width:34px;height:34px;flex:none;padding:0;border:1.5px solid var(--accent);border-radius:50%;background:var(--surface);color:var(--accent);font-family:inherit;font-weight:800;font-size:calc(16px * var(--fs));line-height:1;cursor:pointer}
+.qhelp:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
+.qhelp{position:relative}.qhelp::after{content:"";position:absolute;inset:-7.5px;border-radius:50%} /* (beta 6.7, UX step 5 fixes: a 46 px tap area round the 34 px ?: 6 px beyond its 1.5 px border) */
+.xget > .qhelp{float:right;margin:-4px 0 4px 10px}#export.xmode .qhelp{display:none}
+details.stsec{position:relative}details.stsec > .qhelp{position:absolute;top:9px;right:28px}details.stsec:not([open]) > .qhelp{display:none}details.stsec[open] > summary .t{padding-right:44px}
+.tutset{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:9px 12px;margin:0 0 8px;color:var(--ink);font:inherit;cursor:pointer}
+.tutset .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.tutset .k{font-size:calc(11px * var(--fs));font-weight:800;letter-spacing:.04em;color:var(--accent)}
+.plfr small.off,.tutset small.off{color:#a15c00}@media (prefers-color-scheme: dark){.plfr small.off,.tutset small.off{color:#ffc078}} /* (beta 6.7, UX step 5 fixes: "only with the Simple drawing") */
+#drwStyle .findwhy{display:block;margin:6px 0 0;padding:6px 10px;border-radius:8px;background:rgba(240,140,0,.12);color:var(--ink);font-size:calc(13px * var(--fs));line-height:1.4}#drwStyle .findwhy[hidden]{display:none}
+.tutsethd{display:flex;align-items:center;justify-content:space-between;gap:8px}.tutsethd .linkbtn{flex:none;white-space:nowrap;min-height:44px;padding:0 10px;margin-right:-6px;font-size:calc(13px * var(--fs));letter-spacing:0;text-transform:none;font-weight:700} /* (beta 6.7, UX step 5 fixes round 2: More › a 44 px tap, its right edge kept) */
+.tutset b{font-size:calc(15px * var(--fs))}.tutset small{font-size:calc(12.5px * var(--fs));color:var(--muted)}.tutset em{flex:none;font-style:normal;font-weight:700;color:var(--accent);font-size:calc(13px * var(--fs));white-space:nowrap}
+#drwStyle .check.sthl,#drwStyle .field.sthl{outline:2px solid #f08c00;outline-offset:3px;border-radius:8px;background:rgba(240,140,0,.09)}
+.strow.plb{border-top:1px solid var(--line2);padding-top:10px;margin:10px 0 0}
+.strow.plb .lbl{font-size:calc(14.5px * var(--fs));color:var(--ink);text-transform:none;letter-spacing:0}
+.psrow.plb{border:0;border-top:1px solid var(--line2);padding:12px 0;margin-top:10px}.psrow.plb .t b{font-size:calc(14.5px * var(--fs))}
+#drwStyle .psrow{padding-left:0;padding-right:0}
+.sthint{display:block;color:var(--muted);font-size:calc(12.5px * var(--fs));line-height:1.4}
+.nopv{display:block;color:var(--muted);font-style:italic;font-size:calc(11.5px * var(--fs))}
+.plban{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:6px 0;padding:8px 10px;border-radius:10px;background:#fff4e6;color:#5c3c00;border:1px solid #f08c00;font-size:calc(13px * var(--fs))}.plban[hidden]{display:none}.plban span{flex:1 1 180px}
+.segr .chip{display:inline-flex;align-items:center;gap:6px;cursor:pointer}.segr .chip input{margin:0;accent-color:var(--accent)}.segr .chip:has(input:checked){background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.segr .chip:has(input:disabled){opacity:.5;cursor:default}
+details.stsec{border-top:1px solid var(--line);margin:0;padding:0}
+details.stsec:first-of-type{border-top:0}
+details.stsec>summary{display:flex;align-items:center;gap:10px;min-height:52px;padding:8px 2px;list-style:none;cursor:pointer}
+details.stsec>summary::-webkit-details-marker{display:none}
+details.stsec>summary::after{content:"›";color:var(--muted);font-size:22px;transition:transform .15s}
+details.stsec[open]>summary::after{transform:rotate(90deg)}
+details.stsec>summary .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+details.stsec>summary b{font-size:calc(15px * var(--fs))}
+.secsum{color:var(--muted);font-size:calc(12.5px * var(--fs));line-height:1.35}
+.secbody{padding:0 0 12px}
+details.stcs{margin:8px 0 0;border:1px dashed var(--line);border-radius:10px;padding:0 10px}
+details.stcs>summary{min-height:44px;display:flex;align-items:center;font-weight:700;font-size:calc(13px * var(--fs));color:var(--accent);cursor:pointer;list-style:none}
+details.stcs>summary::-webkit-details-marker{display:none}details.stcs>summary::before{content:"\25B8\00a0"}details.stcs[open]>summary::before{content:"\25BE\00a0"}
+.stauto{display:flex;gap:8px;align-items:center}.stauto input{flex:1;min-width:0}
+.stlegend{margin:14px 0 6px;font-size:calc(12.5px * var(--fs));color:var(--muted)}.stlegend i{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--c);border:1px solid var(--line);margin:0 3px -1px 2px}
+details.stsupport{margin:8px 0}details.stsupport>summary{cursor:pointer;color:var(--muted);font-size:calc(12.5px * var(--fs));min-height:40px;display:flex;align-items:center}
+.dimwhy{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:calc(12.5px * var(--fs));color:#7a4a00;font-weight:600}.dimwhy[hidden]{display:none}.dimwhy .btn{min-height:34px}
+.psrow .dimwhy{flex-basis:100%}
+.stprev{position:relative}
+@media (max-width:719px){.dsprevcol:not(.compact) .stprev>svg{max-height:25vh}.dsprevcol.big:not(.compact) .stprev>svg{max-height:60vh}}
+.dsprevcol.kbd .stprev{display:none}
+@media (max-width:719px){.dscap{flex-wrap:nowrap}#dsCap{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dscapr{flex:none}} /* (a phone: the caption on one line, the settings keep their room) */
+#drwStyle .dxflogo{display:flex;flex-wrap:wrap;align-items:center;gap:8px}#drwStyle .dxflogo .lbl{flex-basis:100%}
+#drwStyle .dxflblseg{flex-wrap:wrap}#drwStyle .dxflblseg .chip{min-height:44px}
 /* beta 3.9: a record on a computer: the map and its pin on the left, the form on the right (its close and delete at its top); the line between them moves */
 #edGrip{display:none}
 body.deskpane #editor:not([hidden]){display:grid;grid-template-columns:minmax(0,1fr) 10px minmax(360px,var(--edw,560px));grid-template-rows:auto minmax(0,1fr) auto auto;grid-template-areas:"map grip head" "map grip body" "map grip issue" "map grip foot"}
@@ -278,9 +346,8 @@ body.deskpane #editor>header,body.deskpane #editor>.edbody,body.deskpane #editor
 body.deskpane #projPane,body.deskpane #topbar{transition:opacity .2s}body.deskpane.edopen #projPane,body.deskpane.edopen #topbar{pointer-events:none;opacity:.6}
 .dscap{display:flex;align-items:center;justify-content:space-between;gap:6px 8px;font-size:calc(12.5px * var(--fs));color:var(--muted);flex-wrap:wrap}.dscapr{display:inline-flex;gap:10px;align-items:center}
 .dscap .ov{font-weight:700}.dscap .ov.bad{color:var(--bad)}.dscap .ov.good{color:var(--ok)}.dscap label{display:inline-flex;align-items:center;gap:5px}
-.dsbig{min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:calc(12.5px * var(--fs));font-weight:600}.dsbig[hidden]{display:none}
+.dsbig{position:absolute;right:6px;top:6px;width:40px;height:40px;padding:0;display:grid;place-items:center;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.9);color:#1b1b1b;cursor:pointer}.dsbig svg{width:18px;height:18px}.dsbig[aria-pressed=true]{background:var(--ink);color:var(--bg)}.dsbig[hidden]{display:none} /* beta 6.7 (UX step 4): its own button in the corner: a tap on the preview picks a label */
 .dsctl{padding:6px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(16px,env(safe-area-inset-left,0px))}
-.dsctl .stgrp:first-of-type{border-top:0;margin-top:4px}
 @container (min-width:720px){.dsgrid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,1fr);align-items:start}.dsprevcol{border-bottom:0;padding:16px}.dsctl{padding:6px 22px 28px;border-left:1px solid var(--line)}}
 .arw-nudge{animation:arwnudge 1.4s ease-in-out infinite}@keyframes arwnudge{0%,100%{transform:translate(0,0)}50%{transform:translate(var(--dx),var(--dy))}}
 @media (prefers-reduced-motion:reduce){.arw-nudge{animation:none}}
@@ -309,6 +376,7 @@ body.deskpane #projPane,body.deskpane #topbar{transition:opacity .2s}body.deskpa
 .tuttopic mark,.tutsteps mark{background:#ffe066;color:inherit;border-radius:3px;padding:0 1px}
 .tutsteps{list-style:none;margin:8px 0 0;padding:0;counter-reset:st}
 .tutsteps li{counter-increment:st;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px 10px 44px;margin:0 0 10px;font-size:calc(14.5px * var(--fs));line-height:1.45}
+.tutsteps li.tutbest{border-color:#f08c00;box-shadow:0 0 0 1px #f08c00}/* beta 6.7 (UX step 1): the step the search found */
 .tutsteps li::before{content:counter(st);position:absolute;left:12px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font-size:calc(12px * var(--fs));font-weight:800}
 .tutsteps li.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .tutsteps .show{margin-top:8px}
@@ -729,11 +797,59 @@ body.kb .sheet{bottom:var(--kb,0px)}
 .xcard details[open] summary::before{content:'▾'}
 .xcard .opts{display:flex;flex-direction:column;gap:10px;padding-top:10px}
 .xcard.xoff{display:none}
-#export .xcard > .head{display:none} /* the Format dropdown already names the card */
-#export .xcard > .head + details{border-top:0;padding-top:0}
 .xpick select{font-weight:700}
 .xcard > .btn,.xcard > .row{position:sticky;bottom:0;z-index:2;box-shadow:0 -10px 10px -4px var(--surface)}
 .xcard > .btn{margin-top:4px}
+/* beta 6.7 (UX step 3): Export · What do you need? Rows by purpose under plain headings, one open at a time (its head is the row
+   button), You get, 0-4 choices, More options, one sticky button worded like the row. Several at once: the rows become ticks. */
+.xask h3{margin:0;font-size:calc(17px * var(--fs))}.xask p{margin:2px 0 0;color:var(--muted);font-size:calc(13px * var(--fs))}
+.xgh{margin:4px 2px -6px;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+button.xgh{display:flex;align-items:center;gap:8px;background:none;border:0;padding:4px 2px;min-height:44px;cursor:pointer;text-align:left;font-family:inherit}
+button.xgh::before{content:'›';display:inline-block;font-size:calc(17px * var(--fs));line-height:1;transition:transform .15s}button.xgh[aria-expanded=true]::before{transform:rotate(90deg)}
+#export .xcard{padding:0 14px 14px;gap:10px}
+#export .xcard:not(.xopen):not(.xmany){padding-bottom:0}
+#export .xcard:not(.xopen):not(.xmany) > :not(.head){display:none!important}
+#export .xcard > .head{display:flex;align-items:center;gap:10px;width:calc(100% + 28px);margin:0 -14px;padding:12px 14px;min-height:56px;background:none;border:0;border-radius:var(--r);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+#export .xcard > .head:focus-visible{outline:3px solid var(--hi);outline-offset:-3px}
+#export .xcard.xopen{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+#export .head .hd{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+#export .head .nm{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}#export .head .nm b{font-size:calc(15.5px * var(--fs))}
+.xtag{font-size:calc(12px * var(--fs));font-weight:600;color:var(--muted);background:var(--soft);border-radius:6px;padding:1px 7px;white-space:nowrap}
+.xhint{color:var(--muted);font-size:calc(13px * var(--fs));line-height:1.3}
+.xbadges{display:flex;flex-wrap:wrap;gap:4px}.xbadges:empty{display:none}
+.xbadge{font-size:calc(11.5px * var(--fs));font-weight:700;border-radius:999px;padding:2px 8px;background:var(--soft);color:var(--ink);white-space:nowrap}
+.xbadge.next{background:var(--accent);color:var(--accent-ink)}.xbadge.credits{background:#fff3bf;color:#5c3c00}.xbadge.finish{background:#d3f9d8;color:#1b4d24}.xbadge.lock{background:#ffe3e3;color:#7d1a1a}.xbadge.sent{background:#e7f5ff;color:#0b4a7a}
+.xchev{width:20px;height:20px;flex:none;color:var(--muted);transition:transform .15s}#export .xcard.xopen > .head .xchev{transform:rotate(90deg)}
+.xck{display:none}
+#export.xmode .xck{display:grid;place-items:center;width:26px;height:26px;flex:none;border:2px solid var(--muted);border-radius:7px;background:var(--surface);color:var(--accent-ink);font-weight:800}
+#export.xmode .xcard.xmany .xck{background:var(--accent);border-color:var(--accent)}#export.xmode .xcard.xmany .xck::after{content:'✓'}
+#export.xmode .xchev,#export.xmode .xcard[data-solo]{display:none!important}
+.xget{margin:0;font-size:calc(13.5px * var(--fs));line-height:1.45}.xget > b:first-of-type{color:var(--muted)}
+.xsubl{display:block;color:var(--muted);font-size:calc(12px * var(--fs));font-weight:500}
+.xkv{display:grid;grid-template-columns:minmax(64px,28%) minmax(0,1fr) auto;gap:6px 10px;align-items:center;border-top:1px solid var(--line2);padding-top:8px;font-size:calc(13.5px * var(--fs))}
+.xkv .k{font-weight:700;overflow-wrap:anywhere}@media (max-width:420px){.xkv{grid-template-columns:minmax(0,1fr) auto}.xkv .k{grid-column:1/-1}} /* (a phone: the name above, its value and Change under it) */.xkv .v{min-width:0;overflow-wrap:anywhere}.xkv .btn{flex:none}.xkv #sigEdit{grid-column:1/-1}
+.xkv .signames{border:0;padding:0;display:block}.xkv .signames .t{gap:2px}
+.xmake{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line2);padding-top:8px}.xmake > .k{font-weight:700;font-size:calc(13.5px * var(--fs))}
+.xmakeseg{display:flex;flex-wrap:wrap;gap:6px}.xmakeseg .chip{min-height:44px;padding:0 14px;font-size:calc(14px * var(--fs))}.xmakeseg .chip[aria-checked=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}.xmakeseg .chip[aria-disabled=true]{opacity:.6;border-style:dashed}
+.xmkfiles{display:flex;flex-direction:column;gap:8px}
+#dxfCard[data-out="onepdf"] #dxfFilesOpts,#dxfCard[data-out="onepdf"] > #doDxf,#dxfCard:not([data-out="onepdf"]) > #xOnePdf,#dxfCard:not([data-out="onepdf"]) #xOneBox,#export.xmode #dxfCard > #xOnePdf,#export.xmode #xOneBox,#export.xmode #dxfOut .chip[data-v="onepdf"]{display:none!important}
+.xonehint{margin:0;color:var(--muted);font-size:calc(12.5px * var(--fs));line-height:1.4}
+.xone{display:flex;flex-direction:column;gap:6px}.xparts{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:calc(13px * var(--fs))}.xparts > span{display:inline-flex;align-items:center;gap:6px}.xparts i{width:10px;height:10px;border-radius:50%;background:var(--ok);flex:none}.xparts i.miss{background:var(--warn)}
+#export .xcard > #xOnePdf.pulse{animation:xonePulse 1.1s ease-out 3}@media (prefers-reduced-motion:reduce){#export .xcard > #xOnePdf.pulse{animation:none;outline:3px solid var(--hi)}}
+.xlinks{display:flex;flex-direction:column}
+.xlink{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;background:none;border:0;padding:6px 2px;min-height:44px;color:var(--accent);font:inherit;font-weight:650;font-size:calc(14px * var(--fs));text-align:left;cursor:pointer}.xlink small{color:var(--muted);font-weight:500;font-size:calc(12px * var(--fs))}
+.phdochint{display:block;color:var(--muted);font-size:calc(12px * var(--fs));font-weight:500;letter-spacing:0}
+#export .xother{order:890}
+.xfoot{order:900;display:flex;flex-wrap:wrap;gap:8px}.xfoot .btn{flex:1 1 auto}.xagain{border-style:dashed;color:var(--accent);white-space:normal;text-align:left;min-height:44px;padding:6px 14px}
+.xmodebar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;background:var(--soft);border:1px solid var(--accent);border-radius:var(--r);padding:10px 12px}.xmodebar .t{flex:1 1 200px;display:flex;flex-direction:column;gap:2px}.xmodebar small{color:var(--muted);font-size:calc(12.5px * var(--fs))}
+#export .xgo{order:950;position:sticky;bottom:0;z-index:3;background:var(--bg);padding-top:8px;box-shadow:0 -10px 10px -4px var(--bg)}
+#export #resultBox{order:960}
+#export #bkName,#export #resStepsName{overflow-wrap:anywhere} /* beta 6.7 (UX step 3 fixes; review): a long file name with no spaces wraps (it pushed the sheet sideways on a phone) */
+#export.xmode #xFoot,#export.xmode #xAsk,#export:not(.xmode) #xGoBox{display:none!important}
+.xcard.xfold{display:none!important}
+#export .xcard:has(input[type=text]:focus,input[type=number]:focus,textarea:focus) > .btn,#export .body:has(input[type=text]:focus,input[type=number]:focus) > .xgo{position:static;box-shadow:none} /* (critic: the keyboard open, the sticky button does not cover the field) */
+@media (min-width:900px){#export:not(.side) > .body{padding-left:max(16px,calc(50% - 400px));padding-right:max(16px,calc(50% - 400px))}} /* a computer: the rows at a readable width */
+.ressteps{margin-top:8px}.ressteps > summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:calc(13px * var(--fs));padding:6px 0}.ressteps .sendsteps{margin-top:6px}
 .opt2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 /* toast + progress */
@@ -1329,10 +1445,10 @@ body.fixing #mapSummary{display:none}
 .inzip .ic{width:36px;height:30px;border-radius:8px;background:var(--soft);display:grid;place-items:center;font:700 calc(10px * var(--fs)) var(--mono)}
 .inzip b{font-family:var(--mono);font-size:calc(12px * var(--fs));word-break:break-all}
 .inzip small{display:block;color:var(--muted)}
-#export.plan #xMulti,#export.plan #exportScope,#export.plan #xShareBox,#export.plan #xGoBox{display:none}
+#export.plan:not(.planall) .xcard:not(#dxfCard),#export.plan:not(.planall) .xgh,#export.plan:not(.planall) #xFoot,#export.plan:not(.planall) #xAsk,#export.plan:not(.planall) #exportScope{display:none!important} /* beta 6.7 (UX step 3): Export plan: the Plan drawing row, Other exports › for the rest */
 #export.plan:not(.side){top:8vh;border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.25);overflow:hidden}
 body.deskpane #drawing .drwwhatbox{position:static;width:400px;max-height:none;flex:none;border-radius:0;box-shadow:none;border-left:1px solid var(--line)}
-body.deskpane #export.side,body.deskpane #planSet.side{left:auto;width:400px;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18)}
+body.deskpane #export.side,body.deskpane #drwStyle.side{left:auto;width:400px;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18)}
 body.deskpane.drwside #drawing:not(.whaton) .drwcol{margin-right:400px}
 body.deskpane.drwside #drawing>header{margin-right:400px}
 #dxfMxHost{max-width:560px}
@@ -1441,7 +1557,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <button type="button" id="xfPrev" aria-label="Previous pole" title="Previous pole">◀</button>
     <span id="xfNow" aria-live="polite"></span>
     <button type="button" id="xfNext" aria-label="Next pole" title="Next pole">▶</button>
-    <button type="button" id="xfHide"><svg aria-hidden="true"><use href="#i-eyeoff"/></svg><span>Hide</span></button>
+    <button type="button" id="xfHide"><svg aria-hidden="true"><use href="#i-eyeoff"/></svg><span>Leave out</span></button>
     <button type="button" id="xfDone" class="primary" aria-label="Done: stop, then back to Export" title="Done"><svg aria-hidden="true"><use href="#i-check"/></svg><span>Done</span></button>
   </div>
   <aside id="projPane" aria-label="Projects on this computer">
@@ -1669,7 +1785,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="drawTitle">Drawing</h2>
     <span class="crpill" id="drawCredit" hidden></span>
-    <button class="iconbtn" id="drawSetBtn" type="button" aria-label="Plan settings: drawing style, clamp types, pole numbers, template" title="Plan settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg></button>
+    <button class="drwsetbtn" id="drawSetBtn" type="button" title="Plan style: how the printed plan looks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg><span class="lg">Plan style</span><span class="sm" aria-hidden="true">Style</span></button><!-- beta 6.7 (UX step 4): the sliders and the word (an icon alone before) -->
   </header>
   <!-- v2.42.28: the plan and, beside it on a computer (below it on a phone), What to export -->
   <div class="drwrow"><div class="drwcol">
@@ -1695,6 +1811,8 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <div class="drwmenu drwcef" id="drawCefMenu" role="group" aria-label="CEF plans of the tower sites" hidden><b>CEF plans of the tower sites</b><div id="drawCefList"></div></div>
     <p class="drwhint" id="drawHint"></p>
+    <!-- beta 6.7 (UX step 4): said once, to a phone that had the two old screens; it does not block anything -->
+    <div class="drwnote" id="drawPlNote" role="status" hidden><span>Plan settings and Drawing style are now one screen: <b>Plan style</b>.</span><button type="button" class="btn sm" id="drawPlNoteShow">Show me</button><button type="button" class="btn sm" id="drawPlNoteOk">OK</button></div>
     <div id="drawInfo" hidden></div>
     <!-- v2.42.28: the drawing of the export shown here; ‹ › go through them -->
     <div class="drwpv" id="drawPv" hidden><button type="button" id="drawPvPrev" aria-label="Show the drawing before">‹</button><span id="drawPvT"></span><button type="button" id="drawPvNext" aria-label="Show the next drawing">›</button></div>
@@ -1702,202 +1820,209 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <button type="button" class="drwxhid" id="drawXHid" hidden><svg aria-hidden="true"><use href="#i-eyeoff"/></svg><span></span></button>
   </div>
   <div class="foot drwbar">
-    <button class="drwwhat" id="drawWhat" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="drawWhatBox"><small>What to export</small><span id="drawWhatV"></span></button>
-    <button class="btn primary" id="drawDxf" type="button">Export</button>
+    <button class="drwwhat" id="drawWhat" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="drawWhatBox"><small>Drawings</small><span id="drawWhatV"></span></button>
+    <button class="btn primary" id="drawDxf" type="button">Export plan</button>
   </div>
   </div>
   <!-- v2.42.28: What to export: a row for every point, each pole owner, each kind of other point (and owners put together), a column
        for photos, numbers, both; each tick is one drawing (one DXF, and one PDF with "Also a PDF to print") -->
   <aside class="drwwhatbox" id="drawWhatBox" role="dialog" aria-labelledby="mxTitle" hidden>
-    <div class="mxhd"><b id="mxTitle">What to export</b><span class="mxn" id="mxN"></span><button class="iconbtn" id="mxClose" type="button" aria-label="Close What to export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="mxhd"><b id="mxTitle">Drawings</b><span class="mxn" id="mxN"></span><button class="iconbtn" id="mxClose" type="button" aria-label="Close Drawings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <div class="mxbody">
-      <p class="hint" style="margin:0">Each tick is one drawing: a DXF, and a PDF too with <b>Also a PDF to print</b> at Export. The plan shows the one you tick last.</p>
+      <p class="hint" style="margin:0">Each tick is one drawing: a DXF, and a PDF too with <b>Add a PDF of each sheet</b> (Export → Plan drawing). The plan shows the one you tick last.</p>
       <div class="mx" id="mxGrid" role="group" aria-label="The points, and what goes beside them"></div>
       <div id="mxMix"></div>
-      <div class="mxnum"><span class="lbl">NUMBERS</span><div class="seg2" role="group" aria-label="Pole numbers"><button type="button" id="mxNumP" aria-pressed="true">Whole project</button><button type="button" id="mxNumO" aria-pressed="false">Each owner from 1</button></div><p class="hint" id="mxNumInfo" style="margin:0"></p></div>
-      <button class="btn primary" id="mxGo" type="button">Export</button>
+      <div class="mxnum"><span class="lbl">POLE NUMBERS (SAME AS PLAN STYLE)</span><div class="seg2" role="group" aria-label="Pole numbers"><button type="button" id="mxNumP" aria-pressed="true">Whole project</button><button type="button" id="mxNumO" aria-pressed="false">Each owner from 1</button></div><p class="hint" id="mxNumInfo" style="margin:0"></p></div>
+      <button class="btn primary" id="mxGo" type="button">Done</button>
     </div>
   </aside>
   </div>
 </section>
-<!-- v2.41: the drawing style (the user's): numbers, the IDs of the points, the vicinity map, with a preview -->
+<!-- beta 6.7 (UX step 4; the owner: "PLAN Settings ... see if it overlaps with the design style or it can be merge with design style. Design
+     Style: make this settings simpler, more intuitive and easy to catch by non-technical users"): Plan settings and Drawing style are one
+     screen, Plan style: the company standard, Basic (7 choices) and Advanced (12 sections, folded), one preview. Every control keeps its id;
+     each setting has one home (the copies in Settings › Exports and files went). -->
 <section class="sheet" id="drwStyle" hidden aria-labelledby="drwStyleTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
-    <h2 id="drwStyleTitle">Drawing style</h2>
+    <h2 id="drwStyleTitle">Plan style</h2>
   </header>
   <div class="body dsbody"><div class="dsgrid">
    <div class="dsprevcol" id="dsPrevCol">
-    <div class="dsscenes" role="group" aria-label="What the preview shows"><button type="button" class="chip small" data-scene="street">Street</button><button type="button" class="chip small" data-scene="photo">Photos</button><button type="button" class="chip small" data-scene="crowd">Crowded corner</button><button type="button" class="chip small" data-scene="tower">Tower site</button><button type="button" class="chip small" data-scene="vic">Vicinity map</button><button type="button" class="chip small" data-scene="grid">Grid</button></div>
-    <div class="stprev"><svg id="stPrev" viewBox="0 0 120 70" role="img" aria-label="Preview of the plan drawing"></svg></div>
-    <div class="dscap"><span id="dsCap"></span><span class="dscapr"><label><input type="checkbox" id="dsMark" checked> Mark overlaps</label><button type="button" class="dsbig" id="dsBig" hidden>Bigger</button></span></div>
+    <div class="stprev"><svg id="stPrev" viewBox="0 0 120 70" role="img" aria-label="Preview of the plan drawing"></svg><button type="button" class="dsbig" id="dsBig" hidden aria-pressed="false" aria-label="Enlarge the preview" title="Enlarge the preview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></button></div>
+    <div class="dscap"><span id="dsCap"></span><span class="dscapr"><label><input type="checkbox" id="dsMark" checked> Mark overlaps</label></span></div>
    </div>
    <div class="dsctl">
-    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). Pick a part above the preview to see its settings: the street (numbers, pole details, span lengths, IDs, clamp types, cable labels), the photos (their size), a crowded corner, the tower site, the vicinity map or the grid (its split, the sheets' names). Or tap a label on the preview: its settings come into view, marked. The preview changes as you set it, drawn at 1:1100 like the GEO sheets.</p>
-    <div class="stgrp" id="stPh" data-scene="photo">
-      <h3>Photos on the plan</h3>
-      <div class="strow"><span class="lbl">Photo size <output id="stPhO"></output></span><div class="seg stphseg" id="stPhSize" role="radiogroup" aria-label="Photo size"><button type="button" class="chip" data-v="12">Small</button><button type="button" class="chip" data-v="18">Normal</button><button type="button" class="chip" data-v="24">Large</button><button type="button" class="chip" data-v="30">Extra large</button></div></div>
-      <div class="strow"><label class="lbl" for="stPhL">Your own size: long side in metres <output>6 to 53 m (1:1100)</output></label><input type="number" id="stPhL" min="6" max="53" step="1" inputmode="decimal" enterkeyhint="done"></div>
-      <div class="strow"><span class="lbl">Stamp on the photos <output id="stPhStampO"></output></span><div class="seg" id="stPhStamp" role="radiogroup" aria-label="Stamp on the photos"><button type="button" class="chip small" data-v="off">Off</button><button type="button" class="chip small" data-v="ll">Lat-long</button><button type="button" class="chip small" data-v="addr">Lat-long + address</button></div></div><!-- beta 6.4 -->
-      <div class="strow"><label class="lbl" for="stPhNear">Near its pole (Tidy) <output id="stPhNearO"></output></label><input type="range" id="stPhNear" min="8" max="40" step="1"></div>
-      <p class="hint" id="stPhHint" style="margin:0"></p>
+    <!-- beta 6.7 (UX step 5): Find a setting: every row's label (data-find, data-findx) in Basic and Advanced; a result opens its tab
+         and section and marks the row. (beta 6.7, UX step 5 fixes: first under the preview, so a small phone with large text sees it
+         at opening, above the Reset / Done footer) -->
+    <div class="plfind" id="plFind" role="search" aria-label="Find a setting">
+      <div class="plfindbox" id="plFindBox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg><input type="search" id="plFindQ" placeholder="Find a setting, e.g. sheet split, logo" autocomplete="off" enterkeyhint="search" aria-label="Find a setting" aria-controls="plFindRes" aria-describedby="plFindN"></div>
+      <p class="plfindn" id="plFindN" aria-live="polite"></p>
+      <div class="plfindres" id="plFindRes" hidden></div>
     </div>
-    <div class="stgrp" id="stCrowd" data-scene="crowd">
-      <h3>Crowded places</h3>
-      <div class="strow"><span class="lbl">Labels in crowded places</span><div class="seg" id="stCrowdAuto" role="radiogroup" aria-label="Labels in crowded places"><button type="button" class="chip small" data-v="1">Auto: move and fit</button><button type="button" class="chip small" data-v="0">Off (as before)</button></div></div>
-      <div class="strow" data-dim="auto"><label class="lbl" for="stCrowdMin">Smallest text <output id="stCrowdMinO"></output></label><input type="range" id="stCrowdMin" min="50" max="100" step="5"></div>
-      <div class="strow" data-dim="auto"><label class="lbl" for="stCrowdMove">Move a label up to <output id="stCrowdMoveO"></output></label><input type="range" id="stCrowdMove" min="4" max="30" step="1"></div>
-      <div class="strow" data-dim="auto"><span class="lbl">Line to a label that moved</span><div class="seg" id="stCrowdLeader" role="radiogroup" aria-label="Line to a label that moved"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
-      <div class="strow" data-dim="auto"><span class="lbl">Street names</span><div class="seg" id="stCrowdStreets" role="radiogroup" aria-label="Street names"><button type="button" class="chip small" data-v="slide">Slide to a free place</button><button type="button" class="chip small" data-v="fixed">Keep in place</button></div></div>
-      <p class="hint" style="margin:0">Pole numbers and pole labels keep their place first. IDs, clamp tags, cable labels, street names and landmark names make room: the nearest free place, then smaller. Landmark names: Drawing style › Landmarks.</p>
+    <p class="hint pssub" id="psSub">How the printed plan looks. Saved on this phone for all your projects; pole numbers are saved in each project.</p>
+    <!-- the company standard (PL_STD in app.js): ✓, or what differs and Use company standard (the Basic look choices only) -->
+    <div class="psstd" id="psStd" role="status"><div class="psstdt" id="psStdT"></div><button class="btn small" id="psStdUse" type="button" hidden>Use company standard</button></div>
+    <div class="pltabs" role="tablist" aria-label="Plan style">
+      <button type="button" role="tab" id="plTabB" aria-controls="plBasic" aria-selected="true">Basic</button>
+      <button type="button" role="tab" id="plTabA" aria-controls="plAdv" aria-selected="false" tabindex="-1">Advanced</button>
     </div>
-    <div class="stgrp" id="stLoops" data-scene="street"><!-- beta 6.7 (the owner could not find it under Clamp types and cable labels) -->
-      <h3>Loops at boxes and ODF entrances</h3>
-      <div class="strow"><span class="lbl">On the plan</span><div class="seg" id="stBoxLoop" role="radiogroup" aria-label="Loops at boxes and ODF entrances"><button type="button" class="chip small" data-v="0">Not written (counted in the PMI)</button><button type="button" class="chip small" data-v="1">Written beside each</button></div><p class="hint" style="margin:0">The 20 m loop at each handhole, manhole and service box and the loop at an ODF, site or ODC entrance: the PMI and the BOQ tables count them either way; written, the plan shows them too, so its numbers add up to the tables.</p></div><!-- beta 6.6 -->
+    <!-- Basic: the seven choices that matter -->
+    <div role="tabpanel" id="plBasic" aria-labelledby="plTabB" class="plpane">
+      <p class="plban" id="plBanTpl" hidden><span>No company template on this phone</span><button type="button" class="btn sm" id="plBanTplGet">Get it</button></p>
+      <p class="plban" id="plBanSimple" hidden><span>You make the Simple drawing: these settings are for the company plan</span><button type="button" class="btn sm" id="plBanSimpleGo">Change ›</button></p>
+      <div class="strow plb dxflbl" id="dxfLblRow" data-find="Pole labels"><span class="lbl" id="dxfLblT">Pole labels</span>
+        <div class="dxflblseg" id="dxfLbl" role="radiogroup" aria-labelledby="dxfLblT"><button type="button" class="chip" role="radio" data-v="tidy" aria-checked="false" tabindex="-1" title="Tidy: one block per pole along its cable, off the road (its number, tag · type, then its clamps, owner and lat/long in smaller text), symbols sized to the street, a finer grid of sheets where the plan is crowded"><svg aria-hidden="true"><use href="#i-lbltidy"/></svg>Tidy: neat blocks</button><button type="button" class="chip" role="radio" data-v="std" aria-checked="true" title="Standard: each pole's tag, type, clamps, owner and lat/long beside it, turned along the cable"><svg aria-hidden="true"><use href="#i-lblstd"/></svg>Standard: along the cable</button></div>
+        <small class="sthint" id="dxfLblSub"></small></div>
+      <div class="strow plb" id="plRtaRow" data-find="Pole number colours"><span class="lbl">Pole number colours</span>
+        <div class="seg" id="stRtaOn" role="radiogroup" aria-label="Pole number colours"><button type="button" class="chip small" data-v="1">By pole owner (RTA/JPA)</button><button type="button" class="chip small" data-v="0">One colour</button></div>
+        <small class="sthint">RTA/JPA: poles you rent from another owner; each owner gets its colour. <button type="button" class="linkbtn" id="plRtaLink">Owner colours and key ›</button></small></div>
+      <div class="strow plb" id="plPhRow" data-find="Photos on the plan"><span class="lbl">Photos on the plan <output id="stPhO"></output></span>
+        <div class="seg stphseg" id="stPhSize" role="radiogroup" aria-label="Photos on the plan"><button type="button" class="chip" data-v="12">Small</button><button type="button" class="chip" data-v="18">Normal</button><button type="button" class="chip" data-v="24">Large</button><button type="button" class="chip" data-v="30">Extra large</button></div>
+        <small class="sthint">Same size wherever there is room; drawn smaller only where there is none, never left out.</small></div>
+      <div class="strow plb" id="plStampRow" data-find="Stamp on the plan's photos"><span class="lbl">Stamp on the plan's photos <output id="stPhStampO"></output></span>
+        <div class="seg" id="stPhStamp" role="radiogroup" aria-label="Stamp on the plan's photos"><button type="button" class="chip small" data-v="off">Off</button><button type="button" class="chip small" data-v="ll">Lat-long</button><button type="button" class="chip small" data-v="addr">Lat-long + address</button></div>
+        <small class="sthint">Written on each photo on the plan, its PDF and its ZIP.</small></div>
+      <label class="psrow plb" for="psCA" id="plCaRow" data-find="Clamp types beside each pole"><span class="t"><b>Clamp types beside each pole</b><small id="psCASum"></small></span><span class="swi"><input type="checkbox" id="psCA"><i aria-hidden="true"></i></span></label>
+      <label class="psrow plb" for="psBoxLoop" id="plLoopRow" data-find="20 m loops at boxes"><span class="t"><b>20 m loops at boxes: write them on the plan</b><small id="psBoxLoopSum"></small><small class="nopv">Not shown in the preview</small></span><span class="swi"><input type="checkbox" id="psBoxLoop"><i aria-hidden="true"></i></span></label>
+      <label class="psrow plb" for="dxfBoqGrid" id="plBoqRow" data-find="BOQ table on each map sheet"><span class="t"><b>BOQ table on each map sheet</b><small>That sheet's quantities in its right-hand box; the sheets add up to the PMI.</small><small class="nopv">Not shown in the preview</small></span><span class="swi"><input type="checkbox" id="dxfBoqGrid" checked><i aria-hidden="true"></i></span></label>
+      <div class="strow plb" id="psNum" data-find="Pole numbers in this project"><span class="lbl">Pole numbers in this project</span>
+        <div class="seg segr" id="numBox" role="radiogroup" aria-label="Pole numbers in this project"><label class="chip small"><input type="radio" name="numMode" id="numProject"><span>1, 2, 3… for the whole project</span></label><label class="chip small"><input type="radio" name="numMode" id="numOwner"><span>Each owner from 1</span></label></div>
+        <small class="sthint" id="psNumSum"></small><small class="nopv">Not shown in the preview</small></div>
     </div>
-    <div class="stgrp" id="stNum" data-scene="street">
-      <h3>Numbers beside the points</h3>
-      <div class="strow"><span class="lbl">Colour by RTA/JPA category</span><div class="seg" id="stRtaOn" role="radiogroup" aria-label="Colour by RTA/JPA category"><button type="button" class="chip small" data-v="1">On (your standard)</button><button type="button" class="chip small" data-v="0">Off: one colour</button></div><p class="hint" id="stRtaHint" style="margin:0"></p></div><!-- beta 6.5 -->
-      <div class="strow" data-dim="rta" id="stRtaRow"><div class="rtalist" id="stRtaList"></div>
-        <div class="rtaacts"><button type="button" class="chip small" id="stRtaAdd">+ Add category (any pole owner, a new one too)</button><button type="button" class="chip small" id="stRtaReset">Standard four</button></div>
-        <div class="rtanew" id="stRtaNew" hidden>
-          <label class="lbl" for="stRtaOwn">Pole owner: pick one, or type a new owner</label><input type="text" id="stRtaOwn" list="stRtaOwnL" maxlength="40" autocomplete="off" placeholder="e.g. DITO, or a new owner" aria-label="Pole owner of the new category: pick one or type a new owner"><datalist id="stRtaOwnL"></datalist><p class="hint" style="margin:0">A new owner is added to the pole form&rsquo;s owners too. <!-- beta 6.6 --></p>
-          <label class="lbl" for="stRtaTxt">Legend text</label><input type="text" id="stRtaTxt" maxlength="32" autocomplete="off" placeholder="RTA-DITO">
-          <span class="lbl">Colour</span><div class="sws" id="stRtaNewCol" role="radiogroup" aria-label="Colour of the new category"></div>
-          <div class="rtaacts"><button type="button" class="btn primary" id="stRtaOk">Add</button><button type="button" class="chip small" id="stRtaCancel">Cancel</button></div>
+    <!-- Advanced: twelve sections, folded; a section opened shows its part of the plan in the preview -->
+    <div role="tabpanel" id="plAdv" aria-labelledby="plTabA" class="plpane" hidden>
+      <details class="stgrp stsec" id="stNum" data-scene="street" data-find="Pole numbers" data-tut="planstyle"><summary><span class="t"><b>Pole numbers</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" id="plKeepRow" data-find="When poles are added"><span class="lbl">When poles are added</span>
+          <div class="seg segr" role="radiogroup" aria-label="When poles are added"><label class="chip small"><input type="radio" name="numKeep" id="numKeep"><span>Keep the numbers given</span></label><label class="chip small"><input type="radio" name="numKeep" id="numRenum"><span>Renumber along the route at each export</span></label></div>
+          <details class="help"><summary>Help</summary><p class="hint" id="numInfo" style="margin:0"></p></details></div>
+        <div class="strow" data-dim="rta" id="stRtaRow" data-find="Owner colours"><span class="lbl">Owner colours</span><div class="rtalist" id="stRtaList"></div>
+          <div class="rtaacts"><button type="button" class="chip small" id="stRtaAdd">+ Add owner colour</button><button type="button" class="chip small" id="stRtaReset">Back to the standard four</button></div>
+          <div class="rtanew" id="stRtaNew" hidden>
+            <label class="lbl" for="stRtaOwn">Pole owner: pick one, or type a new owner</label><input type="text" id="stRtaOwn" list="stRtaOwnL" maxlength="40" autocomplete="off" placeholder="e.g. DITO, or a new owner" aria-label="Pole owner of the new colour: pick one or type a new owner"><datalist id="stRtaOwnL"></datalist><p class="hint" style="margin:0">A new owner is added to the pole form&rsquo;s owners too.</p>
+            <label class="lbl" for="stRtaTxt">Legend text</label><input type="text" id="stRtaTxt" maxlength="32" autocomplete="off" placeholder="RTA-DITO">
+            <span class="lbl">Colour</span><div class="sws" id="stRtaNewCol" role="radiogroup" aria-label="Colour of the new owner"></div>
+            <div class="rtaacts"><button type="button" class="btn primary" id="stRtaOk">Add</button><button type="button" class="chip small" id="stRtaCancel">Cancel</button></div>
+          </div>
+          <details class="help"><summary>Help</summary><p class="hint" id="stRtaHint" style="margin:0"></p></details></div>
+        <div class="strow" data-dim="rta" id="plRtaLegRow" data-find="Owner colour key on the plan"><span class="lbl">Owner colour key on the plan (RTA/JPA legend)</span><div class="seg" id="stRtaLeg" role="radiogroup" aria-label="Owner colour key on the plan"><button type="button" class="chip small" data-v="off">Off</button><button type="button" class="chip small" data-v="boq">Under each sheet's BOQ table</button><button type="button" class="chip small" data-v="sheet">On the LEGENDS sheet</button></div><small class="sthint">The LEGENDS sheet, else the KEYMAP (the index sheet).</small></div>
+        <details class="stcs"><summary>Colours and sizes</summary>
+          <div class="strow" data-findx="Number colour"><span class="lbl">Number colour <output id="stNumColO"></output></span><div class="sws" id="stNumCol" role="radiogroup" aria-label="Number colour"></div></div>
+          <div class="strow" data-findx="Circle colour"><span class="lbl">Circle colour <output id="stNumBColO"></output></span><div class="sws" id="stNumBCol" role="radiogroup" aria-label="Circle colour"></div></div>
+          <div class="strow" data-findx="Number height"><label class="lbl" for="stNumH">Number height <output id="stNumHO"></output></label><input type="range" id="stNumH" min="1.5" max="9" step="0.5"></div>
+          <div class="strow" data-findx="Circle size"><label class="lbl" for="stNumD">Circle size (0: none) <output id="stNumDO"></output></label><input type="range" id="stNumD" min="0" max="20" step="1"></div>
+          <div class="strow" data-findx="Gap from the pole"><label class="lbl" for="stNumG">Gap from the pole <output id="stNumGO"></output></label><input type="range" id="stNumG" min="0" max="20" step="0.5"></div>
+          <div class="strow" data-findx="Line from the number to its pole"><span class="lbl">Line from the number to its pole</span><div class="seg" id="stNumLeader" role="radiogroup" aria-label="Line from the number to its pole"><button type="button" class="chip small" data-v="0">Off</button><button type="button" class="chip small" data-v="1">On</button></div></div>
+          <div class="strow" data-findx="Where the number goes"><span class="lbl">Where the number goes</span><div class="seg" id="stNumPlace" role="radiogroup" aria-label="Where the number goes"><button type="button" class="chip small" data-v="auto">Beside the pole</button><button type="button" class="chip small" data-v="out">Straight out from the road</button></div></div>
+        </details></div></details>
+      <details class="stgrp stsec" id="stPole" data-scene="street" data-find="Pole details and span lengths" data-tut="planstyle"><summary><span class="t"><b>Pole details and span lengths</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" data-dim="tidy" id="plPidRow" data-find="Pole ID (Tidy)"><span class="lbl">Pole ID (Tidy)</span><div class="seg" id="stPoleIdForm" role="radiogroup" aria-label="Pole ID in the Tidy block"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="stack">CC over 123456</button><button type="button" class="chip small" data-v="line">CC-123456</button></div><details class="help"><summary>Help</summary><p class="hint" id="stPoleIdFormHint" style="margin:0"></p></details></div>
+        <p class="hint sthint" style="margin:0">Auto: the template's sizes and colours. A span over the limit stays red.</p>
+        <details class="stcs"><summary>Colours and sizes</summary>
+          <p class="hint" id="stPoleTidy" style="margin:0" hidden>Tidy labels: the owner name and the lat/long are written under the pole ID in smaller text; their colours apply.</p>
+          <div class="strow" data-findx="Pole ID size"><label class="lbl" for="stPoleIdH">Pole ID size <output id="stPoleIdHO"></output></label><div class="stauto"><button type="button" class="chip small" id="stPoleIdHAuto">Auto</button><input type="range" id="stPoleIdH" min="1" max="5" step="0.1"></div></div>
+          <div class="strow" data-findx="Pole ID colour"><span class="lbl">Pole ID colour <output id="stPoleIdColO"></output></span><div class="sws" id="stPoleIdCol" role="radiogroup" aria-label="Pole ID colour"></div></div>
+          <div class="strow" data-dim="notidy" data-findx="Owner name size"><label class="lbl" for="stPoleOwnH">Owner name size <output id="stPoleOwnHO"></output></label><div class="stauto"><button type="button" class="chip small" id="stPoleOwnHAuto">Auto</button><input type="range" id="stPoleOwnH" min="1" max="5" step="0.1"></div></div>
+          <div class="strow" data-findx="Owner name colour"><span class="lbl">Owner name colour <output id="stPoleOwnColO"></output></span><div class="sws" id="stPoleOwnCol" role="radiogroup" aria-label="Owner name colour"></div></div>
+          <div class="strow" data-dim="notidy" data-findx="Lat/long size"><label class="lbl" for="stPoleLlH">Lat/long size <output id="stPoleLlHO"></output></label><div class="stauto"><button type="button" class="chip small" id="stPoleLlHAuto">Auto</button><input type="range" id="stPoleLlH" min="0.6" max="3" step="0.1"></div></div>
+          <div class="strow" data-findx="Lat/long colour"><span class="lbl">Lat/long colour <output id="stPoleLlColO"></output></span><div class="sws" id="stPoleLlCol" role="radiogroup" aria-label="Lat/long colour"></div></div>
+          <div class="strow" data-findx="Span length size"><label class="lbl" for="stSpanH">Span length size <output id="stSpanHO"></output></label><div class="stauto"><button type="button" class="chip small" id="stSpanHAuto">Auto</button><input type="range" id="stSpanH" min="1" max="4" step="0.1"></div></div>
+          <div class="strow" data-findx="Span length colour"><span class="lbl">Span length colour <output id="stSpanColO"></output></span><div class="sws" id="stSpanCol" role="radiogroup" aria-label="Span length colour"></div></div>
+        </details></div></details>
+      <details class="stgrp stsec" id="stId" data-scene="street" data-find="Box names (NAP, LCP, ODC, handholes)" data-tut="planstyle"><summary><span class="t"><b>Box names (NAP, LCP, ODC, handholes)</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" data-find="Bold"><span class="lbl">Bold</span><div class="seg" id="stIdBold" role="radiogroup" aria-label="Box names: bold"><button type="button" class="chip small" data-v="0">Normal</button><button type="button" class="chip small" data-v="1">Bold</button></div></div>
+        <details class="stcs"><summary>Colours and sizes</summary>
+          <div class="strow" data-findx="Box name colour"><span class="lbl">Colour <output id="stIdColO"></output></span><div class="sws" id="stIdCol" role="radiogroup" aria-label="Box name colour"></div></div>
+          <div class="strow" data-findx="Box name height"><label class="lbl" for="stIdH">Height <output id="stIdHO"></output></label><input type="range" id="stIdH" min="1.5" max="5" step="0.25"></div>
+        </details></div></details>
+      <details class="stgrp stsec" id="stCl" data-scene="street" data-find="Clamp types" data-tut="planstyle"><summary><span class="t"><b>Clamp types</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" data-dim="clamp" data-find="Where they are written"><span class="lbl">Where they are written</span><div class="seg" id="stClPlace" role="radiogroup" aria-label="Where the clamp types are written"><button type="button" class="chip small" data-v="label">In the pole label</button><button type="button" class="chip small" data-v="tag">Small box (tag)</button><button type="button" class="chip small" data-v="callout">Box with a line (callout)</button></div></div>
+        <div class="strow" data-dim="clamp clpos" data-find="Side of the box"><span class="lbl">Side of the box</span><div class="seg" id="stClPos" role="radiogroup" aria-label="Side of the box"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="up">Above</button><button type="button" class="chip small" data-v="down">Below</button><button type="button" class="chip small" data-v="left">Left</button><button type="button" class="chip small" data-v="right">Right</button></div></div>
+        <details class="stcs"><summary>Colours and sizes</summary>
+          <div class="strow" data-dim="clamp" data-findx="Clamp type colour"><span class="lbl">Colour <output id="stClColO"></output></span><div class="sws" id="stClCol" role="radiogroup" aria-label="Clamp type colour"></div></div>
+          <div class="strow" data-dim="clamp clpos" data-findx="Box text size"><label class="lbl" for="stClH">Box text size <output id="stClHO"></output></label><input type="range" id="stClH" min="1" max="5" step="0.25"></div>
+          <div class="strow" data-dim="clamp clpos" data-findx="Frame"><span class="lbl">Frame</span><div class="seg" id="stClBox" role="radiogroup" aria-label="Frame round the box"><button type="button" class="chip small" data-v="1">Box</button><button type="button" class="chip small" data-v="0">None</button></div></div>
+          <div class="strow" data-dim="clamp" data-findx="Hardware of a 12-core cable"><span class="lbl">Hardware of a 12-core cable (RET×2 SC×4)</span><div class="seg" id="stClHw" role="radiogroup" aria-label="Hardware of a 12-core cable"><button type="button" class="chip small" data-v="1">Show</button><button type="button" class="chip small" data-v="0">Hide</button></div><small class="sthint">RET retention clamps, SC suspension clamps, on a pole with only a 12-core cable.</small></div>
+        </details></div></details>
+      <details class="stgrp stsec" id="stRoute" data-scene="street" data-find="Cables" data-tut="planstyle"><summary><span class="t"><b>Cables</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" data-find="How a cable is drawn"><span class="lbl">How a cable is drawn</span>
+          <div class="stvic stroute"><svg id="stRoutePrev" viewBox="0 0 72 28" role="img" aria-label="Preview of a cable between points along a curving road"></svg></div>
+          <div class="seg" id="stCabRoute" role="radiogroup" aria-label="How a cable is drawn between points"><button type="button" class="chip small" data-v="road">Follows the road</button><button type="button" class="chip small" data-v="straight">Straight from point to point</button></div>
+          <small class="sthint">The lengths and BOQ stay as surveyed.</small>
+          <details class="help"><summary>Help</summary><p class="hint" style="margin:0">Underground between handholes, manholes, service boxes and risers, and aerial between poles. Follows the road: where two points stand along the same road, the cable follows its curves on the cable&rsquo;s side of the road; across a road, round a corner or away from a road it stays straight. The Drawing screen draws them straight: the roads come in when the plan is exported.</p></details></div>
+        <div class="strow" data-find="Cable name along the line"><span class="lbl">Cable name along the line</span><div class="seg" id="stCabOn" role="radiogroup" aria-label="Cable name along the line"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
+        <div class="strow" data-dim="cab" data-find="What the name says"><span class="lbl">What the name says</span><div class="seg" id="stCabW" role="group" aria-label="What the cable name says"><button type="button" class="chip small" data-k="prop">PROPOSED</button><button type="button" class="chip small" data-k="size">Size 72C</button><button type="button" class="chip small" data-k="type">Type FIG-8</button><button type="button" class="chip small" data-k="place">AE / UG</button><button type="button" class="chip small" data-k="foc">FOC</button><button type="button" class="chip small" data-k="run">RUN no.</button></div><p class="hint" id="stCabReads" style="margin:0"></p><small class="sthint">AE aerial, UG underground, FIG-8 aerial cable, FOC fiber optic cable, RUN its run number.</small></div>
+        <details class="stcs"><summary>Colours and sizes</summary>
+          <div class="strow" data-dim="cab" data-findx="Names per cable on a sheet"><span class="lbl">Names per cable on a sheet</span><div class="seg" id="stCabPer" role="radiogroup" aria-label="Names per cable on a sheet"><button type="button" class="chip small" data-v="1">1</button><button type="button" class="chip small" data-v="2">Up to 2</button><button type="button" class="chip small" data-v="3">Up to 3</button></div><small class="sthint">Each one after the first at least 500 m along the cable from the others.</small></div>
+          <div class="strow" data-dim="cab" data-findx="Name size"><label class="lbl" for="stCabH">Name size <output id="stCabHO"></output></label><div class="stauto"><button type="button" class="chip small" id="stCabHAuto">Auto</button><input type="range" id="stCabH" min="0.8" max="3" step="0.1"></div></div>
+        </details></div></details>
+      <details class="stgrp stsec" id="stPh" data-scene="photo" data-find="Photos" data-tut="planstyle"><summary><span class="t"><b>Photos</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" data-find="Your own size"><label class="lbl" for="stPhL">Your own size: long side <output>6 to 53 m at 1:1100</output></label><input type="number" id="stPhL" min="6" max="53" step="1" inputmode="decimal" enterkeyhint="done"><small class="sthint">Small, Normal, Large and Extra large: Basic › Photos on the plan.</small></div>
+        <div class="strow" data-dim="tidy" data-find="Photo near its pole (Tidy)"><label class="lbl" for="stPhNear">Photo near its pole (Tidy) <output id="stPhNearO"></output></label><input type="range" id="stPhNear" min="8" max="40" step="1"></div>
+        <details class="help"><summary>Help</summary><p class="hint" id="stPhHint" style="margin:0"></p></details></div></details>
+      <details class="stgrp stsec" id="stCrowd" data-scene="crowd" data-find="Crowded places" data-tut="planstyle"><summary><span class="t"><b>Crowded places</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" data-find="Labels in crowded places"><span class="lbl">Labels in crowded places</span><div class="seg" id="stCrowdAuto" role="radiogroup" aria-label="Labels in crowded places"><button type="button" class="chip small" data-v="1">Fit automatically</button><button type="button" class="chip small" data-v="0">Leave as they are</button></div><small class="sthint">Pole numbers and labels keep their place; other texts move or shrink to make room.</small></div>
+        <details class="stcs"><summary>Colours and sizes</summary>
+          <div class="strow" data-dim="auto" data-findx="Smallest text"><label class="lbl" for="stCrowdMin">Smallest text <output id="stCrowdMinO"></output></label><input type="range" id="stCrowdMin" min="50" max="100" step="5"></div>
+          <div class="strow" data-dim="auto" data-findx="Move a label up to"><label class="lbl" for="stCrowdMove">Move a label up to <output id="stCrowdMoveO"></output></label><input type="range" id="stCrowdMove" min="4" max="30" step="1"></div>
+          <div class="strow" data-dim="auto" data-findx="Line to a label that moved"><span class="lbl">Line to a label that moved</span><div class="seg" id="stCrowdLeader" role="radiogroup" aria-label="Line to a label that moved"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
+          <div class="strow" data-dim="auto" data-findx="Street names"><span class="lbl">Street names</span><div class="seg" id="stCrowdStreets" role="radiogroup" aria-label="Street names"><button type="button" class="chip small" data-v="slide">Slide to a free place</button><button type="button" class="chip small" data-v="fixed">Keep in place</button></div></div>
+          <details class="help"><summary>Help</summary><p class="hint" style="margin:0">Pole numbers and pole labels keep their place first. Box names, clamp boxes, cable names, street names and landmark names make room: the nearest free place, then smaller. Landmark names: the Landmarks section.</p></details>
+        </details></div></details>
+      <details class="stgrp stsec" id="stLm" data-scene="crowd" data-find="Landmarks" data-tut="planstyle"><summary><span class="t"><b>Landmarks</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" data-find="Landmark icons"><span class="lbl">Landmark icons</span><div class="seg" id="stLmIcons" role="radiogroup" aria-label="Landmark icons"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
+        <div class="strow" data-find="Landmark names"><span class="lbl">Landmark names</span><div class="seg" id="stCrowdMarks" role="radiogroup" aria-label="Landmark names"><button type="button" class="chip small" data-v="room">Where there is room</button><button type="button" class="chip small" data-v="always">Always</button><button type="button" class="chip small" data-v="hide">Hide</button></div><small class="sthint">Schools, churches, markets and other places from the map pack.</small></div>
+      </div></details>
+      <details class="stgrp stsec" id="stSite" data-scene="tower" data-find="Tower site and ODF" data-tut="planstyle"><summary><span class="t"><b>Tower site and ODF</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" data-find="Site name and ID"><span class="lbl">Site name and ID</span><div class="seg" id="stSiteName" role="radiogroup" aria-label="Where the site name and ID go"><button type="button" class="chip small" data-v="on">On the tower</button><button type="button" class="chip small" data-v="top">Top</button><button type="button" class="chip small" data-v="side">Side</button><button type="button" class="chip small" data-v="bottom">Bottom</button></div></div>
+        <div class="strow" data-find="When the tower covers details"><span class="lbl">When the tower covers details</span><div class="seg" id="stSiteMove" role="radiogroup" aria-label="When the tower covers details"><button type="button" class="chip small" data-v="auto">Move it aside</button><button type="button" class="chip small" data-v="point">Keep it at its point</button></div><small class="sthint">Moved aside within its sheet.</small></div>
+        <div class="strow" data-dim="tower" data-find="Arrow to where the tower is"><span class="lbl">Arrow to where the tower is</span><div class="seg" id="stSiteArrow" role="radiogroup" aria-label="Arrow to where the tower is"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div><small class="sthint">A curved arrow, as on a planning drawing.</small></div>
+        <details class="stcs"><summary>Colours and sizes</summary>
+          <div class="strow" data-dim="tower" data-findx="Arrow colour"><span class="lbl">Arrow colour <output id="stSiteAColO"></output></span><div class="sws" id="stSiteACol" role="radiogroup" aria-label="Arrow colour"></div></div>
+          <div class="strow" data-findx="ODF beside the tower"><span class="lbl">ODF beside the tower</span><div class="seg" id="stOdfPlace" role="radiogroup" aria-label="Where the ODF goes beside the tower"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="left">Left</button><button type="button" class="chip small" data-v="right">Right</button><button type="button" class="chip small" data-v="below">Below</button></div><small class="sthint">ODF: the fiber panel at the site. Auto: the side the cable comes from.</small></div>
+          <div class="strow" data-findx="ODF label"><span class="lbl">ODF label</span><div class="seg" id="stOdfLbl" role="radiogroup" aria-label="What the ODF label says"><button type="button" class="chip small" data-v="id">ID</button><button type="button" class="chip small" data-v="size">ID + size</button><button type="button" class="chip small" data-v="conn">ID + size + connector</button></div></div>
+        </details></div></details>
+      <details class="stgrp stsec" id="stVic" data-scene="vic" data-find="Location map (vicinity map)" data-tut="planstyle"><summary><span class="t"><b>Location map (vicinity map)</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="stvic" hidden><svg id="stVicPrev" viewBox="0 0 60 40" role="img" aria-label="Preview of the vicinity map: the route and the project area circle"></svg></div>
+        <div class="strow" data-find="Zoom to the project area"><span class="lbl">Zoom to the project area</span><div class="seg" id="stVicZoom" role="radiogroup" aria-label="Zoom to the project area"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div><small class="sthint">On: the project area takes about half of the map. Off: at least 1.5 km across.</small></div>
+        <div class="strow" data-find="Project area circle"><span class="lbl">Project area circle</span><div class="seg" id="stVicArea" role="radiogroup" aria-label="Project area circle"><button type="button" class="chip small" data-v="1">Show</button><button type="button" class="chip small" data-v="0">Hide</button></div><small class="sthint">The circle, its label and the map darker round it.</small></div>
+        <div class="strow" data-dim="vicarea" data-find="Project area label"><label class="lbl" for="stVicLbl">Project area label</label><input type="text" id="stVicLbl" maxlength="40" autocomplete="off" placeholder="PROJECT AREA" aria-label="The project area's label"><small class="sthint">Blank: the circle without a label.</small></div>
+        <details class="stcs"><summary>Colours and sizes</summary>
+          <div class="strow" data-dim="vicarea" data-findx="Label size"><label class="lbl" for="stVicLh">Label size <output id="stVicLhO"></output></label><input type="range" id="stVicLh" min="8" max="40" step="1"></div>
+          <div class="strow" data-dim="vicarea" data-findx="Circle colour"><span class="lbl">Circle colour <output id="stVicColO"></output></span><div class="sws" id="stVicCol" role="radiogroup" aria-label="Project area circle colour"></div></div>
+          <div class="strow" data-dim="vicarea" data-findx="Circle width"><label class="lbl" for="stVicW">Circle width <output id="stVicWO"></output></label><input type="range" id="stVicW" min="2" max="20" step="1"></div>
+          <div class="strow" data-findx="Route colour"><span class="lbl">Route colour <output id="stVicRColO"></output></span><div class="sws" id="stVicRCol" role="radiogroup" aria-label="Route colour"></div></div>
+          <div class="strow" data-findx="Route width"><label class="lbl" for="stVicRW">Route width <output id="stVicRWO"></output></label><input type="range" id="stVicRW" min="6" max="40" step="0.5"></div>
+        </details></div></details>
+      <details class="stgrp stsec" id="stGrid" data-scene="grid" data-find="Map sheets" data-tut="planstyle"><summary><span class="t"><b>Map sheets</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" data-dim="tidy" data-find="Sheet split (Tidy)"><span class="lbl">Sheet split (Tidy) <output id="stGridSplitO"></output></span><div class="seg" id="stGridSplit" role="radiogroup" aria-label="Sheet split"><button type="button" class="chip small" data-v="0">Auto</button><button type="button" class="chip small" data-v="1">1/1</button><button type="button" class="chip small" data-v="2">1/2</button><button type="button" class="chip small" data-v="3">1/3</button><button type="button" class="chip small" data-v="4">1/4</button><button type="button" class="chip small" data-v="5">1/5</button><button type="button" class="chip small" data-v="6">1/6</button></div><small class="sthint">Smaller pieces: more sheets at a closer scale (grid split).</small><details class="help"><summary>Help</summary><p class="hint" id="stGridHint" style="margin:0"></p></details></div>
+        <div class="strow" data-dim="tidy" data-find="Pole details away from the pole, with a line (Tidy)"><span class="lbl">Pole details away from the pole, with a line (Tidy)</span><div class="seg" id="stGridLead" role="radiogroup" aria-label="Pole details away from the pole, with a line"><button type="button" class="chip small" data-v="auto">Only when there's no other way</button><button type="button" class="chip small" data-v="allow">Allowed, for fewer sheets</button></div><details class="help"><summary>Help</summary><p class="hint" id="stGridLeadHint" style="margin:0"></p></details></div>
+        <details class="stcs"><summary>Colours and sizes</summary>
+          <div class="strow" data-findx="Sheet name: corner"><span class="lbl">Sheet name: corner</span><div class="seg" id="stGridPos" role="radiogroup" aria-label="Where the sheet's name goes"><button type="button" class="chip small" data-v="tr">Top right</button><button type="button" class="chip small" data-v="tl">Top left</button><button type="button" class="chip small" data-v="br">Bottom right</button><button type="button" class="chip small" data-v="bl">Bottom left</button></div></div>
+          <div class="strow" data-findx="Sheet name: size"><label class="lbl" for="stGridH">Sheet name: size <output id="stGridHO"></output></label><div class="stauto"><button type="button" class="chip small" id="stGridHAuto">Auto</button><input type="range" id="stGridH" min="4" max="30" step="1"></div></div>
+          <div class="strow" data-findx="Sheet name: colour"><span class="lbl">Sheet name: colour <output id="stGridColO"></output></span><div class="sws" id="stGridCol" role="radiogroup" aria-label="Sheet name colour"></div></div>
+        </details></div></details>
+      <details class="stgrp stsec" id="stFile" data-find="Plan file" data-tut="planstyle"><summary><span class="t"><b>Plan file</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" id="psTpl" data-find="Company template"><span class="lbl">Company template <output id="psTplSum"></output></span>
+          <div class="psbody dxftpl" id="dxfTplBox"><p class="hint" id="dxfTplInfo" style="margin:0"></p><div class="row"><button class="btn small" id="dxfTplGet" type="button" hidden>Get the template</button><button class="btn small" id="dxfTplLoad" type="button">Load template file…</button></div><input type="file" id="dxfTplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
+            <div class="row dxflogo"><span class="lbl">Company logo</span><img id="dxfLogoImg" alt="Your company logo" hidden><span class="hint" id="dxfLogoInfo"></span><button class="btn small" id="dxfLogoSet" type="button">Add company logo…</button><input type="file" id="dxfLogoFile" accept="image/png,image/jpeg" hidden></div></div></div>
+        <label class="psrow" for="pmiLoops" data-find="Count the loops in the cable lengths (PMI)"><span class="t"><b>Count the loops in the cable lengths (PMI)</b><small id="psLoopSum"></small><small>PMI: the plan's table of total quantities.</small></span><span class="swi"><input type="checkbox" id="pmiLoops"><i aria-hidden="true"></i></span></label>
+        <label class="psrow" for="dxfRoads" data-find="Roads from OpenStreetMap around the poles"><span class="t"><b>Roads from OpenStreetMap around the poles</b><small>Needs internet where this phone has no road pack.</small></span><span class="swi"><input type="checkbox" id="dxfRoads" checked><i aria-hidden="true"></i></span></label>
+        <div class="strow" id="psKind" data-find="Kind of drawing"><label class="lbl" for="dxfMode">Kind of drawing <output id="psKindSum"></output></label><select id="dxfMode"><option value="tpl">Company plan (template)</option><option value="simple">Simple points and photos</option></select></div>
+        <div class="opts" id="dxfSimpleOpts" data-findoff="tpl" data-findneed="psKind" data-findwhy="only with the Simple drawing" data-findhow="To use it, choose Simple points and photos here.">
+          <label class="check" data-findx="Photo beside each point (Simple drawing)"><input type="checkbox" id="dxfPhotos"><span>Photo beside each point (Simple). Untick for a plain DXF R12, an older AutoCAD file, without photos.</span></label>
+          <div class="opt2"><label class="field" data-findx="Photo width (Simple drawing)">Photo width (m)<input type="number" id="dxfPhotoW" step="0.5" min="1" max="50"></label><label class="field" data-findx="Extra cable on each span, FOC % (Simple drawing)">Extra cable on each span (FOC %)<input type="number" id="focPct" step="1" min="0" max="100"></label></div>
+          <div class="opt2"><label class="field" data-findx="Pole circle size (Simple drawing)">Pole circle size (m)<input type="number" id="setSym" step="0.1" min="0.1"></label><label class="field" data-findx="Label size (Simple drawing)">Label size (m)<input type="number" id="setTxt" step="0.1" min="0.1"></label></div>
         </div>
-        <span class="lbl" style="margin-top:8px">RTA/JPA LEGEND on the plan</span><div class="seg" id="stRtaLeg" role="radiogroup" aria-label="Where the RTA/JPA legend goes"><button type="button" class="chip small" data-v="off">Off</button><button type="button" class="chip small" data-v="boq">Under the BOQ table, each GEO sheet</button><button type="button" class="chip small" data-v="sheet">On the LEGENDS sheet</button></div></div><!-- beta 6.6 -->
-      <div class="strow"><span class="lbl">Number colour <output id="stNumColO"></output></span><div class="sws" id="stNumCol" role="radiogroup" aria-label="Number colour"></div></div>
-      <div class="strow"><span class="lbl">Circle colour <output id="stNumBColO"></output></span><div class="sws" id="stNumBCol" role="radiogroup" aria-label="Circle colour"></div></div>
-      <div class="strow"><label class="lbl" for="stNumH">Number height <output id="stNumHO"></output></label><input type="range" id="stNumH" min="1.5" max="9" step="0.5"></div>
-      <div class="strow"><label class="lbl" for="stNumD">Circle diameter <output id="stNumDO"></output></label><input type="range" id="stNumD" min="0" max="20" step="1"></div>
-      <div class="strow"><label class="lbl" for="stNumG">Distance from the point <output id="stNumGO"></output></label><input type="range" id="stNumG" min="0" max="20" step="0.5"></div>
-      <div class="strow"><span class="lbl">Leader line to the point</span><div class="seg" id="stNumLeader" role="radiogroup" aria-label="Leader line"><button type="button" class="chip small" data-v="0">Off</button><button type="button" class="chip small" data-v="1">On</button></div></div>
-      <div class="strow"><span class="lbl">Where the number goes</span><div class="seg" id="stNumPlace" role="radiogroup" aria-label="Where the number goes"><button type="button" class="chip small" data-v="auto">Beside the pole</button><button type="button" class="chip small" data-v="out">Straight out from the road</button></div></div>
+        <div class="strow" data-find="Map zone (UTM)"><label class="lbl" for="setZone">Map zone (UTM)</label><select id="setZone"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select><small class="sthint">Keep 51N unless your office says otherwise.</small></div>
+      </div></details>
+      <p class="stlegend" id="stLegend"><span aria-hidden="true">&#128274;</span> Fixed legend colours: existing <i style="--c:#0000ff"></i>blue, proposed <i style="--c:#ff0000"></i>red, proposed underground <i style="--c:#00ff00"></i>green. Your colours are for the texts, numbers, sheets and location map.</p>
+      <details class="stsupport"><summary>All settings in one list (for support)</summary><p class="hint" id="stSum"></p></details>
     </div>
-    <div class="stgrp" id="stPole" data-scene="street crowd tower">
-      <h3>Pole details and span lengths</h3>
-      <p class="hint" style="margin:0">Auto: as before (the template's sizes and colours). A text is still drawn smaller where the plan is crowded; a proposed pole keeps its own colour, and a span over the limit stays red. Tap a label on the preview to come to its settings.</p>
-      <p class="hint" id="stPoleTidy" style="margin:6px 0 0" hidden>Pole labels: Tidy (Export the plan). The owner name and the lat/long are written under the pole ID in smaller text: their colours here apply, their heights do not (Tidy sizes the texts to the street and the sheet).</p>
-      <div class="strow"><span class="lbl">Pole ID (Tidy)</span><div class="seg" id="stPoleIdForm" role="radiogroup" aria-label="Pole ID in the Tidy block"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="stack">CC over 123456</button><button type="button" class="chip small" data-v="line">CC-123456</button></div><p class="hint" id="stPoleIdFormHint" style="margin:0"></p></div><!-- beta 6.2 -->
-      <div class="strow"><label class="lbl" for="stPoleIdH">Pole ID text height <output id="stPoleIdHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stPoleIdHAuto">Auto</button><input type="range" id="stPoleIdH" min="1" max="5" step="0.1" style="flex:1"></div></div>
-      <div class="strow"><span class="lbl">Pole ID colour <output id="stPoleIdColO"></output></span><div class="sws" id="stPoleIdCol" role="radiogroup" aria-label="Pole ID colour"></div></div>
-      <div class="strow"><label class="lbl" for="stPoleOwnH">Owner name text height <output id="stPoleOwnHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stPoleOwnHAuto">Auto</button><input type="range" id="stPoleOwnH" min="1" max="5" step="0.1" style="flex:1"></div></div>
-      <div class="strow"><span class="lbl">Owner name colour <output id="stPoleOwnColO"></output></span><div class="sws" id="stPoleOwnCol" role="radiogroup" aria-label="Owner name colour"></div></div>
-      <div class="strow"><label class="lbl" for="stPoleLlH">Lat/long text height <output id="stPoleLlHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stPoleLlHAuto">Auto</button><input type="range" id="stPoleLlH" min="0.6" max="3" step="0.1" style="flex:1"></div></div>
-      <div class="strow"><span class="lbl">Lat/long colour <output id="stPoleLlColO"></output></span><div class="sws" id="stPoleLlCol" role="radiogroup" aria-label="Lat/long colour"></div></div>
-      <div class="strow"><label class="lbl" for="stSpanH">Span length text height <output id="stSpanHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stSpanHAuto">Auto</button><input type="range" id="stSpanH" min="1" max="4" step="0.1" style="flex:1"></div></div>
-      <div class="strow"><span class="lbl">Span length colour <output id="stSpanColO"></output></span><div class="sws" id="stSpanCol" role="radiogroup" aria-label="Span length colour"></div></div>
-    </div>
-    <div class="stgrp" id="stId" data-scene="street">
-      <h3>IDs of NAPs, LCPs, the ODC, handholes…</h3>
-      <div class="strow"><span class="lbl">Bold</span><div class="seg" id="stIdBold" role="radiogroup" aria-label="Bold IDs"><button type="button" class="chip small" data-v="0">Normal</button><button type="button" class="chip small" data-v="1">Bold</button></div></div>
-      <div class="strow"><span class="lbl">ID colour <output id="stIdColO"></output></span><div class="sws" id="stIdCol" role="radiogroup" aria-label="ID colour"></div></div>
-      <div class="strow"><label class="lbl" for="stIdH">ID height <output id="stIdHO"></output></label><input type="range" id="stIdH" min="1.5" max="5" step="0.25"></div>
-    </div>
-    <div class="stgrp" id="stCl" data-scene="street">
-      <h3>Clamp types and cable labels</h3>
-      <div class="strow"><span class="lbl">Clamp types on the plan</span><div class="seg" id="stClOn" role="radiogroup" aria-label="Clamp types on the plan"><button type="button" class="chip small" data-v="1">On (CA 8-10)</button><button type="button" class="chip small" data-v="0">Off (sizes only)</button></div></div>
-      <div class="strow"><span class="lbl">Where they go</span><div class="seg" id="stClPlace" role="radiogroup" aria-label="Where the clamp types go"><button type="button" class="chip small" data-v="label">In the pole label</button><button type="button" class="chip small" data-v="tag">Tag</button><button type="button" class="chip small" data-v="callout">Callout</button></div></div>
-      <div class="strow"><span class="lbl">Place of a tag or callout</span><div class="seg" id="stClPos" role="radiogroup" aria-label="Place of a tag or callout"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="up">Above</button><button type="button" class="chip small" data-v="down">Below</button><button type="button" class="chip small" data-v="left">Left</button><button type="button" class="chip small" data-v="right">Right</button></div></div>
-      <div class="strow"><span class="lbl">Clamp type colour <output id="stClColO"></output></span><div class="sws" id="stClCol" role="radiogroup" aria-label="Clamp type colour"></div></div>
-      <div class="strow"><label class="lbl" for="stClH">Tag or callout text height <output id="stClHO"></output></label><input type="range" id="stClH" min="1" max="5" step="0.25"></div>
-      <div class="strow"><span class="lbl">Frame round a tag or callout</span><div class="seg" id="stClBox" role="radiogroup" aria-label="Frame"><button type="button" class="chip small" data-v="1">Box</button><button type="button" class="chip small" data-v="0">None</button></div></div>
-      <div class="strow"><span class="lbl">12C hardware on a pole with only 12C</span><div class="seg" id="stClHw" role="radiogroup" aria-label="12C hardware"><button type="button" class="chip small" data-v="1">Show (RET×2 SC×4)</button><button type="button" class="chip small" data-v="0">Hide</button></div></div>
-      <div class="strow"><span class="lbl">Cable label along the spans</span><div class="seg" id="stCabOn" role="radiogroup" aria-label="Cable label on the spans"><button type="button" class="chip small" data-v="1">On (PROPOSED 12C)</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
-      <div class="strow"><span class="lbl">Labels for each cable in a grid</span><div class="seg" id="stCabPer" role="radiogroup" aria-label="Labels for each cable in a grid"><button type="button" class="chip small" data-v="1">1</button><button type="button" class="chip small" data-v="2">Up to 2</button><button type="button" class="chip small" data-v="3">Up to 3</button></div><p class="hint" style="margin:0">Each one after the first only 500 m or more along the cable from the others.</p></div>
-      <div class="strow"><label class="lbl" for="stCabH">Cable label text height <output id="stCabHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stCabHAuto">Auto</button><input type="range" id="stCabH" min="0.8" max="3" step="0.1" style="flex:1"></div></div>
-      <div class="strow"><span class="lbl">What the cable label says</span><div class="seg" id="stCabW" role="group" aria-label="What the cable label says"><button type="button" class="chip small" data-k="prop">PROPOSED</button><button type="button" class="chip small" data-k="size">Size 72C</button><button type="button" class="chip small" data-k="type">Type FIG-8</button><button type="button" class="chip small" data-k="place">AE / UG</button><button type="button" class="chip small" data-k="foc">FOC</button><button type="button" class="chip small" data-k="run">RUN no.</button></div><p class="hint" id="stCabReads" style="margin:0"></p></div>
-    </div>
-    <div class="stgrp" id="stLm" data-scene="street crowd"><!-- beta 6.7 (the owner: "put it in a drawing style with an option to show on/off icon for every landmarks") -->
-      <h3>Landmarks</h3>
-      <div class="strow"><span class="lbl">Landmark icons</span><div class="seg" id="stLmIcons" role="radiogroup" aria-label="Landmark icons"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
-      <div class="strow"><span class="lbl">Landmark names</span><div class="seg" id="stCrowdMarks" role="radiogroup" aria-label="Landmark names"><button type="button" class="chip small" data-v="room">Where there is room</button><button type="button" class="chip small" data-v="always">Always</button><button type="button" class="chip small" data-v="hide">Hide</button></div></div>
-      <p class="hint" style="margin:0">Schools, churches, markets, health centres and other places from the map pack: their icon and name, for every landmark on the plan.</p>
-    </div>
-    <div class="stgrp" id="stRoute" data-scene="street"><!-- beta 6.1: how a cable is drawn between two points -->
-      <h3>Cables between points</h3>
-      <div class="stvic stroute"><svg id="stRoutePrev" viewBox="0 0 72 28" role="img" aria-label="Preview of a cable between points along a curving road"></svg></div>
-      <div class="strow"><span class="lbl">How a cable is drawn</span><div class="seg" id="stCabRoute" role="radiogroup" aria-label="How a cable is drawn between points"><button type="button" class="chip small" data-v="road">Follow the road</button><button type="button" class="chip small" data-v="straight">Straight from point to point</button></div></div>
-      <p class="hint" style="margin:0">Underground between handholes, manholes, service boxes and risers, and aerial between poles. Follow the road: where two points stand along the same road, the cable follows its curves on the cable&rsquo;s side of the road; across a road, round a corner or away from a road it stays straight. The span lengths written and the BOQ stay the surveyed ones. The Drawing screen draws them straight: the roads come in when the plan is exported.</p>
-    </div>
-    <div class="stgrp" id="stSite" data-scene="tower">
-      <h3>Tower site and its ODF</h3>
-      <div class="strow"><span class="lbl">Site name and ID</span><div class="seg" id="stSiteName" role="radiogroup" aria-label="Where the site name and ID go"><button type="button" class="chip small" data-v="on">On the tower</button><button type="button" class="chip small" data-v="top">Top</button><button type="button" class="chip small" data-v="side">Side</button><button type="button" class="chip small" data-v="bottom">Bottom</button></div></div>
-      <div class="strow"><span class="lbl">When the tower covers details</span><div class="seg" id="stSiteMove" role="radiogroup" aria-label="When the tower covers details"><button type="button" class="chip small" data-v="auto">Move it aside, in its sheet</button><button type="button" class="chip small" data-v="point">Keep it at its point</button></div></div>
-      <div class="strow" data-dim="tower"><span class="lbl">Arrow to where the tower sits</span><div class="seg" id="stSiteArrow" role="radiogroup" aria-label="Arrow to where the tower sits"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div><p class="hint" style="margin:0">A curved arrow, like a planning drawing's. Here it moves; on the DXF and the PDF it is drawn still.</p></div>
-      <div class="strow" data-dim="tower"><span class="lbl">Arrow colour <output id="stSiteAColO"></output></span><div class="sws" id="stSiteACol" role="radiogroup" aria-label="Arrow colour"></div></div>
-      <div class="strow"><span class="lbl">ODF beside the tower</span><div class="seg" id="stOdfPlace" role="radiogroup" aria-label="Where the ODF goes beside the tower"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="left">Left</button><button type="button" class="chip small" data-v="right">Right</button><button type="button" class="chip small" data-v="below">Below</button></div><p class="hint" style="margin:0">Auto: the side the cable comes from. The ODF is drawn beside the tower, never over it, and the cable ends at it.</p></div>
-      <div class="strow"><span class="lbl">ODF label</span><div class="seg" id="stOdfLbl" role="radiogroup" aria-label="What the ODF label says"><button type="button" class="chip small" data-v="id">ID</button><button type="button" class="chip small" data-v="size">ID + size</button><button type="button" class="chip small" data-v="conn">ID + size + connector</button></div></div>
-    </div>
-    <div class="stgrp" id="stVic" data-scene="vic">
-      <h3>Vicinity map</h3>
-      <div class="stvic" hidden><svg id="stVicPrev" viewBox="0 0 60 40" role="img" aria-label="Preview of the vicinity map: the route and the project area circle"></svg></div>
-      <div class="strow"><span class="lbl">Zoom to the project area</span><div class="seg" id="stVicZoom" role="radiogroup" aria-label="Zoom to the project area"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div><p class="hint" style="margin:0">On: the project area takes about half of the map. Off: the map is at least 1.5 km across, as before.</p></div>
-      <div class="strow"><span class="lbl">Project area (its circle, its label, the map darker round it)</span><div class="seg" id="stVicArea" role="radiogroup" aria-label="Project area"><button type="button" class="chip small" data-v="1">Show</button><button type="button" class="chip small" data-v="0">Hide</button></div></div>
-      <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicLbl">Label</label><input type="text" id="stVicLbl" maxlength="40" autocomplete="off" placeholder="PROJECT AREA" aria-label="The project area's label"><p class="hint" style="margin:0">Blank: the circle without a label.</p></div>
-      <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicLh">Label text height <output id="stVicLhO"></output></label><input type="range" id="stVicLh" min="8" max="40" step="1"></div>
-      <div class="strow" data-dim="vicarea"><span class="lbl">Project area circle colour <output id="stVicColO"></output></span><div class="sws" id="stVicCol" role="radiogroup" aria-label="Circle colour"></div></div>
-      <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicW">Circle line width <output id="stVicWO"></output></label><input type="range" id="stVicW" min="2" max="20" step="1"></div>
-      <div class="strow"><span class="lbl">Route colour <output id="stVicRColO"></output></span><div class="sws" id="stVicRCol" role="radiogroup" aria-label="Route colour"></div></div>
-      <div class="strow"><label class="lbl" for="stVicRW">Route line width <output id="stVicRWO"></output></label><input type="range" id="stVicRW" min="6" max="40" step="0.5"></div>
-    </div>
-    <div class="stgrp" id="stGrid" data-scene="grid">
-      <h3>Grid</h3>
-      <div class="strow"><span class="lbl">Grid split <output id="stGridSplitO"></output></span><div class="seg" id="stGridSplit" role="radiogroup" aria-label="Grid split"><button type="button" class="chip small" data-v="0">Auto</button><button type="button" class="chip small" data-v="1">1/1</button><button type="button" class="chip small" data-v="2">1/2</button><button type="button" class="chip small" data-v="3">1/3</button><button type="button" class="chip small" data-v="4">1/4</button><button type="button" class="chip small" data-v="5">1/5</button><button type="button" class="chip small" data-v="6">1/6</button></div></div>
-      <div class="strow"><span class="lbl">Grid text: where on the sheet</span><div class="seg" id="stGridPos" role="radiogroup" aria-label="Where the sheet's name goes"><button type="button" class="chip small" data-v="tr">Top right</button><button type="button" class="chip small" data-v="tl">Top left</button><button type="button" class="chip small" data-v="br">Bottom right</button><button type="button" class="chip small" data-v="bl">Bottom left</button></div></div>
-      <div class="strow"><label class="lbl" for="stGridH">Grid text size <output id="stGridHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stGridHAuto">Auto</button><input type="range" id="stGridH" min="4" max="30" step="1" style="flex:1"></div></div>
-      <div class="strow"><span class="lbl">Grid text colour <output id="stGridColO"></output></span><div class="sws" id="stGridCol" role="radiogroup" aria-label="Grid text colour"></div></div>
-      <div class="strow"><span class="lbl">Leader lines (Tidy)</span><div class="seg" id="stGridLead" role="radiogroup" aria-label="Leader lines"><button type="button" class="chip small" data-v="auto">Only when there's no other way</button><button type="button" class="chip small" data-v="allow">Allowed, for fewer sheets</button></div><p class="hint" id="stGridLeadHint" style="margin:0"></p></div>
-      <p class="hint" id="stGridHint" style="margin:0"></p>
-    </div>
-    <div class="stgrp" id="stLegend" data-scene="street photo crowd tower grid">
-      <h3>Legend colours <span aria-hidden="true">&#128274;</span></h3>
-      <div class="strow"><div class="stlock" role="list" aria-label="Legend colours, fixed"><span role="listitem"><i style="--c:#ff0000"></i>Proposed: red</span><span role="listitem"><i style="--c:#00ff00"></i>Proposed underground: green</span><span role="listitem"><i style="--c:#0000ff"></i>Existing: blue</span></div></div>
-      <p class="hint" style="margin:0">Fixed: the colours that mean proposed and existing (cables, closures, NAPs, poles) follow the template&rsquo;s legend, so the legend stays true. Your colours apply to the texts, numbers, grid and vicinity map. A proposed pole&rsquo;s label keeps its own colour; a span over the limit stays red.</p>
-    </div>
-    <p class="hint" id="stSum"></p>
    </div>
   </div></div>
-  <div class="foot"><button class="btn" id="stReset" type="button">Defaults</button><button class="btn primary grow" id="stDone" type="button">Done</button></div>
-</section>
-<!-- v2.42.28: Plan settings: how every drawing of the plan export looks and is numbered, in one place (they were on the DXF card,
-     the Drawing's bar and Drawing style) -->
-<section class="sheet" id="planSet" hidden aria-labelledby="planSetTitle">
-  <header>
-    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
-    <h2 id="planSetTitle">Plan settings</h2>
-  </header>
-  <div class="body">
-    <p class="hint" style="margin:0">For every drawing of the plan export. Kept on this phone; the pole numbers are kept in the project.</p>
-    <div class="psrows">
-      <button class="psrow" id="psStyle" type="button"><span class="t"><b>Drawing style</b><small>Cable labels, the numbers' colour and size, IDs, photo size, loops at boxes, landmarks, tower site, vicinity map, grid</small></span><span class="chev" aria-hidden="true">›</span></button>
-      <label class="psrow" for="psCA"><span class="t"><b>Clamp types on the plan</b><small id="psCASum"></small></span><span class="swi"><input type="checkbox" id="psCA"><i aria-hidden="true"></i></span></label>
-      <details class="psrow" id="psNum"><summary><span class="t"><b>Pole numbers</b><small id="psNumSum"></small></span></summary>
-        <div class="psbody" id="numBox">
-          <label class="check"><input type="radio" name="numMode" id="numProject"><span><b>Whole project</b>: 1, 2, 3… along the cable from the site or ODF</span></label>
-          <label class="check"><input type="radio" name="numMode" id="numOwner"><span><b>Each owner from 1</b>: each pole owner's poles from 1 (one RTA list each)</span></label>
-          <label class="check"><input type="radio" name="numKeep" id="numKeep"><span>Keep the numbers already given: new poles get the next numbers</span></label>
-          <label class="check"><input type="radio" name="numKeep" id="numRenum"><span>Renumber along the route at each export</span></label>
-          <p class="hint" id="numInfo" style="margin:0"></p></div></details>
-      <label class="psrow" for="pmiLoops"><span class="t"><b>Loops in the cable lengths (PMI)</b><small id="psLoopSum"></small></span><span class="swi"><input type="checkbox" id="pmiLoops"><i aria-hidden="true"></i></span></label>
-      <label class="psrow" for="psBoxLoop"><span class="t"><b>Loops at boxes and ODF entrances on the plan</b><small id="psBoxLoopSum"></small></span><span class="swi"><input type="checkbox" id="psBoxLoop"><i aria-hidden="true"></i></span></label><!-- beta 6.7 -->
-      <label class="psrow" for="dxfBoqGrid"><span class="t"><b>BOQ table on each GEO sheet</b><small>The PMI rows for that sheet's grid only, in its right-hand box (a span counts on the sheet where its length is written)</small></span><span class="swi"><input type="checkbox" id="dxfBoqGrid" checked><i aria-hidden="true"></i></span></label>
-      <details class="psrow" id="psTpl"><summary><span class="t"><b>Template and logo</b><small id="psTplSum"></small></span></summary>
-        <div class="psbody dxftpl" id="dxfTplBox"><p class="hint" id="dxfTplInfo" style="margin:0"></p><div class="row"><button class="btn small" id="dxfTplLoad" type="button">Load template file…</button><button class="btn small" id="dxfTplGet" type="button" hidden>Get the template</button></div><input type="file" id="dxfTplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
-          <div class="row dxflogo"><img id="dxfLogoImg" alt="Your company logo" hidden><span class="hint" id="dxfLogoInfo"></span><button class="btn small" id="dxfLogoSet" type="button">Add company logo…</button><input type="file" id="dxfLogoFile" accept="image/png,image/jpeg" hidden></div></div></details>
-      <details class="psrow" id="psKind"><summary><span class="t"><b>Kind of DXF</b><small id="psKindSum"></small></span></summary>
-        <div class="psbody">
-          <label class="field">DRAWING<select id="dxfMode"><option value="tpl">On the company plan template</option><option value="simple">Simple: points and photos at UTM</option></select></label>
-          <div class="opts" id="dxfSimpleOpts">
-            <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
-            <label class="check"><input type="checkbox" id="dxfPhotos"><span>Photo beside each point (DXF R2000, AutoCAD 2000 or newer; a ZIP with the DXF and its photos). Untick for a plain DXF R12 without photos.</span></label>
-            <div class="opt2"><label class="field">Photo width in the drawing (m)<input type="number" id="dxfPhotoW" step="0.5" min="1" max="50"></label><label class="field">FOC allowance on each span (%)<input type="number" id="focPct" step="1" min="0" max="100"></label></div>
-            <div class="opt2"><label class="field">Pole circle radius (m)<input type="number" id="setSym" step="0.1" min="0.1"></label><label class="field">Label height (m)<input type="number" id="setTxt" step="0.1" min="0.1"></label></div>
-            <label class="field">UTM zone (WGS84, north)<select id="setZone"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
-          </div></div></details>
-    </div>
-  </div>
+  <div class="foot"><button class="btn" id="stReset" type="button">Reset…</button><button class="btn primary grow" id="stDone" type="button">Done</button></div>
 </section>
 <!-- v2.28: find a pin -->
 <section class="sheet" id="find" hidden aria-labelledby="findTitle">
@@ -1926,7 +2051,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   </div>
 </section>
 
-<!-- export -->
+<!-- export · beta 6.7 (UX step 3): "What do you need?": one row per purpose, grouped; a row opens with its choices and one button worded like it -->
 <section class="sheet" id="export" hidden aria-labelledby="exportTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
@@ -1936,81 +2061,82 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <p class="hint" id="exportScope"></p>
     <p class="hint" id="creditInfo" hidden></p>
-    <div class="sharerow" id="xShareBox" hidden>
-      <button class="btn primary sharebtn" id="xShare" type="button" title="One KMZ with the defect pins and photos, for the defect cleanup and the FAT"><svg class="shi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></svg><span id="xShareLbl">Share PAT KMZ</span></button>
-      <span class="hint" id="xShareFor">for defect cleanup / FAT</span>
-      <p class="warnline" id="xShareWarn" hidden></p>
-    </div>
-    <!-- v2.41: the formats to export, ticked here (no Format dropdown): one format shows its card and its button; several, their
-         cards (options) and one button for a ZIP with them all -->
-    <div class="xmulti" id="xMulti"><span class="lbl">FORMATS · TICK ONE OR MORE</span>
+    <div class="xask" id="xAsk"><h3 id="xAskT">What do you need?</h3><p>Pick one. It opens with its choices and one button.</p></div>
+    <div class="xmodebar" id="xModeBar" hidden><span class="t"><b>Several at once (one ZIP)</b><small>Tick the files to put in one ZIP. Each keeps its own choices.</small></span><button class="btn sm" id="xOneAtATime" type="button">Back to one at a time</button></div>
+    <!-- v2.41 (beta 6.7, UX step 3): the formats as ticks, kept for Several at once and for the tests (a change on them still opens the row,
+         or tick mode for two or more); not shown: the rows themselves are the ticks -->
+    <div class="xmulti" id="xMulti" hidden><span class="lbl">FORMATS · TICK ONE OR MORE</span>
       <div id="xMultiList" role="group" aria-label="Formats to export"></div>
     </div>
     <div id="accExports" style="display:contents" hidden>
-      <div class="xcard">
-        <div class="head"><span class="ic">PDF</span><div><b>Deficiency List · PDF</b><p>The office form (List of Deficiencies, PAT or FAT ticked, 15 items per page, signature blocks), then Annex A with the photo evidence of each item and Annex B with the inspection photo log.</p></div></div>
-        <details><summary>Options</summary><div class="opts">
-          <label class="check"><input type="checkbox" id="pdfAnnexA" checked><span>Annex A: photo evidence per punchlist item (as found → rectified → verified)</span></label>
-          <label class="check"><input type="checkbox" id="pdfAnnexB" checked><span>Annex B: element photos, if any (records made before v2.13)</span></label>
+      <div class="xcard" id="xShareBox" data-group="handon" data-badge="lock sent" data-find="Hand on to the cleanup team and the FAT" data-tut="patdone" data-solo hidden>
+        <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b id="xShareName">Hand on to the cleanup team and the FAT</b><span class="xtag">KMZ</span></span><small class="xhint" id="xShareFor">One locked KMZ with every defect, for the cleanup team and the FAT</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+        <p class="xget"><b>You get:</b> <span id="xShareGet">one locked KMZ with every defect and its photos, sent through the share sheet. An unfinished PAT is completed and locked first (you are asked).</span></p>
+        <p class="warnline" id="xShareWarn" hidden></p>
+        <button class="btn primary sharebtn" id="xShare" type="button"><svg class="shi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></svg><span id="xShareLbl">Share the PAT KMZ</span></button>
+      </div>
+      <div class="xcard" data-group="forms" data-find="Deficiency List (to sign)" data-tut="deflist">
+        <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Deficiency List (to sign)</b><span class="xtag">PDF</span></span><small class="xhint">The office form with photo annexes, ready to sign</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+        <p class="xget"><b>You get:</b> the office List of Deficiencies (PAT or FAT ticked, 15 items a page, signature blocks), then Annex A with the photos of each item and Annex B with the inspection photo log.</p>
+        <label class="check"><input type="checkbox" id="pdfAnnexA" checked><span>Annex A: photo evidence per punchlist item (as found → rectified → verified)</span></label>
+        <label class="check"><input type="checkbox" id="pdfAnnexB" checked><span>Annex B: element photos, if any (records made before v2.13)</span></label>
+        <details class="xmore"><summary>More options</summary><div class="opts">
           <label class="field">Photos of each item<select class="phdoc" data-k="defpdf"><option value="all">All photos of each stage</option><option value="main">The main photo of each stage only</option></select></label>
           <div class="opt2"><label class="field">Photo size in annexes<select id="pdfPhotoSize"><option value="S">Small</option><option value="M" selected>Medium</option><option value="L">Large</option></select></label>
           <label class="field">Signature dates<select id="pdfDates"><option value="blank">Leave blank for signing</option><option value="insp">Prefill the inspection date</option><option value="today">Prefill today's date</option></select></label></div>
         </div></details>
-        <button class="btn primary" id="doPdf">Export Deficiency List PDF</button>
+        <button class="btn primary" id="doPdf">Make the Deficiency List (PDF)</button>
       </div>
-      <div class="xcard">
-        <div class="head"><span class="ic">XLS</span><div><b>Deficiency List · Excel</b><p>Sheet 1 is the same form laid out like the office template, editable. Then the punchlist as a flat table, the elements, the photo file names and the people who recorded.</p></div></div>
-        <details><summary>Options</summary><div class="opts">
+      <div class="xcard" data-group="forms" data-find="Deficiency List (to edit)" data-tut="deflist">
+        <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Deficiency List (to edit)</b><span class="xtag">Excel</span></span><small class="xhint">The same list in Excel, to edit or track</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+        <p class="xget"><b>You get:</b> an Excel file: sheet 1 is the same form laid out like the office template, editable; then the punchlist as a table, the elements, the photo file names and the people who recorded.</p>
+        <details class="xmore"><summary>More options</summary><div class="opts">
           <label class="check"><input type="checkbox" id="xlsTable" checked><span>Include the punchlist table sheet (for trackers)</span></label>
           <label class="check"><input type="checkbox" id="xlsPhotos" checked><span>Include the photo index sheet</span></label>
           <label class="field">Signature dates on the form<select id="xlsDates"><option value="blank">Leave blank for signing</option><option value="insp">Prefill the inspection date</option><option value="today">Prefill today's date</option></select></label>
         </div></details>
-        <button class="btn primary" id="doXlsx">Export Excel</button>
+        <button class="btn primary" id="doXlsx">Make the Deficiency List (Excel)</button>
       </div>
-      <div class="xcard">
-        <div class="head"><span class="ic">PDF</span><div><b>Rectification progress · PDF</b><p>Management view: items cleared per day, time to rectify, items marked rectified without photo evidence, before/after per item.</p></div></div>
-        <details><summary>Options</summary><div class="opts"><label class="check"><input type="checkbox" id="rectOpen" checked><span>Include items still open</span></label></div></details>
-        <button class="btn" id="doRectPdf">Export progress report</button>
+      <div class="xcard" data-group="forms" data-find="Progress of the fixes" data-tut="whichexport">
+        <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Progress of the fixes</b><span class="xtag">PDF</span></span><small class="xhint">Items fixed each day, time to fix, before and after</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+        <p class="xget"><b>You get:</b> a PDF for the managers: items cleared per day, time to fix, items marked fixed without a photo, and each item before and after.</p>
+        <details class="xmore"><summary>More options</summary><div class="opts"><label class="check"><input type="checkbox" id="rectOpen" checked><span>Include items still open</span></label></div></details>
+        <button class="btn primary" id="doRectPdf">Make the progress report</button>
       </div>
-      <div class="xcard">
-        <div class="head"><span class="ic">KMZ</span><div><b>Google Earth · KMZ</b><p>Pins by status (red open, blue rectified, teal verified, green no deficiency), details and photos in each balloon.</p></div></div>
-        <details><summary>Options</summary><div class="opts">
+      <div class="xcard" data-group="forms" data-find="Punchlist" data-tut="whichexport">
+        <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Punchlist</b><span class="xtag">CSV</span></span><small class="xhint">The punchlist table, for an acceptance tracker</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+        <p class="xget"><b>You get:</b> the punchlist table as a CSV file, for your acceptance tracker or Excel.</p>
+        <button class="btn primary" id="doAccCsv">Make the punchlist</button>
+      </div>
+      <div class="xcard" data-group="mapphotos" data-find="Google Earth map" data-tut="whichexport PAT">
+        <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Google Earth map</b><span class="xtag">KMZ</span></span><small class="xhint">Defects by status, with their photos</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+        <p class="xget"><b>You get:</b> one KMZ: pins by status (red open, blue fixed, teal verified, green no deficiency), the details and photos in each balloon.</p>
+        <label class="check"><input type="checkbox" id="kmzData"><span>Include the G-eSAA data<small class="xsubl">For another G-eSAA phone. It does not lock or send the PAT: to hand it on, use Hand on above.</small></span></label>
+        <details class="xmore"><summary>More options</summary><div class="opts">
           <div class="opt2"><label class="field">Balloon photo size<select id="kmzBalloonPx" class="exp-kmz"><option value="480">Small (480 px)</option><option value="800">Medium (800 px)</option><option value="1200">Large (1200 px)</option><option value="0">No photos in balloons</option></select></label>
           <label class="field">Pin icon<select id="kmzIconPx" class="exp-kmz"><option value="0">Status dot only</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
-          <label class="check"><input type="checkbox" id="kmzStamp" class="exp-kmz"><span>Stamp ID, coordinates and time on balloon photos</span></label>
-          <label class="check"><input type="checkbox" id="kmzData"><span>Include the G-eSAA data and original photos, so the contractor (defect cleanup) or the FAT phone can open this KMZ in G-eSAA. Untick for a smaller file just for Google Earth.</span></label>
+          <label class="check"><input type="checkbox" id="kmzStamp" class="exp-kmz"><span>Stamp on the Google Earth photos<small class="xsubl">ID, coordinates and time on each balloon photo</small></span></label>
           <label class="field">Photos in each balloon<select class="phdoc" data-k="kmz"><option value="all">All photos of each stage</option><option value="main">The main photo of each stage only</option></select></label>
         </div></details>
-        <button class="btn" id="doAccKmz">Export KMZ</button>
-      </div>
-      <div class="xcard">
-        <div class="head"><span class="ic">CSV</span><div><b>Punchlist · CSV</b><p>The punchlist table as plain text, for your acceptance tracker.</p></div></div>
-        <button class="btn" id="doAccCsv">Export CSV</button>
+        <button class="btn primary" id="doAccKmz">Make the Google Earth map</button>
       </div>
     </div>
     <div id="surveyExports" style="display:contents">
-    <div class="xcard">
-      <div class="head"><span class="ic">KMZ</span><div><b>Google Earth · KMZ</b><p>Pins named by Pole ID, the photo in each balloon, optional photo pin icons and the cable route.</p></div></div>
-      <details><summary>Options</summary><div class="opts">
-        <div class="opt2"><label class="field">Balloon photo size<select id="kmzBalloonPx2" class="exp-kmz"><option value="480">Small (480 px)</option><option value="800">Medium (800 px)</option><option value="1200">Large (1200 px)</option><option value="0">No photos in balloons</option></select></label>
-        <label class="field">Pin icon<select id="kmzIconPx2" class="exp-kmz"><option value="0">Standard pin</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
-        <label class="check"><input type="checkbox" id="kmzRoute" class="exp-kmz"><span>Include the cable route and span lengths</span></label>
-        <label class="check"><input type="checkbox" id="kmzStamp2" class="exp-kmz"><span>Stamp ID, type, coordinates and time on balloon photos</span></label>
-        <label class="field">Photos in each balloon<select class="phdoc" data-k="kmz"><option value="all">All photos of the pin</option><option value="main">The main photo only</option></select></label>
-      </div></details>
-      <button class="btn primary" id="doKmz">Export KMZ</button>
+    <div class="xcard" id="cefCard" data-group="client" data-find="CEF plan" data-tut="whichexport Check and export the CEF plan" data-solo>
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>CEF plan</b><span class="xtag">PDF · AutoCAD · Both</span></span><small class="xhint">The site's CEF plan sheets, checked first</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> the CEF plan as a PDF, an AutoCAD file (DXF) or both in one ZIP (with the KML and photos). The CEF editor opens on Check and export: the list of what to check, then the three buttons.</p>
+      <button class="btn primary" id="doCef" type="button">Check and export the CEF plan</button>
     </div>
-    <div class="xcard" id="dxfCard">
-      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p><span id="dxfDescTpl">The plan on your company’s template, ready for AutoCAD, at <span id="dxfZoneLbl2">UTM 51N</span>: what goes on each drawing is set in What to export, on the Drawing.</span><span id="dxfDescSimple">Each point a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, details and photo beside it, the route with the FOC length of each span (a ZIP: keep the photos with the DXF).</span></p></div></div>
+    <div class="xcard" id="dxfCard" data-group="client" data-badge="credits" data-find="Plan drawing" data-tut="plandxf">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Plan drawing</b><span class="xtag">AutoCAD + PDF</span></span><small class="xhint">The plan sheets for the client and the office</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> <span id="dxfDescTpl">a ZIP with an AutoCAD file for each drawing on the company template (<span id="dxfZoneLbl2">UTM 51N</span>), its photos, vicinity map, logos and a README.</span><span id="dxfDescSimple">one AutoCAD file of the points at their map place (<span id="dxfZoneLbl">UTM 51N</span>), with a photo ZIP.</span><span id="dxfDescOne" hidden>one PDF to print, with a bookmark for each part: the plan, the CEF plans and the splicing details.</span></p>
       <div class="dxfsum" id="dxfSum"></div>
       <div class="dxfneed" id="dxfNeed" hidden role="note"></div>
-      <div class="xone" id="xOneBox" hidden><button class="xonebtn" id="xOnePdf" type="button" aria-label="One PDF: the plan, the CEF plan and the splicing details" title="One PDF: plan + CEF plan + splicing details"><span class="xparts" aria-hidden="true"><span class="xp" data-p="plan"><svg><use href="#i-sheet"/></svg></span><i class="xplus">+</i><span class="xp" data-p="cef"><svg><use href="#i-cef"/></svg><i class="pdot"></i></span><i class="xplus" data-p="cef">+</i><span class="xp" data-p="spl"><svg><use href="#i-splice"/></svg><i class="pdot"></i></span></span><span class="cap">One PDF<small class="xsub" hidden></small></span><svg class="go" aria-hidden="true"><use href="#i-chev"/></svg></button></div>
       <div class="dxfneed soft" id="dxfPlansNeed" hidden role="note"></div>
-      <div class="field" id="dxfFilesBox"><span class="lbl" id="dxfFilesLbl">FILES</span><div class="dxffiles" id="dxfFiles"></div>
-        <div class="dxfmx" id="dxfMxHost" hidden></div>
-        <div class="row dxflinks"><button class="btn small" id="dxfWhat" type="button">Change what to export</button><button class="btn small" id="dxfSetBtn" type="button">Plan settings</button></div></div>
-      <div class="field" id="sigBox"><span class="lbl">NAMES ON THE SHEET</span>
-        <div class="signames"><span class="t" id="sigLine"></span><button class="btn small" id="sigChange" type="button" aria-expanded="false" aria-controls="sigEdit">Change</button></div>
+      <div class="xkv" id="dxfWhatRow"><span class="k">Drawings</span><span class="v" id="dxfWhatV"></span><button class="btn sm" id="dxfWhat" type="button">Change ›</button></div>
+      <div class="dxfmx" id="dxfMxHost" hidden></div>
+      <div class="xkv" id="dxfLookRow"><span class="k">Look</span><span class="v" id="dxfLookV"></span><button class="btn sm" id="dxfSetBtn" type="button">Change ›</button></div>
+      <div class="xkv xsig" id="sigBox"><span class="k">Names on the sheet</span><span class="v signames"><span class="t" id="sigLine"></span></span><button class="btn sm" id="sigChange" type="button" aria-expanded="false" aria-controls="sigEdit">Change</button>
         <div id="sigEdit" hidden>
           <div class="opt2"><label class="field">Design Engineer<input type="text" id="sigDesign" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">Project Engineer<input type="text" id="sigProject" maxlength="80" autocomplete="off" placeholder="Name"></label></div>
           <div class="opt2"><label class="field">Project Manager<input type="text" id="sigHead" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">CSE Lead<input type="text" id="sigCse" maxlength="120" autocomplete="off" placeholder="From the online sheet"></label></div>
@@ -2019,70 +2145,115 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
             <div class="opt2"><label class="field">Approved by<input type="text" id="sigCefApr" maxlength="80" autocomplete="off" placeholder="Blank, to sign by hand"></label><span></span></div>
             <p class="hint" style="margin:0">The title block of every CEF sheet. Left empty: Prepared by is the person who exports, Checked by the coordinator who accepted the task, Approved by stays blank for a signature. The CEF editor shows the same three names (Check and export).</p></div>
           <p class="hint" id="sigInfo" style="margin:0"></p></div></div>
-      <div class="swrow dxflbl" id="dxfLblRow"><span class="t"><b id="dxfLblT">Pole labels</b><small id="dxfLblSub">Turned along the cable</small></span><div class="dxflblseg" id="dxfLbl" role="radiogroup" aria-labelledby="dxfLblT"><button type="button" class="chip" role="radio" data-v="std" aria-checked="true" title="Standard: each pole's tag, type, clamps, owner and lat/long beside it, turned along the cable"><svg aria-hidden="true"><use href="#i-lblstd"/></svg>Standard</button><button type="button" class="chip" role="radio" data-v="tidy" aria-checked="false" tabindex="-1" title="Tidy: the whole map tidy, nothing on top of anything else: one block per pole along its cable, off the road (its number, tag · type, then its clamps, owner and lat/long in smaller text, and its photo upright beside it), symbols sized to the street, a finer grid of sheets where the plan is crowded"><svg aria-hidden="true"><use href="#i-lbltidy"/></svg>Tidy</button></div></div>
-      <label class="swrow" for="dxfPdf" id="dxfPdfRow"><span class="t"><b>Also a PDF to print</b><small>The sheets on A3, drawn by the app from each DXF, in the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfPdf"><i aria-hidden="true"></i></span></label>
-      <label class="swrow" for="dxfCef" id="dxfCefRow" hidden><span class="t"><b>Also the CEF plans</b><small>The CEF plan of each tower site of this project (PDF, DXF, KML, photos), each in its own folder of the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfCef" checked><i aria-hidden="true"></i></span></label>
-      <button class="btn primary" id="doDxf">Export DXF</button>
+      <div class="xmake" id="dxfMake"><span class="k" id="dxfMakeL">What to make</span>
+        <div class="xmakeseg" id="dxfOut" role="radiogroup" aria-labelledby="dxfMakeL"><button type="button" class="chip" role="radio" data-v="files" aria-checked="true">AutoCAD files (ZIP)</button><button type="button" class="chip" role="radio" data-v="onepdf" aria-checked="false" tabindex="-1">One PDF to print</button></div>
+        <div class="xmkfiles" id="dxfFilesOpts">
+          <label class="swrow" for="dxfPdf" id="dxfPdfRow"><span class="t"><b>Add a PDF of each sheet</b><small>The sheets on A3, drawn by the app from each AutoCAD file, in the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfPdf"><i aria-hidden="true"></i></span></label>
+          <label class="swrow" for="dxfCef" id="dxfCefRow" hidden><span class="t"><b>Add the CEF plans</b><small>The CEF plan of each tower site (PDF, DXF, KML, photos), each in its own folder of the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfCef" checked><i aria-hidden="true"></i></span></label>
+        </div>
+        <div class="xone" id="xOneBox" hidden><p class="xonehint" id="xOneHint">Only the drawing shown on the Drawing. Uses credits, as the plan drawing does. The first one locks the splicing fibers as issued.</p><div class="xparts" id="xOneParts" role="list"></div></div>
+        <p class="xonehint" id="dxfOutNote" hidden></p>
+      </div>
+      <details class="xmore"><summary>More options</summary><div class="opts">
+        <div class="field" id="dxfFilesBox"><span class="lbl" id="dxfFilesLbl">FILES IN THE ZIP</span><div class="dxffiles" id="dxfFiles"></div></div>
+      </div></details>
+      <button class="btn primary" id="doDxf">Make the plan drawing</button>
+      <button class="btn primary" id="xOnePdf" type="button">Make the one PDF</button>
     </div>
-    <div class="xcard">
-      <div class="head"><span class="ic">CSV</span><div><b>Table · CSV</b><p>No. (the pole numbers of the DXF, for the RTA), pole ID, type, owner and its name, lat/long, UTM easting/northing, accuracy, time, surveyed by, sizes. Opens in Excel or QGIS.</p></div></div>
-      <button class="btn" id="doCsv">Export CSV</button>
+    <div class="xcard" data-group="client" data-badge="credits" data-find="Google Earth map" data-tut="surveyexport balloon">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Google Earth map</b><span class="xtag">KMZ</span></span><small class="xhint">Poles, photos and the route, for the designer</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> one KMZ: a pin per pole named by its ID, its photos in the balloon, the cable route and the span lengths.</p>
+      <label class="field">Photos of each pin<select class="phdoc" data-k="kmz"><option value="all">All photos of the pin</option><option value="main">The main photo only</option></select></label>
+      <details class="xmore"><summary>More options</summary><div class="opts">
+        <div class="opt2"><label class="field">Balloon photo size<select id="kmzBalloonPx2" class="exp-kmz"><option value="480">Small (480 px)</option><option value="800">Medium (800 px)</option><option value="1200">Large (1200 px)</option><option value="0">No photos in balloons</option></select></label>
+        <label class="field">Pin icon<select id="kmzIconPx2" class="exp-kmz"><option value="0">Standard pin</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
+        <label class="check"><input type="checkbox" id="kmzRoute" class="exp-kmz"><span>Include the cable route and span lengths</span></label>
+        <label class="check"><input type="checkbox" id="kmzStamp2" class="exp-kmz"><span>Stamp on the Google Earth photos<small class="xsubl">ID, type, coordinates and time on each balloon photo</small></span></label>
+      </div></details>
+      <button class="btn primary" id="doKmz">Make the Google Earth map</button>
     </div>
-    <div class="xcard">
-      <div class="head"><span class="ic">XLS</span><div><b>Route and spans · Excel</b><p>Summary (route length, spans, too-long spans, angle poles, junctions), every span with its length, and every pole's role and deflection angle.</p></div></div>
-      <button class="btn" id="doRouteXlsx">Export route table</button>
+    <div class="xcard" id="boqCard" data-group="lists" data-find="Material list (BOQ / BOM)" data-tut="boq">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Material list (BOQ / BOM)</b><span class="xtag">Excel</span></span><small class="xhint">Poles, clamps, closures and cable, by size</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> <span id="boqCardText">New Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and span lengths.</span></p>
+      <button class="btn primary" id="doBoq">Make the material list</button>
     </div>
-    <div class="xcard" id="boqCard">
-      <div class="head"><span class="ic">BOQ</span><div><b>BOQ / BOM sizes · Excel</b><p id="boqCardText">New Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and spans · Excel.</p></div></div>
-      <button class="btn" id="doBoq">Export BOQ</button>
+    <div class="xcard" data-group="lists" data-find="Pole list for the RTA" data-tut="whichexport">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Pole list for the RTA</b><span class="xtag">CSV</span></span><small class="xhint">Number, ID, owner and place of each pole (RTA: poles rented from other owners)</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> a CSV for Excel, QGIS or the RTA list, numbered as on the plan: pole ID, type, owner, lat/long, UTM, accuracy, time, surveyed by and sizes.</p>
+      <button class="btn primary" id="doCsv">Make the pole list</button>
+    </div>
+    <div class="xcard" data-group="lists" data-find="Route and span lengths" data-tut="whichexport">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Route and span lengths</b><span class="xtag">Excel</span></span><small class="xhint">Every span with its length and cable</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> an Excel file: the route summary, every span with its length and cable, each pole's role and angle, and a BOQ sheet.</p>
+      <button class="btn primary" id="doRouteXlsx">Make the route and span table</button>
     </div>
     </div>
-    <div class="xcard">
-      <div class="head"><span class="ic">JPG</span><div><b>Geotagged photos · ZIP</b><p>JPEGs named by ID, GPS written into each photo (EXIF), optionally stamped.</p></div></div>
-      <details><summary>Options</summary><div class="opts">
+    <div class="xcard" id="prCard" data-group="photos" data-find="Photo report" data-tut="photos">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Photo report</b><span class="xtag">PDF</span></span><small class="xhint">1 or 2 poles a page, for the RTA and pole owners</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> a PDF with each pole's item number, ID, place, type, owner, coordinates, date and photos.</p>
+      <div class="opt2"><label class="field">Poles a page<select id="prPer"><option value="2">2</option><option value="1">1</option></select></label>
+      <label class="field">One report<select id="prBy"><option value="owner">For each pole owner</option><option value="project">For the whole project</option></select></label></div>
+      <label class="field">Item numbers<select id="prNum"><option value="plan">The plan’s pole numbers</option><option value="order">1, 2, 3… in capture order</option></select></label>
+      <details class="xmore"><summary>More options</summary><div class="opts">
+        <label class="field">Photos of each pole<select class="phdoc" data-k="report"><option value="all">All photos of the pin</option><option value="main">The main photo only</option></select></label>
+        <label class="field">Location<select id="prLoc"><option value="pack">From the road pack (road, barangay, city), else the coordinates</option><option value="coords">The coordinates</option></select></label>
+      </div></details>
+      <button class="btn primary" id="doPhotoReport">Make the photo report</button>
+    </div>
+    <div class="xcard" data-group="photos" data-group-acc="mapphotos" data-find="Photos with their locations" data-tut="whichexport" data-tutacc="whichexport PAT, cleanup and FAT">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Photos with their locations</b><span class="xtag">ZIP</span></span><small class="xhint">Every photo named by its pole ID, GPS inside</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> a ZIP of JPEGs named by ID, with the GPS place in each photo, stamped if you choose.</p>
+      <label class="check"><input type="checkbox" id="setStamp"><span>Stamp on the photo files<small class="xsubl">A caption band on each photo: the fields you pick under More options</small></span></label>
+      <details class="xmore"><summary>More options</summary><div class="opts">
         <div class="opt2"><label class="field">Longest side of export copies<select id="setMaxPx"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
         <label class="field">JPEG quality<select id="expQuality"><option value="0.8">Smaller files (80)</option><option value="0.88">Balanced (88)</option><option value="0.94">Best (94)</option></select></label></div>
-        <label class="check"><input type="checkbox" id="setStamp"><span>Stamp a caption band on the photo</span></label>
         <div class="chips" id="stampFields"><button type="button" class="chip small" data-v="id" aria-pressed="true">ID & type</button><button type="button" class="chip small" data-v="coords" aria-pressed="true">Lat / long</button><button type="button" class="chip small" data-v="addr" aria-pressed="true" title="Road, barangay and city from the road pack on this phone (else the coordinates)">Address</button><button type="button" class="chip small" data-v="utm" aria-pressed="true">UTM</button><button type="button" class="chip small" data-v="time" aria-pressed="true">Date & time</button><button type="button" class="chip small" data-v="by" aria-pressed="true">Taken by</button><button type="button" class="chip small" data-v="project" aria-pressed="true">Project</button></div>
         <label class="field">Photos of each pin<select class="phdoc" data-k="zip"><option value="all">All (the main one ID.jpg, the others ID_2.jpg, ID_3.jpg…)</option><option value="main">The main photo only</option></select></label>
         <div id="namingRow"><label class="field">File names<select id="expNaming"><option value="id">ID.jpg (CC-0001.jpg)</option><option value="project_id">Project_ID.jpg</option><option value="id_time">ID_date_time.jpg</option></select></label></div>
       </div></details>
-      <button class="btn" id="doPhotos">Export photos</button>
+      <button class="btn primary" id="doPhotos">Make the photo ZIP</button>
     </div>
-    <div class="xcard">
-      <div class="head"><span class="ic">AI</span><div><b>Photos for AI training · ZIP</b><p>Labeled photos sorted into one folder per type with a labels.csv, for teaching the app to recognise elements later.</p></div></div>
-      <details><summary>Options</summary><div class="opts"><label class="field">Photos of each pin<select class="phdoc" data-k="ai"><option value="all">All (Overview as the element, Pole tag as Pole tag; Detail left out)</option><option value="main">The main photo only</option></select></label><div class="chips" id="dsScope"><button type="button" class="chip small" data-v="project" aria-pressed="true">This project</button><button type="button" class="chip small" data-v="all" aria-pressed="false">All projects</button></div></div></details>
-      <button class="btn" id="doDataset">Export training photos</button>
+    <div class="xcard" id="complCard" data-group="finish" data-badge="finish" data-find="Completion report" data-tut="completion" data-tutacc="whichexport PAT, cleanup and FAT">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Completion report</b><span class="xtag">PDF</span></span><small class="xhint" id="complHint">Proof the task is done</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> <span id="complGet">page 1 with the sign-off, then the photos and the BOQ. This also marks the task complete and sends the date to the online sheet.</span></p>
+      <label class="check"><input type="checkbox" id="complPhotos" checked><span>Add the photo pages (survey: photo collage · PAT, cleanup, FAT: deficiency photos)</span></label>
+      <details class="xmore"><summary>More options</summary><div class="opts">
+        <label class="field">Photos of each pin<select class="phdoc" data-k="compl"><option value="all">All photos of the pin</option><option value="main">The main photo only</option></select></label>
+      </div></details>
+      <button class="btn primary" id="doCompletion">Finish the task and make the report</button>
     </div>
-    <div class="xcard">
-      <div class="head"><span class="ic">ZIP</span><div><b>Backup</b><p>Everything in this project (records and photos) in one file. Restore it on another phone or after reinstalling.</p></div></div>
-      <div class="row"><button class="btn grow" id="doBackup">Back up project</button><button class="btn grow" id="doRestore">Restore backup</button></div>
+    <div class="xcard" id="bkCard" data-group="finish" data-find="Backup of the project" data-tut="share" data-tutacc="whichexport PAT, cleanup and FAT">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Backup of the project</b><span class="xtag">ZIP</span></span><small class="xhint">Every record and photo, kept safe</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> <span class="mono" id="bkName">&lt;project&gt;_BACKUP.zip</span>, holding every record and photo of this project. Restore it on another phone or after reinstalling.</p>
+      <button class="btn primary" id="doBackup">Back up the project</button>
+      <div class="xlinks" id="bkLinks">
+        <button class="xlink" id="doRestore" type="button">Restore a backup…</button>
+        <button class="xlink" id="bkShare" type="button"><span>Send the project to your team leader ›</span><small>A project file to open on another phone</small></button>
+        <button class="xlink" id="bkMbx" type="button" hidden><span>Send through the team mailbox ›</span></button>
+        <button class="xlink" id="bkMany" type="button"><span>Several projects in one file ›</span></button>
+      </div>
       <input type="file" id="restoreInput" accept=".zip,.kmz,application/zip,application/vnd.google-earth.kmz,application/octet-stream" hidden>
     </div>
-    <div class="xcard">
-      <div class="head"><span class="ic">PDF</span><div><b>Completion report · PDF</b><p>Page 1 says the task is complete: site, vendor, dates, what was recorded and the sign-off. Photo pages follow as proof: survey — the poles, then the site, ODC, ODF, NAP, closures and handholes, as a collage; PAT, defect cleanup, FAT — the photos of each deficiency as found, rectified and verified. Making it marks the task complete; the online sheet gets the date.</p></div></div>
-      <details><summary>Options</summary><div class="opts"><label class="check"><input type="checkbox" id="complPhotos" checked><span>Add the photo pages (survey: photo collage · PAT, cleanup, FAT: deficiency photos)</span></label>
-        <label class="field">Photos of each pin<select class="phdoc" data-k="compl"><option value="all">All photos of the pin</option><option value="main">The main photo only</option></select></label></div></details>
-      <button class="btn primary" id="doCompletion">Export completion report</button>
+    <div class="xcard" data-group="team" data-find="Photos for teaching the app" data-tut="surveyexport">
+      <button type="button" class="head" aria-expanded="false"><span class="hd"><span class="nm"><b>Photos for teaching the app</b><span class="xtag">ZIP</span></span><small class="xhint">Not needed for your task</small><span class="xbadges"></span></span><span class="xck" aria-hidden="true"></span><svg class="xchev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <p class="xget"><b>You get:</b> labelled photos, a folder per type with a labels.csv, for improving the app's recognition (AI training). Poles left out of the files are not in it.</p>
+      <div class="chips" id="dsScope"><button type="button" class="chip small" data-v="project" aria-pressed="true">This project</button><button type="button" class="chip small" data-v="all" aria-pressed="false">All projects</button></div>
+      <details class="xmore"><summary>More options</summary><div class="opts"><label class="field">Photos of each pin<select class="phdoc" data-k="ai"><option value="all">All (Overview as the element, Pole tag as Pole tag; Detail left out)</option><option value="main">The main photo only</option></select></label></div></details>
+      <button class="btn primary" id="doDataset">Make the training ZIP</button>
     </div>
-    <div class="xcard" id="prCard">
-      <div class="head"><span class="ic">PDF</span><div><b>Photo report · PDF</b><p>Each pole with its item number, pole ID, location, type and owner, coordinates and date, and its photos: 1 or 2 poles a page, one report for each pole owner or for the project, as for the RTA.</p></div></div>
-      <details><summary>Options</summary><div class="opts">
-        <div class="opt2"><label class="field">Photos of each pole<select class="phdoc" data-k="report"><option value="all">All photos of the pin</option><option value="main">The main photo only</option></select></label>
-        <label class="field">Poles a page<select id="prPer"><option value="2">2</option><option value="1">1</option></select></label></div>
-        <div class="opt2"><label class="field">Item numbers<select id="prNum"><option value="plan">The plan’s pole numbers</option><option value="order">1, 2, 3… in capture order</option></select></label>
-        <label class="field">One report<select id="prBy"><option value="owner">For each pole owner</option><option value="project">For the whole project</option></select></label></div>
-        <label class="field">Location<select id="prLoc"><option value="pack">From the road pack (road, barangay, city), else the coordinates</option><option value="coords">The coordinates</option></select></label>
-      </div></details>
-      <button class="btn primary" id="doPhotoReport">Export Photo report PDF</button>
-    </div>
-    <div class="xgo" id="xGoBox" hidden><button class="btn primary" id="xMultiGo" type="button">Export the ticked formats (ZIP)</button><p class="hint" id="xMultiInfo" style="margin:0">One ZIP with every file. Each format uses its own options (above); questions some formats ask still come up one by one.</p></div>
+    <button class="btn xother" id="xOther" type="button" hidden>Other exports ›</button>
+    <div class="xfoot" id="xFoot"><button class="btn" id="xManyBtn" type="button">Several at once (one ZIP)…</button><button class="btn xagain" id="xAgain" type="button" hidden></button></div>
+    <div class="xgo" id="xGoBox" hidden><button class="btn primary" id="xMultiGo" type="button">Tick two or more</button><p class="hint" id="xMultiInfo" style="margin:0">One ZIP with every file. Each keeps its own choices; questions some of them ask still come up one by one.</p></div>
     <div class="group" id="resultBox" hidden>
-      <h3>Ready</h3>
+      <h3>Your file is ready</h3>
       <p id="resultName" class="mono" style="margin:0;word-break:break-all"></p>
       <p id="resultCredit" class="hint" style="margin:4px 0 0" hidden></p>
       <details class="inzipbox" id="resultInsideBox" hidden><summary id="resultInsideSum">What's in the ZIP</summary><div class="inzip" id="resultInside"></div></details>
       <div class="result"><button class="btn primary grow" id="resSave">Save to phone</button><button class="btn grow" id="resShare">Share…</button></div>
+      <details class="help ressteps" id="resSteps" hidden><summary>ⓘ <span id="resStepsWhy">This browser cannot pass the file to another app: send it in 3 steps</span></summary>
+        <ol class="sendsteps"><li id="resStep1"><span><b>Save it on the phone</b> (Save to phone, above). It goes to Downloads.</span></li>
+          <li><span><b>Open your chat app</b> (Viber, WhatsApp, Messenger, Gmail…) and the chat or email to send it to.</span></li>
+          <li><span><b>Attach the file</b> from Downloads: <span class="mono" id="resStepsName"></span></span></li></ol></details>
     </div>
   </div>
 </section>
@@ -2205,7 +2376,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 <section class="sheet" id="setExports" hidden aria-labelledby="setExpTitle">
   <header><button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 id="setExpTitle">Exports and files</h2></header>
   <div class="body">
-    <p class="hint">These are the defaults for the Export screen; each export card there has the same options under “Options”.</p>
+    <p class="hint">Defaults for the Export rows: each row has the same choices (under More options). The look of the plan is in Plan style.</p>
     <div class="group">
       <h3>Company logo</h3>
       <p class="hint">On the title blocks of your plan drawings and your CEF plan sheets. Set it once: it goes to your company's users at their next Sync.</p>
@@ -2218,7 +2389,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <p class="hint">Photos are always kept on the phone at full export quality (2048 px); these settings shape the copies that leave the phone.</p>
       <div class="opt2"><label class="field">Longest side of export copies<select id="setMaxPx2"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
       <label class="field">JPEG quality<select id="expQuality2"><option value="0.8">Smaller files (80)</option><option value="0.88">Balanced (88)</option><option value="0.94">Best (94)</option></select></label></div>
-      <label class="check"><input type="checkbox" id="setStamp2"><span>Stamp a caption band on exported photos</span></label>
+      <label class="check"><input type="checkbox" id="setStamp2"><span>Stamp on the photo files<small class="xsubl">A caption band on each photo of the photo ZIP</small></span></label>
       <div class="chips" id="stampFields2"><button type="button" class="chip small" data-v="id" aria-pressed="true">ID & type</button><button type="button" class="chip small" data-v="coords" aria-pressed="true">Lat / long</button><button type="button" class="chip small" data-v="addr" aria-pressed="true" title="Road, barangay and city from the road pack on this phone (else the coordinates)">Address</button><button type="button" class="chip small" data-v="utm" aria-pressed="true">UTM</button><button type="button" class="chip small" data-v="time" aria-pressed="true">Date & time</button><button type="button" class="chip small" data-v="by" aria-pressed="true">Taken by</button><button type="button" class="chip small" data-v="project" aria-pressed="true">Project</button></div>
       <label class="field">File names<select id="expNaming2"><option value="id">ID.jpg (CC-0001.jpg)</option><option value="project_id">Project_ID.jpg</option><option value="id_time">ID_date_time.jpg</option></select></label>
     </div>
@@ -2227,7 +2398,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="opt2"><label class="field">Balloon photo size<select id="kmzBalloonPx3" class="exp-kmz"><option value="480">Small (480 px)</option><option value="800">Medium (800 px)</option><option value="1200">Large (1200 px)</option><option value="0">No photos in balloons</option></select></label>
       <label class="field">Pin icon<select id="kmzIconPx3" class="exp-kmz"><option value="0">Standard pin / status dot</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
       <label class="check"><input type="checkbox" id="kmzRoute2" class="exp-kmz"><span>Include the cable route (survey)</span></label>
-      <label class="check"><input type="checkbox" id="kmzStamp3" class="exp-kmz"><span>Stamp balloon photos</span></label>
+      <label class="check"><input type="checkbox" id="kmzStamp3" class="exp-kmz"><span>Stamp on the Google Earth photos</span></label>
     </div>
     <div class="group">
       <h3>Deficiency List PDF</h3>
@@ -2235,11 +2406,9 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <label class="check"><input type="checkbox" id="pdfAnnexA2"><span>Annex A: photo evidence per item</span></label>
       <label class="check"><input type="checkbox" id="pdfAnnexB2"><span>Annex B: inspection photo log</span></label>
     </div>
-    <div class="group">
-      <h3>AutoCAD DXF</h3>
-      <div class="opt2"><label class="field">Pole circle radius (m)<input type="number" id="setSym2" step="0.1" min="0.1"></label><label class="field">Label height (m)<input type="number" id="setTxt2" step="0.1" min="0.1"></label></div>
-      <label class="check"><input type="checkbox" id="pmiLoops2"><span>Count the maintenance loops in the PMI cable lengths (total, aerial, underground). Unticked: the spans only</span></label>
-      <label class="field">UTM zone (WGS84, north)<select id="setZone2"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
+    <div class="group" id="setPlanGroup"><!-- beta 6.7 (UX step 4): the plan's own settings have one home, Plan style (the pole circle size, label size, UTM zone and the loops in the PMI were here too) -->
+      <h3>Plan drawing</h3>
+      <button class="rowbtn" id="goPlanStyle" type="button" data-find="Plan style"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg></span><span class="t"><b>Plan style</b><span>Labels, photos, colours, template, UTM zone, loops in the PMI</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
     <div class="group" id="saveGroup">
       <h3>Where saved files go</h3>
@@ -2322,7 +2491,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <p class="tmstage" id="stageHint" hidden></p>
         <button class="btn primary" id="startCleanup" type="button" hidden>🛠 Start the defect cleanup</button>
         <button class="btn" id="startFat" type="button">Start FAT from this PAT on this phone</button>
-        <button class="btn sharebtn" id="sendPat" type="button"><svg class="shi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></svg><span id="sendPatLbl">Share PAT KMZ · for defect cleanup / FAT</span></button>
+        <button class="btn sharebtn" id="sendPat" type="button"><svg class="shi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></svg><span id="sendPatLbl">Hand on: Share the PAT KMZ</span></button>
         <p class="warnline" id="shareWarn" hidden></p>
       </div>
       <div id="doneBox" class="tmdone">
@@ -2604,7 +2773,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <div class="group">
       <h3>Offline map packs</h3>
-      <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Get it once on Wi-Fi. <b>Every map pack on this phone is used, all together</b>: each covers its own area, so the map goes from one area to the next as you move, with no switching. When there is no signal the app shows them by itself; the layers button (Offline map) also does. The eye hides a pack on the map (the plan drawings still use it). A <b>road pack</b> (Roads · region) is not a map to look at: the plan drawing (Export → AutoCAD · DXF) takes its roads, landmarks, cities / municipalities and barangays from every road pack on this phone that covers the project (a project on the border of two regions gets both), with no internet.</p>
+      <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Get it once on Wi-Fi. <b>Every map pack on this phone is used, all together</b>: each covers its own area, so the map goes from one area to the next as you move, with no switching. When there is no signal the app shows them by itself; the layers button (Offline map) also does. The eye hides a pack on the map (the plan drawings still use it). A <b>road pack</b> (Roads · region) is not a map to look at: the plan drawing (Export → Plan drawing) takes its roads, landmarks, cities / municipalities and barangays from every road pack on this phone that covers the project (a project on the border of two regions gets both), with no internet.</p>
       <p class="hint" id="packSource">–</p>
       <div id="packList" style="display:flex;flex-direction:column;gap:8px"></div>
       <button class="btn primary" id="areaDl" type="button">⬇ Download an area for offline use</button>
@@ -2796,7 +2965,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <textarea id="admPacks" style="min-height:80px" placeholder="Mindanao | https://drive.google.com/file/d/…/view | 200" aria-label="Offline map packs, one per line"></textarea>
         <label class="field">AREA DOWNLOAD SOURCE (optional): a .pmtiles file on your own storage that allows range requests, e.g. a copy of a Protomaps build on Cloudflare R2. Blank = the Protomaps daily build.<input type="url" id="admAreaSrc" placeholder="https://…/planet.pmtiles" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
         <label class="field">GOOGLE DRIVE API KEY (optional): lets the website and iPhones download the Drive packs above with one tap (Download), like the Android app. Make it once in Google Cloud (Google Drive API, key restricted to this website); the packs must be shared <i>Anyone with the link</i>. Blank = website users open the pack in Drive and import the file.<input type="text" id="admDriveKey" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="60"></label>
-        <label class="field">DRAWING TEMPLATE (DXF seed): a Google Drive link to the prepared plan template. Phones download it for Export → AutoCAD · DXF on the template; it is company property and is not inside the app. Sharing *Anyone with the link*: the Android app downloads it by itself (and anyone given the link can open it). Restricted to company accounts: users download it signed in and load the file.<input type="url" id="admDxfSeed" placeholder="https://drive.google.com/file/d/…" autocomplete="off"></label>
+        <label class="field">DRAWING TEMPLATE (DXF seed): a Google Drive link to the prepared plan template. Phones download it for Export → Plan drawing on the template; it is company property and is not inside the app. Sharing *Anyone with the link*: the Android app downloads it by itself (and anyone given the link can open it). Restricted to company accounts: users download it signed in and load the file.<input type="url" id="admDxfSeed" placeholder="https://drive.google.com/file/d/…" autocomplete="off"></label>
         <label class="check"><input type="checkbox" id="admUserTpl"><span>Users may load a plan template file of their own (off: everyone uses the template above).</span></label>
         <p class="hint" id="admPacksInfo"></p>
       </div>
