@@ -185,7 +185,7 @@
     meta: {}, defects: JSON.parse(JSON.stringify(DEF_CHECK)), userName: '',
     listSort: 'new', listGroup: true,
     quality: 'strict', readId: false, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
-    exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'addr', 'utm', 'time', 'by', 'project'], naming: 'id', /* (beta 6.4: + addr, the address) */
+    exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'addr', 'utm', 'time', 'by', 'project'], naming: 'id', /* (beta 6.4: + addr, the address) */ stampOnPlan: false, /* beta 7.6 / 2.45.8: Same stamp on the plan's photos (geoOnPlan) */
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
       dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfBoqGrid: true, dxfRows: null, dxfRowSel: 0, dxfLabels: 'std', dxfRoads: true }, /* beta 6.7 (UX step 4; critic): dxfRoads kept (Plan style › Plan file), on as before */ // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
@@ -977,7 +977,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.45.7';
+  const APP_VER = '2.45.8';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
   const APP_BETA = '7.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
@@ -2665,7 +2665,7 @@
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() { // (2.45.1 / beta 6.9: + the span length allowance)
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? colName(Cl.color) : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Pole ID (Tidy): ${{ auto: 'CC over 123456, CC-123456 where it needs room', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · Cables between points: ${Cb.route === 'straight' ? 'straight from point to point' : 'follow the road'} · Span length allowance: ${allowPct()} % · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower, its lat / long under it' : P.site.name === 'bottom' ? 'under it, its lat / long under the name' : `at its ${P.site.name}, its lat / long under the name`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : colName(P.site.acol)) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${N.rta.on ? `by RTA/JPA category (${N.rta.cats.map((x) => `${x.text} ${colName(x.color)}`).join(', ')}), others ` : ''}${colName(N.color)}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${colName(N.bcolor)}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? colName(I.color) : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${colName(V.circle)}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? colName(V.route) : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m; ${PH_STAMP[P.photo.stamp]} · Grid: ${P.grid.split ? `your own split 1/${P.grid.split} (Tidy)` : 'Auto split (Tidy: 1/1 to 1/4)'}; the sheets\u2019 names ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, ${P.grid.h ? `${P.grid.h} mm` : 'auto size'}, ${P.grid.color ? colName(P.grid.color) : 'auto colour (Tidy: light grey)'}, under the details; leader lines ${P.grid.leaders === 'allow' ? 'allowed, for fewer sheets' : 'only where there is no other way'}; photos near their pole within ${P.photo.near} mm`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? colName(Cl.color) : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Pole ID (Tidy): ${{ auto: 'CC over 123456, CC-123456 where it needs room', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · Cables between points: ${Cb.route === 'straight' ? 'straight from point to point' : 'follow the road'} · Span length allowance: ${allowPct()} % · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower, its lat / long under it' : P.site.name === 'bottom' ? 'under it, its lat / long under the name' : `at its ${P.site.name}, its lat / long under the name`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : colName(P.site.acol)) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${N.rta.on ? `by RTA/JPA category (${N.rta.cats.map((x) => `${x.text} ${colName(x.color)}`).join(', ')}), others ` : ''}${colName(N.color)}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${colName(N.bcolor)}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? colName(I.color) : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${colName(V.circle)}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? colName(V.route) : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m; ${geoOnPlan() ? 'stamped with the geotag photo stamp (Export \u203a Photos with their locations)' : PH_STAMP[P.photo.stamp]} · Grid: ${P.grid.split ? `your own split 1/${P.grid.split} (Tidy)` : 'Auto split (Tidy: 1/1 to 1/4)'}; the sheets\u2019 names ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, ${P.grid.h ? `${P.grid.h} mm` : 'auto size'}, ${P.grid.color ? colName(P.grid.color) : 'auto colour (Tidy: light grey)'}, under the details; leader lines ${P.grid.leaders === 'allow' ? 'allowed, for fewer sheets' : 'only where there is no other way'}; photos near their pole within ${P.photo.near} mm`;
   }
   /* beta 6.5: Drawing style › Numbers › Colour by RTA/JPA category: on or off, and the categories: each its legend text and colour (the
      proposed red is the legend's, locked), a pole owner's one removed or added (an owner from the list, or typed), the standard four again */
@@ -2758,7 +2758,7 @@
       if (document.activeElement !== $('stPhL')) $('stPhL').value = String(Z);
       o('stPhO', `${phTidyMm(Z)} mm on the printed sheet${PH_SIZES.some(([v]) => v === Z) ? '' : ' (your own size)'}`); // (beta 6.4; beta 6.7: Standard too; UX step 4: the readout of Basic › Photos on the plan)
       { const nm = P.photo.near; if (document.activeElement !== $('stPhNear')) $('stPhNear').value = String(nm); o('stPhNearO', `${nm} mm on the A3 sheet: about ${[1, 2, 3, 4].map((k) => `${Math.round(nm / 0.6135 / k)} m at 1/${k}`).join(', ')}`); } // beta 6.0: a photo is near its pole within this (its centre), at the company template's scale
-      seg('stPhStamp', P.photo.stamp); { const mm = phTidyMm(Z), /* (beta 6.7) */ fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' ? '' : `text ${fsMm.toFixed(1)} mm high`); } // beta 6.4 (an upright photo: the coordinates across its width; beta 6.7, UX step 4: short, in Basic)
+      seg('stPhStamp', P.photo.stamp); { const mm = phTidyMm(Z), /* (beta 6.7) */ fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' || geoOnPlan() ? '' : `text ${fsMm.toFixed(1)} mm high`); $('stPhStampGeo').hidden = !geoOnPlan(); /* (beta 7.6 / 2.45.8: the geotag stamp is used instead) */ } // beta 6.4 (an upright photo: the coordinates across its width; beta 6.7, UX step 4: short, in Basic)
       o('stPhHint', `Every photo on the plan is printed ${phTidyMm(Z)} mm on its long side on the A3 sheet (Small 9, Normal 18, Large 36, Extra large 48 mm; your own size in metres at 1:1100), the same for every pole and point. Where a photo has no free place near its pole it goes where there is room, with a thin line to its pole; only where there is no place at all is that photo drawn smaller, as little as it needs (listed in the README), never left out. The pole comes first, then its details and number, then its photo.${S.exp.dxfLabels === 'tidy' ? ' Pole labels Tidy: at any grid split; bigger photos may make Auto choose a finer grid.' : ` Standard: ${(phTidyMm(Z) * 1.1).toFixed(0)} m on the drawing (1:1100).`}`); } // (beta 6.7: one size for all, a line where needed)
     o('stSum', plSummary());
     DSP.soon(); drawVicPreview(P); // (beta 3.8: the scene the user works on; beta 6.7, UX step 4: drawn after a 150 ms pause)
@@ -3015,7 +3015,12 @@
           draw(g, at, k, pal) {
             if (at.d > 2) { const [qx, qy] = nearOnBox(bx(at.cx, at.cy, W, L), p.x, p.y), dx = qx - p.x, dy = qy - p.y, dd = Math.hypot(dx, dy) || 1; mk(g, 'line', { x1: p.x + dx / dd * 1.3, y1: p.y + dy / dd * 1.3, x2: qx, y2: qy, stroke: pal.grey, 'stroke-width': 0.16 }); }
             photoSym(g, pal, at.cx - W / 2, at.cy - L / 2, W, L);
-            if (P.photo.stamp !== 'off') { // beta 6.4: its stamp, as planStamp burns it in (lat, long; the address under it)
+            if (geoOnPlan()) { // beta 7.6 / 2.45.8: the geotag band instead (Same stamp on the plan's photos), as geoStamp draws it: its fields, made-up values
+              const F = S.exp.stampFields || [], fs = W * 0.026, lh = fs * 1.32, pad = fs * 0.7, x = at.cx - W / 2, T = [['id', `CC-${p.id}  ·  Concrete`, 1.25, 700], ['coords', `${p.ll.replace(/°\s+/, ', ').replace(/°/g, '')}   ±4.0 m`, 1, 400], ['addr', 'Main St., Brgy. Centro, Sample City', 1, 400], ['utm', 'UTM 51N   E 785000.00   N 792000.00', 1, 400]].filter((l) => F.includes(l[0]));
+              const last = [F.includes('time') ? 'Nov 1, 2026, 08:00' : '', F.includes('by') ? 'Juan Dela Cruz' : '', F.includes('project') ? 'Sample project' : ''].filter(Boolean).join('   ·   '); if (last) T.push(['last', last, 1, 400]);
+              if (T.length) { const bh = pad * 2 + lh * T.length + fs * 0.25; let y = at.cy + L / 2 - bh; mk(g, 'rect', { x, y, width: W, height: bh, fill: '#000', 'fill-opacity': 0.6 }); mk(g, 'rect', { x, y, width: Math.max(fs * 0.3, W * 0.01), height: bh, fill: '#4dabf7' }); y += pad;
+                T.forEach(([k, t, m, wt], i) => { mk(g, 'text', { x: x + pad * 1.6, y: y + fs * m * 0.85, 'font-size': fs * m, 'font-weight': wt, fill: '#fff', 'font-family': ARIAL }, t); y += i === 0 && k === 'id' ? lh * 1.25 : lh; }); }
+            } else if (P.photo.stamp !== 'off') { // beta 6.4: its stamp, as planStamp burns it in (lat, long; the address under it)
               const x = at.cx - W / 2, fs = Math.min(W * 0.93 / 9, L * 0.1), fa = fs * 0.86, T = [[p.ll.replace(/°\s+/, ', ').replace(/°/g, ''), fs, 700]].concat(P.photo.stamp === 'addr' ? [['Main St., Brgy. Centro,', fa, 600], ['Sample City', fa, 600]] : []);
               let y = at.cy + L / 2 - fs * 0.64 - T.reduce((t, l) => t + l[1] * 1.16, 0); mk(g, 'rect', { x, y, width: W, height: at.cy + L / 2 - y, fill: '#000', 'fill-opacity': 0.66 }); y += fs * 0.32;
               T.forEach(([t, h, wt]) => { mk(g, 'text', { x: x + W * 0.035, y: y + h * 0.85, 'font-size': h, 'font-weight': wt, fill: '#fff', 'font-family': ARIAL, ...(wt === 700 ? { textLength: W * 0.93, lengthAdjust: 'spacingAndGlyphs' } : {}) }, t); y += h * 1.16; });
@@ -6789,8 +6794,7 @@
       opts: {maxPx, quality, stamp, fields:[...]} default from S.exp. Returns Uint8Array. */
   async function exportPhoto(p, cleanBlob, titleText, meta, opts) {
     const o = { maxPx: S.exp.maxPx, quality: S.exp.quality, stamp: S.exp.stamp, fields: S.exp.stampFields, ...(opts || {}) };
-    const has = (f) => !o.fields || o.fields.includes(f);
-    const title = titleText || (p.kind !== 'acceptance' && elemOf(p) !== 'Pole' ? `${p.poleId}  ·  ${svDesc(p, svPurpose(p.project))}` : `${recName(p)}  ·  ${p.poleType}`);
+    const title = titleText || photoTitle(p);
     const own = meta && meta.lat != null;
     const P = own ? { lat: meta.lat, lon: meta.lon, accuracy: meta.acc, adjusted: false, alt: null } : p;
     const when = (meta && meta.at) || p.takenAt;
@@ -6800,32 +6804,46 @@
     if (o.stamp || sc < 1) {
       const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
       const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(im, 0, 0, w, h);
-      if (o.stamp) {
-        const u = C.utmForward(P.lat, P.lon, S.zone, P.lat < 0);
-        const fs = Math.max(16, Math.round(w * 0.026)), lh = fs * 1.32, pad = fs * 0.7;
-        const lines = [];
-        if (has('id')) lines.push([title, `700 ${Math.round(fs * 1.25)}px sans-serif`]);
-        if (has('coords')) lines.push([`${own ? 'Taken at ' : ''}${P.lat.toFixed(7)}, ${P.lon.toFixed(7)}${Number.isFinite(P.accuracy) ? `   ±${P.accuracy.toFixed(1)} m` : ''}${P.adjusted ? '  (pin adjusted)' : ''}`, `${fs}px monospace`]);
-        if (has('addr')) { const a = o.addr != null ? o.addr : await stampAddr(p); const t = a || (has('coords') ? '' : `${P.lat.toFixed(6)}, ${P.lon.toFixed(6)}`); if (t) lines.push([t, `${fs}px sans-serif`]); } // beta 6.4: the address (road, barangay, city), else the coordinates
-        if (has('utm')) lines.push([`UTM ${S.zone}N   E ${u.E.toFixed(2)}   N ${u.N.toFixed(2)}`, `${fs}px monospace`]);
-        const who = (meta && meta.by) || p.by || '';
-        const last = [has('time') ? fmtTime(when) : '', has('by') && who ? who : '', has('project') ? p.project : ''].filter(Boolean).join('   ·   ');
-        if (last) lines.push([last, `${fs}px sans-serif`]);
-        if (lines.length) {
-          const bandH = pad * 2 + lh * lines.length + fs * 0.25;
-          g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, h - bandH, w, bandH);
-          g.fillStyle = '#4dabf7'; g.fillRect(0, h - bandH, Math.max(6, fs * 0.3), bandH);
-          g.fillStyle = '#fff'; g.textBaseline = 'top';
-          let y = h - bandH + pad;
-          lines.forEach(([t, f], i) => { g.font = f; g.fillText(t, pad * 1.6, y, w - pad * 3); y += i === 0 && has('id') ? lh * 1.25 : lh; });
-        }
-      }
+      if (o.stamp) await geoStamp(g, w, h, p, title, meta, o);
       bytes = new Uint8Array(await (await toBlob(cv, o.quality || 0.9)).arrayBuffer());
     } else bytes = new Uint8Array(await cleanBlob.arrayBuffer());
     if (im.close) im.close();
     return C.insertExif(bytes, { lat: P.lat, lon: P.lon, alt: P.alt, accuracy: P.accuracy,
       description: title.replace(/\s+·\s+/g, ' | '), title: recName(p), date: new Date(when), artist: exporterLine(' | ') });
   }
+  /** A photo's first stamp line: its ID and type (a pole: its name · type; another point: its ID · what it is). */
+  function photoTitle(p) { return p.kind !== 'acceptance' && elemOf(p) !== 'Pole' ? `${p.poleId}  ·  ${svDesc(p, svPurpose(p.project))}` : `${recName(p)}  ·  ${p.poleType}`; }
+  /** The geotag caption band (Export › Photos with their locations: the fields picked under More options), drawn at the foot of g (w × h):
+      the photo ZIP's photos, and (beta 7.6 / 2.45.8, the owner: "geotag settings on the photo stamp is being used on the plan") the plan's
+      photos with Same stamp on the plan's photos. o: { fields, addr }. Returns the lines it wrote. */
+  async function geoStamp(g, w, h, p, title, meta, o) {
+    const has = (f) => !o.fields || o.fields.includes(f), own = meta && meta.lat != null;
+    const P = own ? { lat: meta.lat, lon: meta.lon, accuracy: meta.acc, adjusted: false, alt: null } : p;
+    const when = (meta && meta.at) || p.takenAt;
+    const u = C.utmForward(P.lat, P.lon, S.zone, P.lat < 0);
+    const fs = Math.max(16, Math.round(w * 0.026)), lh = fs * 1.32, pad = fs * 0.7;
+    const lines = [];
+    if (has('id')) lines.push([title || photoTitle(p), `700 ${Math.round(fs * 1.25)}px sans-serif`]);
+    if (has('coords')) lines.push([`${own ? 'Taken at ' : ''}${P.lat.toFixed(7)}, ${P.lon.toFixed(7)}${Number.isFinite(P.accuracy) ? `   ±${P.accuracy.toFixed(1)} m` : ''}${P.adjusted ? '  (pin adjusted)' : ''}`, `${fs}px monospace`]);
+    if (has('addr')) { const a = o.addr != null ? o.addr : await stampAddr(p); const t = a || (has('coords') ? '' : `${P.lat.toFixed(6)}, ${P.lon.toFixed(6)}`); if (t) lines.push([t, `${fs}px sans-serif`]); } // beta 6.4: the address (road, barangay, city), else the coordinates
+    if (has('utm')) lines.push([`UTM ${S.zone}N   E ${u.E.toFixed(2)}   N ${u.N.toFixed(2)}`, `${fs}px monospace`]);
+    const who = (meta && meta.by) || p.by || '';
+    const last = [has('time') ? fmtTime(when) : '', has('by') && who ? who : '', has('project') ? p.project : ''].filter(Boolean).join('   ·   ');
+    if (last) lines.push([last, `${fs}px sans-serif`]);
+    if (lines.length) {
+      const bandH = pad * 2 + lh * lines.length + fs * 0.25;
+      g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, h - bandH, w, bandH);
+      g.fillStyle = '#4dabf7'; g.fillRect(0, h - bandH, Math.max(6, fs * 0.3), bandH);
+      g.fillStyle = '#fff'; g.textBaseline = 'top';
+      let y = h - bandH + pad;
+      lines.forEach(([t, f], i) => { g.font = f; g.fillText(t, pad * 1.6, y, w - pad * 3); y += i === 0 && has('id') ? lh * 1.25 : lh; });
+    }
+    return lines.map((l) => l[0]);
+  }
+  /** beta 7.6 / 2.45.8: the plan's photos get the geotag band (Export › Photos with their locations › Same stamp on the plan's photos, with
+      Stamp on the photo files on) instead of Plan style's lat, long and address. */
+  function geoOnPlan() { return !!(S.exp.stamp && S.exp.stampOnPlan); }
+  const STAMP_FIELD = { id: 'ID and type', coords: 'lat / long', addr: 'address', utm: 'UTM', time: 'date and time', by: 'taken by', project: 'project' }; // (the chips of #stampFields, for the plan's README)
   /* beta 6.4: the address of a record for the photo stamps: its road (within 60 m), barangay and city / municipality from the road packs on
      this phone (as the photo report's LOCATION), '' where no pack covers it. Worked out once for the whole project, kept a minute
      (an export's photos one after the other), and anew at each export. */
@@ -10923,7 +10941,7 @@
     const pl0 = planExport; planExport = false; // v2.42.28: Export plan (from the Drawing)
     const acc = isAcc(), cef = !acc && isCefProj(), hidN = acc ? 0 : xHiddenIds().size, n = projPoints().length - hidN;
     $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : cef ? `CEF plan “${S.project}”` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}${hidN ? ` · ${hidN} hidden (not exported)` : ''}`;
-    $('accExports').hidden = !acc; $('surveyExports').hidden = acc; $('namingRow').hidden = acc; // acceptance photos are named after the form items
+    $('accExports').hidden = !acc; $('surveyExports').hidden = acc; $('namingRow').hidden = acc; $('setStampPlanRow').hidden = acc; // acceptance photos are named after the form items (beta 7.6 / 2.45.8: and have no plan)
     const stg = pmeta().stage || 'PAT';
     $('xShareBox').hidden = !acc || stg === 'FAT';
     if (acc && stg !== 'FAT') { // beta 6.7 (UX step 3): Hand on to the next stage
@@ -11728,6 +11746,12 @@
     const adv = k === 'End' ? true : k === 'Home' ? false : $('plAdv').hidden; plTab(adv ? 'advanced' : 'basic', adv ? S.plOpen : ''); $(adv ? 'plTabA' : 'plTabB').focus();
   });
   $('plRtaLink').addEventListener('click', () => { plTab('advanced', 'stNum'); setTimeout(() => DSP.toRow($('stRtaRow')), 0); }); // Owner colours and key ›
+  // beta 7.6 / 2.45.8: Change › under Stamp on the plan's photos (the geotag stamp used): Export's Photos with their locations, its tick marked
+  $('stPhStampGeoGo').addEventListener('click', () => {
+    const mark = () => { xOpen('doPhotos', { focus: false }); const el = $('setStampPlan'); if (el) requestAnimationFrame(() => { try { el.closest('label').scrollIntoView({ block: 'center' }); el.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } }); };
+    if (toSheet('export')) { setTimeout(mark, 450); return; }
+    exportPick = 'doPhotos'; $('exportBtn').click(); setTimeout(mark, 450);
+  });
   $('plBanTplGet').addEventListener('click', () => { if (seedId()) { $('dxfTplGet').click(); return; } plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psTpl')), 0); });
   $('plBanSimpleGo').addEventListener('click', () => { plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psKind')), 0); });
   $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderStyle(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
@@ -12405,11 +12429,12 @@
     const names = uniqueNames(pts), photos = {}, files = [], withPh = pts.filter((p) => markSet.has(p.id));
     // beta 6.4: Drawing style › Photos on the plan › Stamp on the photos: lat, long and (the road packs') address burned into each photo,
     // sized to its long side on the sheet (the same JPEGs go in the ZIP, the plan PDF and the One PDF)
-    const PST = PLS.photo.stamp, stampMm = phTidyMm(PLS.photo.size), /* (beta 6.7: Standard prints them at the same steps) */ /* (beta 6.4: Tidy prints the photos at its own steps) */ LOC = PST === 'addr' && withPh.length ? await poleLocations(withPh, true).catch(() => new Map()) : new Map();
+    // beta 7.6 / 2.45.8: or, with Export › Photos with their locations › Same stamp on the plan's photos, that geotag band (its fields) instead
+    const GEO = geoOnPlan(), PST = GEO ? 'off' : PLS.photo.stamp, stampMm = phTidyMm(PLS.photo.size), /* (beta 6.7: Standard prints them at the same steps) */ /* (beta 6.4: Tidy prints the photos at its own steps) */ LOC = PST === 'addr' && withPh.length ? await poleLocations(withPh, true).catch(() => new Map()) : new Map();
     for (let i = 0; i < withPh.length; i++) {
       busy(`Preparing the photos ${i + 1} / ${withPh.length}`, i / withPh.length);
       const q = withPh[i], band = PST !== 'off' && Number.isFinite(+q.lat) && Number.isFinite(+q.lon) ? { lat: q.lat, lon: q.lon, addr: PST === 'addr' ? LOC.get(q.id) || '' : '', mm: stampMm } : null;
-      const jpg = await pdfJpeg(coverPid(q) || q.id, 800, null, null, 0.8, band).catch(() => null); if (!jpg) continue;
+      const jpg = await pdfJpeg(coverPid(q) || q.id, 800, null, null, 0.8, band, GEO && Number.isFinite(+q.lat) && Number.isFinite(+q.lon) ? { p: q, fields: S.exp.stampFields } : null).catch(() => null); if (!jpg) continue;
       let dim; try { dim = window.PoleReports.jpegInfo(jpg); } catch (e) { continue; }
       const file = `${names[withPh[i].id]}.jpg`; photos[withPh[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
     }
@@ -12483,7 +12508,7 @@
     const rp = outs[0].out.report;
     // v2.40: the numbers on the plan, for the README (and an RTA application): number, ID, pole type, position
     const markLinesOf = (MK) => MK.map(([n, id]) => { const p = byPt.get(id) || {}; return `  ${n}  ${p.poleId || '(no ID)'}  ${elemOf(p) === 'Pole' ? p.poleType || 'pole' : elemOf(p)}  ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`; });
-    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}${o.st.mode !== 'num' && o.nPh && o.out.report.photoSize ? `; the photos ${o.out.report.photoSize} m on their long side on this plan (${mmOf(o.out.report.photoSize)} mm)${PST === 'off' ? '' : `, each stamped at its foot with its lat, long${PST === 'addr' ? ` and the road pack's address (road, barangay, city; ${LOC.size ? `found for ${LOC.size} of ${withPh.length}` : 'no road pack covers them: the lat, long only'})` : ''}`}` : ''}, for ${o.st.what}: ${n} numbered ${n ? Math.min(...MK.map((m) => +m[0] || 0)) : 1} to ${n ? Math.max(...MK.map((m) => +m[0] || 0)) : n} along the route${MK.length && Math.max(...MK.map((m) => +m[0] || 0)) - Math.min(...MK.map((m) => +m[0] || 0)) + 1 > n ? ' (a tower or site has no number circle on the GEO sheets: beta 7.3)' : ''}`; };
+    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}${o.st.mode !== 'num' && o.nPh && o.out.report.photoSize ? `; the photos ${o.out.report.photoSize} m on their long side on this plan (${mmOf(o.out.report.photoSize)} mm)${GEO ? `, each stamped at its foot with the geotag photo stamp (Export › Photos with their locations: ${S.exp.stampFields.length ? S.exp.stampFields.map((f) => STAMP_FIELD[f] || f).join(', ') : 'no field picked: no stamp'})` : PST === 'off' ? '' : `, each stamped at its foot with its lat, long${PST === 'addr' ? ` and the road pack's address (road, barangay, city; ${LOC.size ? `found for ${LOC.size} of ${withPh.length}` : 'no road pack covers them: the lat, long only'})` : ''}`}` : ''}, for ${o.st.what}: ${n} numbered ${n ? Math.min(...MK.map((m) => +m[0] || 0)) : 1} to ${n ? Math.max(...MK.map((m) => +m[0] || 0)) : n} along the route${MK.length && Math.max(...MK.map((m) => +m[0] || 0)) - Math.min(...MK.map((m) => +m[0] || 0)) + 1 > n ? ' (a tower or site has no number circle on the GEO sheets: beta 7.3)' : ''}`; };
     const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the plan by double-clicking the DXF in that folder: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF. Do not drag the DXF into an open drawing (it becomes a block there and its pictures are looked for next to that other drawing).'
         + ' If the photos still show as empty frames (AutoCAD 2021 or 2022): type -IMAGE, press Enter, type R, press Enter, then press Enter again; every picture is loaded from the DXF\'s folder. Save the plan as a DWG (File > Save As) to keep them.'
       : 'Open the DXF in AutoCAD with File > Open (do not drag it into an open drawing).'; // v2.42.8 (beta 4.7: the pictures in older AutoCAD)
@@ -13474,7 +13499,7 @@
   }));
 
   /** Smaller JPEG for the PDF so a report with hundreds of photos stays shareable. */
-  async function pdfJpeg(pid, maxPx, stampLines, stampColor, quality, band) { // (beta 6.4: band: the plan photo's stamp, planStamp)
+  async function pdfJpeg(pid, maxPx, stampLines, stampColor, quality, band, geo) { // (beta 6.4: band: the plan photo's stamp, planStamp; beta 7.6 / 2.45.8: geo { p, fields }: the geotag band instead, geoStamp)
     const ph = await dbGet('photos', pid).catch(() => null);
     if (!ph || !ph.clean) return null;
     const im = await loadImage(ph.clean), { w, h } = dims(im), sc = Math.min(1, maxPx / Math.max(w, h));
@@ -13488,6 +13513,7 @@
       stampLines.forEach((t, i) => { g.font = `${i ? '' : '700 '}${fs}px sans-serif`; g.fillText(t, pad * 1.5, cv.height - bandH + pad + i * lh, cv.width - pad * 3); });
     }
     if (band) planStamp(g, cv.width, cv.height, band);
+    if (geo) await geoStamp(g, cv.width, cv.height, geo.p, null, null, { fields: geo.fields });
     return new Uint8Array(await (await toBlob(cv, quality || 0.72)).arrayBuffer());
   }
   /** beta 6.4: the caption band of a photo on the plan (Drawing style › Photos on the plan › Stamp on the photos): lat, long (6 decimals)
@@ -14097,7 +14123,7 @@
   $('setOrient').addEventListener('change', () => { S.idOrient = $('setOrient').value === 'v' ? 'v' : 'h'; persist(); });
   $('setQuality').addEventListener('change', () => { if (S.team) return; S.quality = $('setQuality').value; persist(); });
   /* export defaults: the same control appears on the Export screen (first id) and under Settings (second id) */
-  const EXP_PAIRS = [['setMaxPx', 'setMaxPx2', 'maxPx', 'num'], ['expQuality', 'expQuality2', 'quality', 'num'], ['setStamp', 'setStamp2', 'stamp', 'bool'], ['expNaming', 'expNaming2', 'naming', 'str'],
+  const EXP_PAIRS = [['setMaxPx', 'setMaxPx2', 'maxPx', 'num'], ['expQuality', 'expQuality2', 'quality', 'num'], ['setStamp', 'setStamp2', 'stamp', 'bool'], ['setStampPlan', 'setStampPlan2', 'stampOnPlan', 'bool'] /* (beta 7.6 / 2.45.8) */, ['expNaming', 'expNaming2', 'naming', 'str'],
     ['kmzBalloonPx', 'kmzBalloonPx3', 'kmzBalloonPx', 'num'], ['kmzBalloonPx2', 'kmzBalloonPx3', 'kmzBalloonPx', 'num'], ['kmzIconPx', 'kmzIconPx3', 'kmzIconPx', 'num'], ['kmzIconPx2', 'kmzIconPx3', 'kmzIconPx', 'num'],
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
@@ -14113,6 +14139,7 @@
       if (el.value !== String(S.exp[key])) { S.exp[key] = DEF.exp[key]; el.value = String(S.exp[key]); persist(); } // a value this version no longer offers
     }));
     ['stampFields', 'stampFields2'].forEach((id) => $(id).querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(S.exp.stampFields.includes(c.dataset.v)))));
+    ['setStampPlan', 'setStampPlan2'].forEach((id) => { const el = $(id), sub = $(`${id}Sub`); if (!el) return; el.disabled = !S.exp.stamp; if (sub) sub.textContent = S.exp.stamp ? `The plan\u2019s photos get this caption band (the fields ${id === 'setStampPlan' ? 'under More options' : 'above'}) instead of lat, long and address` : 'Only with Stamp on the photo files'; }); // beta 7.6 / 2.45.8: greyed with the stamp off (geoOnPlan)
     [['setZone', 'zone'], ['setSym', 'sym'], ['setTxt', 'txt']].forEach(([a, key]) => { const el = $(a); if (el) el.value = String(S[key]); }); // (beta 6.7, UX step 4; critic: S.zone, S.sym, S.txt: Plan style › Plan file only, their Settings copies setZone2, setSym2, setTxt2 gone)
   }
   Object.entries(expIds).forEach(([key, ids]) => ids.forEach(([id, kind]) => {
@@ -20068,7 +20095,7 @@
     const T = tmTeam(c.name), ck = T && T.accepted ? String(T.accepted.byName || T.accepted.by || '') : '';
     const foot = `EXPORTED BY ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' - ').toUpperCase()} - G-eSAA ${VER_LABEL}`; // the line under the frame of every sheet
     return { sketch: plan ? JSON.stringify(plan.sk) : null, photos, logos: await cefLogos(), tab: c.tab || '',
-      app: { job: job && cefJobCtx[job] ? job : '', by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, mloopLen: mloopLen(), /* beta 7.2 / 2.45.3: the pole loop length (15 m unless the admin set another): the loop at a closure on a pole of the CEF plan */ focPct: allowPct(), /* 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables) on its UG cable */ lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
+      app: { job: job && cefJobCtx[job] ? job : '', by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*(name|type)/i) || '', serial: siteDetailsOf(c.name).serial || '', /* beta 7.6 / 2.45.8: Project details' Project Name (as the plan's PROJECT_TYPE) wins over the plan's own text; its serial number on the cover and title block */ footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, mloopLen: mloopLen(), /* beta 7.2 / 2.45.3: the pole loop length (15 m unless the admin set another): the loop at a closure on a pole of the CEF plan */ focPct: allowPct(), /* 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables) on its UG cable */ lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
         gps: 'geolocation' in navigator, canLogo: cefCanLogo(), logoNote: cefLogoNote(), guide: S.cefGuide !== false, sign: cefSign(), dxf: cefDxfSet(), ...(c.over || {}) } }; // (beta 4.2: sign, the names on the sheet; beta 4.3: dxf, the choices of the DXF)
   }
   /** The editor saves as the user works. Nothing is written when the sketch did not change, so that looking at a plan never makes it
