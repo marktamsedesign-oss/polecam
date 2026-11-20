@@ -59,7 +59,10 @@ const DEMO_LINE = 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLA
    the task, APPROVED BY stays blank for a signature. */
 function signOf() { const g = APP.sign || {}, t = v => String(v == null ? '' : v).trim(); return { by: t(g.by) || APP.by || '', chk: t(g.chk) || APP.checkedBy || '', apr: t(g.apr) }; }
 function signSave() { try { if (HOST && HOST.setSign) HOST.setSign(Object.assign({}, APP.sign)); else localStorage.setItem('cef-sign', JSON.stringify(APP.sign)); } catch (e) { } }
-function appSketch(S0) { const X = Object.assign({}, S0), g = signOf(); X.site = Object.assign({}, S0.site, { by: g.by, chk: g.chk, apr: g.apr, org: APP.org || S0.site.org || '', link: S0.site.link || APP.link || '' }); return X; }
+/* beta 7.6 / 2.45.8 (the owner: "PROJECT NAME is missing on the cover page… vs project details"): the Project Name of the app's Project details
+   (APP.link) wins over the plan's own Project text, which a plan made in or copied from another project kept; with none there, the plan's own
+   text as before. APP.serial: Project details' Serial Number, on the cover and in the title block when it is known. */
+function appSketch(S0) { const X = Object.assign({}, S0), g = signOf(); X.site = Object.assign({}, S0.site, { by: g.by, chk: g.chk, apr: g.apr, org: APP.org || S0.site.org || '', link: APP.link || S0.site.link || '', serial: APP.serial || '' }); return X; }
 /* the sheets of the engine, with the app's own line under the frame instead of the demo's, and CHECKED BY filled in */
 function appSheets(X, opt) {
   const sh = buildSheets(X, opt), foot = String(APP.footer || APP.ver || 'G-eSAA').replace(/[^\x20-\x7E]/g, '-').slice(0, 220);
@@ -431,7 +434,8 @@ function tabSite() {
   h += '<details class="fold sfold"' + (siteMore ? ' open' : '') + '><summary>' + ico('more') + 'More: drawing, title block, logos, names</summary>';      /* (14 Nov 16:05) Site details shorter */
   h += '<h3>Drawing</h3><div class="row">' + F('Show towers up to (m)', 'site.towerShow', s.towerShow, 'type="number" step="1" min="3" inputmode="decimal" placeholder="lower half"') + '<span></span></div>';
   h += '<p class="hint">Towers are drawn at their real size. One higher than 15 m is drawn from the ground up to half its height, or up to the height you type above, and its label says how much is shown.</p>';
-  h += '<div class="row">' + F('Project (title block and cover)', 'site.link', s.link, TXT + ' placeholder="' + esc(APP.link || 'for example MW TO FOC PROJECT') + '"') + (APP.org ? '<label class="f"><span>Company (title block)</span><input value="' + esc(APP.org) + '" disabled></label>' : F('Company (title block)', 'site.org', s.org, TXT)) + '</div>';
+  h += '<div class="row">' + F('Project (title block and cover)', 'site.link', APP.link || s.link, APP.link ? TXT + ' disabled' : TXT + ' placeholder="for example MW TO FOC PROJECT"') + (APP.org ? '<label class="f"><span>Company (title block)</span><input value="' + esc(APP.org) + '" disabled></label>' : F('Company (title block)', 'site.org', s.org, TXT)) + '</div>';
+  if (APP.link || APP.serial) h += '<p class="hint">' + [APP.link ? 'The project comes from Project details in the app (Site details › Project Name). To change it, change it there.' : '', APP.serial ? 'The serial number ' + esc(APP.serial) + ' (Project details) goes on the cover and in the title block too.' : ''].filter(Boolean).join(' ') + '</p>';      /* beta 7.6 / 2.45.8: as the site pin's name and ID (LK) */
   h += signBox();
   if (!S.room) {
     h += '<h3>Logos</h3><div class="row">' + [['vendor', 'Your company'], ['client', 'Client']].map(q => '<div class="f"><span>' + q[1] + '</span><div class="btns">' + (LOGO[q[0]] ? '<img alt="' + q[1] + ' logo" src="' + LOGO[q[0]].src + '" style="height:34px;max-width:96px;object-fit:contain;background:#fff;border-radius:4px;padding:2px">' : '<span class="nologo">none yet</span>') + (q[0] === 'vendor' && APP.canLogo && !VIEW ? '<button class="b s" data-a="logo-set">' + (LOGO.vendor ? 'Change' : 'Add logo') + '</button>' + (LOGO.vendor ? '<button class="b s d" data-a="logo-del">Remove</button>' : '') : '') + '</div></div>').join('') + '</div>';
