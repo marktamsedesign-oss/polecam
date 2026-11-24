@@ -1250,6 +1250,8 @@
   ];
   const armOf = (s) => (s ? ARMS.find((a) => a.re.test(String(s))) : null);
   const PH_STEP_MM = { 12: 9, 18: 18, 24: 36, 30: 48 }, PH_MAX_MM = 48; // beta 6.7: Drawing style › Photos, printed on the A3 sheet (Small, Normal, Large, Extra large)
+  /** A photo's long side as printed on the A3 sheet, mm (Drawing style › Photos; see PHMM in buildOne). (Drawing photos: one function, for the photos placed by hand too.) */
+  const phMmOf = (job) => { const P0 = job.photoStyle || {}; if (+P0.tidyMm > 0) return Math.min(PH_MAX_MM, Math.max(4, +P0.tidyMm)); const z = +P0.size > 0 ? +P0.size : 18; return PH_STEP_MM[z] || Math.min(PH_MAX_MM, Math.max(4, z / 1.1)); };
   // beta 6.7: an existing Globe or Bayantel pole (the app's gtbt; an older job: its type GT or BT): a circle filled blue (GT_DISC, a block of one solid fill)
   const gtFill = (p) => p.el === 'Pole' && !(p.status === 'Proposed' || p.status === 'New') && (p.gtbt != null ? !!p.gtbt : ['GT', 'BT'].includes(String(p.mat || '').toUpperCase()));
   const GT_DISC = 'G-ESAA EXISTING GT POLE', GT_DISC_ICON = { w: 2, h: 2, f: [{ c: '#0000FF', l: [[...Array(48)].flatMap((_, i) => { const a = i * Math.PI / 24; return [1 + Math.cos(a), 1 + Math.sin(a)]; })] }] };
@@ -1540,8 +1542,10 @@
    * job: { pts: [{ id, poleId, el, status, mat, E, N, lat, lon, mloop, closureId, napId, nap, closure, siteName, plaId }],
    *        runs: [{ cable, pts: [[E, N], ...], ids: [...] }], spans: [{ a: [E, N], b: [E, N], len, cable, long, lenW, lenC }] (beta 7.5 / 2.45.7: lenW the length written on the span, lenC its UG civil length; none: Math.round(len)),
    *        roads: [{ cls: 'major' | 'minor' | 'path', name, pts: [[E, N], ...] }], roadsNote,
-   *        values: { TOKEN: text | { sheet: text } }, maxSpan, mloopLen, cell (m, 440), date (Date) }
-   * returns { text, report }
+   *        values: { TOKEN: text | { sheet: text } }, maxSpan, mloopLen, cell (m, 440), date (Date),
+   *        phPin: { [pointId]: [dE, dN] } (Drawing photos: a photo placed by hand, its centre that far in metres from its point as drawn) }
+   * returns { text, report } (report.photoAt: { [pointId]: { x, y, w, h, rot?, dp: [E, N], line: [[x, y], …] | null, how: 'auto' | 'by hand' } },
+   *        where each photo went, in the points' metres)
    */
   /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
       every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
@@ -1989,6 +1993,7 @@
        most W; every text of the route takes its size from TS, one set tied to W and to the size the GEO sheet prints at (its plot
        window fitted to its paper, as the PDF and a plot to fit print it). The street names stay as the template draws them. */
     const TIDY = job.labels === 'tidy', tidySym = [], tidyBadged = new Set(), tidyCard = new Set(); // (beta 4.8: the poles whose number / photo is in their Tidy label) // (tidySym: the IDs, loop lengths and closure names, level labels placed with the pole labels)
+    const tidyPhAt = new Map(); // (Drawing photos) where each photo in a Tidy pole block went (report.photoAt)
     const wMed = (() => { const ws = polesOnly.filter((p) => p.near && p.near.r.w > 0).map((p) => p.near.r.w).sort((a, b) => a - b); return ws.length ? ws[Math.floor(ws.length / 2)] : 0; })();
     const streetAt = (q) => { // [W, the street's direction or null] (inside a road: the narrowest road there (at a junction, the side street); outside: the nearest road)
       if (!wMed) return [0, null]; let w = 0, dir = null;
@@ -2255,6 +2260,32 @@
       const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1)
       if (!FIB.length) { o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
       if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
+    }
+    const rOf = (p) => (p.el === 'Pole' ? p.rp : inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : p.el === 'Site' ? 8 : 4); // (a point's reach round its centre as drawn)
+    /* (Drawing photos) a photo placed by hand on the Drawing, job.phPin { [pointId]: [dE, dN] }: its centre that far (metres) from its point as
+       drawn (p.dp), at its usual size (Tidy: at the grid tried), never in a Tidy pole block; a thin line to its point where it does not touch it,
+       as a photo further out has. Its box and its line are taken first, before the symbols' texts, the pole labels, the cable labels, the span
+       lengths and the other photos, which keep off it. Across a sheet's edge, or off the sheets: said in the notes. */
+    const pinPl = new Map(); // (each point's photo placed by hand: { q, w, h, u, lead })
+    if (job.phPin && typeof job.phPin === 'object') {
+      const mIds = Array.isArray(job.marks) ? new Set(job.marks.map(String)) : null, mMode = job.markMode || (job.markNum ? 'num' : 'photo'), mPh = mMode === 'num' ? {} : job.photos || {};
+      const Lp0 = TIDY ? phMmOf(job) / (printK || 0.62) : phMmOf(job) * 1.1, cut = [], off = []; // (the size placePhotos gives every photo, below)
+      for (const p of pts) {
+        const v = job.phPin[String(p.id)], ph = mPh[p.id] || mPh[String(p.id)];
+        if (!Array.isArray(v) || !Number.isFinite(+v[0]) || !Number.isFinite(+v[1]) || p.onPole || !(mIds ? mIds.has(String(p.id)) : p.el === 'Pole') || !ph || !(ph.px > 0 && ph.py > 0)) continue;
+        const LpK = TIDY ? Lp0 / kAt(p.dp[0], p.dp[1]) : Lp0, w = ph.px >= ph.py ? LpK : LpK * ph.px / ph.py, h = ph.px >= ph.py ? LpK * ph.py / ph.px : LpK;
+        const q = [p.dp[0] + +v[0], p.dp[1] + +v[1]], u = unit(p.dp, q), r = rOf(p), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9);
+        const gap = Math.hypot(Math.max(Math.abs(q[0] - p.dp[0]) - w / 2, 0), Math.max(Math.abs(q[1] - p.dp[1]) - h / 2, 0)) - r; // (from the point's symbol to the photo's nearest edge)
+        const la = add2(p.dp, u, r + 0.3), lb = add2(q, u, -t), lead = gap > 0.3 && dist2(la, lb) > 0.5 && dist2(p.dp, lb) > r + 0.3 ? [la, lb] : null; // (the far photos' line: from just past the symbol to the photo's edge)
+        spots.add([Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0)], 'photo'); const n1 = spots.list.length;
+        if (lead) spots.line(lead, 0.3);
+        if (TIDY) spots.list.slice(n1).forEach((b) => { b.tag = 'lead'; }); // (as placePhotos' commit: Tidy keeps it as a line no other line crosses)
+        pinPl.set(p, { q, w, h, u, lead });
+        const I0 = ci(q[0] - w / 2), I1 = ci(q[0] + w / 2), J0 = cj(q[1] - h / 2), J1 = cj(q[1] + h / 2), nm = String(p.poleId || p.id);
+        if (I0 !== I1 || J0 !== J1) cut.push(nm); else if (!used.has(key(I0, J0))) off.push(nm);
+      }
+      if (cut.length) rep.notes.push(`Photos placed by hand across a sheet's edge (each sheet shows only its part; move them on the Drawing): ${cut.join(', ')}`);
+      if (off.length) rep.notes.push(`Photos placed by hand off the plan's sheets (on no GEO sheet; move them on the Drawing): ${off.join(', ')}`);
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
     let nOlt = 0, nInline = 0, nTelco = 0, nExArm = 0, taDef = false; const cloLbl = []; /* (beta 6.7: the proposed closures, labelled at the end) */ const taBlk = telcoArmTop(false), siteLate = [], odfLate = []; // (v2.42.11: towers drawn after the labels, see below)
@@ -2763,7 +2794,7 @@
        plan at exactly the size Drawing style › Photos sets, printed on the A3 sheet: Small 9 mm, Normal 18 mm, Large 36 mm (what an own size
        of 300 gave in beta 6.6), Extra large 48 mm on its long side; your own size in metres at 1:1100 (to 48 mm). Never smaller: where it has
        no room near its pole it goes where there is room, with a thin line to its pole; the pole details and number keep their place. */
-    const PHMM = (() => { const P0 = job.photoStyle || {}; if (+P0.tidyMm > 0) return Math.min(PH_MAX_MM, Math.max(4, +P0.tidyMm)); const z = +P0.size > 0 ? +P0.size : 18; return PH_STEP_MM[z] || Math.min(PH_MAX_MM, Math.max(4, z / 1.1)); })();
+    const PHMM = phMmOf(job);
     const NEAR_PH = Math.max(+(job.photoStyle || {}).nearMm > 0 ? Math.min(40, Math.max(8, +job.photoStyle.nearMm)) : 16, PHMM * 0.8 + 6) / ((printK || 0.62) * NU); // (beta 6.7: at least as far as a photo of its size beside the pole details reaches) // (beta 6.0: Drawing style › Photos › near its pole, 8 to 40 mm) // beta 6.0: a pole's photo is near it within 16 mm on the A3 sheet (its centre): 26 m of the drawing at the template's grid, 13 m at 1/2, 8.7 m at 1/3
     const TX = {}, tidyOwn = new Set(), tidyGrp = new Map(), T7 = { labels: 0, leaders: 0, closer: 0, notFree: 0 }; // (beta 6.0: tidyGrp: the records of one Tidy label, its texts, number and photo, which may touch each other)
     const MOVABLE = new Set(['PROPOSED LOOP', 'Proposed NAP ID', 'MISC', 'Distance Data'].filter((n) => S.layers.has(n))); // (loops, IDs, span lengths, cable names; not a street name, a number (it has its circle) or a cable's label (its arrow); only the template's own layers: none of layer 0, where a template without them puts everything)
@@ -2825,7 +2856,7 @@
         pts.forEach(take);
         const seqT = new Map(); mOrd.forEach((p, i) => { const g = job.seqOf && job.seqOf[String(p.id)]; seqT.set(p, g != null && g !== '' ? g : i + 1); });
         for (const T of tidyTodo) {
-          const p = T.p, ph = seqT.has(p) ? mPh[p.id] || mPh[String(p.id)] : null; if (ph && ph.px > 0 && ph.py > 0) { T.photo = ph; tidyCard.add(p); } // (its photo at the end of its label, away from the pole)
+          const p = T.p, ph = seqT.has(p) ? mPh[p.id] || mPh[String(p.id)] : null; if (ph && ph.px > 0 && ph.py > 0 && !pinPl.has(p)) { T.photo = ph; tidyCard.add(p); } // (its photo at the end of its label, away from the pole; (Drawing photos) not one placed by hand)
           if (!seqT.has(p) || (mMode === 'photo' && ph)) continue;
           T.badge = { sq: String(seqT.get(p)), wl: streetW(p.dp) }; tidyBadged.add(p);
         } }
@@ -3066,8 +3097,8 @@
         }
         if (T.photo && (G.pho || best.pb)) { // beta 4.8: its photo, in its frame (as the photos beside the points)
           const PL = (addLayer(d, S, 'G-ESAA POLE PHOTO', 7), 'G-ESAA POLE PHOTO');
-          if (best.pb) { const b = best.pb, x0 = b.cx - b.hw, y0 = b.cy - b.hh, pw = 2 * b.hw, phh = 2 * b.hh; getImgs().image(o, PL, T.photo.file, T.photo.px, T.photo.py, x0, y0, pw, phh); o.lwpoly(PL, [[x0, y0], [x0 + pw, y0], [x0 + pw, y0 + phh], [x0, y0 + phh]], { closed: true, color: 8 }); } // (beta 4.8: upright, square to the sheet, beside its block)
-          else { const [px0, pt, pw, phh] = G.pho, ll = G.W(px0, pt - phh); getImgs().image(o, PL, T.photo.file, T.photo.px, T.photo.py, ll[0], ll[1], pw, phh, an); o.lwpoly(PL, [G.W(px0, pt - phh), G.W(px0 + pw, pt - phh), G.W(px0 + pw, pt), G.W(px0, pt)], { closed: true, color: 8 }); }
+          if (best.pb) { const b = best.pb, x0 = b.cx - b.hw, y0 = b.cy - b.hh, pw = 2 * b.hw, phh = 2 * b.hh; getImgs().image(o, PL, T.photo.file, T.photo.px, T.photo.py, x0, y0, pw, phh); o.lwpoly(PL, [[x0, y0], [x0 + pw, y0], [x0 + pw, y0 + phh], [x0, y0 + phh]], { closed: true, color: 8 }); tidyPhAt.set(p, { x: b.cx, y: b.cy, w: pw, h: phh }); } // (beta 4.8: upright, square to the sheet, beside its block)
+          else { const [px0, pt, pw, phh] = G.pho, ll = G.W(px0, pt - phh); getImgs().image(o, PL, T.photo.file, T.photo.px, T.photo.py, ll[0], ll[1], pw, phh, an); o.lwpoly(PL, [G.W(px0, pt - phh), G.W(px0 + pw, pt - phh), G.W(px0 + pw, pt), G.W(px0, pt)], { closed: true, color: 8 }); const c0 = G.W(px0 + pw / 2, pt - phh / 2); tidyPhAt.set(p, { x: c0[0], y: c0[1], w: pw, h: phh, ...(an ? { rot: an } : {}) }); }
           T7.photos = (T7.photos || 0) + 1;
         }
         if (T.badge && G.circ) { // beta 4.8: its number in its circle, as the numbers beside the points are drawn (light colours over a dark shadow)
@@ -3348,7 +3379,6 @@
         .forEach((ch) => startOf(ch).forEach((id) => take(byId.get(id))));
       pts.forEach(take); }
     markOrder.forEach((p, i) => { const g = job.seqOf && job.seqOf[String(p.id)]; p.seq = g != null && g !== '' ? g : i + 1; }); // v2.42.18: the app's pole numbers (as in its CSV)
-    const rOf = (p) => (p.el === 'Pole' ? p.rp : inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : p.el === 'Site' ? 8 : 4);
     const anchors = [...new Set([...poleOrder, ...markOrder])]; // a photo nearer its own point than any pole or other marked point
     // v2.41: job.markMode 'photo' (a point without a photo shows its number), 'num' (numbers only) or 'both' (beta 4.1: each point's number
     // beside it as for numbers only, and its photo as for photos only); the number in the user's style (NS: colour, size, circle, distance, leader line, where)
@@ -3498,6 +3528,7 @@
         const S0 = setup(p, round === 'num'); if (round === 'photo' && !S0.ph) continue; // (a point without a photo has its number already)
         if (p.el === 'Site' && !S0.ph) continue; // beta 7.4 / 2.45.6 (the drafter took them off): no number circle for a tower, site or OLT on the GEO sheets (its photo, if it has one, stays)
         if (TIDY && (S0.ph ? tidyCard.has(p) : tidyBadged.has(p))) continue; // (beta 4.8: Tidy: its photo or number is in its label)
+        if (S0.ph && pinPl.has(p)) { const P = pinPl.get(p); out.push({ p, ph: S0.ph, w: P.w, h: P.h, q: P.q, u: P.u, how: 'by hand', lead: P.lead }); continue; } // (Drawing photos) where it was put (its box and line taken before the labels)
         if (TIDY && S0.ph) { const f = tidyPh(S0); if (f) commit(S0, f, 'near its pole'); else later.push(S0); continue; } // beta 4.8
         if (p.on) { const r = search(S0, MARK_USUAL); if (r.free) { commit(S0, r.free, 'usual'); continue; } }
         later.push(S0);
@@ -3574,6 +3605,12 @@
         if (lead) o.lwpoly(nLay, [la, lb], { color: bC });
       }
     }
+    /* (Drawing photos) where each photo went, for the app's Drawing (always, not only with debug), in the points' UTM metres: its centre, size
+       (and turn, in a turned Tidy block), its point as drawn (dp), its thin line to the point (null: none), placed by hand or by the plan */
+    rep.photoAt = {};
+    for (const { p, ph, w, h, q, how, lead } of photoPl.out) if (ph && havePhotos) rep.photoAt[String(p.id)] = { x: q[0], y: q[1], w, h, dp: [p.dp[0], p.dp[1]], line: lead ? lead.map((v) => [v[0], v[1]]) : null, how: how === 'by hand' ? 'by hand' : 'auto' };
+    for (const [p, a] of tidyPhAt) if (tidyCard.has(p)) rep.photoAt[String(p.id)] = { ...a, dp: [p.dp[0], p.dp[1]], line: null, how: 'auto' };
+    if (pinPl.size) rep.photos.byHand = pinPl.size;
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
     if (photoPl.shrunk.length) { const sz = (x) => `${x.p.poleId || x.p.id} ${+(PHMM * x.k).toFixed(1)} mm${x.over ? ' (covering least)' : ''}`; rep.notes.push(`Photos drawn smaller: no place at their size (${+PHMM.toFixed(1)} mm) near their pole, nor further out with a line; the pole first, then its details, then its photo (${photoPl.shrunk.length}): ${photoPl.shrunk.slice(0, 20).map(sz).join(', ')}${photoPl.shrunk.length > 20 ? '…' : ''}`); } // beta 6.7
     if (!TIDY && photoPl.left.length) rep.notes.push(`Photos left out (no place even at their smallest step; the point's number is on the plan; its photo is in the folder): ${photoPl.left.length}: ${photoPl.left.slice(0, 12).map((p) => p.poleId || p.id).join(', ')}${photoPl.left.length > 12 ? '…' : ''}`); // (beta 6.7: never, as far as the measures go)
