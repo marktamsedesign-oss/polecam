@@ -6,7 +6,7 @@ Every test of G-eSAA, with one command that runs them all and prints **n of n** 
 python3 tests/run_all.py
 ```
 
-On GitHub it runs by hand (`.github/workflows/tests.yml`): **Actions → Tests → Run workflow**, pick the branch. It is not yet run on every push: four older team tests (t2433c, t2433d, t24333a, t24333c) still expect an update to wait for **Download and merge**, which Sync now does by itself; once they follow the app, the workflow's top note says how to run it on every push.
+On GitHub it runs by hand (`.github/workflows/tests.yml`): **Actions → Tests → Run workflow**, pick the branch. It is not yet run on every push. The four older team tests (t2433c, t2433d, t24333a, t24333c) follow the app now (beta 7.8: Sync brings an update in and merges it by itself, where they expected it to wait for **Download and merge**), so the workflow's top note, which says how to run it on every push, can be followed.
 
 All test data is made up (Juan Dela Cruz, Pedro Santos, Maria Garcia, Ana Reyes, DEMO CONTRACTOR, @demo-contractor.example). Nothing confidential is in this folder: no company plan template, no survey, no key.
 
