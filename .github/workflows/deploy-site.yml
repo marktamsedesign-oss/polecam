@@ -1,11 +1,17 @@
-# Publishes the PoleCam website (the app only; offline map packs are no longer stored on GitHub Pages).
-# Runs on every change to main, or by hand: Actions > Deploy website > Run workflow.
+# Publishes the G-eSAA website (the app only; offline map packs are no longer stored on GitHub Pages):
+#   main → https://<you>.github.io/<repository>/        (your users)
+#   beta → https://<you>.github.io/<repository>/beta/   (testers on a computer; the beta keeps its own projects and offline copy)
+# Runs on every change to main, after every beta APK build (so the beta website follows the beta branch), or by hand:
+# Actions > Deploy website > Run workflow. It always runs from main, so GitHub Pages accepts it.
 # One-time setting: Settings > Pages > Build and deployment > Source = "GitHub Actions".
 name: Deploy website
 
 on:
   push:
     branches: [main]
+  workflow_run:
+    workflows: ["Build Android APK (beta)"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -22,11 +28,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Get the beta branch (when there is one)
+        id: beta
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: beta
+          path: beta-src
 
       - name: Assemble the website
         run: |
           mkdir -p site
-          rsync -a --exclude '.git' --exclude '.github' --exclude 'site' --exclude '*.pmtiles' --exclude 'tests' ./ site/
+          rsync -a --exclude '.git' --exclude '.github' --exclude 'site' --exclude 'beta-src' --exclude '*.pmtiles' --exclude 'tests' ./ site/
+          if [ -f beta-src/index.html ]; then
+            mkdir -p site/beta
+            rsync -a --exclude '.git' --exclude '.github' --exclude '*.pmtiles' --exclude 'tests' beta-src/ site/beta/
+            sed -i 's/"name": "G-eSAA"/"name": "G-eSAA Beta"/; s/"short_name": "G-eSAA"/"short_name": "G-eSAA Beta"/' site/beta/manifest.json
+            echo "beta website: $(grep -o "polecam-v[0-9.a-z-]*" site/beta/sw.js | head -1)"
+          else
+            echo "no beta branch: only the users' website"
+          fi
           du -sh site
 
       - uses: actions/upload-pages-artifact@v3
