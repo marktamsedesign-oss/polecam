@@ -1578,7 +1578,7 @@
       const r2 = buildOne(seedText, nj), T0 = r.report.tidy && r.report.tidy.grid; if (T0 && r2.report.tidy) r2.report.tidy.grid = { ...r2.report.tidy.grid, mode: T0.mode, overMax: T0.overMax, overSheets: T0.overSheets, tried: T0.tried };
       if (!job._grid) delete r2.report._grid; r = r2;
     }
-    if (r.report._offCells && r.report._offCells.length) r.report.notes.push(`Photos or poles drawn partly where no GEO sheet prints (${r.report._offCells.length} cell${r.report._offCells.length === 1 ? '' : 's'}): check them on the Drawing`); // (not seen: a sheet added each time puts what is drawn there on it)
+    if (r.report._offCells && r.report._offCells.length) r.report.notes.push(`Photos, poles or items placed by hand drawn partly where no GEO sheet prints (${r.report._offCells.length} cell${r.report._offCells.length === 1 ? '' : 's'}): check them on the Drawing`); // (not seen: a sheet added each time puts what is drawn there on it)
     delete r.report._offCells; return r;
   }
   /** build without the cells added for photos: Standard, made once; Tidy, at the grid found best (j0: a copy of the job as given). */
@@ -2884,7 +2884,7 @@
         o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], hq, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: isCl && CS.color ? +CS.color : sc ? sc : lk.color != null ? +lk.color : null }); }); // (v2.42.21: the clamp types in the style's colour)
       if (!tidy) o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)], color: +PST.llColor || null });
       if (!tidy && pinL && c.lead) o.lwpoly(lay(p.sym.layer), c.lead, { color: 8 }); // ((Drawing labels) placed by hand away from its pole: a thin line to it)
-      if (!tidy) MV.push({ id: `lbl:${p.id}`, kind: 'details', p, box: frameBox(c.boxes, c.rr), how: pinL ? 'by hand' : 'auto', handles: hsOf(kL), parts: c.boxes }); // (Drawing labels)
+      if (!tidy) MV.push({ id: `lbl:${p.id}`, kind: 'details', p, box: frameBox(c.boxes, c.rr), how: pinL ? 'by hand' : 'auto', handles: hsOf(kL), parts: c.boxes, line: pinL && c.lead ? c.lead : null }); // (Drawing labels)
       p.ov = c.ov; p._rr = c.rr;
       if (tidy) { // beta 4.7: Tidy: one level label: line 1 tag · type; under it, smaller (one size for all), the attachments, the owner and the lat/long, each in the Standard label's colour and on its layer
         const prop = p.sym.r === POLE_SYM.prop.r, tel = p.sym.b === 'existing telecom pole', [kId, kTy, kCl] = prop ? ['GT-POLE', 'PHEIGHT', 'POLE_CLAMP'] : tel ? ['GT-001', 'OC', ''] : ['NPT', 'CC', 'B'];
@@ -3301,7 +3301,7 @@
         }
         { const q = G.W(ax, ty), F1 = T.forms ? T.forms[T.form] : { lines: [T.l1], text: T.text }; o.mtext(T.layer, q[0], q[1], h, F1.text, { style: 'arial', att, color: T.color, ls: 0.87, dir }); F1.lines.forEach((l, i) => lineBox(wOf(l, h), ty - i * 1.45 * h, h)); ty -= (F1.lines.length - 1) * 1.45 * h; } T7.labels++; ty -= 1.4 * h; // (beta 6.2: the ID stacked or on one line)
         for (const m of T.sm) { const q = G.W(ax, ty); o.mtext(m.layer || clLay || T.layer, q[0], q[1], hs, m.mt || m.lines.map(mtextEsc).join('\\P'), { style: 'arial', att, color: m.color, ls: 0.87, dir }); m.lines.forEach((l, i) => lineBox(wOf(l, hs), ty - i * 1.45 * hs, hs)); ty -= m.lines.length * 1.45 * hs; }
-        MV.push({ id: `lbl:${p.id}`, kind: 'details', p, box: { cx: best.cx, cy: best.cy, w: T.Wt, h: T.Ht, a: an }, how: T.pin ? 'by hand' : 'auto', handles: [...hsOf(kB, kP), ...hsOf(kP2)], number: !!(T.badge && G.circ), seq: T.badge ? T.badge.sq : null, with: kP2 > kP && !best.phPole ? [`ph:${p.id}`] : [] }); // ((Drawing labels) Tidy: the whole block, its number in it; its photo beside it (not one by its pole) moves with it) // (each smaller line its own text, on its own layer: the PDF draws it at its height)
+        MV.push({ id: `lbl:${p.id}`, kind: 'details', p, box: { cx: best.cx, cy: best.cy, w: T.Wt, h: T.Ht, a: an }, how: T.pin ? 'by hand' : 'auto', handles: [...hsOf(kB, kP), ...hsOf(kP2)], line: T.pin && best.lead ? best.lead : null, number: !!(T.badge && G.circ), seq: T.badge ? T.badge.sq : null, with: kP2 > kP && !best.phPole ? [`ph:${p.id}`] : [] }); // ((Drawing labels) Tidy: the whole block, its number in it; its photo beside it (not one by its pole) moves with it) // (each smaller line its own text, on its own layer: the PDF draws it at its height)
       }
       gFlush();
       if (toCheck.length) rep.notes.push(`Tidy labels with no free place near their pole (they cover something: check them in CAD): ${toCheck.join(', ')}`);
@@ -3378,7 +3378,7 @@
       o.text(cbLay, it.q[0], it.q[1], h, x.t, { rot: C.rot, ha: 1, va: 2, style: 'arial', color: col });
       if (C.lead) { const { tip, kn, L0 } = C.lead, u = unit(kn, tip), aL = 1.4 * Math.max(0.6, kG), aW = 0.5 * Math.max(0.6, kG), base = add2(tip, u, -aL); o.lwpoly(cbLay, [tip, kn, L0], { color: col, lwt: 18 }); o.solid(cbLay, [tip, add2(base, [-u[1], u[0]], aW), add2(base, [u[1], -u[0]], aW)], { color: col }); }
       if (!x.ex) { cabDone.add(x.cab || ''); cabAt.push([x.cab || '', it.q]); }
-      MV.push({ id: `cab:${it.key}`, kind: 'cable', key: it.key, name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: C.bx.cx, cy: C.bx.cy, w: 2 * C.bx.hw, h: 2 * C.bx.hh, a: C.rot }, anchor: g.m, how: 'by hand', handles: hsOf(k0), lead: !!C.lead, span: [c.a, c.b] });
+      MV.push({ id: `cab:${it.key}`, kind: 'cable', key: it.key, name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: C.bx.cx, cy: C.bx.cy, w: 2 * C.bx.hw, h: 2 * C.bx.hh, a: C.rot }, anchor: g.m, how: 'by hand', handles: hsOf(k0), lead: !!C.lead, span: [c.a, c.b], line: C.lead ? [C.lead.tip, C.lead.kn, C.lead.L0] : null });
     };
     const spSt = new Map(), cands = [], ALG = new Map();
     FIB.forEach((f) => { const M = new Map(); let dd = 0; f.path.forEach((id, i) => { if (!i) return; const p = byId.get(String(id)), q = byId.get(String(f.path[i - 1])), l = p && q && p.A && q.A ? dist2(q.A, p.A) : 0; M.set(K2(f.path[i - 1], id), dd + l / 2); dd += l; }); if (f.lbl && f.n != null) ALG.set(`R${f.n}`, M); else if (f.lbl && !ALG.has(f.lbl)) ALG.set(f.lbl, M); }) // (v2.42.26: by its RUN: two cables with the same words keep their own); // (each span's middle, along its cable)
@@ -3806,7 +3806,7 @@
         if (D) o.circle(nLay, q[0], q[1], D / 2, { color: bC });
         o.text(nLay, q[0], q[1], NS.h * nF, String(p.seq), { ha: 1, va: 2, style: 'arial', color: nC });
         if (lead) o.lwpoly(nLay, [la, lb], { color: bC });
-        MV.push({ id: `num:${p.id}`, kind: 'number', p, box: { cx: q[0], cy: q[1], w: numD(p) * nF, h: numD(p) * nF, a: 0 }, how: how === 'by hand' ? 'by hand' : 'auto', handles: hsOf(k0), seq: p.seq }); // (Drawing labels)
+        MV.push({ id: `num:${p.id}`, kind: 'number', p, box: { cx: q[0], cy: q[1], w: numD(p) * nF, h: numD(p) * nF, a: 0 }, how: how === 'by hand' ? 'by hand' : 'auto', handles: hsOf(k0), seq: p.seq, line: how === 'by hand' && lead ? [la, lb] : null }); // (Drawing labels)
       }
     }
     /* (beta 7.8, Drawing photos) where each photo went, for the app's Drawing (always, not only with debug), in the points' UTM metres: its centre, size
@@ -3835,23 +3835,32 @@
         if (a.how === 'by hand' && a.line) for (let s = 0; s + 1 < a.line.length; s++) { const u = a.line[s], v = a.line[s + 1], n = Math.max(1, Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]))); for (let k = 0; k <= n; k++) offAt(ci(u[0] + (v[0] - u[0]) * k / n), cj(u[1] + (v[1] - u[1]) * k / n), lk); }
         if (C.length > 1) a.cut = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort();
       }
+      /* (Drawing labels) as a photo placed by hand: a label, number or pole's details placed by hand, its box (turned with it) and its line or arrow;
+         across a sheet's edge, the sheets it prints cut on (cut, report.movable) */
+      for (const m of MV) {
+        if (m.how !== 'by hand' || m.kind === 'photo') continue;
+        const lk = (m.p && locOfPt.get(m.p)) || (m.kind === 'cable' && byId.get(String(m.span[0])) ? locOfPt.get(byId.get(String(m.span[0]))) || 0 : 0), C = frameCells({ x: m.box.cx, y: m.box.cy, w: m.box.w, h: m.box.h, rot: m.box.a });
+        C.forEach(([i, j]) => offAt(i, j, lk)); m.cells = C;
+        const L = m.line; if (L) for (let s2 = 0; s2 + 1 < L.length; s2++) { const u = L[s2], v = L[s2 + 1], n = Math.max(1, Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]))); for (let k = 0; k <= n; k++) offAt(ci(u[0] + (v[0] - u[0]) * k / n), cj(u[1] + (v[1] - u[1]) * k / n), lk); }
+      }
       if (off.size) rep._offCells = [...off.values()]; }
     /* (Drawing labels) every item the Drawing may move, always (not only with debug), as written: its box [cx, cy, w, h, deg] in the points' metres (the
        middle of a pin is the middle of this box), what its pin is measured from (anchor: its point as drawn, or the middle of the cable label's span),
-       placed by hand or by the plan, the DXF entities that draw it (handles); placed by hand across a sheet's edge or on no sheet: edge 'cut' or
-       'off' (and the notes say so). Tidy: a pole's number is in its block (lbl:…, number: true), which carries its photo beside it (with). */
+       placed by hand or by the plan, the DXF entities that draw it (handles); placed by hand across a sheet's edge: cut, the sheets it prints cut
+       on (as a photo's photoAt[id].cut; the notes say so); a cell it is in that no sheet printed is a GEO sheet (build, _offCells, as a photo's).
+       Tidy: a pole's number is in its block (lbl:…, number: true), which carries its photo beside it (with). */
     { const cut = [], off = [], nm = (m) => (m.kind === 'cable' ? `${m.name} label` : m.kind === 'number' ? `No. ${m.seq}` : `${m.p.poleId || m.p.id} details`);
       rep.movable = MV.map((m) => {
-        const B = m.box, u = [Math.cos((B.a || 0) * Math.PI / 180), Math.sin((B.a || 0) * Math.PI / 180)], ex = Math.abs(u[0]) * B.w / 2 + Math.abs(u[1]) * B.h / 2, ey = Math.abs(u[1]) * B.w / 2 + Math.abs(u[0]) * B.h / 2;
-        let edge = null; if (m.how === 'by hand') { const I0 = ci(B.cx - ex), I1 = ci(B.cx + ex), J0 = cj(B.cy - ey), J1 = cj(B.cy + ey), ph = m.kind === 'photo'; if (I0 !== I1 || J0 !== J1) { edge = 'cut'; if (!ph) cut.push(nm(m)); } else if (!used.has(key(I0, J0))) { edge = 'off'; if (!ph) off.push(nm(m)); } } // (a photo's: said with the photos, above)
+        const B = m.box;
+        let cutOn = null; if (m.how === 'by hand' && m.kind !== 'photo') { const C = m.cells || [[ci(B.cx), cj(B.cy)]]; if (C.length > 1) { cutOn = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort(); cut.push(nm(m)); } if (C.some(([i, j]) => !used.has(key(i, j)))) off.push(nm(m)); } // ((Plan kept) as a photo's photoAt[id].cut; on no sheet: build adds the sheet, see its _offCells)
         const o2 = { id: m.id, kind: m.kind, box: [B.cx, B.cy, B.w, B.h, B.a || 0], anchor: m.anchor ? [m.anchor[0], m.anchor[1]] : [m.p.dp[0], m.p.dp[1]], how: m.how, handles: m.handles };
         if (job.debug) o2.parts = (m.parts || []).map((b) => [b.cx, b.cy, 2 * b.hw, 2 * b.hh, Math.atan2(b.uy, b.ux) * 180 / Math.PI]); // (with debug: the boxes a Standard stack is made of, its lines')
         if (m.p) Object.assign(o2, { point: String(m.p.id), name: String(m.p.poleId || m.p.id) }); else Object.assign(o2, { key: m.key, name: m.name, span: m.span, lead: !!m.lead });
-        if (m.kind === 'number' || m.number) o2.seq = m.seq != null ? String(m.seq) : null; if (m.kind === 'details') { o2.number = !!m.number; o2.with = m.with || []; } if (m.block) o2.block = true; if (edge) o2.edge = edge;
+        if (m.kind === 'number' || m.number) o2.seq = m.seq != null ? String(m.seq) : null; if (m.kind === 'details') { o2.number = !!m.number; o2.with = m.with || []; } if (m.block) o2.block = true; if (cutOn) o2.cut = cutOn;
         return o2;
       });
       if (cut.length) rep.notes.push(`Labels, numbers or pole details placed by hand across a sheet's edge (each sheet shows only its part; move them on the Drawing): ${cut.join(', ')}`);
-      if (off.length) rep.notes.push(`Labels, numbers or pole details placed by hand off the plan's sheets (on no GEO sheet; move them on the Drawing): ${off.join(', ')}`); }
+      if (off.length) rep.notes.push(`Labels, numbers or pole details placed by hand partly off the plan's sheets (on no GEO sheet; move them on the Drawing): ${off.join(', ')}`); }
     rep.drawnAt = Object.fromEntries(pts.map((p) => [String(p.id), p.dp ? [p.dp[0], p.dp[1]] : [p.E, p.N]])); // (beta 7.9, Drawing preview) where the plan draws each point (beside its road), for the Drawing
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
     if (photoPl.shrunk.length) { const sz = (x) => `${x.p.poleId || x.p.id} ${+(PHMM * x.k).toFixed(1)} mm${x.over ? ' (covering least)' : ''}`; rep.notes.push(`Photos drawn smaller: no place at their size (${+PHMM.toFixed(1)} mm) near their pole, nor further out with a line; the pole first, then its details, then its photo (${photoPl.shrunk.length}): ${photoPl.shrunk.slice(0, 20).map(sz).join(', ')}${photoPl.shrunk.length > 20 ? '…' : ''}`); } // beta 6.7
@@ -4518,7 +4527,7 @@
       /* (beta 7.9, Drawing preview) the GEO sheets, each its cell: the sheet's tab, the cell's name as the plan writes it (report.sheets) and its square
          in model metres; ents: the handles of the grid's lines and names in model space (the Drawing draws the sheets itself). The DXF the same. */
       sheets: geoCells.map((c, k) => ({ sheet: geoNames(N)[k], name: cellName(c.i, c.j), box: [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell], ...(c.x ? { forPhoto: true } : {}) })), ents: gridEnts }; // ((Plan kept) forPhoto: a sheet for a photo, see build)
-    if (xCells.length) rep.notes.push(`GEO sheets added so that every photo and pole drawn prints (no route there, a photo or a pole beside its road): ${xCells.map((c) => cellName(c.i, c.j)).join(', ')}`);
+    if (xCells.length) rep.notes.push(`GEO sheets added so that every photo and pole drawn prints (no route there, a photo, a label placed by hand or a pole beside its road): ${xCells.map((c) => cellName(c.i, c.j)).join(', ')}`);
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };
     S = structure(d); centerCache.clear();
