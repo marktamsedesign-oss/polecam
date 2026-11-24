@@ -903,7 +903,7 @@
   }));
   function onSheetClosed(id) {
     if (id === 'drawing' && drwEd) drwEditSet(false); // beta 6.7: Back from the Drawing ends its Edit route
-    if (id === 'drawing') drwPhStop(); // (beta 7.8, Drawing photos) where the plan puts the photos: no longer worked out
+    if (id === 'drawing') { drwPhStop(); drwThumbsFree(); } // (beta 7.8, Drawing photos) where the plan puts the photos: no longer worked out ((Drawing preview) the photos' pictures let go)
     if (id === 'drawing' && jnPick && jnPick.surf === 'drawing') jnPickEnd(); // beta 6.9: its poles were being tapped there
     if (id === 'editor' && drwEd) drwEdSoon(); // beta 6.7: a tower placed on the Drawing: its record saved (or not)
     if (id === 'editor') { document.body.classList.remove('edopen'); if (typeof ppxRefresh === 'function') ppxRefresh(); } // beta 4.1
@@ -2117,7 +2117,7 @@
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
     drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), ia: String(h.a), ib: String(h.b), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     drw.blocks = drwBlocks(items, R, U); // v2.42.24: the dummy NAPs and closures on the cable
-    { const M = drwPhMem.get(S.project); drw.ph = M && M.row === rowIdx() && dxfMode() === 'tpl' ? M : null; drw.selPh = null; drw.phHit = []; if (!again) drwPhRoadC.clear(); } // (beta 7.8, Drawing photos) where the plan put the photos last time, until the preview comes (drwPhRun); the roads read again for it
+    { const M = drwPhMem.get(S.project); drw.ph = M && M.row === rowIdx() && dxfMode() === 'tpl' ? M : null; drw.selPh = null; drw.phHit = []; if (!again) drwPhRoadC.clear(); drw.plWant = !!drw.ph; drwPlanUi(); } // (beta 7.8, Drawing photos) where the plan put the photos last time, until the preview comes (drwPhRun); the roads read again for it
     { const byI = new Map(items.map((it) => [String(it.p.id), it])); // beta 6.9: each pull-off and cross-over, its poles on the Drawing
       drw.jns = items.filter((it) => JN[it.el]).map((it) => ({ it, att: jnAtt(it.p).map((q) => byI.get(String(q.id))).filter(Boolean) })); }
     drw.pts = pts; drwXHid(); // beta 6.2: the points as exported (clamps); the hidden ones' chip
@@ -2156,41 +2156,51 @@
   let drwPhT = 0, drwPhGen = 0, phWorker = null, phWorkerEnd = null, phBuild = null, seedSigC = null; // (phBuild: the plan being made, its signature)
   const drwPhMem = new Map(), drwPhRoadC = new Map(), phDimC = new Map(); // (each project's last preview; the roads read for it, this time the Drawing is open; each photo's size)
   const strHash = (s) => { let h = 2166136261, k = 5381; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h = Math.imul(h ^ c, 16777619); k = (Math.imul(k, 33) + c) | 0; } return `${s.length}:${(h >>> 0).toString(36)}:${(k >>> 0).toString(36)}`; };
-  function drwPhSoon(ms) { clearTimeout(drwPhT); drwPhT = setTimeout(() => { drwPhRun().catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) drw.phBusy = false; }); }, ms == null ? 300 : ms); }
+  function drwPhSoon(ms) { clearTimeout(drwPhT); drwPhT = setTimeout(() => { drwPhGo(false); }, ms == null ? 300 : ms); }
+  /** (Drawing preview) The preview made now (force: again, even when nothing changed: Regenerate plan preview). */
+  function drwPhGo(force) { return drwPhRun(force).catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) { drw.phBusy = false; drwPlanUi(); } }); }
   /** The preview being made stops (an export, Back). */
-  function drwPhStop() { clearTimeout(drwPhT); drwPhGen++; if (drw) drw.phBusy = false; phStopBuild(); }
+  function drwPhStop() { clearTimeout(drwPhT); drwPhGen++; drwPhForce = false; if (drw) drw.phBusy = false; phStopBuild(); }
   function phStopBuild() { phBuild = null; if (phWorkerEnd) { const f = phWorkerEnd; phWorkerEnd = null; try { phWorker.terminate(); } catch (e) { /* gone */ } phWorker = null; f(); } }
-  async function drwPhRun() {
+  async function drwPhRun(force0) {
     if (!drw || $('drawing').hidden) return;
-    if (typeof Worker === 'undefined' || dxfMode() !== 'tpl') { if (drw.ph) { drw.ph = null; drwPhHint(); drawDrawing(); } return; } // (the Simple drawing: the photos as before)
+    const force = !!force0 || drwPhForce; // ((Drawing preview) Regenerate plan preview: made again even when a newer call comes first)
+    if (typeof Worker === 'undefined' || dxfMode() !== 'tpl') { drwPlanNone(); return; } // (the Simple drawing: the Drawing as before)
     const gen = ++drwPhGen, proj = drw.project, row = rowIdx(), tA = Date.now(), live = () => gen === drwPhGen && !!drw && drw.project === proj && !$('drawing').hidden;
     if (!window.GeDxfTpl) await loadScript('dxftpl.js');
     const seed = await seedText(); if (!live()) return;
-    if (!seed || !seedOk(seed)) { if (drw.ph) { drw.ph = null; drwPhHint(); drawDrawing(); } return; } // (no template on the phone: the photos as before)
+    if (!seed || !seedOk(seed)) { drwPlanNone(); return; } // (no template on the phone: the Drawing as before)
+    if (!drw.plWant) { drw.plWant = true; drwPlanUi(); } // ((Drawing preview) a plan to preview: Regenerate plan preview on the Drawing)
     const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live() || !st) return; // (the records as an export sees them)
-    if (st.mode === 'num' || !J.withPh.length) { if (drw.ph) { drw.ph = null; drwPhHint(); drawDrawing(); } return; } // (numbers only, or no photo on this drawing: nothing to place)
+    // ((Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
     const sk = `${seed.length}|${(S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once)
     const job = J.jobOf(st), sig = strHash(`${seedSigC.h}|${JSON.stringify({ ...job, date: 0 })}`), M = drwPhMem.get(proj);
-    if (M && M.sig === sig && M.row === row) { if (phBuild) phStopBuild(); drw.ph = M; drw.phBusy = false; drwPhHint(); drawDrawing(); return; } // (nothing changed: as made last time)
-    if (phBuild && phBuild.sig === sig) return; // (this very plan is being made: it is shown when it comes)
-    phStopBuild(); const me = { sig }; phBuild = me; drw.phBusy = true; // (another one being made stops: the newest is the one shown)
-    const t0 = Date.now(), rep = await planPreview(seed, job); if (phBuild !== me) return; phBuild = null;
-    if (!rep || !rep.photoAt) { if (drw && drw.project === proj) drw.phBusy = false; return; } // (the plan could not be made, or by a builder that does not say where its photos went: the photos stay as they are)
-    const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)) };
-    drwPhMem.set(proj, ph); LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker)
+    if (!force && M && M.sig === sig && M.row === row && M.plan) { if (phBuild) phStopBuild(); drw.ph = M; drw.phBusy = false; drwPlanShow(); return; } // (nothing changed: as made last time)
+    if (!force && phBuild && phBuild.sig === sig) return; // (this very plan is being made: it is shown when it comes)
+    phStopBuild(); const me = { sig }; phBuild = me; drw.phBusy = true; drwPhForce = false; drwPlanUi(); // (another one being made stops: the newest is the one shown)
+    const t0 = Date.now(), res = await planPreview(seed, job); if (phBuild !== me) return; phBuild = null;
+    const rep = res && res.report;
+    if (!rep || !rep.photoAt) { if (drw && drw.project === proj) { drw.phBusy = false; drwPlanUi(); } return; } // (the plan could not be made, or by a builder that does not say where its photos went: the photos stay as they are)
+    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); } // ((Drawing preview) the plan's model space, ready to draw; none: the Drawing as before)
+    if (res.perr) LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) });
+    const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
+      planAt: rep.photoAt, fileId: Object.fromEntries(Object.entries(job.photos || {}).map(([id, x]) => [x.file, id])) }; // (the places the plan's pictures are drawn at; each picture's point)
+    for (const [k, v] of drwPhMem) if (k !== proj && v.plan) drwPhMem.set(k, { ...v, plan: null, sig: '' }); // (one project's plan kept at a time: another one opened makes its own again)
+    drwPhMem.set(proj, ph); LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length, force: !!force, ...(plan ? { plan: { ...plan.count, ms: res.plan.ms } } : {}) }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker; plan: its display list, made in ms after the plan)
     if (!drw || drw.project !== proj || $('drawing').hidden) return;
-    drw.ph = ph; drw.phBusy = false; drwPhHint(); drawDrawing();
+    drw.ph = ph; drw.phBusy = false; drwPlanShow(force);
   }
-  /** The plan made for the preview in a worker of its own (an export never waits for it), its report only sent back; null when it fails. */
+  /** The plan made for the preview in a worker of its own (an export never waits for it): its report and ((Drawing preview) dxf-worker.js
+   *  only: 'plan') its model space as the PDF prints it, { report, plan }, sent back; null when it fails. */
   function planPreview(seed, job) {
     return new Promise((res) => {
       let w = null; try { w = phWorker || (phWorker = new Worker('dxf-worker.js')); } catch (e) { w = null; }
       if (!w) { res(null); return; }
       const id = `ph-${Date.now()}-${Math.random()}`, off = () => { w.removeEventListener('message', on); w.removeEventListener('error', bad); phWorkerEnd = null; };
-      const on = (ev) => { const r = ev.data || {}; if (r.id !== id) return; off(); if (!r.ok) LOG.warn('draw.photos.plan', { msg: String(r.err || '').slice(0, 160) }); res(r.ok && r.out ? r.out.report : null); };
+      const on = (ev) => { const r = ev.data || {}; if (r.id !== id) return; off(); if (!r.ok) LOG.warn('draw.photos.plan', { msg: String(r.err || '').slice(0, 160) }); res(r.ok && r.out && r.out.report ? r.out : null); };
       const bad = (ev) => { off(); try { w.terminate(); } catch (x) { /* gone */ } phWorker = null; LOG.warn('draw.photos.worker', { msg: String((ev && ev.message) || ev).slice(0, 160) }); res(null); };
       w.addEventListener('message', on); w.addEventListener('error', bad); phWorkerEnd = () => { off(); res(null); };
-      try { w.postMessage({ id, seed, job, only: 'report' }); } catch (e) { off(); res(null); }
+      try { w.postMessage({ id, seed, job, only: 'plan' }); } catch (e) { off(); res(null); }
     });
   }
   /** The preview's roads (planRoads, quiet: the road packs, else the offline map; never downloaded), read once while the Drawing is open. */
@@ -2209,21 +2219,31 @@
     if (phDimC.size > 5000) phDimC.clear(); phDimC.set(k, out); return out;
   }
   /** The Drawing's hint, with a line about the photos once the plan's places are there. */
-  function drwPhHint() { if (!drw || drw.hint0 == null) return; $('drawHint').textContent = drw.hint0 + (drw.ph ? ' Photos sit where the plan puts them: drag one to place it by hand.' : ''); }
+  function drwPhHint() {
+    if (!drw || drw.hint0 == null) return;
+    const pl = drwPlanOn(), G = pl && drw.ph.grid ? drw.ph.grid.sheets : [], n = drw.ph ? Object.keys(drw.ph.at || {}).length : 0; // ((Drawing preview) the plan shown: what it is; its photos: drag them)
+    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.` : drw.hint0)
+      + (n ? ' Photos sit where the plan puts them: drag one to place it by hand.' : '');
+  }
   /** The plan's place of this point's photo (report.photoAt), for the drawing shown; null: none (no preview yet, or the plan has none). */
   const drwPhOf = (it) => (drw && drw.ph && drw.ph.row === rowIdx() ? drw.ph.at[String(it.p.id)] || null : null);
-  /** Its frame where the plan puts it, at its size, its line to the pole when the plan has one (dragged: where the finger is, a dashed line to its pole). */
-  function drwPhFrame(g, d, it, A, placed) {
-    const id = String(it.p.id), dr = drw.phDrag && drw.phDrag.id === id ? drw.phDrag : null, sh = [it.xy[0] - A.dp[0], it.xy[1] - A.dp[1]], at = (q) => drwPx([q[0] + sh[0], q[1] + sh[1]]);
+  /** Its frame where the plan puts it, at its size, its line to the pole when the plan has one (dragged: where the finger is, a dashed line to its pole).
+   *  pl: (Drawing preview) over the plan: where the plan draws it (not from the pole as the Drawing draws it), its picture in it. */
+  function drwPhFrame(g, d, it, A, placed, pl) {
+    const id = String(it.p.id), dr = drw.phDrag && drw.phDrag.id === id ? drw.phDrag : null, sh = pl ? [0, 0] : [it.xy[0] - A.dp[0], it.xy[1] - A.dp[1]], at = (q) => drwPx([q[0] + sh[0], q[1] + sh[1]]);
     let [cx, cy] = at([A.x, A.y]); if (dr) { cx += dr.dx; cy += dr.dy; }
     const sc = drw.view.sc, w = Math.max(8 * d, A.w * sc), h = Math.max(8 * d, A.h * sc), rot = -(+A.rot || 0) * Math.PI / 180, hand = A.how === 'by hand', sel = String(drw.selPh) === id;
-    if (dr) { const [px, py] = drwPx(it.xy); g.strokeStyle = 'rgba(28,126,214,.8)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(px, py); g.lineTo(cx, cy); g.stroke(); g.setLineDash([]); }
+    if (dr) { const [px, py] = drwPx(pl ? A.dp : it.xy); g.strokeStyle = 'rgba(28,126,214,.8)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(px, py); g.lineTo(cx, cy); g.stroke(); g.setLineDash([]); }
     else if (A.line && A.line.length > 1) { g.strokeStyle = '#868e96'; g.lineWidth = 1.2 * d; g.beginPath(); A.line.forEach((q, k) => { const P = at(q); if (k) g.lineTo(P[0], P[1]); else g.moveTo(P[0], P[1]); }); g.stroke(); }
     g.save(); g.translate(cx, cy); g.rotate(rot);
     if (sel || dr) { g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 5 * d; g.strokeRect(-w / 2, -h / 2, w, h); }
-    g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(-w / 2, -h / 2, w, h); g.strokeStyle = hand ? '#1c7ed6' : '#495057'; g.lineWidth = (hand ? 1.8 : 1.2) * d; g.strokeRect(-w / 2, -h / 2, w, h);
-    const k = Math.min(w / 18, h / 14) * 0.8, s = (u) => u * k, X = -s(9), Y = -s(7); // (the picture sign, as the frames before)
-    g.fillStyle = hand ? '#74c0fc' : '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill();
+    if (!pl || dr || drwPhMoved(id)) { // ((Drawing preview) over the plan: the plan draws its picture where it prints it; here only its frame, unless it moved)
+      g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(-w / 2, -h / 2, w, h);
+      const th = pl && w >= 20 * d && h >= 20 * d ? drwThumb(it) : null; // (its picture, from the phone, once it is read)
+      if (th) g.drawImage(th, -w / 2, -h / 2, w, h);
+      else { const k = Math.min(w / 18, h / 14) * 0.8, s = (u) => u * k, X = -s(9), Y = -s(7); // (the picture sign, as the frames before)
+        g.fillStyle = hand ? '#74c0fc' : '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill(); } }
+    g.strokeStyle = hand ? '#1c7ed6' : '#495057'; g.lineWidth = (hand ? 1.8 : 1.2) * d; g.strokeRect(-w / 2, -h / 2, w, h);
     g.restore();
     const ex = Math.abs(Math.cos(rot)) * w / 2 + Math.abs(Math.sin(rot)) * h / 2, ey = Math.abs(Math.sin(rot)) * w / 2 + Math.abs(Math.cos(rot)) * h / 2;
     placed.push([cx - ex - d, cy - ey - d, 2 * ex + 2 * d, 2 * ey + 2 * d]); drw.phHit.push({ id, cx, cy, w, h, rot });
@@ -2232,7 +2252,7 @@
   function drwPhAt(e) {
     if (!drw || !drw.phHit || !drw.phHit.length) return null;
     const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1, x = (e.clientX - r.left) * d, y = (e.clientY - r.top) * d;
-    if (drw.items.some((it) => { const [px, py] = drwPx(it.xy); return Math.hypot(px - x, py - y) < 10 * d; })) return null;
+    if (drw.items.some((it) => { const [px, py] = drwPx(drwAt(it)); return Math.hypot(px - x, py - y) < 10 * d; })) return null;
     for (let i = drw.phHit.length - 1; i >= 0; i--) { const H = drw.phHit[i], c = Math.cos(H.rot), sn = Math.sin(H.rot), dx = x - H.cx, dy = y - H.cy, u = dx * c + dy * sn, v = -dx * sn + dy * c;
       if (Math.abs(u) <= Math.max(H.w / 2 + 2 * d, 10 * d) && Math.abs(v) <= Math.max(H.h / 2 + 2 * d, 10 * d)) return H; }
     return null;
@@ -2254,7 +2274,7 @@
     S.meta = S.meta || {}; S.meta[proj] = { ...m0, phPin: { ...(m0.phPin || {}), [id]: off } }; persist();
     drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null } } }; // (where it was let go, until the plan's own comes: its line, the others moved aside; the one kept stays as it was made)
     LOG.info('draw.photo.pin', { n: Object.keys(S.meta[proj].phPin).length });
-    drwPhTap(id); drwPhSoon(250);
+    drwPlanUi(); drwPhTap(id); drwPhSoon(250); // ((Drawing preview) the chip of the photos placed by hand at once)
   }
   /** Back to automatic: the photo placed by hand goes back where the plan puts it. */
   function drwPhAuto(id) {
@@ -2262,8 +2282,170 @@
     const P = { ...m0.phPin }; delete P[id]; const m = { ...m0, phPin: P }; if (!Object.keys(P).length) delete m.phPin;
     S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.auto', { n: Object.keys(P).length });
     if (drw.ph && drw.ph.at[id]) drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...drw.ph.at[id], how: 'auto' } } }; // (where it is until the plan's place comes)
-    drwPhTap(id); drwPhSoon(0);
+    drwPlanUi(); drwPhTap(id); drwPhSoon(0);
   }
+  /* (Drawing preview) The plan on the Drawing as its PDF prints it (the owner, beta 7.8: "I want the drawing to be the preview of pdf export
+     plan that is editable and can be rearranged… a button to regenerate the plan preview"). With the company template on the phone (the
+     template plan chosen), the preview (drwPhRun, in its worker) is the plan the export makes, and its model space drawn by the PDF's own
+     drawing code (dxfpdf.js, modelList: the same lines, colours, line weights, line types, texts, symbols, cable labels with their arrows,
+     span lengths, numbers, pole details, landmarks and street names, at the GEO sheets' scale), sent back as a display list in metres, made
+     ready to draw once (drwPlanMake: Path2D objects, a run of items of one look in tiles of 120 m) and drawn each frame with the view
+     (drwPlanPaint: only the tiles on the screen; texts too small to read left out, all of them with Labels off). Over it: the GEO sheets
+     that print, as boxes with their names as the plan writes them (Sheet grid, shown or hidden), the photos where the plan puts them
+     (dragged, tapped, Back to automatic as before; the picture of each, from the phone), what is tapped. The points are where the plan
+     draws them (report.drawnAt: beside their road) for a tap. Without a template, while the first preview is made, in Edit route and while
+     a pull-off's poles are tapped: the Drawing as before. Regenerate plan preview makes it again now (busy: said, not pressed again); Back
+     to automatic (N) puts every photo placed by hand back where the plan puts it, asked first. */
+  let drwPlanN = 0, drwThumbQ = 0, drwFrameN = 0, drwThumbIn = 0, drwZoomT = 0, drwPlanHold = false, drwPhForce = false; const drwThumbs = new Map(); // (the previews made; the photos' pictures read for the frames; the frames drawn; pictures being read; the settle after a zoom; tests: the Drawing as before)
+  const drwPlanOn = () => !!(drw && drw.ph && drw.ph.plan && drw.ph.row === rowIdx() && !drwEd && !jnPick && !drwPlanHold);
+  /** A photo moved since the plan shown was made (let go, back to automatic): the plan's picture is not where it is now. */
+  const drwPhMoved = (id) => !!(drw && drw.ph && drw.ph.planAt && drw.ph.at[id] !== drw.ph.planAt[id]);
+  /** Where the Drawing shows a point: where the plan draws it while the plan is shown, else where it was surveyed (metres). */
+  const drwAt = (it) => (drwPlanOn() && drw.ph.drawnAt && drw.ph.drawnAt[String(it.p.id)]) || it.xy;
+  /** The plan's GEO sheets from its report: [{ sheet, name, box: [x0, y0, x1, y1] }] (null: a builder that does not say). */
+  const drwGridOf = (rep) => (rep && rep.grid && Array.isArray(rep.grid.sheets) ? { cell: rep.grid.cell, sheets: rep.grid.sheets } : null);
+  const PL_TILE = 120, PL_FONT = ['', 'bold ', 'italic ', 'italic bold '].map((w) => `${w}64px Helvetica, Arial, sans-serif`); // (texts drawn at 64 px, scaled: Helvetica as the PDF's, else the nearest)
+  /** The display list (dxfpdf.js modelList) made ready to draw: the items in the order printed, each run of lines or fills of one look one
+   *  Path2D for each tile its items are in (an even-odd fill over another of its run starts a run of its own), each run of texts their list. */
+  function drwPlanMake(pl) {
+    if (!pl || !pl.items || typeof Path2D === 'undefined') return null;
+    const t0 = performance.now(), P = pl.pts, SB = pl.subs, IT = pl.items, BX = pl.boxes, n = IT.length / 4, runs = [], kinds = [0, 0, 0, 0, 0];
+    const grow = (a, b) => { if (b[0] < a[0]) a[0] = b[0]; if (b[1] < a[1]) a[1] = b[1]; if (b[2] > a[2]) a[2] = b[2]; if (b[3] > a[3]) a[3] = b[3]; };
+    const hits = (a, b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+    let run = null, tiles = 0;
+    for (let k = 0; k < n; k++) {
+      const kind = IT[4 * k], ix = IT[4 * k + 1], s0 = IT[4 * k + 2], ns = IT[4 * k + 3], b = [BX[4 * k], BX[4 * k + 1], BX[4 * k + 2], BX[4 * k + 3]]; kinds[kind]++;
+      if (kind >= 3) { if (!run || run.kind !== 3) runs.push(run = { kind: 3, idx: [], box: b.slice() }); else grow(run.box, b); if (kind === 3) { pl.texts[ix].b = b; run.idx.push(ix); } else { pl.images[ix].b = b; run.idx.push(-1 - ix); } continue; } // (texts and pictures as they come)
+      if (!run || run.kind !== kind || run.style !== ix || (kind === 2 && hits(run.box, b))) runs.push(run = { kind, style: ix, tiles: new Map(), box: b.slice() }); else grow(run.box, b);
+      const tk = `${Math.floor((b[0] + b[2]) / 2 / PL_TILE)},${Math.floor((b[1] + b[3]) / 2 / PL_TILE)}`;
+      let t = run.tiles.get(tk); if (!t) { run.tiles.set(tk, t = { p: new Path2D(), box: b.slice() }); tiles++; } else grow(t.box, b);
+      for (let q = s0; q < s0 + ns; q++) { const f = SB[3 * q], c = SB[3 * q + 1]; if (c < 1) continue; t.p.moveTo(P[2 * f], P[2 * f + 1]); for (let m = 1; m < c; m++) t.p.lineTo(P[2 * (f + m)], P[2 * (f + m) + 1]); if (SB[3 * q + 2]) t.p.closePath(); }
+    }
+    runs.forEach((r) => { if (r.tiles) r.tiles = [...r.tiles.values()]; });
+    const kb = (P.byteLength + SB.byteLength + IT.byteLength + BX.byteLength + pl.texts.reduce((t, x) => t + 2 * x.s.length + 96, 0)) / 1024;
+    return { runs, styles: pl.styles, texts: pl.texts, images: pl.images, origin: pl.origin, K: pl.K, sheet: pl.sheet, raw: { items: IT, subs: SB, pts: P }, // (raw: its lines' points, for a check)
+      count: { items: n, lines: kinds[0], fills: kinds[1] + kinds[2], texts: kinds[3], pictures: kinds[4], points: P.length / 2, runs: runs.length, tiles, kb: Math.round(kb), make: Math.round(performance.now() - t0) } };
+  }
+  /** The plan drawn with the view: model metres from its origin to the canvas, only what is on it. */
+  function drwPlanPaint(g, d, cv, v) {
+    const PL = drw.ph.plan, sc = v.sc, e = cv.width / 2 + (PL.origin[0] - v.cx) * sc, f = cv.height / 2 + (v.cy - PL.origin[1]) * sc;
+    const V = [-e / sc, (f - cv.height) / sc, (cv.width - e) / sc, f / sc], on = (b) => b[2] >= V[0] && b[0] <= V[2] && b[3] >= V[1] && b[1] <= V[3];
+    const minW = 0.6 * d / sc, minT = 3 * d / sc, labels = drw.labels !== false; let nP = 0, nT = 0; // (a line thinner than 0.6 px drawn 0.6 px; a text under 3 px left out)
+    const now = performance.now(), zooming = drw.plSc != null && Math.abs(drw.plSc - sc) > 1e-9 * sc ? (drw.plZoom = now, true) : now - (drw.plZoom || 0) < 200; drw.plSc = sc; drwFrameN++;
+    if (zooming) { clearTimeout(drwZoomT); drwZoomT = setTimeout(() => { if (drw && !$('drawing').hidden && drwPlanOn()) drawDrawing(); }, 230); } // (pinched or scrolled: the texts drawn as they print once it stops)
+    g.save(); g.setTransform(sc, 0, 0, -sc, e, f); g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    for (const r of PL.runs) {
+      if (!on(r.box)) continue;
+      if (r.kind === 3) {
+        for (const ix of r.idx) {
+          if (ix < 0) { // a picture (a pole's photo): its picture from the phone where the plan prints it; moved since, where it is now (drwPhFrame)
+            const im = PL.images[-1 - ix], m = im.m, id = drw.ph.fileId ? drw.ph.fileId[im.name] : null, it = id != null ? drwEdById(id) : null;
+            if (!on(im.b) || (it && drwPhMoved(id))) continue;
+            const bm = it && Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d ? drwThumb(it) : null;
+            g.setTransform(sc * m[0], -sc * m[1], -sc * m[2], sc * m[3], e + sc * (m[2] + m[4]), f - sc * (m[3] + m[5]));
+            if (bm) g.drawImage(bm, 0, 0, 1, 1); else { g.fillStyle = '#e9ecef'; g.fillRect(0, 0, 1, 1); } // (until it is read, or none: a grey square)
+            nT++; continue;
+          }
+          const t = PL.texts[ix], m = t.m; if (!labels || Math.hypot(m[2], m[3]) < minT || !on(t.b)) continue;
+          g.font = PL_FONT[t.f] || PL_FONT[0]; if (t.k == null) { const w = g.measureText(t.s).width / 64; t.k = w > 0 && t.w > 0 ? t.w / w : 1; } // (as wide as Helvetica prints it)
+          g.setTransform(sc * m[0] * t.k / 64, -sc * m[1] * t.k / 64, -sc * m[2] / 64, sc * m[3] / 64, e + sc * m[4], f - sc * m[5]);
+          g.fillStyle = t.c;
+          if (zooming && Math.hypot(m[2], m[3]) * sc < 40 * d) { g.globalAlpha = 0.5; g.fillRect(0, -42, t.w * 64 / t.k, 34); g.globalAlpha = 1; nT++; continue; } // (while zooming: a bar where it is)
+          g.fillText(t.s, 0, 0);
+          if (t.sc && t.lw > 0) { g.strokeStyle = t.sc; g.lineWidth = t.lw * 64; g.lineJoin = 'round'; g.setLineDash([]); g.strokeText(t.s, 0, 0); } // (an SHX font's strokes as thick as its line weight)
+          nT++;
+        }
+        g.setTransform(sc, 0, 0, -sc, e, f); continue;
+      }
+      const st = PL.styles[r.style];
+      if (r.kind === 0) { g.strokeStyle = st.c; g.lineWidth = Math.max(st.w, minW); g.lineCap = st.cap; g.lineJoin = st.join; g.setLineDash(st.dash || []); for (const t of r.tiles) if (on(t.box)) { g.stroke(t.p); nP++; } }
+      else { g.fillStyle = st.c; for (const t of r.tiles) if (on(t.box)) { g.fill(t.p, r.kind === 2 ? 'evenodd' : 'nonzero'); nP++; } }
+    }
+    g.restore(); drw.planDrawn = { paths: nP, texts: nT };
+  }
+  /** The GEO sheets that print, as boxes, each with its name as the plan writes it in its top right corner (kept on the screen while the box is). */
+  function drwGridPaint(g, d, cv) {
+    const G = drw.ph.grid; drw.gridDrawn = []; if (!G || S.drawGrid === false) return;
+    const fs = 12 * d, m = 4 * d, h = fs + 8 * d; g.save(); g.setLineDash([]); g.lineWidth = 1.6 * d; g.font = `800 ${fs}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const cr = cv.getBoundingClientRect(), chips = ['drawXHid', 'drawPhAll'].map((id) => $(id)).filter((el) => !el.hidden).map((el) => { const r = el.getBoundingClientRect(); return [(r.left - cr.left) * d, (r.top - cr.top) * d, (r.right - cr.left) * d, (r.bottom - cr.top) * d]; }); // (the chips at the upper right: the names below them)
+    for (const s of G.sheets) {
+      const [x0, y1] = drwPx([s.box[0], s.box[1]]), [x1, y0] = drwPx([s.box[2], s.box[3]]); if (x1 < 0 || x0 > cv.width || y1 < 0 || y0 > cv.height) continue;
+      g.strokeStyle = 'rgba(174,62,201,.85)'; g.strokeRect(x0, y0, x1 - x0, y1 - y0);
+      const w = g.measureText(s.name).width + 12 * d; let lx = Math.min(x1, cv.width - 64 * d) - m - w, ly = Math.max(y0, 0) + m; // (left of the round tools)
+      if (lx + w > cv.width - 120 * d && ly < 78 * d) ly = Math.max(ly, 78 * d); // (under the north arrow and the scale bar)
+      for (const c of chips) if (lx < c[2] && lx + w > c[0] && ly < c[3] && ly + h > c[1]) ly = c[3] + m;
+      if (lx < x0 + m || ly + h > y1 - m) continue; // (the box too small on the screen for its name)
+      g.fillStyle = 'rgba(174,62,201,.9)'; g.fillRect(lx, ly, w, h); g.fillStyle = '#ffffff'; g.fillText(s.name, lx + w / 2, ly + h / 2 + 0.5 * d);
+      drw.gridDrawn.push({ name: s.name, sheet: s.sheet, x: lx + w / 2, y: ly + h / 2 });
+    }
+    g.restore();
+  }
+  /** The Drawing with the plan shown: the reference KMZ faint behind, the plan, its sheets, the cable and point tapped, the photos, the north arrow and scale bar. */
+  function drwPlanDraw(g, d, cv, v) {
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    drw.ref.forEach((l) => { g.strokeStyle = 'rgba(112,72,232,0.45)'; g.lineWidth = 2 * d; g.setLineDash([6 * d, 5 * d]); g.beginPath(); l.forEach((xy, i) => { const [px, py] = drwPx(xy); if (i) g.lineTo(px, py); else g.moveTo(px, py); }); g.stroke(); });
+    g.setLineDash([]);
+    drwPlanPaint(g, d, cv, v);
+    drwGridPaint(g, d, cv);
+    drw.hitL = (drw.fibs || []).map((f) => ({ n: f.n, lines: [f.ids.map((id, k) => { const it = drwEdById(id); return drwPx(it ? drwAt(it) : f.pts[k]); })] })); // (a cable tapped: its run, along the poles as the plan draws them)
+    g.save();
+    if (drw.selRun != null) { g.strokeStyle = 'rgba(250,176,5,.45)'; g.lineWidth = 12 * d; g.lineJoin = 'round'; g.lineCap = 'round'; drw.hitL.filter((x) => x.n === drw.selRun).forEach((x) => x.lines.forEach((L) => { g.beginPath(); L.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); })); }
+    const sel = drw.sel != null ? drwEdById(drw.sel) : null; if (sel) { const [px, py] = drwPx(drwAt(sel)); g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 4 * d; g.beginPath(); g.arc(px, py, 13 * d, 0, 2 * Math.PI); g.stroke(); }
+    g.restore();
+    const A0 = drw.ph.at || {}, dg = drw.phDrag; // the photos: each frame over the plan's own, big enough to take (zoomed out: the plan's)
+    drw.items.forEach((it) => { const id = String(it.p.id), A = A0[id]; if (A && !(dg && dg.id === id) && (Math.max(A.w, A.h) * v.sc >= 6 * d || drwPhMoved(id))) drwPhFrame(g, d, it, A, [], true); });
+    if (dg) { const it = drwEdById(dg.id), A = it && drwPhOf(it); if (A) drwPhFrame(g, d, it, A, [], true); } // (the one dragged: over everything)
+    drwNorthScale(g, d, cv, v);
+  }
+  /** A photo's picture for its frame (the photo on the phone, made 96 px wide: the whole of it, as the plan prints it; the list's small copy is
+   *  a square cut from it), read once and kept (120 at most, the least used lately go: never one this frame drew, so a screen of more photos
+   *  than that shows the others as grey squares rather than reading them again and again); null until it is read. 3 read at a time. */
+  function drwThumb(it) {
+    const pid = coverPid(it.p) || it.p.id, T = drwThumbs.get(pid);
+    if (T) { T.f = drwFrameN; drwThumbs.delete(pid); drwThumbs.set(pid, T); return T.bm; } // (the latest used last: the oldest first out)
+    if (drwThumbIn >= 3) return null;
+    if (drwThumbs.size >= 120) { let k0 = null; for (const [k, x] of drwThumbs) if (x.f < drwFrameN && x.done) { k0 = k; break; } if (k0 == null) return null; const x = drwThumbs.get(k0); drwThumbs.delete(k0); if (x.bm) x.bm.close(); }
+    const T1 = { bm: null, f: drwFrameN }; drwThumbs.set(pid, T1); drwThumbIn++;
+    (async () => {
+      try {
+        const ph = await dbGet('photos', pid).catch(() => null), b = ph && (ph.clean || ph.thumb); if (!(b instanceof Blob) || !b.size || typeof createImageBitmap !== 'function') return;
+        const bm = await createImageBitmap(b, { resizeWidth: 96, resizeQuality: 'medium' }).catch(() => null); if (!bm) return;
+        if (drwThumbs.get(pid) !== T1) { bm.close(); return; } T1.bm = bm;
+        if (!drwThumbQ) drwThumbQ = requestAnimationFrame(() => { drwThumbQ = 0; if (drw && !$('drawing').hidden) drawDrawing(); });
+      } finally { drwThumbIn--; T1.done = true; }
+    })();
+    return null;
+  }
+  /** The photos' pictures let go (the Drawing closed). */
+  function drwThumbsFree() { for (const x of drwThumbs.values()) if (x.bm) x.bm.close(); drwThumbs.clear(); }
+  /** No plan to preview (the Simple drawing, no template on the phone): the Drawing as before. */
+  function drwPlanNone() { if (!drw) return; const had = !!drw.ph || drw.plWant; drw.ph = null; drw.phBusy = false; drw.plWant = false; drwPhForce = false; drwPlanUi(); if (had) { drwPhHint(); renderDrawLegend(); drawDrawing(); } }
+  /** The preview made (or as made last time): shown. said: made again by Regenerate plan preview: said beside it, a moment. */
+  function drwPlanShow(said) {
+    if (!drw) return; drwPhHint(); drwPlanUi(); renderDrawLegend(); drawDrawing();
+    if (said && drw.ph) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
+  }
+  /** The Drawing's plan tools: Regenerate plan preview (busy while it is made), Sheet grid, the photos placed by hand. */
+  function drwPlanUi() {
+    if (!drw) return;
+    const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen'), n = Object.keys(pmeta(drw.project).phPin || {}).length;
+    rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
+    if (busy) $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = '';
+    $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
+    $('drawPhAll').hidden = !(pl && n); $('drawPhAllT').textContent = `${n} photo${n === 1 ? '' : 's'} placed by hand · Back to automatic`;
+  }
+  /** Back to automatic for every photo placed by hand on this project's plan, asked first. */
+  async function drwPhAutoAll() {
+    if (!drw) return; const proj = drw.project, n = Object.keys(pmeta(proj).phPin || {}).length; if (!n) return;
+    if (!(await ask(`Back to automatic: ${n} photo${n === 1 ? '' : 's'}?`, `${n === 1 ? 'The photo placed by hand goes' : `The ${n} photos placed by hand go`} back where the plan puts ${n === 1 ? 'it' : 'them'}. The next export has ${n === 1 ? 'it' : 'them'} there too.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
+    if (!drw || drw.project !== proj) return;
+    const m = { ...pmeta(proj) }; delete m.phPin; S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n });
+    if (drw.ph) drw.ph = { ...drw.ph, sig: '', at: Object.fromEntries(Object.entries(drw.ph.at).map(([k, a]) => [k, a.how === 'by hand' ? { ...a, how: 'auto' } : a])) }; // (where they are until the plan's places come)
+    if (drw.selPh) drwPhTap(drw.selPh); drwPlanUi(); drawDrawing(); drwPhSoon(0);
+  }
+  $('drawRegen').addEventListener('click', () => { if (!drw || drw.phBusy) return; LOG.info('draw.plan.regen', {}); clearTimeout(drwPhT); drwPhForce = true; drw.phBusy = true; drwPlanUi(); drwPhGo(true); });
+  $('drawGrid').addEventListener('change', () => { S.drawGrid = !!$('drawGrid').checked; persist(); LOG.info('draw.plan.grid', { on: S.drawGrid }); drwPlanUi(); drawDrawing(); });
+  $('drawPhAll').addEventListener('click', () => { drwPhAutoAll(); });
   function sizeDrawing() { const cv = $('drawCanvas'), r = $('drawWrap').getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d)); }
   if ('ResizeObserver' in window) { let rq = 0; new ResizeObserver(() => { cancelAnimationFrame(rq); rq = requestAnimationFrame(() => { if (drw && drw.view && !$('drawing').hidden) { sizeDrawing(); drawDrawing(); } }); }).observe($('drawWrap')); } // v2.42.28
   function fitDrawing() {
@@ -2298,6 +2480,7 @@
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
     g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
     if (drwBase() !== 'off') { drawUnderlay(g); underlaySoon(); } // v2.36: the map under the drawing
+    if (drwPlanOn()) { drwPlanDraw(g, d, cv, v); return; } // (Drawing preview) the plan as its PDF prints it
     // grid every 10 / 50 / 100 m, by zoom
     const step = [5, 10, 20, 50, 100, 200, 500, 1000].find((m) => m * v.sc > 60 * d) || 1000;
     g.strokeStyle = 'rgba(28,63,148,0.08)'; g.lineWidth = 1;
@@ -2455,15 +2638,18 @@
     placed.forEach(([x, y, w, h]) => occ.add(obb(x + w / 2, y + h / 2, w, h, 0), 'text'));
     if (drw.labels) drwLabels(g, d, cv, occ, BK, endAt, laneAt, GAP);
     if (drw.phDrag) { const it = drwEdById(drw.phDrag.id), A = it && drwPhOf(it); if (A) drwPhFrame(g, d, it, A, []); } // (beta 7.8, Drawing photos) a photo being dragged: over everything
-    // north arrow and scale bar
+    drwNorthScale(g, d, cv, v);
+    if (drwEd) drwEdPaint(g, d); // beta 6.7: Edit route: the line being drawn, the handles, what is dragged
+    if (jnPick) jnPaintDrw(g, d); // beta 6.9: a pull-off's or cross-over's poles being tapped
+  }
+  /** The north arrow and the scale bar, at the upper right. */
+  function drwNorthScale(g, d, cv, v) {
     g.fillStyle = '#1b1b1b'; g.strokeStyle = '#1b1b1b'; g.lineWidth = 1.5 * d;
     const nx = cv.width - 26 * d, ny = 30 * d; g.beginPath(); g.moveTo(nx, ny - 14 * d); g.lineTo(nx + 7 * d, ny + 8 * d); g.lineTo(nx, ny + 3 * d); g.lineTo(nx - 7 * d, ny + 8 * d); g.closePath(); g.fill();
     g.font = `700 ${11 * d}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('N', nx, ny + 10 * d);
     const sb = [10, 20, 50, 100, 200, 500, 1000, 2000].find((m) => m * v.sc > 70 * d) || 2000, sx = cv.width - 26 * d - sb * v.sc, sy = 62 * d;
     g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + sb * v.sc, sy); g.moveTo(sx, sy - 5 * d); g.lineTo(sx, sy + 5 * d); g.moveTo(sx + sb * v.sc, sy - 5 * d); g.lineTo(sx + sb * v.sc, sy + 5 * d); g.stroke();
     g.textBaseline = 'bottom'; g.fillText(sb >= 1000 ? `${sb / 1000} km` : `${sb} m`, sx + sb * v.sc / 2, sy - 4 * d);
-    if (drwEd) drwEdPaint(g, d); // beta 6.7: Edit route: the line being drawn, the handles, what is dragged
-    if (jnPick) jnPaintDrw(g, d); // beta 6.9: a pull-off's or cross-over's poles being tapped
   }
   /* v2.42.24: the closure's texts and the cable labels and span lengths on the Drawing screen, where they cover nothing (the other
      labels, the IDs, numbers and tags, the blocks, the cables): as on the plan. Each cable its own label beside its own line, as large
@@ -2631,7 +2817,7 @@
         if (e.type === 'pointerup' && moved >= 8 && G) drwPhDrop(D.id, G.dx, G.dy); else if (e.type === 'pointerup' && moved < 8) drwPhTap(D.id); else drawDrawing(); return; }
       if (moved < 8 && e.type === 'pointerup' && !drwEd) { // a tap: the nearest point (beta 6.7: in Edit route, Route's tap)
         const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
-        let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(it.xy), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; });
+        let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(drwAt(it)), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; }); // ((Drawing preview) where the plan draws it, while the plan is shown)
         if (jnPick && jnPick.surf === 'drawing') { if (best) jnPickTap(best.it.p.id); return; } // beta 6.9: a pull-off's or cross-over's pole
         drw.sel = best ? best.it.p.id : null; drw.selPh = null; const info = $('drawInfo');
         drw.selRun = null; if (!best) { let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((L) => { for (let k = 1; k < L.length; k++) { const a = L[k - 1], b = L[k], vx = b[0] - a[0], vy = b[1] - a[1], t = Math.max(0, Math.min(1, ((tx - a[0]) * vx + (ty - a[1]) * vy) / (vx * vx + vy * vy || 1))), dd = Math.hypot(a[0] + vx * t - tx, a[1] + vy * t - ty); if (dd < 16 * d() && (!bc || dd < bc.dd)) bc = { n, dd }; } }));
@@ -2759,6 +2945,13 @@
   function renderDrawLegend() {
     const pts = drw ? drw.items : [], has = (f) => pts.some(f), rows = [];
     const sv = (inner) => `<svg viewBox="0 0 22 16" aria-hidden="true">${inner}</svg>`, tag = (t, c) => sv(`<rect x="1" y="3" width="20" height="10" rx="1.5" fill="${c}"/><text x="11" y="10.6" text-anchor="middle" font-size="6.5" font-weight="800" fill="#fff" font-family="system-ui,sans-serif">${t}</text>`);
+    if (drwPlanOn()) { // (Drawing preview) the plan as its PDF prints it: its own symbols (its LEGENDS sheet), its sheets, the photos
+      rows.push([sv('<path d="M2 12 8 5l4 4 3-3 5 6" fill="none" stroke="#1b1b1b" stroke-width="1.4"/><circle cx="8" cy="5" r="1.8" fill="#fff" stroke="#e03131" stroke-width="1.2"/>'), 'The plan as its PDF prints it: its lines, symbols and texts (its LEGENDS sheet says what each one is)']);
+      rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><rect x="11" y="3" width="8.5" height="5" fill="#ae3ec9"/>'), 'A sheet of the plan (GEO) and its name, as the plan writes it']);
+      if (drw.ph && Object.keys(drw.ph.at || {}).length) rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#1c7ed6" stroke-width="1.5"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#74c0fc"/>'), 'A photo where the plan puts it: drag it to place it by hand (blue: placed by hand)']);
+      if (drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); }
+      $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join(''); return;
+    }
     rows.push([sv('<circle cx="11" cy="8" r="4.5" fill="#fff" stroke="#1b1b1b" stroke-width="1.6"/>'), 'Pole (red: proposed)']);
     if (has((x) => ['Handhole', 'Manhole', 'Service box', 'ODC', 'ODF'].includes(x.el))) rows.push([sv('<rect x="6" y="3" width="10" height="10" fill="#fff" stroke="#1b1b1b" stroke-width="1.6"/>'), 'Handhole, ODC, ODF…']);
     if (has((x) => ['Site', 'NAP', 'Closure'].includes(x.el))) rows.push([sv('<path d="M11 2.5 16 13H6Z" fill="#fff" stroke="#1b1b1b" stroke-width="1.6"/>'), 'Site, NAP or closure pin']);
@@ -21236,7 +21429,25 @@
       frames: (drw.phHit || []).map((H) => ({ id: H.id, x: r.left + H.cx / d, y: r.top + H.cy / d, w: H.w / d, h: H.h / d, rot: H.rot })), xy: Object.fromEntries(drw.items.map((it) => [String(it.p.id), it.xy])) }; };
   window.__polecam.drwLL = (lat, lon) => { if (!drw || !drw.view) return null; const p = RT_DRW.pt([lat, lon]), r = $('drawCanvas').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
   window.__polecam.drwLook = (lat, lon, mpp, ox, oy) => { if (!drw || !drw.view) return; const d = window.devicePixelRatio || 1, cv = $('drawCanvas'), u = C.utmForward(lat, lon, drw.zone, lat < 0), sc = d / mpp; drw.view = { ...drw.view, sc, cx: u.E - ((ox == null ? cv.width / 2 / d : ox) * d - cv.width / 2) / sc, cy: u.N + ((oy == null ? cv.height / 2 / d : oy) * d - cv.height / 2) / sc }; drawDrawing(); };
-  window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(it.xy), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; };
+  window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(drwAt(it)), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; }; // ((Drawing preview) where the Drawing shows it: where the plan draws it, while the plan is shown)
+  /* (Drawing preview) for tests: the plan shown or not, being made, the previews made (n: this one's), its display list's counts, the GEO sheets
+     (report.grid.sheets) and the names drawn (in page pixels), what the last frame drew; px(E, N): a point in metres in page pixels;
+     redraw(): the Drawing drawn again now (ms) */
+  window.__polecam.drwPlan = () => { if (!drw) return null; const P = drw.ph && drw.ph.plan, r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    return { on: drwPlanOn(), want: !!drw.plWant, busy: !!drw.phBusy, made: drwPlanN, n: drw.ph ? drw.ph.n || 0 : 0, ms: drw.ph ? drw.ph.ms : 0, count: P ? { ...P.count } : null, K: P ? P.K : 0, sheet: P ? P.sheet : null, origin: P ? P.origin.slice() : null,
+      sheets: drw.ph && drw.ph.grid ? JSON.parse(JSON.stringify(drw.ph.grid.sheets)) : null, gridOn: S.drawGrid !== false, gridDrawn: (drw.gridDrawn || []).map((x) => ({ ...x, x: r.left + x.x / d, y: r.top + x.y / d })), drawn: drw.planDrawn || null,
+      regen: { hidden: $('drawRegen').hidden, disabled: $('drawRegen').disabled, say: $('drawRegenT').textContent }, phAll: $('drawPhAll').hidden ? null : $('drawPhAllT').textContent }; };
+  window.__polecam.drwPx = (E, N) => { if (!drw || !drw.view) return null; const [x, y] = drwPx([E, N]), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; };
+  window.__polecam.drwRedraw = () => { const t0 = performance.now(); drawDrawing(); return performance.now() - t0; };
+  window.__polecam.drwView = (o) => { if (drw && drw.view) Object.assign(drw.view, o); }; // (where it looks, not drawn yet: cx, cy metres, sc canvas pixels a metre)
+  /** (tests) The Drawing drawn as before (its own labels, tags, cable labels) even with the plan's preview: on, or back to the plan. */
+  window.__polecam.drwPlanHold = (on) => { drwPlanHold = !!on; if (drw && !$('drawing').hidden) { drwPhHint(); drwPlanUi(); renderDrawLegend(); drawDrawing(); } };
+  /** (tests) The first segment of the plan's first line of colour c (e.g. '#ff0000'), in page pixels and metres; null: none. */
+  window.__polecam.drwPlanProbe = (c) => { const P = drw && drw.ph && drw.ph.plan; if (!P) return null; const { items, subs, pts } = P.raw;
+    for (let k = 0; k < items.length; k += 4) { if (items[k] !== 0 || P.styles[items[k + 1]].c !== c) continue; const f = subs[3 * items[k + 2]]; if (subs[3 * items[k + 2] + 1] < 2) continue;
+      const a = [pts[2 * f] + P.origin[0], pts[2 * f + 1] + P.origin[1]], b = [pts[2 * f + 2] + P.origin[0], pts[2 * f + 3] + P.origin[1]];
+      return { a: window.__polecam.drwPx(a[0], a[1]), b: window.__polecam.drwPx(b[0], b[1]), ma: a, mb: b, w: P.styles[items[k + 1]].w, dash: P.styles[items[k + 1]].dash }; }
+    return null; };
   window.__polecam.drawView = () => (drw && drw.view ? { cx: drw.view.cx, cy: drw.view.cy, sc: drw.view.sc } : null); // beta 4.3 (tests): where the Drawing looks
   window.__polecam.coops = () => ({ groups: coopGroups(), set: ed ? ed.coopSet || '' : '', name: ed ? (ed.boq || {}).ownerName || '' : '', owner: ed ? (ed.boq || {}).owner || '' : '', area: ed ? coopArea() : null }); // beta 4.3 (tests)
   window.__polecam.cef = { open: (n, o) => cefOpen(n, o), plans: (n) => JSON.parse(JSON.stringify(cefPlans(n || S.project))), of: (n) => JSON.parse(JSON.stringify(cefOf(n || S.project))), isCef: (n) => isCefProj(n), lock: () => cefLockText(S.project), now: () => (cefNow ? { ...cefNow } : null),
