@@ -80,6 +80,9 @@ async def idle(pg, ms=30000):
 async def open_team(pg):
     await close_sheets(pg); await pg.click('#settingsBtn'); await W(pg, 500)
     await pg.click('#goTeam'); await W(pg, 800); await idle(pg)
+async def open_mbx(pg):  # beta 3.4: the company mailbox has its own page (Settings → Field work → Team Mailbox); Team keeps a line pointing there
+    await close_sheets(pg); await pg.click('#settingsBtn'); await W(pg, 500)
+    await pg.click('#goMbx'); await W(pg, 800); await idle(pg)
 async def confirm_email(pg, email):
     await pg.click('#tmSend'); await idle(pg); await W(pg, 300)
     code = e2e('/mail?to=' + email)['code']
@@ -154,7 +157,7 @@ async def main():
             cn, N, en = await new_ctx(p, OUT + '/ud_ana'); await setup(N, 'Ana Reyes', ANA)
             # ---------- the team, as in beta 1
             await open_team(A); await confirm_email(A, JUAN); await role(A, 'Coordinator')
-            await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
+            await open_mbx(A); await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
             await open_team(N); await confirm_email(N, ANA); await role(N, 'Coordinator')
             for pg, em_ in ((B, PEDRO), (M, MARIA)):
                 await open_team(pg); await confirm_email(pg, em_); await role(pg, 'Field Partner')

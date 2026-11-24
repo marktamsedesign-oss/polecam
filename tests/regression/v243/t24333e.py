@@ -116,7 +116,7 @@ async def main():
             cb, B, eb = await new_ctx(p, OUT + '/ud_pedro'); await setup(B, 'Pedro Santos', PEDRO)
             cm, M, em = await new_ctx(p, OUT + '/ud_maria'); await setup(M, 'Maria Garcia', MARIA)
             await open_team(A); await confirm_email(A, JUAN); await role(A, 'Coordinator')
-            await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
+            await open_mbx(A); await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
             for pg, em_ in ((B, PEDRO), (M, MARIA)):
                 await open_team(pg); await confirm_email(pg, em_); await role(pg, 'Field Partner')
                 await pg.locator('#tmCoList .tmrow', has_text='Juan Dela Cruz').locator('[data-join]').click(); await idle(pg)
@@ -170,7 +170,12 @@ async def main():
                   num(rM) == num(rA) == num(rB) and len(num(rA)) == 2 and 'your RUN 1 is RUN 2 now' in jM.get('sub', ''), (num(rA), num(rM), num(rB), jM.get('sub')))
             # the exports on Juan's phone: each RUN's number and length the same
             await open_proj(A, P1); await close_sheets(A)
-            model = {f['n']: f['len'] for f in (await A.evaluate("__polecam.fibModel()"))['list']}
+            FM = (await A.evaluate("__polecam.fibModel()"))['list']; model = {f['n']: f['len'] for f in FM}
+            # beta 6.6: each span in whole metres in every export (as written on the plan; Math.round): a RUN's spans in the Excel and
+            # the BOQ add whole metres, worked out here from the measured spans, each within ½ m of its measured length
+            RS = (await A.evaluate("__polecam.route()"))['spans']; jr = lambda x: int(x + 0.5); sk = lambda a, b: '|'.join(sorted((str(a), str(b))))
+            wm = {sk(s['ia'], s['ib']): jr(s['len']) for s in RS}; nsp = {f['n']: max(1, len(f['path']) - 1) for f in FM}
+            whole = {f['n']: sum(wm.get(sk(a, b), 0) for a, b in zip(f['path'], f['path'][1:])) for f in FM}
             fk = await export_file(A, 'doKmz', 'two.kmz'); z = zipfile.ZipFile(fk); kml = z.read([n for n in z.namelist() if n.endswith('.kml')][0]).decode('utf-8')
             kmz = {int(m.group(1)): float(m.group(2)) for m in re.finditer(r'<name>RUN (\d+)[^<]*? · (\d+) m', kml)}
             fx = await export_file(A, 'doRouteXlsx', 'two_route.xlsx'); wb = openpyxl.load_workbook(fx)
@@ -184,8 +189,8 @@ async def main():
                     if v and isinstance(v[0], str) and re.match(r'^FIBER_\d+$', v[0]):
                         m_ = re.search(r'spans ([\d.]+) m', str(v[3])); bq[int(v[0][6:])] = (float(v[1]), float(m_.group(1)) if m_ else None)
             agree = sorted(model) == [1, 2] and sorted(kmz) == [1, 2] and sorted(xl) == [1, 2] and sorted(bq) == [1, 2] and runs == ['F1', 'F2'] \
-                and all(abs(kmz[n] - round(model[n])) <= 1 and abs(xl[n][0] - model[n]) < 0.2 and abs(bq[n][1] - model[n]) < 0.2 and abs(bq[n][0] - xl[n][1]) < 0.2 for n in (1, 2))
-            check('C3 KMZ, route Excel and BOQ: RUN 1 and RUN 2, each with the same length (the KMZ to the metre; the Excel\'s cable = the BOQ\'s FIBER_n)', agree, (model, kmz, xl, bq, runs))
+                and all(abs(kmz[n] - round(model[n])) <= 1 and xl[n][0] == whole[n] and bq[n][1] == whole[n] and abs(whole[n] - model[n]) <= nsp[n] / 2 and abs(bq[n][0] - xl[n][1]) < 0.2 for n in (1, 2))
+            check('C3 KMZ, route Excel and BOQ: RUN 1 and RUN 2, each with the same length (the KMZ to the metre; the Excel\'s cable = the BOQ\'s FIBER_n)', agree, (model, whole, kmz, xl, bq, runs))
             if os.path.exists(SEED):
                 await A.set_input_files('#dxfTplFile', SEED); await idle(A, 60000); await W(A, 500); await close_sheets(A)
                 await A.evaluate("""() => { const wrap = (T) => { if (!T || T.__w) return T; const ob = T.build; T.__ob = ob; T.build = function (seed, job) { window.__job = { spans: job.spans.map((s) => ({ ia: s.ia, ib: s.ib, len: s.len, tags: s.tags || '' })) }; return ob.apply(this, arguments); }; T.__w = true; return T; };

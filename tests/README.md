@@ -6,7 +6,7 @@ Every test of G-eSAA, with one command that runs them all and prints **n of n** 
 python3 tests/run_all.py
 ```
 
-On GitHub this runs by itself on every push to the **beta** and **main** branches (`.github/workflows/tests.yml`).
+On GitHub it runs by hand (`.github/workflows/tests.yml`): **Actions → Tests → Run workflow**, pick the branch. It is not yet run on every push: four older team tests (t2433c, t2433d, t24333a, t24333c) still expect an update to wait for **Download and merge**, which Sync now does by itself; once they follow the app, the workflow's top note says how to run it on every push.
 
 All test data is made up (Juan Dela Cruz, Pedro Santos, Maria Garcia, Ana Reyes, DEMO CONTRACTOR, @demo-contractor.example). Nothing confidential is in this folder: no company plan template, no survey, no key.
 
@@ -64,4 +64,4 @@ A folder called `tests/private/` is used by itself if there is one; `.gitignore`
 
 ## On GitHub
 
-After a push to **beta** or **main**, open the repository's **Actions** tab. The **Tests** run is listed with a yellow dot while it runs (about 1 hour), then a green ✓ (every file passed or was skipped) or a red ✗ (one failed). Click the run: its page shows the table, one line per file, with n of n. **test-logs** at the bottom of that page holds every log (kept 14 days). To run it by hand: **Actions → Tests → Run workflow**, pick the branch, **Run workflow**.
+Open the repository's **Actions** tab → **Tests** → **Run workflow**, pick **beta** or **main**. The **Tests** run is listed with a yellow dot while it runs (about 1 hour), then a green ✓ (every file passed or was skipped) or a red ✗ (one failed). Click the run: its page shows the table, one line per file, with n of n. **test-logs** at the bottom of that page holds every log (kept 14 days). To run it by hand: **Actions → Tests → Run workflow**, pick the branch, **Run workflow**.

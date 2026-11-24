@@ -73,7 +73,7 @@ async def main():
             v, t = await team_row(A)
             check('A1 Juan (company A): Settings → Team is there', v, t)
             await open_team(A); await confirm_email(A, JUAN); await role(A, 'Coordinator')
-            await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
+            await open_mbx(A); await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
             await open_team(B); await confirm_email(B, PEDRO); await role(B, 'Field Partner')
             await B.locator('#tmCoList .tmrow', has_text='Juan Dela Cruz').locator('[data-join]').click(); await idle(B)
             await open_team(A); await A.locator('#tmMemList [data-accept]').first.click(); await idle(A); await W(A, 300)
