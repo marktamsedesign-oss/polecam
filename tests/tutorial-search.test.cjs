@@ -111,6 +111,8 @@ const LINES = [
   ['7.6', '!same stamp on the plan\'s photos · !geotag stamp on the plan · plan photo stamp · caption band', 'fieldsettings planstyle'],
   // (beta 7.8, Drawing photos): the Drawing's photos where the plan puts them; drag one to place it by hand, Back to automatic
   ['Drawing photos', '!drag a photo · !back to automatic · photo placed by hand · move photo on the drawing', 'drawing'],
+  // (Drawing preview): the Drawing shows the plan as its PDF prints it, its sheet grid, Regenerate plan preview
+  ['Drawing preview', '!regenerate plan preview · plan preview · sheet grid · drawing grid · pdf preview on the drawing', 'drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];

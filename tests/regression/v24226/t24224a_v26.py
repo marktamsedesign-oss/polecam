@@ -125,7 +125,8 @@ async def main():
         await pg.evaluate("() => __polecam.setFibers(__polecam.fibers())"); await W(pg, 1500)
         b7 = await pg.evaluate("(id) => __polecam.points.find((x) => x.id === id).boq", ids['P7'])
         check('E2. chosen by hand (144C): it stays when the route changes (no longer the app\'s)', b7.get('clo') == '144C' and not b7.get('cloAuto'), b7)
-        # the Drawing screen
+        # the Drawing screen (its own labels: drawn as before, not the plan's preview (Drawing preview))
+        await pg.evaluate("() => __polecam.drwPlanHold && __polecam.drwPlanHold(true)")
         await pg.click('#drawBtn'); await W(pg, 2500)
         bl = await pg.evaluate("() => [...(__polecam.drw.blocks || new Map()).entries()].map(([k, b]) => [k, b.kind, b.cid, b.size || '', !!b.old])")
         check('F1. the Drawing: the dummy NAP (DN) at CC-9101 and the closure at CC-9107 (CL-0001 · 144C) on the cable', sorted([kof.get(k, k), kd, c, s_] for k, kd, c, s_, _ in bl) == [['P1', 'dn', 'DN-01', ''], ['P7', 'clo', 'CL-0001', '144C']], bl)
