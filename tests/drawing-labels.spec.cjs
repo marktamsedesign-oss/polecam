@@ -5,7 +5,8 @@
      the item where it was put (its box's middle = its anchor + the pin), first: an automatic item on that place moves aside; a cable label away
      from its cable gets the plan's arrow (shoulder, line, solid arrowhead), a number or pole details away from the pole a thin line; a cable label
      placed by hand is that cable's label there (no other beside it). Tidy: at every grid the same place; a pole's number is in its block and moves
-     with it (no number of its own to move; a numPin of a pole left out). Across a sheet's edge: said in the notes and on the item.
+     with it (no number of its own to move; a numPin of a pole left out). (Plan kept) a cell holding an item placed by hand (its box, its line
+     or arrow) that no sheet prints becomes a printed GEO sheet; one across a sheet's edge says the sheets it is cut on (cut), and the notes.
    - Byte for byte: with no pin (none, empty, pins that name nothing) the DXF and its PDF as beta 7.9 made them (their SHA-256): a made-up job of
      12 poles with photos, numbers and its cable labelled, Standard, Tidy and numbers only, on both made-up templates; 300 poles.
    - The PDF's own drawing code (dxfpdf.js planList): each item of the display list says which of report.movable it draws (own), the photos too.
@@ -14,7 +15,12 @@
      drawn where it was let go and still there when the new preview comes, and the export's plan has it there by hand with its arrow or line;
      Undo (↶) takes the changes back one at a time; Back to automatic for one, and for all of them (asked first, Cancel keeps them); without pins
      the export's DXF is the same as before any was made. Tidy (on a computer): a pole's block is dragged with its number and its photo. In Edit
-     route nothing is dragged. No page errors, no page sideways.
+     route nothing is dragged. (Plan kept) a cable label dragged into a cell with no sheet: that sheet prints and the Drawing boxes it; pole details
+     across a sheet's edge: outlined orange and said when tapped, as a photo is; the grid kept from the first item placed by hand of any kind
+     and let go when none is left (Back to automatic for one or all, Undo); the owner's sequence (a number, pole details and a cable label
+     placed by hand; exported, AutoCAD files and PDF; another project; back): the same preview, its sheets, names and display list, and the
+     export is the preview, the roads got once; Tidy keeps its grid (without it, the same job's plan would find 220 m sheets for its 440 m).
+     No page errors, no page sideways.
    Uses an isolated browser profile and a local HTTP server; every name, number and place is made up. */
 'use strict';
 const { test, before, after } = require('node:test');
@@ -118,9 +124,16 @@ test('the builder: a number, a pole\'s details and a cable label placed by hand 
   const r2 = T.build(SEED_SQ, madeUpJob({ cabPin: { [cab.key]: { at: [cab.box[0] - cab.anchor[0] + 4 * ua[0], cab.box[1] - cab.anchor[1] + 4 * ua[1]], rot: cab.box[4] } } })), C2 = by(r2.report.movable, cab.id);
   assert.equal(C2.how, 'by hand'); assert.equal(C2.lead, false); assert.equal(C2.handles.length, 1, 'beside its cable: the text only'); near(C2.box[4], cab.box[4], 1e-6, 'along its cable');
   assert.deepEqual(r1.report.notes, [], 'nothing across a sheet\'s edge');
-  // a pin across the sheet's edge: said, and flagged on the item
-  const G = r0.report.grid, s = G.sheets[0].box, d1 = by(M0, 'lbl:s1'), r3 = T.build(SEED_SQ, madeUpJob({ lblPin: { s1: [s[0] - d1.anchor[0], 0, 0] } }));
-  assert.equal(by(r3.report.movable, 'lbl:s1').edge, 'cut'); assert.ok(r3.report.notes.some((t) => /^Labels, numbers or pole details placed by hand across a sheet's edge .*: CC-9001 details$/.test(t)), JSON.stringify(r3.report.notes));
+  // a pin across the sheet's edge, into a cell with no sheet: that cell prints too ((Plan kept), as a photo's), the item says the two sheets it is cut on, and the notes
+  const G = r0.report.grid, s = G.sheets[0].box, d1 = by(M0, 'lbl:s1'), r3 = T.build(SEED_SQ, madeUpJob({ lblPin: { s1: [s[0] - d1.anchor[0], 0, 0] } })), L3 = by(r3.report.movable, 'lbl:s1'), S3 = r3.report.grid.sheets;
+  assert.equal(S3.length, G.sheets.length + 1, 'a sheet added'); const added = S3.find((x) => x.forPhoto); assert.ok(added && added.box[2] === s[0], `the cell west of it: ${JSON.stringify(S3)}`);
+  assert.deepEqual(L3.cut, [G.sheets[0].name, added.name].sort(), 'cut on both, as a photo\'s photoAt[id].cut');
+  assert.ok(r3.report.notes.some((t) => /^Labels, numbers or pole details placed by hand across a sheet's edge .*: CC-9001 details$/.test(t)), JSON.stringify(r3.report.notes));
+  assert.ok(r3.report.notes.some((t) => /^GEO sheets added so that every photo and pole drawn prints .*: /.test(t)), JSON.stringify(r3.report.notes));
+  // a cable label placed by hand in a cell with no sheet (its arrow over the cells between): those cells print
+  const tgt = [s[2] + G.cell / 2, (s[1] + s[3]) / 2], r4 = T.build(SEED_SQ, madeUpJob({ cabPin: { [cab.key]: { at: [tgt[0] - cab.anchor[0], tgt[1] - cab.anchor[1]], rot: 0 } } })), C4 = by(r4.report.movable, cab.id), S4 = r4.report.grid.sheets;
+  assert.equal(C4.how, 'by hand'); assert.equal(C4.lead, true); assert.ok(S4.some((x) => x.forPhoto && x.box[0] <= tgt[0] && tgt[0] <= x.box[2] && x.box[1] <= tgt[1] && tgt[1] <= x.box[3]), `its sheet added: ${JSON.stringify(S4)}`);
+  assert.ok(!C4.cut, 'inside its sheet');
 });
 
 test('the builder, Tidy: a pole\'s block placed by hand (its number in it) is where it was put at every grid; a number of a pole is not moved on its own', () => {
@@ -193,20 +206,35 @@ const POLES = []; for (let i = 0; i < 8; i++) POLES.push([`s${i + 1}`, `CC-${900
 const RECS = POLES.map(([id, poleId, lat, lon], i) => ({ id, project: NAME, element: 'Pole', poleId, poleType: 'Concrete', status: 'Proposed', lat, lon, accuracy: 4.2, created: `2026-11-01T08:0${i}:00.000Z`, updated: T0, takenAt: T0, by: USER.name, boq: { owner: 'Electric', clamp: '8-10' } }));
 const LINKS = POLES.slice(1).map((p, i) => [POLES[i][0], p[0], 'F12']);
 const NO_PINS = { phPin: {}, numPin: {}, lblPin: {}, cabPin: {} };
-/** The app with the made-up project (photos and numbers on the plan: exp), the made-up template on the phone; each export's job pins, report and DXF kept. */
+// ((Plan kept)) another made-up project 2 km away (4 poles), and OpenStreetMap as Overpass answers it, made up (as plan-keep.spec.cjs's): a street 9 m
+// south of the first poles, an avenue 9 m east of the others, a chapel; a road along the other project
+const OTHER = 'DEMO DRAW OTHER', LA0 = 7.10465, LO0 = 125.6010, DD = 0.00036;
+const PO = []; for (let i = 0; i < 4; i++) PO.push([`o${i + 1}`, `CC-${9201 + i}`, 7.1230, 125.6200 + i * DD]);
+const RECS_O = PO.map(([id, poleId, lat, lon], i) => ({ ...RECS[i], id, project: OTHER, poleId, lat, lon }));
+const way = (id, name, hw, pts) => ({ type: 'way', id, tags: { highway: hw, name }, geometry: pts.map(([lat, lon]) => ({ lat, lon })) });
+const OVERPASS = { version: 0.6, elements: [way(1, 'MADE-UP ST', 'residential', [[LA0 - 0.00008, LO0 - 0.0006], [LA0 - 0.00008, LO0 + 4 * DD + 0.00008]]),
+  way(2, 'SAMPLE AVE', 'tertiary', [[LA0 - 0.00008, LO0 + 4 * DD + 0.00008], [LA0 + 3 * DD + 0.0006, LO0 + 4 * DD + 0.00008]]),
+  way(3, 'DEMO RD', 'residential', [[7.1230 - 0.00008, 125.6194], [7.1230 - 0.00008, 125.6200 + 4 * DD]]),
+  { type: 'node', id: 9, lat: LA0 + 0.0002, lon: LO0 + 2 * DD, tags: { name: 'MADE-UP CHAPEL', amenity: 'place_of_worship' } }] };
+/** The app with the made-up project (photos and numbers on the plan: exp), the made-up template on the phone; each export's job pins, report and DXF kept.
+ *  o.other: the other made-up project too; o.roads: OpenStreetMap answers (made up; calls: each download's area), else offline. */
 async function open(o) {
   o = o || {};
   const ctx = await browser.newContext({ viewport: o.desk ? { width: 1280, height: 900 } : { width: 390, height: 844 }, isMobile: !o.desk, hasTouch: !o.desk, deviceScaleFactor: 1, acceptDownloads: true, serviceWorkers: 'block' });
-  await ctx.route('**/*', (r) => (r.request().url().startsWith(base) ? r.continue() : r.abort()));
+  const calls = [];
+  await ctx.route('**/*', (r) => { const u = r.request().url(); if (u.startsWith(base)) return r.continue();
+    if (o.roads && u.startsWith('https://overpass-api.de/')) { const q = decodeURIComponent(String(r.request().postData() || '').replace(/^data=/, '').replace(/\+/g, ' ')), m = /way\["highway"\]\(([^)]*)\)/.exec(q); calls.push(m ? m[1] : q.slice(0, 80));
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OVERPASS) }); }
+    return r.abort(); });
   const page = await ctx.newPage(), errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(base + 'manifest.json');
-  await page.evaluate(async ({ RECS, NAME, USER, LINKS, exp }) => {
+  await page.evaluate(async ({ RECS, NAME, USER, LINKS, exp, other }) => {
     await new Promise((res, rej) => { const r = indexedDB.open('polecam', 2); r.onupgradeneeded = () => { const d = r.result; for (const [n, k] of [['points', 'id'], ['photos', 'id'], ['tiles', 'k'], ['packs', 'k']]) if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, { keyPath: k }); };
       r.onsuccess = () => { const d = r.result, tx = d.transaction('points', 'readwrite'), st = tx.objectStore('points'); st.clear(); RECS.forEach((x) => st.put(x)); tx.oncomplete = () => { d.close(); res(); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); });
-    localStorage.setItem('polecam.settings', JSON.stringify({ projects: [NAME], project: NAME, sampleDone: true, saveCheck: false, zone: 51, user: USER, v17: 1, v20: 1, v64addr: 1, plNotice: 1, routeTip: true, rtGrabTip: true, drawHintOff: false, drawMapKind: 'off', drawLegendOpen: false,
-      exp: { dxfMode: 'tpl', dxfPdf: false, dxfCef: false, planOut: 'files', ...exp }, meta: { [NAME]: { mode: 'survey', purpose: 'As-plan', contractor: 'DEMO CONTRACTOR', links: LINKS, cables24: true } } }));
-  }, { RECS, NAME, USER, LINKS, exp: o.exp || {} });
+    localStorage.setItem('polecam.settings', JSON.stringify({ projects: other ? [NAME, other.name] : [NAME], project: NAME, sampleDone: true, saveCheck: false, zone: 51, user: USER, v17: 1, v20: 1, v64addr: 1, plNotice: 1, routeTip: true, rtGrabTip: true, drawHintOff: false, drawMapKind: 'off', drawLegendOpen: false,
+      exp: { dxfMode: 'tpl', dxfPdf: false, dxfCef: false, planOut: 'files', ...exp }, meta: { [NAME]: { mode: 'survey', purpose: 'As-plan', contractor: 'DEMO CONTRACTOR', links: LINKS, cables24: true }, ...(other ? { [other.name]: { mode: 'survey', purpose: 'As-plan', contractor: 'DEMO CONTRACTOR', links: other.links, cables24: true } } : {}) } }));
+  }, { RECS: o.other ? RECS.concat(RECS_O) : RECS, NAME, USER, LINKS, exp: o.exp || {}, other: o.other ? { name: OTHER, links: PO.slice(1).map((q, i) => [PO[i][0], q[0], 'F12']) } : null });
   await page.goto(base + 'index.html');
   await page.waitForFunction(() => !!window.__polecam && !!document.getElementById('exportBtn') && window.__polecam.points.length > 0, null, { timeout: 60000 });
   await page.waitForTimeout(1200);
@@ -220,20 +248,29 @@ async function open(o) {
   }, SEED_SQ);
   await page.evaluate(async () => {
     if (!window.GeDxfTpl) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'dxftpl.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
-    const T = window.GeDxfTpl, real = T.build; T.__w = true; window.__exp = [];
-    T.build = function (seed, job) { const out = real.call(this, seed, job); window.__exp.push({ pins: JSON.parse(JSON.stringify({ phPin: job.phPin, numPin: job.numPin, lblPin: job.lblPin, cabPin: job.cabPin })), movable: JSON.parse(JSON.stringify(out.report.movable)), notes: out.report.notes.slice(), text: out.text }); return out; };
+    const T = window.GeDxfTpl, real = T.build; T.__w = true; window.__exp = []; window.__outs = [];
+    T.build = function (seed, job) { // ((Plan kept)) and its grid kept, its roads, its sheets; with window.__alt, the same job without its grid kept (the grid the plan would find)
+      const alt = window.__alt && job.gridKeep ? (() => { const j = structuredClone(job); delete j.gridKeep; const G = real.call(this, seed, j).report.grid || {}; return { cell: G.cell, n: G.n, names: (G.sheets || []).map((x) => x.name) }; })() : null;
+      const out = real.call(this, seed, job), G = out.report.grid || {}; window.__outs.push(out);
+      window.__exp.push({ pins: JSON.parse(JSON.stringify({ phPin: job.phPin, numPin: job.numPin, lblPin: job.lblPin, cabPin: job.cabPin })), movable: JSON.parse(JSON.stringify(out.report.movable)), notes: out.report.notes.slice(), text: out.text,
+        gridKeep: job.gridKeep || null, roads: (job.roads || []).length, sheets: out.report.sheets.slice(), grid: { cell: G.cell, n: G.n, kept: !!G.kept, sheets: JSON.parse(JSON.stringify(G.sheets || [])) }, alt });
+      return out; };
   });
-  return { ctx, page, errors };
+  return { ctx, page, errors, calls };
 }
 const closeAll = async (page) => { for (let i = 0; i < 8; i++) { if (!(await page.evaluate(() => document.querySelectorAll('section.sheet:not([hidden])').length))) return; await page.goBack(); await page.waitForTimeout(500); } };
 const pl = (page) => page.evaluate(() => window.__polecam.drwPlan());
 const mvOf = (page) => page.evaluate(() => window.__polecam.drwMv());
-/** The Drawing, opened (Back first to the main screen), looking at the route (0.45 m a pixel), clear of the drawing's tools. */
-async function drawing(page) {
+/** The Drawing, opened (Back first to the main screen), looking at the route (mpp: 0.45 m a pixel), clear of the drawing's tools. */
+async function drawing(page, mpp) {
   await closeAll(page); await page.evaluate(() => document.getElementById('drawBtn').click()); await page.waitForTimeout(700);
   await page.evaluate(() => { const d = document.querySelector('dialog[open]'); if (d) d.close(); });
-  await page.evaluate(() => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); window.__polecam.drwLook(7.10465 + 0.0006, 125.6010 + 0.0012, 0.45, r.width / 2, r.height * 0.45); });
+  await look(page, 7.10465 + 0.0006, 125.6010 + 0.0012, mpp || 0.45, 0.5, 0.45);
 }
+/** The Drawing looking at lat, lon (mpp metres a pixel) at fx, fy of its canvas. */
+const look = (page, lat, lon, mpp, fx, fy) => page.evaluate(([la, lo, m, x, y]) => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); window.__polecam.drwLook(la, lo, m, r.width * x, r.height * y); }, [lat, lon, mpp, fx, fy]);
+/** ((Plan kept)) The Drawing looking at E, N (metres), drawn. */
+const centre = (page, E, N) => page.evaluate(([X, Y]) => { window.__polecam.drwView({ cx: X, cy: Y }); window.__polecam.drwRedraw(); }, [E, N]);
 /** Until the plan is shown and not being made again (when: what else it must show). */
 async function shown(page, when) {
   let s = null; for (let i = 0; i < 200; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); return pl(page); } }
@@ -241,20 +278,35 @@ async function shown(page, when) {
 }
 /** Export › Plan drawing (each question answered as a user going on would): the job's pins, the report's movable items, the DXF. */
 async function exportPlan(page) {
-  await closeAll(page); await page.evaluate(() => { window.__exp = []; document.getElementById('exportBtn').click(); }); await page.waitForTimeout(900);
+  await closeAll(page); await page.evaluate(() => { window.__exp = []; window.__outs = []; document.getElementById('exportBtn').click(); }); await page.waitForTimeout(900);
   await page.evaluate(() => { document.getElementById('resultBox').hidden = true; document.getElementById('doDxf').click(); });
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 240; i++) {
     await page.waitForTimeout(250);
     const st = await page.evaluate(() => ({ ask: !document.getElementById('askBox').hidden, res: !document.getElementById('resultBox').hidden }));
     if (st.ask) { await page.evaluate(() => { const B = [...document.querySelectorAll('#askBox .row button')]; (B.find((b) => /Export (without|as it is)|Export as they are/i.test(b.textContent)) || document.querySelector('#askBox .row button.primary') || B.pop()).click(); }); continue; }
     if (st.res) break;
   }
-  const e = await page.evaluate(() => window.__exp); assert.equal(e.length, 1, 'one plan made'); return e[0];
+  const e = await page.evaluate(() => window.__exp); assert.equal(e.length, 1, 'one plan made');
+  e[0].hash = await page.evaluate(async () => { // ((Plan kept)) its display list's hash, as the Drawing's (dxfpdf.js's planList of the DXF and its report)
+    if (!window.GeDxfPdf) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'dxfpdf.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    const o = window.__outs[0]; return window.__polecam.planListHash(o.text, o.report); });
+  return e[0];
 }
 /** An item dragged by (dx, dy) page pixels; at, while it is held: what the Drawing says. */
 async function drag(page, x, y, dx, dy, at) {
   await page.mouse.move(x, y); await page.mouse.down(); for (let k = 1; k <= 12; k++) { await page.mouse.move(x + dx * k / 12, y + dy * k / 12); await page.waitForTimeout(16); }
   const held = at ? await mvOf(page) : null; await page.mouse.up(); return held;
+}
+/** ((Plan kept)) The plan shown (shown's), its display list's hash, its movable items, the grid and roads kept with the project. */
+const snap = async (page, s) => ({ ...(s || (await pl(page))), hash: await page.evaluate(() => window.__polecam.drwPlanHash()), mv: await mvOf(page), kept: await page.evaluate(() => window.__polecam.planKept()) });
+const names = (s) => s.sheets.map((x) => `${x.sheet}: ${x.name}`);
+const round = (x) => JSON.parse(JSON.stringify(x, (k, v) => (typeof v === 'number' ? +v.toFixed(6) : v)));
+const handPlaced = (M) => round(M.filter((m) => m.how === 'by hand').map((m) => ({ id: m.id, box: m.box, cut: m.cut || null })));
+/** ((Plan kept)) Another project, through Projects (as the owner does), and back to the main screen. */
+async function openProject(page, name) {
+  await closeAll(page); await page.evaluate(() => document.getElementById('projectBtn').click()); await page.waitForTimeout(800);
+  await page.evaluate((nm) => document.querySelector(`#taskList .task[data-name="${nm}"]`).click(), name); await page.waitForTimeout(600);
+  assert.equal(await page.evaluate(() => window.__polecam.S.project), name); await closeAll(page);
 }
 const pinsKept = (page) => page.evaluate(() => { const m = JSON.parse(localStorage.getItem('polecam.settings')).meta['DEMO DRAW TEST']; return { phPin: m.phPin || {}, numPin: m.numPin || {}, lblPin: m.lblPin || {}, cabPin: m.cabPin || {} }; });
 const onScreen = (m, vw) => m.x > 24 && m.x < vw - 100 && m.y > 130 && m.y < 640;
@@ -320,7 +372,7 @@ test('a phone: a number, a pole\'s details and a cable label tapped and dragged;
   assert.equal((await pl(page)).phAll, '2 items placed by hand · Back to automatic');
   await page.click('#drawPhAll'); await page.waitForTimeout(300);
   assert.equal(await page.evaluate(() => document.getElementById('askTitle').textContent), 'Back to automatic: 2 items?');
-  assert.match(await page.evaluate(() => document.getElementById('askText').textContent), /^The 1 pole's details and 1 cable label placed by hand go back where the plan puts them\. The next export has them there too\. Undo \(↶\) brings them back\.$/);
+  assert.match(await page.evaluate(() => document.getElementById('askText').textContent), /^The 1 pole's details and 1 cable label placed by hand go back where the plan puts them, and the plan's sheets are worked out again \(kept as they were while things were placed by hand\)\. The next export has them there too\. Undo \(↶\) brings them back\.$/);
   await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Cancel').click()); await page.waitForTimeout(250);
   assert.equal(Object.keys((await pinsKept(page)).lblPin).length + Object.keys((await pinsKept(page)).cabPin).length, 2, 'Cancel: kept');
   await page.click('#drawPhAll'); await page.waitForTimeout(300);
@@ -364,6 +416,135 @@ test('a computer, Tidy: a pole\'s block dragged with its number and its photo; b
   assert.deepEqual(await pinsKept(page), before, 'Edit route: no pin changed');
   await page.evaluate(() => window.__polecam.drwEdit(false)); await page.waitForTimeout(300);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'no page sideways');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ((Plan kept)) the pins and the fix's mechanisms: cells holding an item placed by hand print, the grid kept from the first pin of any kind, one edge warning
+const inSheet = (S, E, N) => S.sheets.some((x) => E >= x.box[0] && E <= x.box[2] && N >= x.box[1] && N <= x.box[3]);
+const made = async (page) => { const s = await pl(page); return s ? s.made : 0; };
+const keptNow = (page) => page.evaluate(() => window.__polecam.planKept());
+
+test('a computer: a cable label dragged into a cell with no sheet: that sheet prints and the Drawing boxes it; a pole\'s details across a sheet\'s edge: outlined, said, cut on both; Back to automatic for all lets the grid go', async () => {
+  const { ctx, page, errors } = await open({ desk: true, exp: { dxfMarks: 'both', dxfLabels: 'std' } });
+  await drawing(page, 0.5); const s0 = await snap(page, await shown(page, (x) => x.count && x.count.pictures === 8));
+  assert.equal(s0.kept.grid, null, 'no grid kept before anything is placed by hand');
+  // the cable label taken past the nearest edge of its sheet (the whole label, 15 m clear), into a cell no sheet prints
+  const cab = s0.mv.items.find((m) => m.kind === 'cable'), [E, N] = cab.box, r = Math.hypot(cab.box[2], cab.box[3]) / 2 + 15;
+  const sh = s0.sheets.find((x) => E >= x.box[0] && E <= x.box[2] && N >= x.box[1] && N <= x.box[3]); assert.ok(sh, 'the cable label on a sheet');
+  const to = [[sh.box[2] + r, N], [sh.box[0] - r, N], [E, sh.box[3] + r], [E, sh.box[1] - r]].filter(([x, y]) => !inSheet(s0, x, y)).sort((a, b) => Math.hypot(a[0] - E, a[1] - N) - Math.hypot(b[0] - E, b[1] - N))[0];
+  assert.ok(to && Math.hypot(to[0] - E, to[1] - N) < 300, JSON.stringify({ to, sheets: s0.sheets }));
+  await centre(page, (E + to[0]) / 2, (N + to[1]) / 2); await page.waitForTimeout(300);
+  let c = (await mvOf(page)).items.find((m) => m.id === cab.id), n0 = (await pl(page)).n;
+  await drag(page, c.x, c.y, (to[0] - E) / 0.5, -(to[1] - N) / 0.5);
+  assert.ok((await mvOf(page)).pins.cabPin[cab.id.slice(4)], 'kept');
+  const k1 = (await keptNow(page)).grid; assert.ok(k1 && Array.isArray(k1.geo) && k1.n === 1 && k1.lab === 'std', `the grid kept at the first label placed by hand: ${JSON.stringify(k1)}`);
+  const s1 = await snap(page, await shown(page, (x) => x.n > n0)), c1 = s1.mv.items.find((m) => m.id === cab.id), add = s1.sheets.filter((x) => x.forPhoto);
+  assert.equal(c1.how, 'by hand'); near(c1.box[0], to[0], 0.05, 'there E'); near(c1.box[1], to[1], 0.05, 'there N'); assert.equal(c1.cut, null, 'not across an edge');
+  assert.equal(add.length, 1, `one sheet added: ${names(s1)}`); const X = add[0];
+  assert.ok(c1.box[0] - r + 15 >= X.box[0] && c1.box[0] + r - 15 <= X.box[2] && c1.box[1] - r + 15 >= X.box[1] && c1.box[1] + r - 15 <= X.box[3], 'the label inside it');
+  assert.ok(s0.sheets.every((x) => s1.sheets.some((y) => y.name === x.name && y.box.every((v, i) => Math.abs(v - x.box[i]) < 1e-6))), 'the others as they were');
+  await centre(page, (X.box[0] + X.box[2]) / 2, (X.box[1] + X.box[3]) / 2); await page.waitForTimeout(400);
+  assert.ok((await pl(page)).gridDrawn.some((g) => g.name === X.name), `the Drawing boxes ${X.name}: ${JSON.stringify((await pl(page)).gridDrawn)}`);
+  const e1 = await exportPlan(page);
+  assert.deepEqual(e1.sheets, names(s1), 'the export prints it'); assert.ok(e1.grid.sheets.some((x) => x.name === X.name && x.forPhoto));
+  assert.deepEqual(e1.gridKeep, { origin: k1.geo, n: 1 }, 'the grid kept'); assert.equal(e1.hash, s1.hash, 'the export is the preview');
+  // a pole's details dragged onto the nearest edge of its sheet: outlined orange on the Drawing, said when tapped, cut on two printed sheets (as a photo)
+  await drawing(page, 0.5); let s2 = await snap(page, await shown(page));
+  const det = s2.mv.items.filter((m) => m.kind === 'details' && m.how === 'auto').map((m) => { const S = s2.sheets.find((x) => m.box[0] >= x.box[0] && m.box[0] <= x.box[2] && m.box[1] >= x.box[1] && m.box[1] <= x.box[3]);
+    const ds = [[m.box[0] - S.box[0], S.box[0], m.box[1]], [S.box[2] - m.box[0], S.box[2], m.box[1]], [m.box[1] - S.box[1], m.box[0], S.box[1]], [S.box[3] - m.box[1], m.box[0], S.box[3]]].sort((u, v) => u[0] - v[0])[0]; return { m, d: ds[0], to: [ds[1], ds[2]] }; }).sort((u, v) => u.d - v.d)[0];
+  assert.ok(det && det.d < 300, JSON.stringify(det));
+  await centre(page, (det.m.box[0] + det.to[0]) / 2, (det.m.box[1] + det.to[1]) / 2); await page.waitForTimeout(300);
+  c = (await mvOf(page)).items.find((m) => m.id === det.m.id); n0 = (await pl(page)).n;
+  await drag(page, c.x, c.y, (det.to[0] - det.m.box[0]) / 0.5, -(det.to[1] - det.m.box[1]) / 0.5);
+  s2 = await snap(page, await shown(page, (x) => x.n > n0)); const D2 = s2.mv.items.find((m) => m.id === det.m.id);
+  assert.equal(D2.how, 'by hand'); assert.ok(Array.isArray(D2.cut) && D2.cut.length === 2 && D2.cut.every((nm) => s2.sheets.some((x) => x.name === nm)), `cut on two printed sheets: ${JSON.stringify(D2.cut)} / ${names(s2)}`);
+  assert.deepEqual(s2.mv.items.filter((m) => m.cut).map((m) => m.id), [det.m.id], 'only that one outlined');
+  await page.mouse.click(D2.x, D2.y); await page.waitForTimeout(300);
+  assert.match((await mvOf(page)).info, new RegExp(`^Pole details of CC-\\d+ · placed by hand on the plan · across the edge of sheets ${D2.cut[0]} and ${D2.cut[1]}: it prints cut on both, drag it inside oneBack to automatic$`));
+  assert.match(await page.evaluate(() => document.getElementById('drawLegendBody').textContent), /A photo across a sheet’s edge \(orange\): it prints cut on both sheets \(a label, number or pole’s details too\); drag it inside one/);
+  const e2 = await exportPlan(page), M2 = by(e2.movable, det.m.id);
+  assert.deepEqual(M2.cut, D2.cut, 'the export: cut on the same two'); assert.ok(e2.notes.some((t) => /^Labels, numbers or pole details placed by hand across a sheet's edge /.test(t)), JSON.stringify(e2.notes));
+  assert.equal(e2.hash, s2.hash, 'the export is the preview');
+  // Back to automatic for all: asked, then no pin, no grid kept, the plan as before the edits
+  await drawing(page, 0.5); await shown(page);
+  for (let i = 0; i < 40 && !(await pl(page)).phAll; i++) await page.waitForTimeout(250);
+  const n1 = (await pl(page)).n; await page.click('#drawPhAll'); await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => document.getElementById('askTitle').textContent), 'Back to automatic: 2 items?');
+  await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
+  assert.deepEqual(await pinsKept(page), NO_PINS); assert.equal((await keptNow(page)).grid, null, 'the grid kept let go');
+  const s3 = await snap(page, await shown(page, (x) => x.n > n1)); assert.deepEqual(names(s3), names(s0), 'the sheets as the plan finds them'); assert.equal(s3.hash, s0.hash, 'the plan as before the edits');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('the owner\'s sequence with a number, a pole\'s details and a cable label placed by hand: exported (AutoCAD files and PDF), another project, back: the same preview (sheets, names, display list); the export is the preview; the roads got once', async () => {
+  const { ctx, page, errors, calls } = await open({ desk: true, other: true, roads: true, exp: { dxfMarks: 'both', dxfLabels: 'std', dxfPdf: true } });
+  await drawing(page); const s0 = await snap(page, await shown(page, (x) => x.count && x.count.pictures === 8));
+  assert.ok(s0.kept.roads && s0.kept.roads.length === 1 && s0.kept.roads[0].src === 'osm' && s0.kept.roads[0].roads >= 2, `the roads got and kept: ${JSON.stringify(s0.kept)}`);
+  const bb = (k) => k.roads[0].bb.map((v) => v.toFixed(6)).join(','), got = (k) => calls.filter((c) => c === bb(k)).length; // (the downloads of a project's roads for its plan)
+  assert.equal(got(s0.kept), 1, `downloaded once: ${JSON.stringify(calls)}`); assert.equal(s0.kept.grid, null, 'no grid kept before an edit');
+  const cab = s0.mv.items.find((m) => m.kind === 'cable' && onScreen(m, 880));
+  for (const [id, dx, dy] of [['num:s3', 40, -45], ['lbl:s3', -30, -70], [cab && cab.id, -60, 70]]) {
+    const m = (await mvOf(page)).items.find((x) => x.id === id); assert.ok(m && onScreen(m, 880), `${id} on the screen: ${JSON.stringify(m)}`);
+    const n0 = (await pl(page)).n; await drag(page, m.x, m.y, dx, dy); await shown(page, (x) => x.n > n0);
+    for (let i = 0; i < 3 && (await mvOf(page)).items.find((x) => x.id === id).how !== 'by hand'; i++) { const n1 = (await pl(page)).n; await shown(page, (x) => x.n > n1); }
+    assert.equal((await mvOf(page)).items.find((x) => x.id === id).how, 'by hand', id);
+    if (id === 'num:s3') assert.ok((await keptNow(page)).grid, 'the grid kept at the first item placed by hand (a number)');
+  }
+  const s1 = await snap(page), k1 = s1.kept.grid, pins1 = await pinsKept(page);
+  assert.ok(k1 && k1.n === 1 && k1.lab === 'std', JSON.stringify(k1)); assert.deepEqual(names(s1), names(s0), 'the same sheets and names after the edit');
+  // the export (AutoCAD files and their PDF): the same job's inputs (the roads kept, the pins, the grid kept); its sheets, items and display list the preview's
+  const e = await exportPlan(page);
+  assert.deepEqual(e.pins, pins1, 'the pins'); assert.deepEqual(e.gridKeep, { origin: k1.geo, n: 1 }, 'the grid kept'); assert.equal(e.roads, s0.kept.roads[0].roads, 'the roads kept');
+  assert.deepEqual(e.sheets, names(s1), 'the export\'s sheets: the Drawing\'s boxes'); assert.deepEqual(handPlaced(e.movable), handPlaced(s1.mv.items), 'each where the Drawing shows it');
+  assert.equal(e.hash, s1.hash, 'the export\'s plan drawn as the preview\'s, item for item');
+  assert.ok(await page.evaluate(() => !!window.GeDxfPdf), 'its PDF made'); assert.equal(got(s0.kept), 1, 'the export used the roads kept (no download for the plan)');
+  // another project, its Drawing; then back
+  await openProject(page, OTHER); let n0 = await made(page); await drawing(page); const so = await snap(page, await shown(page, (x) => x.made > n0));
+  assert.ok(so.hash && so.hash !== s1.hash, 'the other project\'s own plan'); assert.ok(so.kept.roads && bb(so.kept) !== bb(s0.kept), 'its own roads');
+  await openProject(page, NAME); n0 = await made(page); await drawing(page); const s2 = await snap(page, await shown(page, (x) => x.made > n0));
+  assert.deepEqual(names(s2), names(s1), 'the same sheets and names'); assert.equal(s2.hash, s1.hash, 'the same plan, item for item');
+  assert.deepEqual(handPlaced(s2.mv.items), handPlaced(s1.mv.items)); assert.deepEqual(s2.mv.pins, s1.mv.pins); assert.deepEqual(s2.kept.grid, k1, 'the grid kept');
+  assert.equal(got(s0.kept), 1, 'no download again');
+  // exported again: the same
+  const e2 = await exportPlan(page); assert.equal(e2.hash, s1.hash); assert.deepEqual(e2.sheets, e.sheets); assert.deepEqual(round(e2.movable), round(e.movable));
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'no page sideways');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('a computer, Tidy: with pole details and a cable label placed by hand the plan keeps its grid (without it, found again: 440 m sheets to 220 m); Undo to none and Back to automatic for the last one let it go', async (t) => {
+  const { ctx, page, errors } = await open({ desk: true, exp: { dxfMarks: 'both', dxfLabels: 'tidy' } });
+  await page.addStyleTag({ content: '#drawHint{display:none!important}' });
+  await drawing(page); const s0 = await snap(page, await shown(page, (x) => x.count && x.count.pictures === 8)), cell0 = s0.sheets[0].box[2] - s0.sheets[0].box[0];
+  const LOOK = { s3: [LA0 + 0.00002, LO0 + 0.00078], cab: [LA0 + 0.0011, LO0 + 0.00139] }; // (where the owner's case was: s3's block up, the cable label of s7-s8 aside)
+  const view = async (L) => { await drawing(page); await shown(page); await look(page, L[0], L[1], 0.16, 0.42, 0.45); await page.waitForTimeout(300); };
+  const item = async (id) => (await mvOf(page)).items.find((x) => (id === 'cable' ? x.kind === 'cable' : x.id === id));
+  const place = async (L, id, dd) => { await view(L); const m = await item(id); assert.ok(m, id); const n0 = (await pl(page)).n; await drag(page, m.x, m.y, dd[0], dd[1]); return snap(page, await shown(page, (x) => x.n > n0)); };
+  // s3's block placed by hand: the grid kept; Undo: none placed by hand, the grid let go; placed again: kept again
+  let s1 = await place(LOOK.s3, 'lbl:s3', [30, -140]);
+  assert.ok(s1.kept.grid && s1.kept.grid.lab === 'tidy' && s1.kept.grid.cell === cell0, `kept: ${JSON.stringify(s1.kept.grid)}`);
+  await page.click('#drawUndo'); await page.waitForTimeout(300);
+  assert.deepEqual(await pinsKept(page), NO_PINS); assert.equal((await keptNow(page)).grid, null, 'Undo to none: the grid let go');
+  s1 = await place(LOOK.s3, 'lbl:s3', [30, -140]); assert.ok(s1.kept.grid, 'kept again');
+  // the cable label placed by hand too: the same grid, sheets and names
+  const s2 = await place(LOOK.cab, 'cable', [-90, 60]), it = s2.mv.items.find((x) => x.kind === 'cable' && x.how === 'by hand');
+  assert.ok(it, 'the cable label by hand'); assert.deepEqual(names(s2), names(s0), 'the same sheets and names'); assert.equal(s2.sheets[0].box[2] - s2.sheets[0].box[0], cell0, 'the same size');
+  assert.deepEqual(s2.kept.grid, s1.kept.grid, 'the grid kept as it was');
+  // the export: with the grid kept; the same job without it: the plan finds another grid (what Tidy did before)
+  await page.evaluate(() => { window.__alt = true; });
+  const e = await exportPlan(page);
+  assert.deepEqual(e.gridKeep, { origin: s1.kept.grid.geo, n: s1.kept.grid.n }); assert.equal(e.grid.cell, cell0); assert.deepEqual(e.sheets, names(s0)); assert.equal(e.hash, s2.hash, 'the export is the preview');
+  assert.ok(e.alt && e.alt.cell < cell0, `without the grid kept, another grid: ${JSON.stringify(e.alt)} (kept: ${cell0} m)`);
+  t.diagnostic(`Tidy, a block and a cable label placed by hand: the grid kept, ${cell0} m sheets ${e.sheets.join(', ')}; without it ${e.alt.cell} m sheets ${e.alt.names.join(', ')}`);
+  // Back to automatic for each: the last one lets the grid go
+  for (const [L, id] of [[LOOK.cab, it.id], [LOOK.s3, 'lbl:s3']]) {
+    await view(L); const m = await item(id); await page.mouse.click(m.x, m.y); await page.waitForTimeout(250); assert.equal((await mvOf(page)).sel, id);
+    await page.click('#drawMvAuto'); await page.waitForTimeout(300);
+    assert.equal(!!(await keptNow(page)).grid, id === it.id, id === it.id ? 'one left: kept' : 'none left: let go');
+  }
+  assert.deepEqual(await pinsKept(page), NO_PINS);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
