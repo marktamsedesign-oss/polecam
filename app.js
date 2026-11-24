@@ -12018,6 +12018,20 @@
   }
   /** v2.42.28's Plan settings: Plan style, its cards (the old name kept for the tests and the tutorial's planset). */
   function openPlanSet() { openStyle(); }
+  /* (Plan style wide) the owner: "Allow the plan style to expand on browser mode giving users room for navigation and ease of view on the
+     settings. side bar on a laptop browser is very small". Beside the Drawing on a computer, Plan style and Export are wide (index.html:
+     --sidew; Plan style's preview beside its cards); Narrower in their top bar gives the Drawing its room back (400 px, as before), Wider
+     the room again: kept on this computer (S.sideNarrow). A phone, or either screen opened away from the Drawing, does not change. */
+  function sideWSync() {
+    const nar = !!S.sideNarrow; document.body.classList.toggle('sidenarrow', nar);
+    document.querySelectorAll('[data-sidew]').forEach((b) => {
+      const t = nar ? 'Wider panel: more room for the settings' : 'Narrower panel: more room for the Drawing';
+      b.querySelector('span').textContent = nar ? 'Wider' : 'Narrower'; b.setAttribute('aria-label', t); b.title = `${t} (kept on this computer)`;
+      b.querySelector('path:last-child').setAttribute('d', nar ? 'M10 12h7' : 'M15 12H8'); b.querySelector('path:nth-child(2)').setAttribute('d', nar ? 'M15 7l-5 5 5 5' : 'M10 7l5 5-5 5');
+    });
+  }
+  document.querySelectorAll('[data-sidew]').forEach((b) => b.addEventListener('click', () => { S.sideNarrow = !S.sideNarrow; persist(); sideWSync(); if (!$('drwStyle').hidden) requestAnimationFrame(() => DSP.onScroll()); LOG.info('side.width', { narrow: !!S.sideNarrow }); })); // (the preview: small again as the cards scroll, in the narrow panel)
+  sideWSync();
   $('plRtaLink').addEventListener('click', () => { plShow('stNum'); setTimeout(() => DSP.toRow($('stRtaRow')), 0); }); // Owner colours and key › ((beta 7.8, Plan style cards): further down its card)
   // beta 7.6 / 2.45.8: Change › under Stamp on the plan's photos (the geotag stamp used): Export's Photos with their locations, its tick marked
   $('stPhStampGeoGo').addEventListener('click', () => {

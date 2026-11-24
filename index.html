@@ -1531,9 +1531,23 @@ body.fixing #mapSummary{display:none}
 #export.plan:not(.planall) .xcard:not(#dxfCard),#export.plan:not(.planall) #xAsk,#export.plan:not(.planall) #exportScope,#export.plan:not(.planall) #xPicks,#export.plan:not(.planall) #xTiles,#export.plan:not(.planall) #xMoreT,#export.plan:not(.planall) #xGetH{display:none!important} /* beta 6.7 (UX step 3): Export plan: the Plan drawing row, Other exports › for the rest */
 #export.plan:not(.side){top:8vh;border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.25);overflow:hidden}
 body.deskpane #drawing .drwwhatbox{position:static;width:400px;max-height:none;flex:none;border-radius:0;box-shadow:none;border-left:1px solid var(--line)}
-body.deskpane #export.side,body.deskpane #drwStyle.side{left:auto;width:400px;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18)}
-body.deskpane.drwside #drawing:not(.whaton) .drwcol{margin-right:400px}
-body.deskpane.drwside #drawing>header{margin-right:400px}
+body.deskpane #export.side,body.deskpane #drwStyle.side{left:auto;width:var(--sidew);border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18)}
+body.deskpane.drwside #drawing:not(.whaton) .drwcol{margin-right:var(--sidew)}
+body.deskpane.drwside #drawing>header{margin-right:var(--sidew)}
+/* (Plan style wide) the owner: "Allow the plan style to expand on browser mode giving users room for navigation and ease of view on the
+   settings. side bar on a laptop browser is very small". Beside the Drawing on a computer, Plan style and Export take most of the width
+   (Plan style: its preview beside the cards, each in a column of its own; Export: its rows at a readable width, the tiles three to a
+   row); Narrower (in the panel's top bar) gives the Drawing its room back: 400 px as before, kept on this computer (S.sideNarrow) */
+body.deskpane{--sidew:clamp(720px,62vw,1100px)}
+body.deskpane.sidenarrow{--sidew:400px}
+body.deskpane.drwside #drawing.whaton .drwcol{margin-right:max(0px,calc(var(--sidew) - 400px))} /* (the drawings' list, 400 px, under the panel) */
+.sidewbtn{display:none;align-items:center;gap:4px;min-height:40px;padding:0 12px 0 8px;border-radius:999px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.12);color:inherit;font:inherit;font-weight:700;font-size:calc(14px * var(--fs));flex:none;cursor:pointer;white-space:nowrap}
+.sidewbtn svg{width:20px;height:20px;flex:none}
+body.deskpane .sheet.side .sidewbtn{display:inline-flex}
+@container (min-width:720px){#drwStyle.side .dsgrid{grid-template-columns:minmax(0,1.2fr) minmax(400px,1fr)}#drwStyle.side .dsctl{padding:6px 18px 28px}}
+body.deskpane:not(.sidenarrow) #export.side > .body{padding-left:max(16px,calc(50% - 380px));padding-right:max(16px,calc(50% - 380px))}
+body.deskpane:not(.sidenarrow) #export.side .xtiles{grid-template-columns:repeat(3,minmax(0,1fr))}
+body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #drawPv{left:calc(min(230px,58%) + 22px);transform:none;max-width:calc(100% - min(230px,58%) - 84px)} /* (the Drawing narrower beside the wide panel: the drawing shown beside its open legend, not under it) */
 #dxfMxHost{max-width:560px}
 #tmRole .chip.wait{border-style:dashed;opacity:.85} /* beta 3.3: Coordinator asked for */
 </style>
@@ -1934,6 +1948,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="drwStyleTitle">Plan style</h2>
+    <button class="sidewbtn" type="button" data-sidew aria-label="Narrower panel: more room for the Drawing" title="Narrower panel: more room for the Drawing (kept on this computer)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16"/><path d="M10 7l5 5-5 5"/><path d="M15 12H8"/></svg><span>Narrower</span></button>
   </header>
   <div class="body dsbody"><div class="dsgrid">
    <div class="dsprevcol" id="dsPrevCol">
@@ -2153,6 +2168,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="exportTitle">Export</h2>
     <span class="crpill" id="exportCredit" hidden></span>
+    <button class="sidewbtn" type="button" data-sidew aria-label="Narrower panel: more room for the Drawing" title="Narrower panel: more room for the Drawing (kept on this computer)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16"/><path d="M10 7l5 5-5 5"/><path d="M15 12H8"/></svg><span>Narrower</span></button>
   </header>
   <div class="body">
     <p class="hint" id="exportScope"></p>

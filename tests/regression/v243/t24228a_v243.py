@@ -109,9 +109,9 @@ async def main():
             drawing: !document.getElementById('drawing').hidden, cards: [...document.querySelectorAll('#export .xcard')].filter((c) => c.offsetParent).length }; }""")
         await pg.screenshot(path=f'{OUT}/e1_export.png')
         check('E1. Export on the Drawing: Export the plan, a panel at the right of the plan (the Drawing still open); the DXF card only: the project and template, the 4 drawings, the names in one line, the PDF switch, Export 4 drawings',
-              rows4 == ['*:photo', 'ELEC:DLPC:num', 'PLDT:photo', 'PLDT:num'] and 'plan' in st['cls'] and 'side' in st['cls'] and st['body'] and st['title'] == 'Export' and st['w'] == 400 and st['left'] == 1040 and st['formats'] == 'none'
+              rows4 == ['*:photo', 'ELEC:DLPC:num', 'PLDT:photo', 'PLDT:num'] and 'plan' in st['cls'] and 'side' in st['cls'] and st['body'] and st['title'] == 'Export' and st['w'] >= 720 and abs(st['left'] + st['w'] - 1440) <= 1 and st['formats'] == 'none'
               and len(st['files']) == 4 and st['files'][1].startswith('2 DLPC poles 44') and 'Number' in st['files'][1] and 'RTA_SYN' in st['sum'] and '✓ On your company' in st['sum'] and 'Juan' not in st['names'] and not st['edit']
-              and st['btn'] == 'Make 4 plan drawings' and st['drawing'] and st['cards'] == 1, st)  # (beta 6.7, UX step 3: Export plan; the button worded like the row)
+              and st['btn'] == 'Make 4 plan drawings' and st['drawing'] and st['cards'] == 1, st)  # (beta 6.7, UX step 3: Export plan; the button worded like the row) ((Plan style wide): the panel wide by default on a computer, 62 % of 1440; Narrower: 400 px)
         await pg.click('#sigChange'); await pg.fill('#sigDesign', 'Juan Dela Cruz'); await W(pg, 200); await pg.click('#sigChange'); await W(pg, 200)
         sig = await pg.evaluate("[document.getElementById('sigLine').innerText, __polecam.S.sig.design]")
         await pg.keyboard.press('Escape'); await W(pg, 500)
@@ -165,7 +165,7 @@ async def main():
         await pg.click('#plMore > summary'); await W(pg, 400); sty = await pg.evaluate("document.getElementById('plMore').open")
         await pg.keyboard.press('Escape'); await W(pg, 400); shut = await pg.evaluate("[document.getElementById('drwStyle').hidden, document.body.classList.contains('drwside')]")
         check('P1. Plan style (its button on the Drawing): beside the plan on a computer; the 8 main rows in their cards, 7 cards and 6 sections in More settings (template, logo, kind of drawing and zone in it); the clamp types switch; Esc closes',
-              'side' in st['cls'] and st['w'] == 400 and st['rows'] == BASIC and len(st['secs']) == 13 and st['ca'] and st['num']
+              'side' in st['cls'] and st['w'] >= 720 and st['rows'] == BASIC and len(st['secs']) == 13 and st['ca'] and st['num']
               and st['tpl'].startswith('✓') and st['kind'] == 'Company plan' and st['inside'] and ca1 is False and ca2 is True and sty and shut == [True, False], (st, ca1, ca2, sty, shut))
         await close_sheets(pg); await pg.click('#drawBtn'); await W(pg, 1500); await pg.click('#drawSetBtn'); await W(pg, 500)
         await pg.click('#stPole > summary'); await W(pg, 300); await pg.click('label[for="psCA"]'); await W(pg, 300)
