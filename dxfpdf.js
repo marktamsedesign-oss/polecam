@@ -10,7 +10,9 @@
    an SHX font's look (its widths, its strokes as thick as the line weight), a text's own width factor, and the default line
    weight 0.25 mm.
      GeDxfPdf.toPdf(dxfText, { images: { 'VICINITY_MAP.jpg': Uint8Array (JPEG), … }, title, deflate: async (bytes) => bytes })
-     → Promise<Uint8Array> (the PDF), with .report = { sheets, pictures, missing } */
+     → Promise<Uint8Array> (the PDF), with .report = { sheets, pictures, missing }
+   (Drawing preview) GeDxfPdf.planList(dxfText, report) → the plan's model space as its GEO sheets print it, drawn by the same draw(), as a
+     display list in model metres for the Drawing screen (modelList); toPdf's output is the same as before, byte for byte. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./dxftpl.js'), require('./reports.js'));
   else root.GeDxfPdf = factory(root.GeDxfTpl, root.PoleReports);
@@ -144,6 +146,7 @@
       if (images.has(file)) return images.get(file);
       const src = o.images && (o.images[file] || o.images[file.toLowerCase()]); let im = null;
       if (src) { try { const bytes = src.bytes || src, info = R.jpegInfo(bytes); im = { idx: images.size, bytes, ...info }; } catch (e) { im = null; } }
+      else if (o.model) im = { idx: images.size, file }; // ((Drawing preview) its place only: the Drawing draws its picture there)
       if (!im) rep.missing.add(file);
       images.set(file, im); return im;
     };
@@ -367,21 +370,42 @@
     const MODEL = S.E.filter((r) => owner(r) === S.modelH && String(get(r, 67, '0')).trim() !== '1');
     const modelIns = new Set(MODEL.filter((r) => typ(r) === 'INSERT').map((r) => get(r, 5)));
     const model = []; for (const r of S.E) { const ow = owner(r); if ((ow === S.modelH && String(get(r, 67, '0')).trim() !== '1') || (typ(r) === 'ATTRIB' && modelIns.has(ow)) || (typ(r) === 'SEQEND' && modelIns.has(ow))) model.push(r); }
-    const pages = [];
-    for (const L of layouts) {
-      if (o.only && !o.only.includes(L.name)) continue;
+    /** A sheet's paper: what is on its sheet, its page (W, H: pt), pt per paper unit (k) and the matrix from the paper to the page; null:
+     *  nothing to print. */
+    function paperOf(L) {
       const br = S.br.get(L.brh), bn = get(br, 2), ents = bn === '*Paper_Space' ? S.E.filter((e) => String(get(e, 67, '0')).trim() === '1') : (S.blocks.get(bn) || { ents: [] }).ents;
       // the paper: the layout's plot window, else what its sheet holds
       let win = [num(L.rec, 48, 0), num(L.rec, 49, 0), num(L.rec, 140, 0), num(L.rec, 141, 0)];
       if (!(win[2] - win[0] > 1 && win[3] - win[1] > 1)) {
         const B = ents.filter((e) => typ(e) !== 'VIEWPORT').map((e) => boxOf(e)).filter(Boolean);
-        if (!B.length) continue;
+        if (!B.length) return null;
         win = [Math.min(...B.map((b) => b[0])), Math.min(...B.map((b) => b[1])), Math.max(...B.map((b) => b[2])), Math.max(...B.map((b) => b[3]))];
       }
       const pw = Math.max(num(L.rec, 44, 420), num(L.rec, 45, 297)) * 72 / 25.4, ph = Math.min(num(L.rec, 44, 420), num(L.rec, 45, 297)) * 72 / 25.4;
       const land = win[2] - win[0] >= win[3] - win[1], W = land ? pw : ph, H = land ? ph : pw;
       const k = Math.min(W / (win[2] - win[0]), H / (win[3] - win[1])), ox = (W - (win[2] - win[0]) * k) / 2, oy = (H - (win[3] - win[1]) * k) / 2;
-      const PM = [k, 0, 0, k, ox - win[0] * k, oy - win[1] * k], ops = [];
+      return { ents, W, H, k, PM: [k, 0, 0, k, ox - win[0] * k, oy - win[1] * k] };
+    }
+    /* (Drawing preview) The plan's model space as its sheets print it, for the Drawing screen: draw() as the map viewport of the plan's
+       sheet (mo.sheet, else GEO) draws it, with its frozen layers and at its scale (the line weights, line types and texts as printed),
+       from mo.origin (model units); what is outside mo.cull ([x0, y0, x1, y1]) and the entities of mo.skip (handles) left out. Its PDF
+       operators, in pt from the origin; K: pt per model unit on that sheet. The pages (toPdf) are not made. */
+    function modelOps(mo) {
+      const L = layouts.find((x) => x.name === (mo.sheet || 'GEO')) || layouts.find((x) => /^GEO\b/.test(x.name)), pp = L ? paperOf(L) : null; if (!pp) return null;
+      const vps = pp.ents.filter((e) => typ(e) === 'VIEWPORT').slice(1).filter((v) => int(v, 69, 0) !== 1 && !(int(v, 90, 0) & 131072) && num(v, 40, 0) > 0 && num(v, 41, 0) > 0 && num(v, 45, 0) > 0)
+        .sort((a, b) => num(b, 40, 0) * num(b, 41, 0) - num(a, 40, 0) * num(a, 41, 0));
+      const vp = vps.find((v) => Math.abs(num(v, 40, 0) - num(v, 41, 0)) < 1) || vps[0]; if (!vp) return null; // (its map: the square one the plan aims, else the largest)
+      const K = pp.k * num(vp, 41, 0) / num(vp, 45, 0), ox = +((mo.origin || [])[0]) || 0, oy = +((mo.origin || [])[1]) || 0, skip = new Set(mo.skip || []), ops = [];
+      const frozen = new Set([...all(vp, 331), ...all(vp, 341)].map((h2) => LH.get(h2)).filter(Boolean));
+      draw(skip.size ? model.filter((r) => !skip.has(get(r, 5))) : model, [K, 0, 0, K, -ox * K, -oy * K], { ops, k: K, ltk: pp.k, frozen, inh: { color: [0, 0, 0], lw: -3, lt: null }, depth: 0, cull: mo.cull || null });
+      return { ops, K, sheet: L.name, origin: [ox, oy], frozen: [...frozen].sort(), files: Object.fromEntries([...images.values()].filter(Boolean).map((im) => [`Im${im.idx}`, im.file])) };
+    }
+    if (o.model) return modelOps(o.model);
+    const pages = [];
+    for (const L of layouts) {
+      if (o.only && !o.only.includes(L.name)) continue;
+      const pp = paperOf(L); if (!pp) continue;
+      const { ents, W, H, k, PM } = pp, ops = [];
       // the viewports: what each shows of model space, clipped to it
       for (const vp of ents.filter((e) => typ(e) === 'VIEWPORT').slice(1)) { // (the first is the sheet itself; 68 / 69 are 0 on a sheet not open)
         if (int(vp, 69, 0) === 1 || (int(vp, 90, 0) & 131072)) continue; // the sheet's own, or turned off
@@ -440,10 +464,90 @@
     return out;
   }
 
+  /* (Drawing preview) The plan's model space as the plan's sheets print it, for a canvas (the Drawing screen): modelOps' PDF operators
+     read back as a PDF reader reads them, so what the canvas draws is what the PDF prints (the same lines, colours, line weights, line
+     types, texts and symbols). o: { origin: [x, y], cull: [x0, y0, x1, y1], skip: [handle…], sheet } (model units). Returns null without
+     a plan sheet, else { K: pt per model unit printed, sheet, origin, frozen, pts: Float32Array (x, y in model units from the origin),
+     subs: Int32Array ([first point, points, closed] each subpath), items: Int32Array ([kind, index, first subpath, subpaths] each, in the
+     order printed; kind 0: a line (index: styles), 1: a fill, 2: an even-odd fill, 3: a text (index: texts), 4: a picture (index: images)),
+     boxes: Float32Array ([x0, y0, x1, y1] each item), styles: [{ c: '#rrggbb', w, cap, join, dash }], texts: [{ s, f: 0 Helvetica, 1 bold,
+     2 oblique, 3 bold oblique, c, m: [a, b, c, d, e, f] (1 em to model units), w: its Helvetica width (em), sc, lw: an SHX font's
+     strokes, their colour and width (em) }], images: [{ name: its file, m: [a, b, c, d, e, f] (its unit square to model units) }]: each
+     picture's place in the order printed (the pictures are not read), ops: the operators read }. Widths, dashes in model units. */
+  const W1252 = [0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017D, 0, 0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E, 0x0178];
+  function modelList(text, o) {
+    const r = layoutPages(text, { model: o || {} }); if (!r) return null;
+    return { ...listOf(r.ops, r.K, r.files), K: r.K, sheet: r.sheet, origin: r.origin, frozen: r.frozen, ops: r.ops.length };
+  }
+  /** (Drawing preview) The plan's model space for the Drawing, from the plan made (dxftpl.js: its text and report): what is on its GEO sheets
+   *  and a quarter of a sheet round them, from the grid's origin, the grid's own lines and names left out (report.grid: the Drawing draws the
+   *  sheets itself). As modelList; null without a grid. */
+  function planList(text, report) {
+    const G = (report && report.grid) || {}, B = (G.sheets || []).map((x) => x.box), m = (+G.cell || 440) * 0.25; if (!B.length) return null;
+    const cull = [Math.min(...B.map((b) => b[0])) - m, Math.min(...B.map((b) => b[1])) - m, Math.max(...B.map((b) => b[2])) + m, Math.max(...B.map((b) => b[3])) + m];
+    return modelList(text, { origin: G.origin || [0, 0], cull, skip: G.ents || [] });
+  }
+  function listOf(ops, K, files) {
+    const P = [], SUB = [], IT = [], BX = [], styles = [], sIdx = new Map(), texts = [], images = [], stack = [], A = [];
+    let g = { S: '#000000', F: '#000000', w: 1, J: 0, j: 0, d: null, f: 0, tr: 0, tw: 0, cm: null }, tm = null, sub0 = 0, cur = -1, b = null;
+    const hex = (x, y, z) => `#${[x, y, z].map((v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, '0')).join('')}`;
+    const styleIx = (key, mk) => { let i = sIdx.get(key); if (i == null) { i = styles.length; styles.push(mk()); sIdx.set(key, i); } return i; };
+    const grow = (x, y) => { if (!b) b = [x, y, x, y]; else { if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; } };
+    const pt = (x, y) => { const X = x / K, Y = y / K; P.push(X, Y); grow(X, Y); if (cur >= 0) SUB[cur + 1]++; };
+    const move = (x, y) => { cur = SUB.length; SUB.push(P.length / 2, 0, 0); pt(x, y); };
+    const paint = (kind, style) => { const n = SUB.length / 3 - sub0; if (n > 0 && b) { IT.push(kind, style, sub0, n); BX.push(b[0], b[1], b[2], b[3]); } sub0 = SUB.length / 3; cur = -1; b = null; };
+    const boxOf = (m, x0, y0, x1, y1) => { let q = null; for (const [u, v] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) { const x = m[0] * u + m[2] * v + m[4], y = m[1] * u + m[3] * v + m[5]; if (!q) q = [x, y, x, y]; else { q[0] = Math.min(q[0], x); q[1] = Math.min(q[1], y); q[2] = Math.max(q[2], x); q[3] = Math.max(q[3], y); } } return q; };
+    const str = (s) => { let o2 = ''; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); o2 += c >= 0x80 && c < 0xA0 ? String.fromCharCode(W1252[c - 0x80] || 63) : s[i]; } return o2; };
+    for (const op of ops) {
+      const n = op.length; let i = 0;
+      while (i < n) {
+        const ch = op.charCodeAt(i);
+        if (ch === 32 || ch === 10 || ch === 13 || ch === 9) { i++; continue; }
+        if ((ch >= 48 && ch <= 57) || ch === 45 || ch === 46 || ch === 43) { let j = i + 1; while (j < n) { const c = op.charCodeAt(j); if ((c >= 48 && c <= 57) || c === 46 || c === 101 || c === 69 || c === 45) j++; else break; } A.push(+op.slice(i, j)); i = j; continue; }
+        if (ch === 47) { let j = i + 1; while (j < n && !/[\s/\[\]()]/.test(op[j])) j++; A.push(op.slice(i + 1, j)); i = j; continue; } // a name
+        if (ch === 40) { let j = i + 1, s = ''; while (j < n && op[j] !== ')') { if (op[j] === '\\' && j + 1 < n) { s += op[j + 1]; j += 2; } else s += op[j++]; } A.push({ s }); i = j + 1; continue; } // a string (pdfEsc: \( \) \\)
+        if (ch === 91) { const j = op.indexOf(']', i); A.push(op.slice(i + 1, j < 0 ? n : j).trim().split(/\s+/).filter(Boolean).map(Number)); i = j < 0 ? n : j + 1; continue; } // an array of numbers
+        let j = i + 1; while (j < n) { const c = op.charCodeAt(j); if (c === 32 || c === 10 || c === 13 || c === 9) break; j++; }
+        const w = op.slice(i, j); i = j;
+        switch (w) {
+          case 'q': stack.push({ ...g }); break;
+          case 'Q': g = stack.pop() || g; break;
+          case 'RG': g.S = hex(A[0], A[1], A[2]); break;
+          case 'rg': g.F = hex(A[0], A[1], A[2]); break;
+          case 'w': g.w = A[0]; break;
+          case 'J': g.J = A[0]; break;
+          case 'j': g.j = A[0]; break;
+          case 'd': g.d = Array.isArray(A[0]) && A[0].length ? A[0] : null; break;
+          case 'm': move(A[0], A[1]); break;
+          case 'l': if (cur < 0) move(A[0], A[1]); else pt(A[0], A[1]); break;
+          case 'h': if (cur >= 0) SUB[cur + 2] = 1; break;
+          case 're': move(A[0], A[1]); pt(A[0] + A[2], A[1]); pt(A[0] + A[2], A[1] + A[3]); pt(A[0], A[1] + A[3]); SUB[cur + 2] = 1; break;
+          case 'S': { const c = g.S, lw = g.w / K, J = g.J, jn = g.j, d = g.d ? g.d.map((x) => x / K) : null;
+            paint(0, styleIx(`S${c}|${lw}|${J}|${jn}|${d}`, () => ({ c, w: lw, cap: J === 1 ? 'round' : J === 2 ? 'square' : 'butt', join: jn === 1 ? 'round' : jn === 2 ? 'bevel' : 'miter', dash: d }))); break; }
+          case 'f': case 'F': case 'f*': { const c = g.F; paint(w === 'f*' ? 2 : 1, styleIx(`F${c}`, () => ({ c }))); break; }
+          case 'n': SUB.length = sub0 * 3; cur = -1; b = null; break; // (a clip's path: nothing drawn)
+          case 'BT': tm = [1, 0, 0, 1, 0, 0]; break;
+          case 'Tf': g.f = { F1: 0, F2: 1, F3: 2, F4: 3 }[A[0]] || 0; break;
+          case 'Tm': tm = A.slice(0, 6); break;
+          case 'Tr': g.tr = A[0]; break;
+          case 'Tw': g.tw = A[0]; break;
+          case 'Tj': { const s = str((A[0] && A[0].s) || ''), m = tm || [1, 0, 0, 1, 0, 0], sp = (s.match(/ /g) || []).length, wE = R.textWidth(s, 1, g.f === 1 || g.f === 3) + (g.tw || 0) * sp, mm = m.map((v) => v / K);
+            texts.push({ s, f: g.f, c: g.F, m: mm, w: wE, sc: g.tr === 2 ? g.S : null, lw: g.tr === 2 ? g.w / (Math.hypot(m[2], m[3]) || 1) : 0 });
+            IT.push(3, texts.length - 1, 0, 0); BX.push(...boxOf(mm, 0, -0.25, wE, 1)); break; }
+          case 'cm': g.cm = A.slice(0, 6); break;
+          case 'Do': { const m = (g.cm || [1, 0, 0, 1, 0, 0]).map((v) => v / K); images.push({ name: (files && files[A[0]]) || A[0], m }); IT.push(4, images.length - 1, 0, 0); BX.push(...boxOf(m, 0, 0, 1, 1)); break; }
+          default: break; // (ET, W, W*: nothing to draw)
+        }
+        A.length = 0;
+      }
+    }
+    return { pts: new Float32Array(P), subs: new Int32Array(SUB), items: new Int32Array(IT), boxes: new Float32Array(BX), styles, texts, images };
+  }
+
   async function toPdf(text, o) {
     const L = layoutPages(text, o || {}), pdf = await writePdf(L.pages, L.images, o || {});
     /** @type {any} */ (pdf).report = L.report;
     return pdf;
   }
-  return { toPdf, layoutPages, writePdf, ACI, plain };
+  return { toPdf, layoutPages, writePdf, modelList, planList, ACI, plain };
 }));

@@ -1825,6 +1825,7 @@
        printed on the A3 PDF (h mm; 0: Auto, a tenth of the sheet as before) and colour (0: by layer). Standard draws them as before unless set. */
     const GS = job.gridStyle || {}, GPOS = { tr: [1, 1, 3], tl: [-1, 1, 1], br: [1, -1, 9], bl: [-1, -1, 7] }, gPos = GPOS[GS.pos] ? GS.pos : 'tr', gCol = +GS.color > 0 ? +GS.color : job.labels === 'tidy' ? TC0 + 0xc8c8c8 : null; // (beta 6.0: Tidy's Auto: light grey, ACI 9 for older CAD; Standard: the template's layer colour)
     const ghS = +GS.h > 0 ? Math.min(cell * 0.2, +GS.h / ((printK || 0.62) * NU)) : gh, gSet = gPos !== 'tr' || +GS.h > 0 || gCol != null;
+    const gridM0 = o.model.length; // ((Drawing preview) the grid's lines and names, report.grid.ents: the Drawing draws the plan's sheets itself)
     for (let i = I0; i <= I1; i++) for (let j = J0; j <= J1; j++) {
       if (!gridAll && ![-1, 0, 1].some((di) => [-1, 0, 1].some((dj) => used.has(key(i + di, j + dj))))) continue;
       const x0 = gox + i * cell, y0 = goy + j * cell;
@@ -1839,6 +1840,7 @@
         o.mtext(KMLAY, cx + sh, cy - sh, kh, nm, { att: 5, style: 'arial', color: 250 }); o.mtext(KMLAY, cx, cy, kh, nm, { att: 5, style: 'arial', color: 2 });
       }
     }
+    const gridEnts = o.model.slice(gridM0).map((r) => get(r, 5));
     // v2.32: the vicinity map: a street map picture of the area (when the phone could get one), under everything else
     let imgs = null; const getImgs = () => imgs || (imgs = new Images(d, S));
     const VLAY = 'G-ESAA VICINITY', VMAP = 'G-ESAA VICINITY MAP';
@@ -3611,6 +3613,7 @@
     for (const { p, ph, w, h, q, how, lead } of photoPl.out) if (ph && havePhotos) rep.photoAt[String(p.id)] = { x: q[0], y: q[1], w, h, dp: [p.dp[0], p.dp[1]], line: lead ? lead.map((v) => [v[0], v[1]]) : null, how: how === 'by hand' ? 'by hand' : 'auto' };
     for (const [p, a] of tidyPhAt) if (tidyCard.has(p)) rep.photoAt[String(p.id)] = { ...a, dp: [p.dp[0], p.dp[1]], line: null, how: 'auto' };
     if (pinPl.size) rep.photos.byHand = pinPl.size;
+    rep.drawnAt = Object.fromEntries(pts.map((p) => [String(p.id), p.dp ? [p.dp[0], p.dp[1]] : [p.E, p.N]])); // (Drawing preview) where the plan draws each point (beside its road), for the Drawing
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
     if (photoPl.shrunk.length) { const sz = (x) => `${x.p.poleId || x.p.id} ${+(PHMM * x.k).toFixed(1)} mm${x.over ? ' (covering least)' : ''}`; rep.notes.push(`Photos drawn smaller: no place at their size (${+PHMM.toFixed(1)} mm) near their pole, nor further out with a line; the pole first, then its details, then its photo (${photoPl.shrunk.length}): ${photoPl.shrunk.slice(0, 20).map(sz).join(', ')}${photoPl.shrunk.length > 20 ? '…' : ''}`); } // beta 6.7
     if (!TIDY && photoPl.left.length) rep.notes.push(`Photos left out (no place even at their smallest step; the point's number is on the plan; its photo is in the folder): ${photoPl.left.length}: ${photoPl.left.slice(0, 12).map((p) => p.poleId || p.id).join(', ')}${photoPl.left.length > 12 ? '…' : ''}`); // (beta 6.7: never, as far as the measures go)
@@ -4272,7 +4275,10 @@
       if (!done) rep.notes.push(`RTA/JPA legend not drawn: ${tried.length ? `no free room for it on the ${tried.join(' or the ')} sheet` : 'the template has no LEGENDS or KEYMAP sheet'} (Plan style › Pole numbers › Owner colour key on the plan: Under each sheet's BOQ table instead)`); // (beta 6.8, UX step 6: the README note names Plan style's row; nothing drawn changes)
       rep.rtaLegend = { at: 'sheet', sheet: done ? LL.name : null, tried, rows: cats.map((x) => `${x.text} (${x.n || 0})`) };
     }
-    rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0], geo: [gox, goy] }; // (v2.42.25: + the GEO cells' origin)
+    rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0], geo: [gox, goy], // (v2.42.25: + the GEO cells' origin)
+      /* (Drawing preview) the GEO sheets, each its cell: the sheet's tab, the cell's name as the plan writes it (report.sheets) and its square
+         in model metres; ents: the handles of the grid's lines and names in model space (the Drawing draws the sheets itself). The DXF the same. */
+      sheets: geoCells.map((c, k) => ({ sheet: geoNames(N)[k], name: cellName(c.i, c.j), box: [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell] })), ents: gridEnts };
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };
     S = structure(d); centerCache.clear();
