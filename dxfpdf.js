@@ -12,7 +12,8 @@
      GeDxfPdf.toPdf(dxfText, { images: { 'VICINITY_MAP.jpg': Uint8Array (JPEG), … }, title, deflate: async (bytes) => bytes })
      → Promise<Uint8Array> (the PDF), with .report = { sheets, pictures, missing }
    (beta 7.9, Drawing preview) GeDxfPdf.planList(dxfText, report) → the plan's model space as its GEO sheets print it, drawn by the same draw(), as a
-     display list in model metres for the Drawing screen (modelList); toPdf's output is the same as before, byte for byte. */
+     display list in model metres for the Drawing screen (modelList); toPdf's output is the same as before, byte for byte. (Drawing labels) Each
+     item of it says which of report.movable it draws (own). */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./dxftpl.js'), require('./reports.js'));
   else root.GeDxfPdf = factory(root.GeDxfTpl, root.PoleReports);
@@ -175,6 +176,7 @@
       let ins = null, insInh = null; // beta 7.4 / 2.45.6: the block reference the attributes after it belong to
       for (let n = 0; n < recs.length; n++) {
         const r = recs[n], t = typ(r), lay = get(r, 8, '0');
+        if (ctx.tag && !ctx.depth) { const w = ctx.tag.get(get(r, 5)); ctx.tag.cur = w != null ? w : (t === 'ATTRIB' || t === 'SEQEND') && ctx.tag.has(owner(r)) ? ctx.tag.get(owner(r)) : -1; } // ((Drawing labels) the item this record draws, for the Drawing: report.movable)
         if (t === 'INSERT') { ins = r; insInh = null; } else if (t !== 'ATTRIB') ins = null;
         if (t === 'SEQEND' || t === 'ATTDEF' || t === 'VIEWPORT' || t === 'VERTEX') continue;
         const L = LAY.get(lay); if ((L && L.off) || ctx.frozen.has(lay) || int(r, 60, 0) === 1) { if (t === 'POLYLINE') while (n + 1 < recs.length && typ(recs[n + 1]) === 'VERTEX') n++; continue; }
@@ -397,8 +399,10 @@
       const vp = vps.find((v) => Math.abs(num(v, 40, 0) - num(v, 41, 0)) < 1) || vps[0]; if (!vp) return null; // (its map: the square one the plan aims, else the largest)
       const K = pp.k * num(vp, 41, 0) / num(vp, 45, 0), ox = +((mo.origin || [])[0]) || 0, oy = +((mo.origin || [])[1]) || 0, skip = new Set(mo.skip || []), ops = [];
       const frozen = new Set([...all(vp, 331), ...all(vp, 341)].map((h2) => LH.get(h2)).filter(Boolean));
-      draw(skip.size ? model.filter((r) => !skip.has(get(r, 5))) : model, [K, 0, 0, K, -ox * K, -oy * K], { ops, k: K, ltk: pp.k, frozen, inh: { color: [0, 0, 0], lw: -3, lt: null }, depth: 0, cull: mo.cull || null });
-      return { ops, K, sheet: L.name, origin: [ox, oy], frozen: [...frozen].sort(), files: Object.fromEntries([...images.values()].filter(Boolean).map((im) => [`Im${im.idx}`, im.file])) };
+      const tag = mo.tag instanceof Map && mo.tag.size ? mo.tag : null, opOwn = tag ? [] : null; // ((Drawing labels) mo.tag: handle → item: each operator's item (opOwn), as drawn)
+      if (tag) { tag.cur = -1; ops.push = function (...a) { for (const x of a) { Array.prototype.push.call(this, x); opOwn.push(tag.cur); } return this.length; }; }
+      draw(skip.size ? model.filter((r) => !skip.has(get(r, 5))) : model, [K, 0, 0, K, -ox * K, -oy * K], { ops, k: K, ltk: pp.k, frozen, inh: { color: [0, 0, 0], lw: -3, lt: null }, depth: 0, cull: mo.cull || null, tag });
+      return { ops, opOwn, K, sheet: L.name, origin: [ox, oy], frozen: [...frozen].sort(), files: Object.fromEntries([...images.values()].filter(Boolean).map((im) => [`Im${im.idx}`, im.file])) };
     }
     if (o.model) return modelOps(o.model);
     const pages = [];
@@ -466,40 +470,44 @@
 
   /* (beta 7.9, Drawing preview) The plan's model space as the plan's sheets print it, for a canvas (the Drawing screen): modelOps' PDF operators
      read back as a PDF reader reads them, so what the canvas draws is what the PDF prints (the same lines, colours, line weights, line
-     types, texts and symbols). o: { origin: [x, y], cull: [x0, y0, x1, y1], skip: [handle…], sheet } (model units). Returns null without
+     types, texts and symbols). o: { origin: [x, y], cull: [x0, y0, x1, y1], skip: [handle…], sheet, tag } (model units; (Drawing labels) tag: a Map
+     of entity handles to the item each draws (a number)). Returns null without
      a plan sheet, else { K: pt per model unit printed, sheet, origin, frozen, pts: Float32Array (x, y in model units from the origin),
      subs: Int32Array ([first point, points, closed] each subpath), items: Int32Array ([kind, index, first subpath, subpaths] each, in the
      order printed; kind 0: a line (index: styles), 1: a fill, 2: an even-odd fill, 3: a text (index: texts), 4: a picture (index: images)),
-     boxes: Float32Array ([x0, y0, x1, y1] each item), styles: [{ c: '#rrggbb', w, cap, join, dash }], texts: [{ s, f: 0 Helvetica, 1 bold,
+     boxes: Float32Array ([x0, y0, x1, y1] each item), own: Int32Array (each item's tag: the item its entity draws, -1: none; (Drawing labels)),
+     styles: [{ c: '#rrggbb', w, cap, join, dash }], texts: [{ s, f: 0 Helvetica, 1 bold,
      2 oblique, 3 bold oblique, c, m: [a, b, c, d, e, f] (1 em to model units), w: its Helvetica width (em), sc, lw: an SHX font's
      strokes, their colour and width (em) }], images: [{ name: its file, m: [a, b, c, d, e, f] (its unit square to model units) }]: each
      picture's place in the order printed (the pictures are not read), ops: the operators read }. Widths, dashes in model units. */
   const W1252 = [0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017D, 0, 0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E, 0x0178];
   function modelList(text, o) {
     const r = layoutPages(text, { model: o || {} }); if (!r) return null;
-    return { ...listOf(r.ops, r.K, r.files), K: r.K, sheet: r.sheet, origin: r.origin, frozen: r.frozen, ops: r.ops.length };
+    return { ...listOf(r.ops, r.K, r.files, r.opOwn), K: r.K, sheet: r.sheet, origin: r.origin, frozen: r.frozen, ops: r.ops.length };
   }
   /** (beta 7.9, Drawing preview) The plan's model space for the Drawing, from the plan made (dxftpl.js: its text and report): what is on its GEO sheets
    *  and a quarter of a sheet round them, from the grid's origin, the grid's own lines and names left out (report.grid: the Drawing draws the
-   *  sheets itself). As modelList; null without a grid. */
+   *  sheets itself). As modelList; null without a grid. (Drawing labels) own: each item's index in report.movable (the label, number, pole
+   *  details or photo its entity draws; -1: none), so the Drawing can find, outline and move one. */
   function planList(text, report) {
     const G = (report && report.grid) || {}, B = (G.sheets || []).map((x) => x.box), m = (+G.cell || 440) * 0.25; if (!B.length) return null;
     const cull = [Math.min(...B.map((b) => b[0])) - m, Math.min(...B.map((b) => b[1])) - m, Math.max(...B.map((b) => b[2])) + m, Math.max(...B.map((b) => b[3])) + m];
-    return modelList(text, { origin: G.origin || [0, 0], cull, skip: G.ents || [] });
+    const tag = new Map(); ((report && report.movable) || []).forEach((it, i) => (it.handles || []).forEach((h) => tag.set(h, i))); // ((Drawing labels) each item the Drawing may move: its index in report.movable, own)
+    return modelList(text, { origin: G.origin || [0, 0], cull, skip: G.ents || [], tag });
   }
-  function listOf(ops, K, files) {
-    const P = [], SUB = [], IT = [], BX = [], styles = [], sIdx = new Map(), texts = [], images = [], stack = [], A = [];
+  function listOf(ops, K, files, opOwn) {
+    const P = [], SUB = [], IT = [], BX = [], OWN = [], styles = [], sIdx = new Map(), texts = [], images = [], stack = [], A = []; let ow = -1; // ((Drawing labels) OWN: each item's report.movable index (-1: none), from opOwn)
     let g = { S: '#000000', F: '#000000', w: 1, J: 0, j: 0, d: null, f: 0, tr: 0, tw: 0, cm: null }, tm = null, sub0 = 0, cur = -1, b = null;
     const hex = (x, y, z) => `#${[x, y, z].map((v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, '0')).join('')}`;
     const styleIx = (key, mk) => { let i = sIdx.get(key); if (i == null) { i = styles.length; styles.push(mk()); sIdx.set(key, i); } return i; };
     const grow = (x, y) => { if (!b) b = [x, y, x, y]; else { if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; } };
     const pt = (x, y) => { const X = x / K, Y = y / K; P.push(X, Y); grow(X, Y); if (cur >= 0) SUB[cur + 1]++; };
     const move = (x, y) => { cur = SUB.length; SUB.push(P.length / 2, 0, 0); pt(x, y); };
-    const paint = (kind, style) => { const n = SUB.length / 3 - sub0; if (n > 0 && b) { IT.push(kind, style, sub0, n); BX.push(b[0], b[1], b[2], b[3]); } sub0 = SUB.length / 3; cur = -1; b = null; };
+    const paint = (kind, style) => { const n = SUB.length / 3 - sub0; if (n > 0 && b) { IT.push(kind, style, sub0, n); BX.push(b[0], b[1], b[2], b[3]); OWN.push(ow); } sub0 = SUB.length / 3; cur = -1; b = null; };
     const boxOf = (m, x0, y0, x1, y1) => { let q = null; for (const [u, v] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) { const x = m[0] * u + m[2] * v + m[4], y = m[1] * u + m[3] * v + m[5]; if (!q) q = [x, y, x, y]; else { q[0] = Math.min(q[0], x); q[1] = Math.min(q[1], y); q[2] = Math.max(q[2], x); q[3] = Math.max(q[3], y); } } return q; };
     const str = (s) => { let o2 = ''; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); o2 += c >= 0x80 && c < 0xA0 ? String.fromCharCode(W1252[c - 0x80] || 63) : s[i]; } return o2; };
-    for (const op of ops) {
-      const n = op.length; let i = 0;
+    for (let oi = 0; oi < ops.length; oi++) {
+      const op = ops[oi], n = op.length; let i = 0; ow = opOwn ? opOwn[oi] : -1;
       while (i < n) {
         const ch = op.charCodeAt(i);
         if (ch === 32 || ch === 10 || ch === 13 || ch === 9) { i++; continue; }
@@ -533,15 +541,15 @@
           case 'Tw': g.tw = A[0]; break;
           case 'Tj': { const s = str((A[0] && A[0].s) || ''), m = tm || [1, 0, 0, 1, 0, 0], sp = (s.match(/ /g) || []).length, wE = R.textWidth(s, 1, g.f === 1 || g.f === 3) + (g.tw || 0) * sp, mm = m.map((v) => v / K);
             texts.push({ s, f: g.f, c: g.F, m: mm, w: wE, sc: g.tr === 2 ? g.S : null, lw: g.tr === 2 ? g.w / (Math.hypot(m[2], m[3]) || 1) : 0 });
-            IT.push(3, texts.length - 1, 0, 0); BX.push(...boxOf(mm, 0, -0.25, wE, 1)); break; }
+            IT.push(3, texts.length - 1, 0, 0); BX.push(...boxOf(mm, 0, -0.25, wE, 1)); OWN.push(ow); break; }
           case 'cm': g.cm = A.slice(0, 6); break;
-          case 'Do': { const m = (g.cm || [1, 0, 0, 1, 0, 0]).map((v) => v / K); images.push({ name: (files && files[A[0]]) || A[0], m }); IT.push(4, images.length - 1, 0, 0); BX.push(...boxOf(m, 0, 0, 1, 1)); break; }
+          case 'Do': { const m = (g.cm || [1, 0, 0, 1, 0, 0]).map((v) => v / K); images.push({ name: (files && files[A[0]]) || A[0], m }); IT.push(4, images.length - 1, 0, 0); BX.push(...boxOf(m, 0, 0, 1, 1)); OWN.push(ow); break; }
           default: break; // (ET, W, W*: nothing to draw)
         }
         A.length = 0;
       }
     }
-    return { pts: new Float32Array(P), subs: new Int32Array(SUB), items: new Int32Array(IT), boxes: new Float32Array(BX), styles, texts, images };
+    return { pts: new Float32Array(P), subs: new Int32Array(SUB), items: new Int32Array(IT), boxes: new Float32Array(BX), own: new Int32Array(OWN), styles, texts, images };
   }
 
   async function toPdf(text, o) {
