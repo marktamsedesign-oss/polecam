@@ -1543,19 +1543,40 @@
    *        runs: [{ cable, pts: [[E, N], ...], ids: [...] }], spans: [{ a: [E, N], b: [E, N], len, cable, long, lenW, lenC }] (beta 7.5 / 2.45.7: lenW the length written on the span, lenC its UG civil length; none: Math.round(len)),
    *        roads: [{ cls: 'major' | 'minor' | 'path', name, pts: [[E, N], ...] }], roadsNote,
    *        values: { TOKEN: text | { sheet: text } }, maxSpan, mloopLen, cell (m, 440), date (Date),
-   *        phPin: { [pointId]: [dE, dN] } (Drawing photos: a photo placed by hand, its centre that far in metres from its point as drawn) }
-   * returns { text, report } (report.photoAt: { [pointId]: { x, y, w, h, rot?, dp: [E, N], line: [[x, y], …] | null, how: 'auto' | 'by hand' } },
-   *        where each photo went, in the points' metres)
+   *        phPin: { [pointId]: [dE, dN] } (Drawing photos: a photo placed by hand, its centre that far in metres from its point as drawn),
+   *        gridKeep: { origin: [E, N], n } ((Plan kept) the grid kept with a plan edited on the Drawing: its GEO cells' origin, Tidy's split) }
+   * returns { text, report } (report.photoAt: { [pointId]: { x, y, w, h, rot?, dp: [E, N], line: [[x, y], …] | null, how: 'auto' | 'by hand', cut?: [sheet names] } },
+   *        where each photo went, in the points' metres; report.grid: { cell, geo: [E, N], n, sheets: [{ sheet, name, box, forPhoto? }], … })
    */
   /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
       every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
       1.8 / 1.3 mm or pole blocks sit over a road, kept where it leaves fewer (more sheets rather than a block over the road); and with
       the next coarser one where the first guess leaves none, so the cells are as large as they can be. From a copy of the job each time
       (the build moves some of its points, e.g. an ODF beside its tower). Standard: made once, as before. */
+  const copyJob = (v) => (v instanceof Date ? new Date(v.getTime()) : Array.isArray(v) ? v.map(copyJob) : v && typeof v === 'object' && !ArrayBuffer.isView(v) ? Object.keys(v).reduce((o2, k) => { o2[k] = copyJob(v[k]); return o2; }, {}) : v);
+  /** (Plan kept) job.gridKeep { origin: [E, N], n }: the grid of a plan edited on the Drawing, kept with the project (its GEO cells' origin and, Tidy,
+      its split n), so its sheets and their names stay; null when not given. */
+  const gridKeepOf = (job) => { const K = job && job.gridKeep; return K && Array.isArray(K.origin) && K.origin.length === 2 && K.origin.every((v) => Number.isFinite(+v)) ? { origin: [+K.origin[0], +K.origin[1]], n: Math.max(1, Math.min(GRID_FIX_MAX, Math.round(+K.n) || 1)) } : null; };
+  /** (Plan kept) The plan, then again while a photo (one placed by hand, or one the plan put beside its sheet as its last resort), the line of a
+      photo placed by hand or a point's symbol (a pole drawn beside its road over its cell's edge) is partly in a cell no GEO sheet prints: that
+      cell becomes a GEO sheet (job._addCells), the grid as made (its origin, and Tidy's split), so nothing drawn is left off the printed sheets.
+      With everything on a sheet (beta 7.9's plans but these): made once, as before, byte for byte. */
   function build(seedText, job) {
-    if (!job || job.labels !== 'tidy' || job._grid) return buildOne(seedText, job);
-    const copy = (v) => (v instanceof Date ? new Date(v.getTime()) : Array.isArray(v) ? v.map(copy) : v && typeof v === 'object' && !ArrayBuffer.isView(v) ? Object.keys(v).reduce((o2, k) => { o2[k] = copy(v[k]); return o2; }, {}) : v);
-    const j0 = copy(job), at = (n) => { const nj = copy(j0); nj._grid = n; return buildOne(seedText, nj); }, G = (r) => r.report._grid, tried = [];
+    if (!job) return buildOne(seedText, job);
+    const j0 = copyJob(job); let r = buildGrid(seedText, job, j0), add = Array.isArray(j0._addCells) ? j0._addCells.slice() : [];
+    for (let k = 0; k < 3 && r.report._offCells && r.report._offCells.length; k++) {
+      add = add.concat(r.report._offCells); const nj = copyJob(j0); nj.gridOrigin = r.report.grid.geo.slice(); nj._addCells = add; if (nj.labels === 'tidy') nj._grid = r.report.grid.n;
+      const r2 = buildOne(seedText, nj), T0 = r.report.tidy && r.report.tidy.grid; if (T0 && r2.report.tidy) r2.report.tidy.grid = { ...r2.report.tidy.grid, mode: T0.mode, overMax: T0.overMax, overSheets: T0.overSheets, tried: T0.tried };
+      if (!job._grid) delete r2.report._grid; r = r2;
+    }
+    if (r.report._offCells && r.report._offCells.length) r.report.notes.push(`Photos or poles drawn partly where no GEO sheet prints (${r.report._offCells.length} cell${r.report._offCells.length === 1 ? '' : 's'}): check them on the Drawing`); // (not seen: a sheet added each time puts what is drawn there on it)
+    delete r.report._offCells; return r;
+  }
+  /** build without the cells added for photos: Standard, made once; Tidy, at the grid found best (j0: a copy of the job as given). */
+  function buildGrid(seedText, job, j0) {
+    const GK = gridKeepOf(job);
+    if (job.labels !== 'tidy' || job._grid) return buildOne(seedText, job);
+    const at = (n) => { const nj = copyJob(j0); nj._grid = n; return buildOne(seedText, nj); }, G = (r) => r.report._grid, tried = [];
     /* beta 6.0 (the owner: "allow one or two blocks"): a grid is good enough when every label has a free place (nothing over anything)
        and no GEO sheet has more than 2 pole blocks over a road (they cover nothing else, and are listed under the Drawing checks);
        finer only beyond that. ok: good enough; worse: more labels without a place, or as many and more blocks over a road past the
@@ -1563,13 +1584,14 @@
     const fix = Math.round(+((job.gridStyle || {}).split) || 0), ok = (g) => !g.bad && !g.ov && !g.overX && !g.lead, sc = (g) => [g.bad + (g.ov || 0) + (g.lead || 0), g.overX], /* (beta 6.0: a pole's block that needs its line counts as bad, unless lines are allowed) */ worse = (a, b) => { const x = sc(a), y = sc(b); return x[0] > y[0] || (x[0] === y[0] && x[1] > y[1]); };
     const info = (g) => ({ n: g.n, cell: g.cell, sheets: g.sheets, bad: g.bad, over: g.over, overMax: g.overMax, textsOver: g.ov || 0, photosAway: g.phFar || 0, photosAwayMax: g.phFarMax || 0, blocksWithLine: g.leadAll || 0 });
     let r;
-    if (fix >= 1) { r = at(Math.min(GRID_FIX_MAX, fix)); tried.push(G(r)); }
+    if (GK) { r = at(GK.n); tried.push(G(r)); } // ((Plan kept) the plan edited on the Drawing: at the split it was edited at, once)
+    else if (fix >= 1) { r = at(Math.min(GRID_FIX_MAX, fix)); tried.push(G(r)); }
     else {
       r = buildOne(seedText, job); tried.push(G(r));
       if (G(r).n > 1 && ok(G(r))) for (let n = G(r).n - 1; n >= 1; n--) { const r2 = at(n); tried.push(G(r2)); if (!ok(G(r2))) break; r = r2; } // (coarser while good enough)
       else for (let n = G(r).n + 1; n <= GRID_MAX && !ok(G(r)); n++) { const r2 = at(n); tried.push(G(r2)); if (worse(G(r), G(r2))) r = r2; } // (finer until one is good enough, keeping the best)
     }
-    if (r.report.tidy) r.report.tidy.grid = { ...r.report.tidy.grid, mode: fix >= 1 ? 'fixed' : 'auto', overMax: G(r).overMax, overSheets: G(r).overSheets, tried: tried.map(info) };
+    if (r.report.tidy) r.report.tidy.grid = { ...r.report.tidy.grid, mode: GK ? 'kept' : fix >= 1 ? 'fixed' : 'auto', overMax: G(r).overMax, overSheets: G(r).overSheets, tried: tried.map(info) };
     delete r.report._grid; return r;
   }
   function buildOne(seedText, job) {
@@ -1729,8 +1751,8 @@
     const samp = [];
     spans.forEach((sp) => { const a = sp.a, b = sp.b; if (!a || !b) return; const lk = locOfId(sp.ia), n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 10)); for (let s = 0; s <= n; s++) samp.push([a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n, lk]); });
     pts.forEach((p) => samp.push([p.E, p.N, locOfPt.get(p) || 0]));
-    let gox = 0, goy = 0;
-    if (job.gridOrigin) { gox = +job.gridOrigin[0] || 0; goy = +job.gridOrigin[1] || 0; } else {
+    let gox = 0, goy = 0; const GO = job.gridOrigin || (gridKeepOf(job) || {}).origin; // ((Plan kept) job.gridKeep: the grid kept with a plan edited on the Drawing)
+    if (GO) { gox = +GO[0] || 0; goy = +GO[1] || 0; } else {
       const steps = 22, st = cell / steps, every = Math.max(1, Math.ceil(samp.length / 6000)); let best = null;
       for (let a = 0; a < steps; a++) for (let b = 0; b < steps; b++) {
         const ox = a * st, oy = b * st, seen = new Set(); let m = 0;
@@ -1744,9 +1766,13 @@
     const used = new Map(), order = [];
     const visit = (E, N, lk) => { const k = key(ci(E), cj(N)); if (!used.has(k)) { used.set(k, { i: ci(E), j: cj(N), loc: lk }); order.push(k); } };
     samp.forEach((q) => visit(q[0], q[1], q[2]));
+    /* (Plan kept) a cell holding a photo that no GEO sheet printed (see build: job._addCells, [E, N, place] inside each): a GEO sheet too, after the
+       route's own (c.x); named in its place's lettering, the ring round the route's cells growing only where it is past it (the others keep their names) */
+    const xCells = []; for (const c of Array.isArray(job._addCells) ? job._addCells : []) { if (!Array.isArray(c) || !Number.isFinite(+c[0]) || !Number.isFinite(+c[1])) continue; const k = key(ci(+c[0]), cj(+c[1])); if (used.has(k)) continue; visit(+c[0], +c[1], Math.min(Math.max(0, c[2] | 0), nL - 1)); used.get(k).x = true; xCells.push(used.get(k)); }
     // v2.38: each place's cells with a ring of cells round them (its key map), named within the place: row letters from the top,
     // column numbers from the left (with several places, the place's number first: 1B-3, 2A-1)
-    const lr = locs.map((_, k) => { const cs = [...used.values()].filter((c) => c.loc === k); if (!cs.length) return null; const is = cs.map((c) => c.i), js = cs.map((c) => c.j); return { I0: Math.min(...is) - 1, I1: Math.max(...is) + 1, J0: Math.min(...js) - 1, J1: Math.max(...js) + 1 }; });
+    const lr = locs.map((_, k) => { const cs = [...used.values()].filter((c) => c.loc === k && !c.x); if (!cs.length) return null; const is = cs.map((c) => c.i), js = cs.map((c) => c.j); return { I0: Math.min(...is) - 1, I1: Math.max(...is) + 1, J0: Math.min(...js) - 1, J1: Math.max(...js) + 1 }; });
+    for (const c of xCells) { const r = lr[c.loc] || (lr[c.loc] = { I0: c.i, I1: c.i, J0: c.j, J1: c.j }); r.I0 = Math.min(r.I0, c.i); r.I1 = Math.max(r.I1, c.i); r.J0 = Math.min(r.J0, c.j); r.J1 = Math.max(r.J1, c.j); }
     const lrs = lr.filter(Boolean), I0 = Math.min(...lrs.map((r) => r.I0)), I1 = Math.max(...lrs.map((r) => r.I1)), J0 = Math.min(...lrs.map((r) => r.J0)), J1 = Math.max(...lrs.map((r) => r.J1));
     const locOfCell = (i, j) => { const c = used.get(key(i, j)); if (c) return c.loc; const k = lr.findIndex((r) => r && i >= r.I0 && i <= r.I1 && j >= r.J0 && j <= r.J1); return k < 0 ? 0 : k; };
     const cellName = (i, j) => { const k = locOfCell(i, j), r = lr[k] || lrs[0]; return `${nL > 1 ? k + 1 : ''}${letters(r.J1 - j)}-${i - r.I0 + 1}`; };
@@ -1810,6 +1836,8 @@
       const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell);
       return q[0] - hw >= gox + ci * cell + 2 && q[0] + hw <= gox + (ci + 1) * cell - 2 && q[1] - hh >= goy + cj * cell + 2 && q[1] + hh <= goy + (cj + 1) * cell - 2;
     };
+    /** (Plan kept) a line [[x, y], …] only over GEO sheets (each cell it passes prints), looked at every metre. */
+    const lineOnSheets = (L) => { for (let s = 0; s + 1 < L.length; s++) { const a = L[s], b = L[s + 1], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]))); for (let t = 0; t <= n; t++) if (!used.has(key(ci(a[0] + (b[0] - a[0]) * t / n), cj(a[1] + (b[1] - a[1]) * t / n)))) return false; } return true; };
     let nInCell = 0; // v2.42.10: site names kept inside their GEO sheet
     // grid
     const cellsI = I1 - I0 + 1, cellsJ = J1 - J0 + 1, gridAll = cellsI * cellsJ <= 900;
@@ -3466,19 +3494,22 @@
       const PH_FAR = (t) => (t === 'road' || t === 'cable' ? 0.05 : 1), LD_FAR = (t) => (t === 'photo' ? 1 : 0), LD_TXT = (t) => (t === 'road' || t === 'cable' || t === 'photo' ? 0 : 1); // (its line never across a photo; across a label only where nothing else is free)
       // beta 3.4: (relax) where no place past its label is free in its own sheet: anywhere in its own sheet, a little further and smaller
       //           (to 50 %) — still never over a photo or a text, and never cut by the grid line; (relax 2) a pole close to its sheet's
-      //           edge with no room left in its sheet: wholly inside the next sheet, with its line to its pole
+      //           edge with no room left in its sheet: wholly inside the next sheet, with its line to its pole ((Plan kept) a sheet that
+      //           prints, its line over printed sheets only: beta 7.9 put some in a cell no sheet printed); (relax 3, (Plan kept): the last
+      //           place free before one over a text or photo) wholly inside any next cell, which build then makes a GEO sheet
       const farPlace = (S0, relax) => {
         const { p } = S0, base = p.on || p.ov || [0, 1]; let best = null;
         for (const k of [1]) { const w = S0.w * k, h = S0.h * k; // (beta 6.7: at its size only, further out instead)
           for (const dd of relax ? [3, 6, 10, 15, 21, 28, 36, 45, 55, 68, 82] : [3, 6, 10, 15, 21, 28, 36, 46, 58]) for (let a = 0; a <= 180; a += 20) for (const sg of a && a < 180 ? [1, -1] : [1]) {
             const u = rotv(base, sg * a), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9), q = add2(p.dp, u, rOf(p) + dd + t);
             if ([[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].some(([sx, sy]) => R.idx.inside([q[0] + sx * w / 2, q[1] + sy * h / 2], -1, -2))) continue; // off the roads
-            if (!(relax === 2 ? cellHoldsQ(q, w / 2, h / 2, q[0], q[1]) : cellHoldsQ(q, w / 2, h / 2, p.E, p.N))) continue; // beta 3.4: inside its own sheet (relax 2: inside one sheet)
+            if (!(relax >= 2 ? cellHoldsQ(q, w / 2, h / 2, q[0], q[1]) && (relax === 3 || used.has(key(ci(q[0]), cj(q[1])))) : cellHoldsQ(q, w / 2, h / 2, p.E, p.N))) continue; // beta 3.4: inside its own sheet (relax 2: inside one sheet; (Plan kept) a GEO sheet, one that prints; relax 3: any, made a sheet by build)
             if (!relax && p.lblDir && Math.hypot(q[0] - p.dp[0], q[1] - p.dp[1]) - Math.hypot(w, h) / 2 < p.lblFar - 1) continue; // beta 3.4: past its label, not beside the pole
             const box = Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0), hb = spots.hitsW(box, PH_FAR); if (hb >= 0.5) continue; // (a photo, a text or a symbol: never)
             const la = add2(p.dp, u, rOf(p) + 0.3), lb = add2(q, u, -t), L = dist2(la, lb), lead = L > 1.2 ? Spots.box((la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2, L, 0.3, deg(u)) : null;
             if (lead && spots.hitsW(lead, LD_FAR) > 0) continue;
-            if (TIDY && lead && relax !== 2 && spots.hitsW(lead, LD_TXT) > 0) continue; // (beta 6.7: Tidy: its line across no text, symbol or other line, but in the last round)
+            if (relax === 2 && !lineOnSheets([la, lb])) continue; // ((Plan kept) its line too only where GEO sheets print it)
+            if (TIDY && lead && !(relax >= 2) && spots.hitsW(lead, LD_TXT) > 0) continue; // (beta 6.7: Tidy: its line across no text, symbol or other line, but in the last round)
             const cost = dd + a / 20 * 1.5 + (1 - k) * 40 + hb * 5 + (lead ? spots.hitsW(lead, LD_TXT) * 12 : 0);
             if (!best || cost < best.cost) best = { q, u, gap: dd, boxes: [box], w, h, lead: lead ? [la, lb] : null, cost };
           }
@@ -3544,6 +3575,7 @@
            at the smallest step, the place covering least. Listed with its size. Never left out. */
         if (!cn && S0.ph) {
           for (const k of PH_STEPS) { const S1 = { ...S0, w: S0.w * k, h: S0.h * k }, f = (TIDY ? tidyPh(S1) : search(S1, Infinity).free) || farPlace(S1) || farPlace(S1, 1) || farPlace(S1, 2); if (f) { cn = f; S0 = S1; how = `smaller (${Math.round(k * 100)} %), with a line`; shrunk.push({ p, k }); break; } }
+          if (!cn) { const f = farPlace(S0, 3); if (f) { cn = f; how = 'further, with a line, on the next sheet'; } } // ((Plan kept) free, at its size, in a cell next to its sheet that build makes a GEO sheet, rather than over a text or a photo)
           if (!cn) { const k = PH_STEPS[PH_STEPS.length - 1], S1 = { ...S0, w: S0.w * k, h: S0.h * k }, f = anyPlace(S1); if (f) { cn = f; S0 = S1; how = 'smallest, where it covers least'; shrunk.push({ p, k, over: true }); } }
         }
         if (!cn && S0.ph && TIDY) left.push(p); // (beta 4.8: Tidy: no free place near its pole: listed in the README)
@@ -3613,6 +3645,27 @@
     for (const { p, ph, w, h, q, how, lead } of photoPl.out) if (ph && havePhotos) rep.photoAt[String(p.id)] = { x: q[0], y: q[1], w, h, dp: [p.dp[0], p.dp[1]], line: lead ? lead.map((v) => [v[0], v[1]]) : null, how: how === 'by hand' ? 'by hand' : 'auto' };
     for (const [p, a] of tidyPhAt) if (tidyCard.has(p)) rep.photoAt[String(p.id)] = { ...a, dp: [p.dp[0], p.dp[1]], line: null, how: 'auto' };
     if (pinPl.size) rep.photos.byHand = pinPl.size;
+    /* (Plan kept) every photo on a printed sheet (see build): the cells each photo's frame is in (upright, or turned in its Tidy block: its corners,
+       and the four cells round a grid corner inside it), those the line of a photo placed by hand passes, and those of each point's symbol where
+       the plan draws it (a pole beside its road can be drawn over the edge of its pin's cell); the ones no GEO sheet prints go to rep._offCells
+       ([E, N, place] inside each), for build to add. A photo across a sheet's edge says the sheets it is cut on (photoAt[id].cut: their names as
+       the plan writes them), for the Drawing to outline it. */
+    { const off = new Map(), IN = 0.05, offAt = (i, j, lk) => { const k = key(i, j); if (!used.has(k) && !off.has(k)) off.set(k, [gox + (i + 0.5) * cell, goy + (j + 0.5) * cell, lk]); };
+      const frameCells = (a) => {
+        const t = (+a.rot || 0) * Math.PI / 180, c = Math.cos(t), s = Math.sin(t), hw = Math.max(0, a.w / 2 - IN), hh = Math.max(0, a.h / 2 - IN), C = new Map(), at = (i, j) => C.set(key(i, j), [i, j]);
+        const P = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => [a.x + u * hw * c - v * hh * s, a.y + u * hw * s + v * hh * c]); P.forEach((q) => at(ci(q[0]), cj(q[1])));
+        const xs = P.map((q) => q[0]), ys = P.map((q) => q[1]);
+        for (let i = ci(Math.min(...xs)) + 1; i <= ci(Math.max(...xs)); i++) for (let j = cj(Math.min(...ys)) + 1; j <= cj(Math.max(...ys)); j++) {
+          const dx = gox + i * cell - a.x, dy = goy + j * cell - a.y; if (Math.abs(dx * c + dy * s) <= hw && Math.abs(-dx * s + dy * c) <= hh) { at(i - 1, j - 1); at(i, j - 1); at(i - 1, j); at(i, j); } }
+        return [...C.values()];
+      };
+      for (const p of pts) { if (p.onPole || p.el === 'Site' || !p.dp) continue; const r = Math.max(0.3, Math.min(5, rOf(p) || 0)) - IN, lk = locOfPt.get(p) || 0; for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) offAt(ci(p.dp[0] + u * r), cj(p.dp[1] + v * r), lk); } // (a point drawn beside its road in a cell next to its own: its symbol too)
+      for (const [id, a] of Object.entries(rep.photoAt)) {
+        const p = ptById.get(id), lk = (p && locOfPt.get(p)) || 0, C = frameCells(a); C.forEach(([i, j]) => offAt(i, j, lk));
+        if (a.how === 'by hand' && a.line) for (let s = 0; s + 1 < a.line.length; s++) { const u = a.line[s], v = a.line[s + 1], n = Math.max(1, Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]))); for (let k = 0; k <= n; k++) offAt(ci(u[0] + (v[0] - u[0]) * k / n), cj(u[1] + (v[1] - u[1]) * k / n), lk); }
+        if (C.length > 1) a.cut = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort();
+      }
+      if (off.size) rep._offCells = [...off.values()]; }
     rep.drawnAt = Object.fromEntries(pts.map((p) => [String(p.id), p.dp ? [p.dp[0], p.dp[1]] : [p.E, p.N]])); // (beta 7.9, Drawing preview) where the plan draws each point (beside its road), for the Drawing
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
     if (photoPl.shrunk.length) { const sz = (x) => `${x.p.poleId || x.p.id} ${+(PHMM * x.k).toFixed(1)} mm${x.over ? ' (covering least)' : ''}`; rep.notes.push(`Photos drawn smaller: no place at their size (${+PHMM.toFixed(1)} mm) near their pole, nor further out with a line; the pole first, then its details, then its photo (${photoPl.shrunk.length}): ${photoPl.shrunk.slice(0, 20).map(sz).join(', ')}${photoPl.shrunk.length > 20 ? '…' : ''}`); } // beta 6.7
@@ -4275,10 +4328,11 @@
       if (!done) rep.notes.push(`RTA/JPA legend not drawn: ${tried.length ? `no free room for it on the ${tried.join(' or the ')} sheet` : 'the template has no LEGENDS or KEYMAP sheet'} (Plan style › Pole numbers › Owner colour key on the plan: Under each sheet's BOQ table instead)`); // (beta 6.8, UX step 6: the README note names Plan style's row; nothing drawn changes)
       rep.rtaLegend = { at: 'sheet', sheet: done ? LL.name : null, tried, rows: cats.map((x) => `${x.text} (${x.n || 0})`) };
     }
-    rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0], geo: [gox, goy], // (v2.42.25: + the GEO cells' origin)
+    rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0], geo: [gox, goy], n: NU, ...(gridKeepOf(job) ? { kept: true } : {}), // (v2.42.25: + the GEO cells' origin; (Plan kept) + Tidy's split, 1 in Standard, and whether the grid was the one kept)
       /* (beta 7.9, Drawing preview) the GEO sheets, each its cell: the sheet's tab, the cell's name as the plan writes it (report.sheets) and its square
          in model metres; ents: the handles of the grid's lines and names in model space (the Drawing draws the sheets itself). The DXF the same. */
-      sheets: geoCells.map((c, k) => ({ sheet: geoNames(N)[k], name: cellName(c.i, c.j), box: [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell] })), ents: gridEnts };
+      sheets: geoCells.map((c, k) => ({ sheet: geoNames(N)[k], name: cellName(c.i, c.j), box: [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell], ...(c.x ? { forPhoto: true } : {}) })), ents: gridEnts }; // ((Plan kept) forPhoto: a sheet for a photo, see build)
+    if (xCells.length) rep.notes.push(`GEO sheets added so that every photo and pole drawn prints (no route there, a photo or a pole beside its road): ${xCells.map((c) => cellName(c.i, c.j)).join(', ')}`);
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };
     S = structure(d); centerCache.clear();
