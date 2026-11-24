@@ -16,7 +16,7 @@
    - (round 2) More › with Plan style used last on Advanced (a section open far down, a row just marked): Find a setting and its
      results on the screen under the preview, from the top, focus on the first result, nothing marked; and the same with the
      Tutorial opened over Plan style (its Search the Tutorial link).
-   (Plan style cards) the Basic and Advanced tabs became cards and More settings: a row's place is Plan style › its card, or Plan style ›
+   (beta 7.8, Plan style cards) the Basic and Advanced tabs became cards and More settings: a row's place is Plan style › its card, or Plan style ›
    More settings › its section; the old saved tab and section (plTab, plOpen) are no longer used.
    Uses an isolated browser profile and a local HTTP server; no production data. */
 const { test, before, after } = require('node:test');
@@ -121,7 +121,7 @@ for (const size of ['phone', 'small']) {
     try {
       for (const [q, label, name] of [['photo width', 'Photo width (Simple drawing)', 'Photo width'], ['pole circle size', 'Pole circle size (Simple drawing)', 'Pole circle size']]) { // (2.45.1 / beta 6.9: FOC % moved to Cables)
         const where = await find(page, q, label);
-        assert.match(where, /Plan style › More settings › Plan file · only with the Simple drawing$/); // ((Plan style cards): in More settings)
+        assert.match(where, /Plan style › More settings › Plan file · only with the Simple drawing$/); // ((beta 7.8, Plan style cards): in More settings)
         const m = await marked(page);
         assert.ok(m && m.label === 'Kind of drawing' && m.focus, `${q}: ${JSON.stringify(m)}`);
         assert.equal(m.note, `${name}: only with the Simple drawing. To use it, choose Simple points and photos here.`);
@@ -157,7 +157,7 @@ for (const size of ['phone', 'small']) {
       }
       assert.equal(await page.inputValue('#focPct'), '10', 'never set: 10 %');
       await page.fill('#focPct', '15'); await page.locator('#focPct').blur(); await page.waitForTimeout(300);
-      assert.deepEqual(await page.evaluate(() => [window.__polecam.S.exp.focPct, JSON.parse(localStorage.getItem('polecam.settings')).exp.focPct, document.querySelector('#stRoute .secsum').textContent]), [15, 15, 'Follows the road · allowance 15 %']); // ((Plan style cards): the cable's name is in Cable labels)
+      assert.deepEqual(await page.evaluate(() => [window.__polecam.S.exp.focPct, JSON.parse(localStorage.getItem('polecam.settings')).exp.focPct, document.querySelector('#stRoute .secsum').textContent]), [15, 15, 'Follows the road · allowance 15 %']); // ((beta 7.8, Plan style cards): the cable's name is in Cable labels)
       await page.fill('#focPct', '80'); await page.locator('#focPct').blur(); await page.waitForTimeout(300);
       assert.equal(await page.evaluate(() => window.__polecam.S.exp.focPct), 50, 'at most 50 %');
       assert.equal(await page.inputValue('#focPct'), '50');

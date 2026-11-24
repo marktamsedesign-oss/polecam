@@ -174,7 +174,7 @@ test('off: the plan\'s photos as before (Plan style\'s lat, long band); on: the 
 
 test('Plan style › Stamp on the plan\'s photos says the geotag stamp is used; Change › opens the tick; Find a setting and the Tutorial find it', async () => {
   const { ctx, page, errors } = await open({ exp: { dxfMode: 'tpl', stamp: true, stampOnPlan: true } });
-  const style = async () => { await closeAll(page); await page.evaluate(() => window.__polecam.openStyle('', 'stPh')); await page.waitForTimeout(700); }; // ((Plan style cards): Plan style on its Photos card)
+  const style = async () => { await closeAll(page); await page.evaluate(() => window.__polecam.openStyle('', 'stPh')); await page.waitForTimeout(700); }; // ((beta 7.8, Plan style cards): Plan style on its Photos card)
   await style();
   const note = await page.evaluate(() => { const n = document.getElementById('stPhStampGeo'); return { shown: !n.hidden && n.getClientRects().length > 0, t: n.textContent, sum: document.getElementById('stSum') ? document.getElementById('stSum').textContent : '' }; });
   assert.ok(note.shown && /Using the geotag photo stamp instead \(Export › Photos with their locations › Same stamp on the plan's photos\)/.test(note.t), JSON.stringify(note));

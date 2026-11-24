@@ -262,7 +262,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .pssub{margin:4px 0 8px}
 .psstd{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;border:1px solid var(--line);border-left:5px solid var(--ok);border-radius:10px;padding:10px 12px;background:var(--surface);margin:0 0 10px;font-size:calc(13.5px * var(--fs));line-height:1.4}
 .psstd.off{border-left-color:#f08c00}.psstd[hidden]{display:none}.psstdt{flex:1 1 220px;min-width:0}.psstdt b{display:block}
-/* (Plan style cards): the Basic and Advanced tabs became cards, one open at a time, each saying in one line what it is set to (the
+/* (beta 7.8, Plan style cards): the Basic and Advanced tabs became cards, one open at a time, each saying in one line what it is set to (the
    app's own surfaces, lines and accent: the open card ringed as an open Export row), then More settings (the other sections, as they were) */
 #plCards{display:flex;flex-direction:column;gap:8px;margin:8px 0 0}
 #plCards > details.stsec{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin:0;padding:0 12px;box-shadow:var(--shadow2)}
@@ -829,7 +829,7 @@ body.kb .sheet{bottom:var(--kb,0px)}
    button), You get, 0-4 choices, More options, one sticky button worded like the row. Several at once: the rows become ticks. */
 .xask h3{margin:0;font-size:calc(17px * var(--fs))}.xask p{margin:2px 0 0;color:var(--muted);font-size:calc(13px * var(--fs))}
 #export .xcard{padding:0 14px 14px;gap:10px}
-/* (Export picks): only the rows picked, under What you get: folded, a row shows its title (Change › at its right) and You get; Change ›
+/* (beta 7.8, Export picks): only the rows picked, under What you get: folded, a row shows its title (Change › at its right) and You get; Change ›
    opens its choices (.xopen); its own button only when it is the one file picked and open (#export.xone), else the button at the foot
    (#xGoBox), always on the screen, does it */
 #export .xcard:not(.xsel){display:none!important}
@@ -897,11 +897,11 @@ details.xmoret > .xtiles{padding:0 0 12px}
 #export .xother{order:890}
 #export > .body{scroll-padding-bottom:calc(64px * var(--fs) + 24px)} /* beta 6.8 (UX step 6; reviewer): Tab to a control under the sticky button: it scrolls clear of it */
 #export .xgo{order:950;position:sticky;bottom:0;z-index:3;background:var(--bg);padding-top:8px;box-shadow:0 -10px 10px -4px var(--bg)}
-#export #resultBox{order:940} /* ((Export picks): above the button at the foot) */
-#export .xgo{bottom:calc(-1 * (env(safe-area-inset-bottom,0px) + 24px));padding:8px 3px calc(env(safe-area-inset-bottom,0px) + 14px);margin:0 -3px calc(-1 * (env(safe-area-inset-bottom,0px) + 24px))} /* ((Export picks): the foot of the screen, over the body's bottom padding: nothing shows under it) */
+#export #resultBox{order:940} /* ((beta 7.8, Export picks): above the button at the foot) */
+#export .xgo{bottom:calc(-1 * (env(safe-area-inset-bottom,0px) + 24px));padding:8px 3px calc(env(safe-area-inset-bottom,0px) + 14px);margin:0 -3px calc(-1 * (env(safe-area-inset-bottom,0px) + 24px))} /* ((beta 7.8, Export picks): the foot of the screen, over the body's bottom padding: nothing shows under it) */
 #export .xcard.xsel:not(.xopen) > .head{padding-bottom:6px}
 #export #bkName,#export #resStepsName{overflow-wrap:anywhere} /* beta 6.7 (UX step 3 fixes; review): a long file name with no spaces wraps (it pushed the sheet sideways on a phone) */
-/* ((Export picks): #xGoBox is the button at the foot whenever one row's own button is not: none picked, or two files or more) */
+/* ((beta 7.8, Export picks): #xGoBox is the button at the foot whenever one row's own button is not: none picked, or two files or more) */
 .xcard.xfold{display:none!important}
 #export .xcard:has(input[type=text]:focus,input[type=number]:focus,textarea:focus) > .btn,#export .body:has(input[type=text]:focus,input[type=number]:focus) > .xgo{position:static;box-shadow:none} /* (critic: the keyboard open, the sticky button does not cover the field) */
 @media (min-width:900px){#export:not(.side) > .body{padding-left:max(16px,calc(50% - 400px));padding-right:max(16px,calc(50% - 400px))}} /* a computer: the rows at a readable width */
@@ -1546,7 +1546,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <symbol id="i-eyeoff" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.6 5.1A10 10 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-2.6 3.6M6.6 6.6C3.9 8.4 2.5 12 2.5 12s3.5 7 9.5 7a9.6 9.6 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"/></g></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z"/><circle cx="12" cy="12" r="3"/></g></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <!-- (Plan style cards): the cards' icons -->
+  <!-- (beta 7.8, Plan style cards): the cards' icons -->
   <symbol id="i-hash" viewBox="0 0 24 24"><path d="M9 4 7 20M17 4l-2 16M4 9h17M3 15h17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol><symbol id="i-pdet" viewBox="0 0 24 24"><circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7h9M12 12h6M12 17h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol><symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12l9-9h8v8l-9 9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="15.5" cy="8.5" r="1.5" fill="currentColor"/></symbol><symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4h11l-2 4 2 4H5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
 </svg>
 <div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">✎ Box · FOC · Text</button><button type="button" class="btn" id="pvPole">⊥ Model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
@@ -1908,7 +1908,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 <!-- beta 6.7 (UX step 4; the owner: "PLAN Settings ... see if it overlaps with the design style or it can be merge with design style. Design
      Style: make this settings simpler, more intuitive and easy to catch by non-technical users"): Plan settings and Drawing style are one
      screen, Plan style: the company standard, Basic (7 choices) and Advanced (12 sections, folded), one preview. Every control keeps its id;
-     each setting has one home (the copies in Settings › Exports and files went). (Plan style cards): Basic and Advanced became seven cards,
+     each setting has one home (the copies in Settings › Exports and files went). (beta 7.8, Plan style cards): Basic and Advanced became seven cards,
      one open at a time, and More settings. -->
 <section class="sheet" id="drwStyle" hidden aria-labelledby="drwStyleTitle">
   <header>
@@ -1934,7 +1934,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="psstd" id="psStd" role="status"><div class="psstdt" id="psStdT"></div><button class="btn small" id="psStdUse" type="button" hidden>Use company standard</button></div>
     <p class="plban" id="plBanTpl" hidden><span>No company template on this phone</span><button type="button" class="btn sm" id="plBanTplGet">Get it</button></p>
     <p class="plban" id="plBanSimple" hidden><span>You make the Simple drawing: these settings are for the company plan</span><button type="button" class="btn sm" id="plBanSimpleGo">Change ›</button></p>
-    <!-- (Plan style cards): the plan's main choices in cards, one open at a time, each saying in one line what it is set to; a card
+    <!-- (beta 7.8, Plan style cards): the plan's main choices in cards, one open at a time, each saying in one line what it is set to; a card
          opened shows its part of the plan in the preview. Every row kept its id, its label and its stored key: nobody's setting changes. -->
     <div class="plcards" id="plCards">
       <details class="stgrp stsec plcard" id="stNum" data-scene="street" data-find="Pole numbers" data-tut="planstyle"><summary><span class="plci" aria-hidden="true"><svg><use href="#i-hash"/></svg></span><span class="t"><b>Pole numbers</b><small class="secsum"></small></span></summary><div class="secbody">
@@ -2031,7 +2031,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
           <div class="strow" data-findx="Sheet name: colour"><span class="lbl">Sheet name: colour <output id="stGridColO"></output></span><div class="sws" id="stGridCol" role="radiogroup" aria-label="Sheet name colour"></div></div>
         </details></div></details>
     </div>
-    <!-- (Plan style cards): More settings: the other sections as they were, folded (Box names, Clamp types, Cables, Crowded places, Tower
+    <!-- (beta 7.8, Plan style cards): More settings: the other sections as they were, folded (Box names, Clamp types, Cables, Crowded places, Tower
          site and ODF, Plan file), the legend colours and the list for support -->
     <details class="plmore" id="plMore"><summary><span class="plci" aria-hidden="true"><svg><use href="#i-gear"/></svg></span><span class="t"><b>More settings</b><small>Box names, clamp types, cables and their allowance, crowded places, tower site, plan file. Most people never need them.</small></span></summary><div class="plmorebody" id="plMoreBody">
       <details class="stgrp stsec" id="stId" data-scene="street" data-find="Box names (NAP, LCP, ODC, handholes)" data-tut="planstyle"><summary><span class="t"><b>Box names (NAP, LCP, ODC, handholes)</b><small class="secsum"></small></span></summary><div class="secbody">
@@ -2137,7 +2137,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <p class="hint" id="exportScope"></p>
     <p class="hint" id="creditInfo" hidden></p>
-    <!-- (Export picks): the checks before export (each with its Fix ›), then What do you need?: quick picks and tiles (More exports
+    <!-- (beta 7.8, Export picks): the checks before export (each with its Fix ›), then What do you need?: quick picks and tiles (More exports
          folded); the rows picked are listed under What you get (their choices behind Change ›), with one button at the foot. -->
     <div class="xchecks" id="xChecks" role="group" aria-label="Checks before export" hidden></div>
     <div class="xask" id="xAsk"><h3 id="xAskT">What do you need?</h3><p>Tap a quick pick, or the tiles you need. Then Export at the bottom.</p></div>

@@ -1993,7 +1993,7 @@
        most W; every text of the route takes its size from TS, one set tied to W and to the size the GEO sheet prints at (its plot
        window fitted to its paper, as the PDF and a plot to fit print it). The street names stay as the template draws them. */
     const TIDY = job.labels === 'tidy', tidySym = [], tidyBadged = new Set(), tidyCard = new Set(); // (beta 4.8: the poles whose number / photo is in their Tidy label) // (tidySym: the IDs, loop lengths and closure names, level labels placed with the pole labels)
-    const tidyPhAt = new Map(); // (Drawing photos) where each photo in a Tidy pole block went (report.photoAt)
+    const tidyPhAt = new Map(); // (beta 7.8, Drawing photos) where each photo in a Tidy pole block went (report.photoAt)
     const wMed = (() => { const ws = polesOnly.filter((p) => p.near && p.near.r.w > 0).map((p) => p.near.r.w).sort((a, b) => a - b); return ws.length ? ws[Math.floor(ws.length / 2)] : 0; })();
     const streetAt = (q) => { // [W, the street's direction or null] (inside a road: the narrowest road there (at a junction, the side street); outside: the nearest road)
       if (!wMed) return [0, null]; let w = 0, dir = null;
@@ -2262,7 +2262,7 @@
       if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
     }
     const rOf = (p) => (p.el === 'Pole' ? p.rp : inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : p.el === 'Site' ? 8 : 4); // (a point's reach round its centre as drawn)
-    /* (Drawing photos) a photo placed by hand on the Drawing, job.phPin { [pointId]: [dE, dN] }: its centre that far (metres) from its point as
+    /* (beta 7.8, Drawing photos) a photo placed by hand on the Drawing, job.phPin { [pointId]: [dE, dN] }: its centre that far (metres) from its point as
        drawn (p.dp), at its usual size (Tidy: at the grid tried), never in a Tidy pole block; a thin line to its point where it does not touch it,
        as a photo further out has. Its box and its line are taken first, before the symbols' texts, the pole labels, the cable labels, the span
        lengths and the other photos, which keep off it. Across a sheet's edge, or off the sheets: said in the notes. */
@@ -2856,7 +2856,7 @@
         pts.forEach(take);
         const seqT = new Map(); mOrd.forEach((p, i) => { const g = job.seqOf && job.seqOf[String(p.id)]; seqT.set(p, g != null && g !== '' ? g : i + 1); });
         for (const T of tidyTodo) {
-          const p = T.p, ph = seqT.has(p) ? mPh[p.id] || mPh[String(p.id)] : null; if (ph && ph.px > 0 && ph.py > 0 && !pinPl.has(p)) { T.photo = ph; tidyCard.add(p); } // (its photo at the end of its label, away from the pole; (Drawing photos) not one placed by hand)
+          const p = T.p, ph = seqT.has(p) ? mPh[p.id] || mPh[String(p.id)] : null; if (ph && ph.px > 0 && ph.py > 0 && !pinPl.has(p)) { T.photo = ph; tidyCard.add(p); } // (its photo at the end of its label, away from the pole; (beta 7.8, Drawing photos) not one placed by hand)
           if (!seqT.has(p) || (mMode === 'photo' && ph)) continue;
           T.badge = { sq: String(seqT.get(p)), wl: streetW(p.dp) }; tidyBadged.add(p);
         } }
@@ -3528,7 +3528,7 @@
         const S0 = setup(p, round === 'num'); if (round === 'photo' && !S0.ph) continue; // (a point without a photo has its number already)
         if (p.el === 'Site' && !S0.ph) continue; // beta 7.4 / 2.45.6 (the drafter took them off): no number circle for a tower, site or OLT on the GEO sheets (its photo, if it has one, stays)
         if (TIDY && (S0.ph ? tidyCard.has(p) : tidyBadged.has(p))) continue; // (beta 4.8: Tidy: its photo or number is in its label)
-        if (S0.ph && pinPl.has(p)) { const P = pinPl.get(p); out.push({ p, ph: S0.ph, w: P.w, h: P.h, q: P.q, u: P.u, how: 'by hand', lead: P.lead }); continue; } // (Drawing photos) where it was put (its box and line taken before the labels)
+        if (S0.ph && pinPl.has(p)) { const P = pinPl.get(p); out.push({ p, ph: S0.ph, w: P.w, h: P.h, q: P.q, u: P.u, how: 'by hand', lead: P.lead }); continue; } // (beta 7.8, Drawing photos) where it was put (its box and line taken before the labels)
         if (TIDY && S0.ph) { const f = tidyPh(S0); if (f) commit(S0, f, 'near its pole'); else later.push(S0); continue; } // beta 4.8
         if (p.on) { const r = search(S0, MARK_USUAL); if (r.free) { commit(S0, r.free, 'usual'); continue; } }
         later.push(S0);
@@ -3605,7 +3605,7 @@
         if (lead) o.lwpoly(nLay, [la, lb], { color: bC });
       }
     }
-    /* (Drawing photos) where each photo went, for the app's Drawing (always, not only with debug), in the points' UTM metres: its centre, size
+    /* (beta 7.8, Drawing photos) where each photo went, for the app's Drawing (always, not only with debug), in the points' UTM metres: its centre, size
        (and turn, in a turned Tidy block), its point as drawn (dp), its thin line to the point (null: none), placed by hand or by the plan */
     rep.photoAt = {};
     for (const { p, ph, w, h, q, how, lead } of photoPl.out) if (ph && havePhotos) rep.photoAt[String(p.id)] = { x: q[0], y: q[1], w, h, dp: [p.dp[0], p.dp[1]], line: lead ? lead.map((v) => [v[0], v[1]]) : null, how: how === 'by hand' ? 'by hand' : 'auto' };

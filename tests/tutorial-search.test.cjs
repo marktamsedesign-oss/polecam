@@ -106,7 +106,7 @@ const LINES = [
   ['6.9', '!corner without pole · !extended messenger · corner with no pole · cable across houses · messenger', 'pulloff'],
   // beta 7.6 / 2.45.8: Photos with their locations › Same stamp on the plan's photos (the geotag band on the plan's photos)
   ['7.6', '!same stamp on the plan\'s photos · !geotag stamp on the plan · plan photo stamp · caption band', 'fieldsettings planstyle'],
-  // (Drawing photos): the Drawing's photos where the plan puts them; drag one to place it by hand, Back to automatic
+  // (beta 7.8, Drawing photos): the Drawing's photos where the plan puts them; drag one to place it by hand, Back to automatic
   ['Drawing photos', '!drag a photo · !back to automatic · photo placed by hand · move photo on the drawing', 'drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
@@ -292,7 +292,7 @@ test('(c) every Plan style row (.strow, .psrow, .swrow) and section carries its 
   assert.deepEqual(rows.filter((r) => !/\bdata-findx?="[^"]+"/.test(r)), []);
   const cs = styleHtml.split('<details class="stcs">').slice(1).map((x) => x.slice(0, x.indexOf('</details>')));
   assert.deepEqual(cs.flatMap((x) => [...x.matchAll(/\bdata-find="([^"]+)"/g)].map((m) => m[1])), [], 'Colours and sizes rows: data-findx');
-  // (Plan style cards): 7 cards (Pole numbers, Pole details and span lengths, Cable labels (FOC), Photos, Landmarks, Location map, Map
+  // (beta 7.8, Plan style cards): 7 cards (Pole numbers, Pole details and span lengths, Cable labels (FOC), Photos, Landmarks, Location map, Map
   // sheets) and 6 sections in More settings; the main choices (.plb, the rows of Basic before) in their cards
   const secs = [...styleHtml.matchAll(/<details class="stgrp stsec(?: plcard)?"[^>]*data-find="([^"]+)"/g)].map((m) => m[1]);
   assert.equal(secs.length, 13, secs.join(', '));
@@ -372,7 +372,7 @@ const STYLE = dom(styleHtml), EXPORT = dom(exportHtml);
 const byId = (root, id) => all(root, (n) => n.a.id === id)[0];
 const isSec = (n) => n.tag === 'details' && hasCls(n, 'stsec');
 const labelOf = (n) => n.a['data-find'] || n.a['data-findx'] || '';
-/** plIndex() of app.js, from index.html ((Plan style cards): Plan style › its card, or Plan style › More settings › its section; main: a
+/** plIndex() of app.js, from index.html ((beta 7.8, Plan style cards): Plan style › its card, or Plan style › More settings › its section; main: a
     main choice, .plb) */
 const PL_INDEX = all(STYLE, (n) => !!labelOf(n) && !!closest(n, (x) => x.a.id === 'plCards' || x.a.id === 'plMore')).map((el) => {
   const sec = isSec(el) ? el : closest(el, isSec), more = !!closest(el, (x) => x.a.id === 'plMore');

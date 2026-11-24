@@ -1,4 +1,4 @@
-/* (Drawing photos) the pole photos on the Drawing where the plan puts them, dragged to a place of the user's own, and the plan drawn with
+/* (beta 7.8, Drawing photos) the pole photos on the Drawing where the plan puts them, dragged to a place of the user's own, and the plan drawn with
    them there. Run: node --test tests/drawing-photos.spec.cjs (or python3 tests/run_all.py --only drawing-photos).
    - The builder (dxftpl.js, run here in Node as the app's worker runs it): a made-up job of 12 poles along a made-up street, on the made-up
      plan template (tests/fixtures/plan-seed-made-up.dxf, made by tests/fixtures/mkseed.py). report.photoAt says where each photo went (its
