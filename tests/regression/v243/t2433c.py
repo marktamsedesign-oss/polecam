@@ -128,16 +128,30 @@ async def dl(pg, i=0, ms=60000, card=False):
         await W(pg, 60)
     await idle(pg, 20000); await W(pg, 300)
     return j, stages
+async def sync_now(pg, ms=150000):
+    """beta 7.8: Sync (top bar). Since beta 3.4 (the 12 Nov 2026 upload) it brings in what came for a project on this phone (an update,
+    merged; a fix list; Accept; a note) and sends a field partner's changes; only a new task waits in the team mailbox for Download.
+    Waits until Sync is done (a note that came with it is shown: OK); returns (its toast, the notes shown)."""
+    await close_sheets(pg); await pg.click('#syncBtn'); await W(pg, 200); notes = []; t = time.time()
+    while time.time() - t < ms / 1000:
+        if await pg.locator('#askBox:not([hidden])').count(): notes.append(await ask_text(pg)); await answer(pg, 'OK'); continue
+        if not await pg.evaluate("document.getElementById('syncBtn').classList.contains('spin')"): break
+        await W(pg, 150)
+    await W(pg, 300)
+    return await toast(pg), notes
 ACC_JS = "() => { const b = document.querySelector('#curTeam [data-ct=\"accept\"]'); return b ? b.disabled : null; }"
-ICON_JS = "() => { const b = document.querySelector('#curTools .tmtool[data-tool=\"mbx\"]'); return b ? [b.classList.contains('wait'), (b.querySelector('.bdg') || {}).textContent || '', !!b.querySelector('.okd')] : null; }"
+FIX_ICON_JS = "() => { const b = document.querySelector('#curTools .tmtool[data-tool=\"fix\"]'); return b ? [(b.querySelector('.bdg') || {}).textContent || '', !!b.querySelector('.okd'), b.classList.contains('zero')] : null; }"  # beta 7.8: the project's Fixes icon (the wrench): its count, ✓, nothing asked yet
 DOT_JS = "() => !document.getElementById('mbxDot').hidden"
 FXJ = "(a) => __polecam.team.mbx.fx[a[0]](...a.slice(1))"
 async def fxh(pg, fn, *a): return await pg.evaluate(FXJ, [fn, *a])
 async def fxclick(pg, k): await pg.click(f'#fxBody [data-fx="{k}"]'); await W(pg, 250)
 async def fxitem(pg, pid, why, note):
-    await fxh(pg, 'tap', pid); await W(pg, 300); await pg.click(f'#fxBody .fx-tile[data-w="{why}"]')
-    if note: await pg.fill('#fxItemNote', note)
-    await fxclick(pg, 'save')
+    """beta 7.8: the coordinator's fix list as it is since the 12 Nov 2026 upload (beta 3.4): a tap on the pole ticks it, a tap on what is
+    wrong adds the fix at once (with Undo); its note: tap the fix on the list, type the note, Save."""
+    await fxh(pg, 'tap', pid); await W(pg, 300); await pg.click(f'#fxBody .fx-tile[data-fx="add"][data-w="{why}"]'); await W(pg, 300)
+    if note:
+        await pg.locator('#fxBody .fx-lbtn', has_text=f'Pole {pid}').first.click(); await W(pg, 300)
+        await pg.fill('#fxItemNote', note); await fxclick(pg, 'save')
 def drive_names(prefix=''): return [f for f in e2e('/drive') if f.startswith(prefix)]
 
 KML = """<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>AS-PLAN</name>
@@ -194,7 +208,10 @@ async def main():
             await close_sheets(A); await A.click('#projectBtn'); await W(A, 400)
             ct = await txt(A, '#curTeam')
             check('A6 Juan\'s project: Assigned to Pedro and Maria, task waiting; Ask for fixes; no Accept before an update is merged, and it says so', 'Assigned to' in ct and 'Pedro Santos: task waiting' in ct and 'Maria Garcia: task waiting' in ct and await A.is_visible('#curTeam [data-ct="fix"]') and not await A.is_visible('#curTeam [data-ct="accept"]') and 'Waiting for Pedro and Maria’s first update' in ct, ct)
-            check('A7 the project tools (icons): the mailbox (✓, nothing waiting), Send, Share, KMZ, Delete', await A.eval_on_selector_all('#curTools .tmtool', "(d) => d.map((x) => x.dataset.tool)") == ['mbx', 'send', 'share', 'ref', 'del'] and await A.evaluate(ICON_JS) == [False, '', True], await A.eval_on_selector_all('#curTools .tmtool', "(d) => d.map((x) => x.dataset.tool)"))
+            # (beta 7.8: the project's mailbox icon went in the 12 Nov 2026 upload (beta 3.4): Sync brings in what is for a project on the
+            # phone. The Fixes icon (the wrench) comes first; nothing waiting shows as no dot on Projects)
+            tools = await A.eval_on_selector_all('#curTools .tmtool', "(d) => d.map((x) => x.dataset.tool)"); fi = await A.evaluate(FIX_ICON_JS); dot = await A.evaluate(DOT_JS)
+            check('A7 the project tools (icons): Fixes (nothing asked yet), Send, Share, KMZ, Delete; no mailbox icon, and no dot on Projects (nothing waiting)', tools == ['fix', 'send', 'share', 'ref', 'del'] and fi == ['', False, True] and not dot, (tools, fi, dot))
             # ---------- 2. Pedro downloads his task
             await projects(B)
             ib = await inbox(B); await B.screenshot(path=f'{OUT}/p_inbox.png')
@@ -226,28 +243,35 @@ async def main():
             await W(A, 700)
             st = await A.evaluate("() => ({ n: document.getElementById('ppMbxN').textContent, nh: document.getElementById('ppMbxN').hidden, wait: document.getElementById('ppMbx').classList.contains('wait'), proj: !document.getElementById('projects').hidden, box: !document.getElementById('mbxBox').hidden })")
             tA = await toast(A); await A.screenshot(path=f'{OUT}/j_pane_mbx.png')
-            check('H1 Juan on a computer: Check the team mailbox in the Projects pane finds update 1 (1 waiting) and opens the Team mailbox', vis and st['n'] == '1' and not st['nh'] and st['wait'] and st['proj'] and st['box'] and 'one thing waits' in tA, (vis, st, tA))
-            row = await A.evaluate("(n) => { const r = [...document.querySelectorAll('#ppRows .pp-row')].find((x) => x.dataset.name === n); const b = r && r.querySelector('.ppi.mbx'); return b ? [b.classList.contains('wait'), (b.querySelector('.bdg') || {}).textContent || ''] : null; }", PROJ)
-            check('H2 the project\'s row in the pane shows 1 waiting too', row == [True, '1'], row)
+            # (beta 7.8: since the 12 Nov 2026 upload (beta 3.4) the check brings in by itself what is for a project on this phone: update 1
+            # is merged at once, so nothing is left waiting and the Team mailbox does not open; the pane's rows have no mailbox icon)
+            check('H1 Juan on a computer: Check the team mailbox in the Projects pane brings update 1 in by itself (brought in: update 1 of “DEMO SITE MINTAL” from Pedro); nothing left waiting, so the Team mailbox does not open',
+                  vis and st['nh'] and not st['wait'] and not st['proj'] and f'brought in: update 1 of “{PROJ}” from Pedro' in tA and len(await mbx(A, 'recs', PROJ)) == 3, (vis, st, tA))
+            row = await A.evaluate("(n) => { const r = [...document.querySelectorAll('#ppRows .pp-row')].find((x) => x.dataset.name === n); return r ? [r.querySelector('.pp-meta').textContent, [...r.querySelectorAll('.ppi')].map((b) => b.classList[1])] : null; }", PROJ)
+            check('H2 the project\'s row in the pane shows the merged poles (3 poles), with Fixes and Send (no mailbox icon)', row and '3 poles' in row[0] and 'fix' in row[1] and 'send' in row[1] and 'mbx' not in row[1], row)
             await close_sheets(A); await A.set_viewport_size({'width': 412, 'height': 900}); await W(A, 600)
-            # ---------- 4. Juan downloads and merges
+            # ---------- 4. Juan: update 1 is merged (beta 7.8: Sync and the team mailbox checks bring it in since the 12 Nov 2026 upload;
+            # the project's card says Merged by Sync, with What changed, where it said "is waiting" with Download and merge)
             await projects(A)
-            ia = await inbox(A)
-            check('J1 Juan\'s Team mailbox: Update 1 from Pedro Santos · 3 records, Download and merge', len(ia) == 1 and 'Update 1 from Pedro Santos' in ia[0] and '3 records' in ia[0] and 'Download and merge' in ia[0], ia)
+            ia = await inbox(A); mi = await txt(A, '#mbxIn')
+            check('J1 Juan\'s Team mailbox: nothing left waiting there (it says Sync brings in what is for his projects; only new tasks wait)', not ia and 'Sync brings in what is for your projects' in mi, (ia, mi))
             await close_sheets(A); await A.click('#projectBtn'); await W(A, 400)
-            ct = await txt(A, '#curTeam'); acc = await A.evaluate(ACC_JS); mt = await A.evaluate(ICON_JS); dot = await A.evaluate(DOT_JS)
-            await A.locator('#wfBox').screenshot(path=f'{OUT}/j_card_waiting.png')
-            check('G1 Juan\'s card: Update 1 from Pedro is waiting, with its own Download and merge; Accept is off until it is merged', 'Update 1 from Pedro is waiting' in ct and await A.is_visible('#curTeam [data-ct="dl"]') and acc is True and 'Merge the waiting update first' in ct, (ct, acc))
-            check('G2 the project\'s mailbox icon shows 1 waiting, and the dot is on Projects', mt == [True, '1', False] and dot, (mt, dot))
-            j, stg = await dl(A, ms=40000, card=True); await A.locator('#wfBox').screenshot(path=f'{OUT}/j_card_merged.png')
-            jb = await txt(A, '#curTeam .mbxjob') if await A.locator('#curTeam .mbxjob').count() else ''
-            check('G3 Download and merge on the card: done in place (Merged, Show on the map)', j and j['stage'] == 'done' and j['line'].startswith('Merged:') and 'Show on the map' in jb and 'Merged' in jb, (j, stg, jb))
+            ct = await txt(A, '#curTeam'); acc = await A.evaluate(ACC_JS); dot = await A.evaluate(DOT_JS)
+            await A.locator('#wfBox').screenshot(path=f'{OUT}/j_card_merged.png')
+            check('G1 Juan\'s card: Update 1 from Pedro: 3 records, Merged by Sync, with What changed; Accept is on (it is merged)', 'Update 1 from Pedro: 3 records' in ct and 'Merged by Sync' in ct and await A.is_visible('#curTeam .ctsync [data-ct="chg"]') and acc is False, (ct, acc))
+            check('G2 nothing waits for the project: no Download and merge on the card, no dot on Projects', not await A.is_visible('#curTeam [data-ct="dl"]') and 'is waiting' not in ct and not dot, (ct, dot))
+            await A.click('#curTeam .ctsync [data-ct="chg"]'); await W(A, 500)
+            sub = await txt(A, '#chgSub'); cl = await txt(A, '#chgList'); await A.screenshot(path=f'{OUT}/j_chg.png')
+            check('G3 What changed on the card shows the merge: 3 new poles, update 1 from Pedro', await A.is_visible('#chgSheet') and cl.count('New') == 3 and 'Update 1 from Pedro Santos' in sub, (sub, cl[:200]))
+            await close_sheets(A)
             recsA = await mbx(A, 'recs', PROJ); ph = await mbx(A, 'photo', recsA[0]['id']) if recsA else 0
-            check('J2 merged: 3 records with their photos on Juan\'s phone', len(recsA) == 3 and ph > 0 and 'Update 1 from Pedro merged' in await toast(A), (recsA, ph, await toast(A)))
+            check('J2 merged: 3 records with their photos on Juan\'s phone; the check said so (update 1 from Pedro)', len(recsA) == 3 and ph > 0 and f'update 1 of “{PROJ}” from Pedro' in tA, (recsA, ph, tA))
+            await A.click('#projectBtn'); await W(A, 400)
             ct = await txt(A, '#curTeam'); await A.locator('#wfBox').screenshot(path=f'{OUT}/j_card.png')
             check('J3 Juan\'s card: Pedro has it, update 1 merged; Maria\'s task still waiting', 'Pedro Santos: has it' in ct and 'update 1 merged' in ct and 'Maria Garcia: task waiting' in ct, ct)
-            acc = await A.evaluate(ACC_JS); mt = await A.evaluate(ICON_JS); dot = await A.evaluate(DOT_JS)
-            check('G4 merged: Accept is on; the mailbox icon shows ✓; no dot on Projects', acc is False and mt == [False, '', True] and not dot, (acc, mt, dot))
+            acc = await A.evaluate(ACC_JS); fi = await A.evaluate(FIX_ICON_JS); dot = await A.evaluate(DOT_JS)
+            tools = await A.eval_on_selector_all('#curTools .tmtool', "(d) => d.map((x) => x.dataset.tool)")
+            check('G4 merged: Accept is on; the project\'s Fixes icon shows nothing asked yet (no mailbox icon); no dot on Projects', acc is False and fi == ['', False, True] and 'mbx' not in tools and not dot, (acc, fi, tools, dot))
             # ---------- 5. Ask for fixes
             await A.click('#curTeam [data-ct="fix"]'); await W(A, 800)
             await fxitem(A, 'CC-1001', 'Owner', 'CC-1001: owner name'); await fxitem(A, 'CC-1003', 'Delete it', 'wrong pole, delete it')
@@ -257,15 +281,13 @@ async def main():
             await fxclick(A, 'send'); await idle(A, 60000); await W(A, 400)
             check('F2 sent: 2 fixes to Pedro', '2 fixes sent to Pedro' in await toast(A) and not await A.is_visible('#fixPanel'), await toast(A))
             await close_sheets(B); sb = await B.is_visible('#syncBtn'); lbl = await B.get_attribute('#syncBtn', 'aria-label') or ''
-            await B.click('#syncBtn'); await W(B, 300)
-            for _ in range(80):
-                if not await B.evaluate("document.getElementById('syncBtn').classList.contains('spin')"): break
-                await W(B, 200)
-            await W(B, 300); tb = await toast(B); dot = await B.evaluate(DOT_JS)
-            check('Y1 Pedro\'s Sync (top bar) checks the team mailbox too: 1 waiting, and the dot on Projects', sb and 'check the team mailbox' in lbl and 'team mailbox: 1 waiting' in tb and dot, (sb, lbl, tb, dot))
-            await projects(B); ib = await inbox(B)
-            check('F3 Pedro: Fixes asked by Juan Dela Cruz, Open', len(ib) == 1 and 'Fixes asked by Juan Dela Cruz' in ib[0] and 'Open' in ib[0], ib)
-            await open_in(B); await idle(B, 30000); await W(B, 800)
+            tb, _ = await sync_now(B); dot = await B.evaluate(DOT_JS)
+            # (beta 7.8: since the 12 Nov 2026 upload (beta 3.4) Sync brings the fix list in by itself: it goes on Pedro's card, where
+            # "Open the fix list" opens it; nothing is left waiting in his Team mailbox)
+            check('Y1 Pedro\'s Sync (top bar) checks the team mailbox too and brings Juan\'s 2 fixes in by itself; nothing left waiting, no dot on Projects', sb and 'check the team mailbox' in lbl and f'team mailbox: brought in: 2 fixes from Juan for “{PROJ}”' in tb and not dot, (sb, lbl, tb, dot))
+            await projects(B); ib = await inbox(B); ct = await txt(B, '#curTeam')
+            check('F3 Pedro: the fixes are on his card (Fixes from Juan · 0 of 2 done, Open the fix list); nothing left in his Team mailbox', not ib and 'Fixes from Juan · 0 of 2 done' in ct and await B.is_visible('#curTeam [data-ct="fxopen"]'), (ib, ct))
+            await B.click('#curTeam [data-ct="fxopen"]'); await idle(B, 30000); await W(B, 800)
             t = await txt(B, '#fxBody')
             await close_sheets(B); await B.click('#projectBtn'); await W(B, 400)
             check('F4 Open: the fix list opens over the map with Juan’s note; the card keeps it until it is done', 'CC-1001: owner name' in t and 'Fixes from Juan · 0 of 2 done' in await txt(B, '#curTeam'), (t, await txt(B, '#curTeam')))
@@ -275,10 +297,13 @@ async def main():
             what = await B.eval_on_selector_all('#mbxWhat label', "(d) => d.map((x) => [x.textContent, x.querySelector('input').checked])")
             check('U4 Only the changes: 1 record changed · 1 deleted, since update 1', what[0][1] and '1 record changed' in what[0][0] and '1 deleted' in what[0][0] and 'since update 1' in what[0][0], what)
             sg = await send_go(B, 40000); await W(B, 400)
-            check('U5 update 2 sent; the fixes note is cleared on Pedro\'s card', 'Update 2 sent to Juan' in await toast(B) and 'Fixes asked' not in await txt(B, '#curTeam'), (await toast(B), await txt(B, '#curTeam')))
-            await projects(A); await dl(A, ms=40000); await W(A, 400)
+            # (beta 7.8: the fixes come as a fix list (the 12 Nov 2026 upload): each fix is answered on the list (✓ Done, Can't do) and its
+            # answer goes with the next send; a send clears the fixes note, and the list stays on the card until each fix is answered)
+            tb = await toast(B); ct = await txt(B, '#curTeam'); tmB = await mbx(B, 'team', PROJ)
+            check('U5 update 2 sent; the fixes note is cleared on Pedro\'s card (the fix list stays there until each fix is answered: Fixes from Juan · 0 of 2 done)', 'Update 2 sent to Juan' in tb and not tmB.get('fix') and 'Fixes asked' not in ct and 'Fixes from Juan · 0 of 2 done' in ct, (tb, ct, tmB.get('fix')))
+            tA, _ = await sync_now(A)  # (beta 7.8: Sync brings the update in, since the 12 Nov 2026 upload)
             ids = sorted(r['poleId'] for r in await mbx(A, 'recs', PROJ))
-            check('J4 update 2 merged: CC-1001A changed, CC-1003 deleted on Juan\'s phone too', ids == ['CC-1001A', 'CC-1002'], ids)
+            check('J4 update 2 merged (Juan\'s Sync brings it in): CC-1001A changed, CC-1003 deleted on Juan\'s phone too', ids == ['CC-1001A', 'CC-1002'] and f'brought in: update 2 of “{PROJ}” from Pedro' in tA, (ids, tA))
             # ---------- 6b. Juan adds a pole and a new KMZ: only the changes to Pedro; Maria's waiting task is replaced by the whole project
             await mbx(A, 'seed', PROJ, 1, {'from': 60, 'prefix': 'JD-'})
             mt0 = [o for o in await mbx(A, 'out') if o['to'] == MARIA and o['kind'] == 'task'][0]
@@ -289,12 +314,14 @@ async def main():
             out = await mbx(A, 'out'); toP = [o for o in out if o['to'] == PEDRO][0]; toM = [o for o in out if o['to'] == MARIA]
             check('C2 to Pedro: only the changes (update 2: 1 record, the KMZ); to Maria: the whole project again, the waiting task replaced', toP['kind'] == 'update' and not toP['full'] and toP['n'] == 2 and toP['recs'] == 1 and toM[0]['kind'] == 'task' and toM[0]['full'] and [o['st'] for o in toM if o['tid'] == mt0['tid']] == ['replaced'], (toP, toM[:2]))
             check('C3 the replaced task left the mailbox', not [f for f in e2e('/drive') if f.startswith(mt0['tid'])], e2e('/drive'))
-            await projects(B); ib = await inbox(B)
-            check('C4 Pedro: Update 2 from Juan Dela Cruz · 1 record, Download and merge', len(ib) == 1 and 'Update 2 from Juan Dela Cruz' in ib[0] and '1 record' in ib[0] and 'Download and merge' in ib[0], ib)
-            j, stg = await dl(B, ms=40000); await B.locator('#mbxBox').screenshot(path=f'{OUT}/p_merged.png')
+            # (beta 7.8: since the 12 Nov 2026 upload (beta 3.4) Pedro's Sync brings Juan's update in and merges it by itself; his card
+            # says it was merged by Sync, where the inbox row showed the download in place)
+            tb, _ = await sync_now(B); ib = await mbx(B, 'inbox')
+            check('C4 Pedro\'s Sync brings in Juan\'s update 2 by itself (update 2 of “DEMO SITE MINTAL” from Juan); nothing waits in his mailbox', f'brought in: update 2 of “{PROJ}” from Juan' in tb and ib == [], (tb, ib))
+            await B.click('#projectBtn'); await W(B, 400); await B.locator('#wfBox').screenshot(path=f'{OUT}/p_merged.png')
             refsB = await mbx(B, 'refs'); tB = await mbx(B, 'team', PROJ); ct = await txt(B, '#curTeam')
-            check('C5 merged on Pedro\'s phone: JD-1061 and the new KMZ (2 lines); still his task from Juan; the card says update 2 merged', any(r['poleId'] == 'JD-1061' for r in await mbx(B, 'recs', PROJ)) and refsB[PROJ]['n']['lines'] == 2 and tB['role'] == 'fp' and tB['by'] == JUAN and 'Update 2 from Juan merged' in ct and j and j['stage'] == 'done', (refsB.get(PROJ), tB and tB.get('role'), ct, j))
-            check('C6 the inbox row showed the download in place: Merged, Show on the map', 'Merged' in (await txt(B, '#mbxIn')) and await B.is_visible('#mbxIn [data-jobgo]'), await txt(B, '#mbxIn'))
+            check('C5 merged on Pedro\'s phone: JD-1061 and the new KMZ (2 lines); still his task from Juan; the card says update 2 merged', any(r['poleId'] == 'JD-1061' for r in await mbx(B, 'recs', PROJ)) and refsB[PROJ]['n']['lines'] == 2 and tB['role'] == 'fp' and tB['by'] == JUAN and 'Update 2 from Juan merged' in ct, (refsB.get(PROJ), tB and tB.get('role'), ct))
+            check('C6 the card shows the merge in place: update 2 from Juan merged by Sync', re.search(r'Update 2 from Juan merged [^·]*? by Sync', ct), ct)
             cg = await fxh(B, 'chg', PROJ); ct = await txt(B, '#curTeam')
             check('C6b what changed works both ways: Pedro sees Juan\'s update 2 (JD-1061 new) on his card', cg and cg['n'] == 2 and any(x['kind'] == 'new' and 'JD-1061' in str(x) for x in cg['items']) and 'Last update from Juan' in ct and 'What changed' in ct, (cg, ct))
             await mbx(A, 'seed', PROJ, 1, {'from': 61, 'prefix': 'JD-'})
@@ -306,8 +333,9 @@ async def main():
             await A.locator('#mbxTo label', has_text='Maria Garcia').locator('input').uncheck(); await W(A, 200)
             sg = await send_go(A, 60000)
             check('C8 sent in the Send screen: Sent to Pedro, Done', 'Sent to Pedro' in sg['line'] and sg['pct'] == '100%', {k: v for k, v in sg.items() if k != 'seen'})
-            await projects(B); j, stg = await dl(B, ms=40000)
-            check('C9 Pedro merges update 3 from Juan: JD-1062', any(r['poleId'] == 'JD-1062' for r in await mbx(B, 'recs', PROJ)), await mbx(B, 'recs', PROJ))
+            tb, _ = await sync_now(B)  # (beta 7.8: Sync brings it in, since the 12 Nov 2026 upload)
+            check('C9 Pedro merges update 3 from Juan (his Sync brings it in): JD-1062', any(r['poleId'] == 'JD-1062' for r in await mbx(B, 'recs', PROJ)) and f'brought in: update 3 of “{PROJ}” from Juan' in tb, (tb, await mbx(B, 'recs', PROJ)))
+            await B.click('#projectBtn'); await W(B, 400)
             # ---------- 7. A bigger update, 4 MB pieces, the line drops in the middle of the second piece
             await mbx(B, 'seed', PROJ, 4, {'noise': True, 'px': 1100, 'from': 10})
             e2e('/chunks?reset=1&drop=2')
@@ -316,10 +344,10 @@ async def main():
             pcts = [int(x[0].rstrip('%')) for x in sg['seen'] if x[0].endswith('%')]
             check('B0 the Send screen counted it up (between 0 and 100 %) and said the signal dropped and it carried on', any(0 < v < 100 for v in pcts) and any('Signal dropped: carrying on from' in x[2] for x in sg['seen']) and sg['done'], (sorted(set(pcts))[:12], [x[2] for x in sg['seen'] if 'Signal' in x[2]][:2]))
             check('B1 update 3 (about %.1f MB) went straight to Google in 4 MB pieces, and carried on after the dropped piece' % (big['size'] / 1048576), big['n'] == 3 and big['how'] == 'direct' and big['size'] > 5 * 1048576 and ch['puts'] >= 3 and ch['dropAt'] == 0 and ch['probes'] >= 1, (big, ch))
-            await projects(A); await dl(A, ms=90000); await W(A, 400)
+            tA, _ = await sync_now(A, 180000)  # (beta 7.8: Sync brings it in, since the 12 Nov 2026 upload)
             recsA = await mbx(A, 'recs', PROJ); recsB = await mbx(B, 'recs', PROJ)
             szA = [await mbx(A, 'photo', r['id']) for r in recsA if r['poleId'] in ('CC-1011', 'CC-1014')]; szB = [await mbx(B, 'photo', r['id']) for r in recsB if r['poleId'] in ('CC-1011', 'CC-1014')]
-            check('B2 Juan downloads it in 2 MB ranges (4 at once), checked, merged: the same photos, byte for byte', len(recsA) == 8 and szA == szB and min(szA) > 300000, (len(recsA), szA, szB))
+            check('B2 Juan\'s Sync downloads it in 2 MB ranges (4 at once), checks and merges it: the same photos, byte for byte', len(recsA) == 8 and szA == szB and min(szA) > 300000 and f'brought in: update 3 of “{PROJ}” from Pedro' in tA, (len(recsA), szA, szB, tA))
             # ---------- 8. Google refuses the direct send on Pedro's phone: in pieces through the script
             e2e('/direct?on=0'); await mbx(B, 'edit', PROJ, 'CC-1002', 'CC-1002A')
             await send_sheet(B); sg = await send_go(B, 60000); await W(B, 400)
@@ -332,10 +360,9 @@ async def main():
             outB = await mbx(B, 'out'); ch = e2e('/chunks?range=1&drop=0&reset=1')
             check('D2 a dropped piece with no Range to read: the send starts again through the script and arrives', outB[0]['n'] == 5 and outB[0]['how'] == 'script' and outB[0]['st'] == 'waiting' and ch['probes'] >= 1, (outB[0], ch))
             await mbx(B, 'noDirect', False)
-            await projects(A)
-            for _ in range(2): await dl(A, ms=120000); await W(A, 300)
+            tA, _ = await sync_now(A, 240000)  # (beta 7.8: one Sync brings both in, oldest first, since the 12 Nov 2026 upload)
             ids = sorted(r['poleId'] for r in await mbx(A, 'recs', PROJ))
-            check('D3 Juan merges updates 4 and 5: identical to Pedro\'s project', ids == sorted(r['poleId'] for r in await mbx(B, 'recs', PROJ)) and 'CC-1002A' in ids and 'CC-1011A' in ids and 'JD-1062' in ids and len(ids) == 11, ids)
+            check('D3 Juan merges updates 4 and 5 (his Sync brings both in): identical to Pedro\'s project', ids == sorted(r['poleId'] for r in await mbx(B, 'recs', PROJ)) and 'CC-1002A' in ids and 'CC-1011A' in ids and 'JD-1062' in ids and len(ids) == 11 and f'update 4 of “{PROJ}” from Pedro; update 5 of “{PROJ}” from Pedro' in tA, (ids, tA))
             check('D4 nothing of Pedro\'s left in the mailbox (pieces, whole files, manifests)', not [f for f in e2e('/drive') if f.startswith('g') and not any(f.startswith(o['tid']) for o in await mbx(A, 'out') if o['to'] == MARIA)], e2e('/drive'))
             # ---------- 9. Juan is away: Pedro sends to Ana, who takes it over and accepts
             await send_sheet(B); await B.locator('#mbxTo label', has_text='Ana Reyes').locator('input').check(); await W(B, 300)
@@ -349,16 +376,17 @@ async def main():
             check('T3 Ana has the project (11 records), taken over from Juan Dela Cruz, with Accept (on: the update is merged)', len(await mbx(N, 'recs', PROJ)) == 11 and 'taken over from Juan Dela Cruz' in ct and await N.is_visible('#curTeam [data-ct="accept"]') and await N.evaluate(ACC_JS) is False, ct)
             await N.click('#curTeam [data-ct="accept"]'); t = await ask_text(N); await answer(N, 'Accept'); await idle(N, 30000); await W(N, 300)
             check('T4 Accept tells Pedro, and Juan that Ana took it over; the card says Accepted on the date and time', 'Pedro' in t and 'Juan' in t and 'took it over' in t and re.search(r'Accepted on \w{3} \d{1,2}, \d{1,2}:\d{2}', await txt(N, '#curTeam')), (t, await txt(N, '#curTeam')))
-            await projects(B); ib = await inbox(B)
-            check('T5 Pedro: Ana Reyes accepted your survey', len(ib) == 1 and 'Ana Reyes accepted your survey' in ib[0], ib)
-            await open_in(B); await W(B, 400)
+            # (beta 7.8: since the 12 Nov 2026 upload (beta 3.4) Sync brings an acceptance and a note in by itself; a note is shown as
+            # "Notes that came with Sync", where each waited in the Team mailbox with Open)
+            tb, _ = await sync_now(B)
+            check('T5 Pedro\'s Sync brings in Ana\'s acceptance by itself (Ana accepted “DEMO SITE MINTAL”)', f'brought in: Ana accepted “{PROJ}”' in tb, tb)
+            await B.click('#projectBtn'); await W(B, 400)
             ct = await txt(B, '#curTeam'); tools = await B.eval_on_selector_all('#curTools .tmtool', "(d) => d.map((x) => x.dataset.tool)")
             check('T6 Pedro\'s task: accepted by Ana Reyes (with the date and time), done; no Send, no Mark task complete (the coordinator completes it)', re.search(r'Accepted by Ana Reyes on \w{3} \d{1,2}, \d{1,2}:\d{2}', ct) and 'send' not in tools and not await B.is_visible('#curTeam [data-ct="send"]') and not await B.is_visible('#doneBtn'), (ct, tools))
             await close_sheets(B); await B.click('#captureBtn'); await W(B, 400)
             check('T7 the camera does not open on an accepted task', 'was accepted by Ana Reyes' in await toast(B) and await B.is_hidden('#camera'), await toast(B))
-            await projects(A); ia = await inbox(A)
-            check('T8 Juan: Note from Ana Reyes', len(ia) == 1 and 'Note from Ana Reyes' in ia[0], ia)
-            await open_in(A); t = await ask_text(A); await answer(A, 'OK')
+            tA, notes = await sync_now(A); t = notes[0] if notes else ''
+            check('T8 Juan\'s Sync brings in the note from Ana by itself and shows it (Notes that came with Sync)', f'brought in: a note from Ana for “{PROJ}”' in tA and len(notes) == 1 and 'Notes that came with Sync' in t, (tA, notes))
             check('T9 the note says Ana took it over and accepted it', 'took over' in t and PROJ in t, t)
             # ---------- 10. Maria never downloads: 7 days later, Juan resends
             mt = [o for o in await mbx(A, 'out') if o['to'] == MARIA and o['kind'] == 'task'][0]
@@ -383,23 +411,21 @@ async def main():
             await close_sheets(M); await M.click('#projectBtn'); await W(M, 300); await M.click('#newProjBtn'); await W(M, 300)
             check('N3 Maria, out of every team, can start a survey again', await M.evaluate("() => !document.querySelector('#npCat option[value=survey]').disabled") and not await M.is_visible('#npFpInfo'))
             await close_sheets(M)
-            await projects(A); ia = await inbox(A)
-            check('L3 Juan: Update 1 (the whole project) from Maria Garcia · left the team', len(ia) == 1 and 'from Maria Garcia' in ia[0] and 'left the team' in ia[0], ia)
-            await dl(A, ms=60000); await W(A, 300)
-            t = await ask_text(A); await answer(A, 'OK')
-            ct = await txt(A, '#curTeam')
+            # (beta 7.8: Sync brings Maria's project in by itself since the 12 Nov 2026 upload; her note comes as "Notes that came with Sync")
+            tA, notes = await sync_now(A, 60000); t = notes[0] if notes else ''
+            check('L3 Juan\'s Sync brings in Maria\'s whole project (the whole “DEMO SITE MINTAL” from Maria) with her note: she left the team', f'brought in: the whole “{PROJ}” from Maria' in tA and 'left the team' in t, (tA, notes))
+            await A.click('#projectBtn'); await W(A, 400); ct = await txt(A, '#curTeam')
             check('L4 merged (MG-1041 on Juan\'s phone); the card says Maria left the team', any(r['poleId'] == 'MG-1041' for r in await mbx(A, 'recs', PROJ)) and 'left the team' in ct and 'left the team' in t, (ct, t))
-            # ---------- 12. Take back, and the start-up reminder
+            # ---------- 12. Take back, and the start-up reminder (beta 7.8: since the 12 Nov 2026 upload Pedro's start check would bring the
+            # fix in by itself, so Juan takes it back before Pedro's phone checks; the start-up check comes after, with the fix sent again)
             await A.click('#curTeam [data-ct="fix"]'); await W(A, 800)
             await fxitem(A, 'CC-1002A', 'New photo', 'One more photo, please.'); await fxclick(A, 'send'); await idle(A, 60000); await W(A, 300)
-            await close_sheets(B); await mbx(B, 'startCheck'); await W(B, 400)
-            check('R1 at start, Pedro is told something waits in the team mailbox', 'waits for you in the team mailbox' in await toast(B), await toast(B))
             await projects(A, check_mail=False)
             if not await A.evaluate("document.getElementById('mbxOutBox').open"): await A.click('#mbxOutBox summary'); await W(A, 200)
             await A.locator('#mbxOut .tmrow', has_text='Fixes → Pedro Santos').first.locator('[data-mbxback]').click(); await answer(A, 'Take back'); await idle(A); await W(A, 300)
             ot = await A.eval_on_selector_all('#mbxOut .tmrow', "(d) => d.map((x) => x.textContent)")
-            await projects(B); ib = await inbox(B)
-            check('K1 Take back: the fixes note is gone from Pedro\'s mailbox; Juan\'s Sent says taken back', not ib and any('Fixes → Pedro Santos' in r and 'taken back' in r for r in ot), (ib, ot))
+            await mbx(B, 'refresh'); ib = await mbx(B, 'inbox'); await close_sheets(B); await mbx(B, 'startCheck'); await W(B, 400); fl = await fxh(B, 'list', PROJ)
+            check('K1 Take back: the fixes are gone from Pedro\'s mailbox (his start check brings nothing in); Juan\'s Sent says taken back', ib == [] and fl and len(fl['items']) == 2 and any('Fixes → Pedro Santos' in r and 'taken back' in r for r in ot), (ib, fl and [x['why'] for x in fl['items']], ot))
             dr = await fxh(A, 'draft', PROJ); fo = await fxh(A, 'out', PROJ)
             check('K2 the taken-back fix goes back to Juan\'s draft (New photo); the fixes Pedro has stay, round 1', len(dr) == 1 and dr[0]['why'] == ['New photo'] and fo and fo['round'] == 1 and len(fo['items']) == 2 and not any(x['k'] == dr[0]['k'] for x in fo['items']), (dr, fo))
             ct = await txt(A, '#curTeam'); nd = await A.locator('#curTeam [data-fxr="drop"]').count()
@@ -407,6 +433,10 @@ async def main():
             ct2 = await txt(A, '#curTeam'); fo = await fxh(A, 'out', PROJ)
             await A.screenshot(path=f'{OUT}/k_notneeded.png')
             check('K3 Not needed: the 2 fixes still with Pedro stop holding up Accept', nd == 2 and all(x['review'] == 'ok' and x.get('dropped') for x in fo['items']) and ct2.count('Not needed') == 2 and 'Check each fix answer first' not in ct2, (nd, ct, ct2))
+            # (beta 7.8: at start the app brings in what waits for a project on the phone and says so, since the 12 Nov 2026 upload)
+            await A.click('#curTeam [data-ct="fix"]'); await W(A, 800); await fxclick(A, 'send'); await idle(A, 60000); await W(A, 300)
+            await close_sheets(B); await mbx(B, 'startCheck'); await W(B, 400)
+            check('R1 at start, what waits for Pedro in the team mailbox comes in, and he is told (Team mailbox: brought in: 1 fix from Juan…)', f'Team mailbox: brought in: 1 fix from Juan for “{PROJ}”' in await toast(B), await toast(B))
             # ---------- 13. Me: a coordinator surveys himself, nothing through the mailbox
             n0 = len(await mbx(A, 'out'))
             await common.newproj(A, name='DEMO SITE TORIL'); await idle(A); await W(A, 400)
