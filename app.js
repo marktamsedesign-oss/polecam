@@ -2117,7 +2117,7 @@
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
     drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), ia: String(h.a), ib: String(h.b), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     drw.blocks = drwBlocks(items, R, U); // v2.42.24: the dummy NAPs and closures on the cable
-    { const M = drwPhMem.get(S.project); drw.ph = M && M.row === rowIdx() && dxfMode() === 'tpl' ? M : null; drw.selPh = null; drw.phHit = []; if (!again) drwPhRoadC.clear(); drw.plWant = !!drw.ph; drwPlanUi(); } // (beta 7.8, Drawing photos) where the plan put the photos last time, until the preview comes (drwPhRun); the roads read again for it
+    { const M = drwPhMem.get(S.project); drw.ph = M && M.row === rowIdx() && dxfMode() === 'tpl' ? M : null; drw.selPh = null; drw.phHit = []; drw.plWant = !!drw.ph; drwPlanUi(); } // (beta 7.8, Drawing photos) where the plan put the photos last time, until the preview comes (drwPhRun) ((Plan kept) its roads: those kept with the project, planRoadsOf)
     { const byI = new Map(items.map((it) => [String(it.p.id), it])); // beta 6.9: each pull-off and cross-over, its poles on the Drawing
       drw.jns = items.filter((it) => JN[it.el]).map((it) => ({ it, att: jnAtt(it.p).map((q) => byI.get(String(q.id))).filter(Boolean) })); }
     drw.pts = pts; drwXHid(); // beta 6.2: the points as exported (clamps); the hidden ones' chip
@@ -2145,7 +2145,7 @@
     if (window.GeDxfTpl && window.GeDxfTpl.markOrder) go(); else loadScript('dxftpl.js').then(go).catch((e) => LOG.warn('draw.seq', errInfo(e)));
   }
   /* (beta 7.8, Drawing photos) The photos where the plan puts them: with the company template on the phone, the Drawing makes the plan of the
-     drawing it shows (planJob, as Export › Plan drawing makes it, quietly: the roads from the phone only, no photo files) in a worker of
+     drawing it shows (planJob, as Export › Plan drawing makes it, quietly: (Plan kept) the roads kept with the project, no photo files) in a worker of
      its own, and draws each photo's frame where report.photoAt says, at its size, with its line to its pole when the plan has one: from
      the pole as the Drawing shows it (the plan draws the pole beside its road, dp; the photo keeps its place from it). Made again when the
      Drawing opens, when its drawing, points or plan style change, and after a photo is moved; a newer one, an export or Back stops the one
@@ -2154,7 +2154,7 @@
      line says whether it was placed by hand, with Back to automatic. Without a template, the Drawing as before. (Kept on this phone: the
      team does not get them yet.) */
   let drwPhT = 0, drwPhGen = 0, phWorker = null, phWorkerEnd = null, phBuild = null, seedSigC = null; // (phBuild: the plan being made, its signature)
-  const drwPhMem = new Map(), drwPhRoadC = new Map(), phDimC = new Map(); // (each project's last preview; the roads read for it, this time the Drawing is open; each photo's size)
+  const drwPhMem = new Map(), phDimC = new Map(); // (each project's last preview; each photo's size)
   const strHash = (s) => { let h = 2166136261, k = 5381; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h = Math.imul(h ^ c, 16777619); k = (Math.imul(k, 33) + c) | 0; } return `${s.length}:${(h >>> 0).toString(36)}:${(k >>> 0).toString(36)}`; };
   function drwPhSoon(ms) { clearTimeout(drwPhT); drwPhT = setTimeout(() => { drwPhGo(false); }, ms == null ? 300 : ms); }
   /** (beta 7.9, Drawing preview) The preview made now (force: again, even when nothing changed: Regenerate plan preview). */
@@ -2184,9 +2184,9 @@
     let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before)
     if (res.perr) LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) });
     const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
-      planAt: rep.photoAt, fileId: Object.fromEntries(Object.entries(job.photos || {}).map(([id, x]) => [x.file, id])) }; // (the places the plan's pictures are drawn at; each picture's point)
+      planAt: rep.photoAt, fileId: Object.fromEntries(Object.entries(job.photos || {}).map(([id, x]) => [x.file, id])), lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0 }; // (the places the plan's pictures are drawn at; each picture's point; (Plan kept) the labels and split it was made with)
     for (const [k, v] of drwPhMem) if (k !== proj && v.plan) drwPhMem.set(k, { ...v, plan: null, sig: '' }); // (one project's plan kept at a time: another one opened makes its own again)
-    drwPhMem.set(proj, ph); LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length, force: !!force, ...(plan ? { plan: { ...plan.count, ms: res.plan.ms } } : {}) }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker; plan: its display list, made in ms after the plan)
+    drwPhMem.set(proj, ph); planGridKeep(proj, ph.grid, ph.lab, ph.split); /* ((Plan kept) photos placed by hand and no grid kept yet, e.g. placed before: this one's) */ LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length, force: !!force, ...(plan ? { plan: { ...plan.count, ms: res.plan.ms } } : {}) }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker; plan: its display list, made in ms after the plan)
     if (!drw || drw.project !== proj || $('drawing').hidden) return;
     drw.ph = ph; drw.phBusy = false; drwPlanShow(force);
   }
@@ -2203,20 +2203,31 @@
       try { w.postMessage({ id, seed, job, only: 'plan' }); } catch (e) { off(); res(null); }
     });
   }
-  /** The preview's roads (planRoads, quiet: the road packs, else the offline map; never downloaded), read once while the Drawing is open. */
-  async function drwPhRoads(bb, nb) {
-    const k = JSON.stringify([bb, nb]); if (drwPhRoadC.has(k)) return drwPhRoadC.get(k);
-    const r = await planRoads(bb, nb, true); drwPhRoadC.set(k, r); return r;
-  }
   /** A photo's size as the plan export makes it (pdfJpeg: 800 px on its long side), from its stored file's header (nothing decoded); null without one. */
   async function phDims(pid) {
     const ph = await dbGet('photos', pid).catch(() => null), b0 = ph && ph.clean; if (!(b0 instanceof Blob) || !b0.size) return null;
     const k = `${pid}|${b0.size}`; if (phDimC.has(k)) return phDimC.get(k);
     let wh = null;
-    for (const n of [131072, b0.size]) { try { const b = new Uint8Array(await b0.slice(0, n).arrayBuffer()); if (b[0] === 0xff && b[1] === 0xd8) wh = window.PoleReports.jpegInfo(b); } catch (e) { wh = null; } if (wh || n >= b0.size) break; }
+    for (const n of [131072, b0.size]) { try { const b = new Uint8Array(await b0.slice(0, n).arrayBuffer()); if (b[0] === 0xff && b[1] === 0xd8) { wh = window.PoleReports.jpegInfo(b); if (wh && jpegTurned(b)) wh = { w: wh.h, h: wh.w }; } } catch (e) { wh = null; } if (wh || n >= b0.size) break; } // ((Plan kept) turned a quarter by its EXIF orientation: as the export's decode shows it)
     if (!wh) { try { const im = await loadImage(b0); wh = dims(im); if (im.close) im.close(); } catch (e) { wh = null; } } // (not a JPEG the header reader knows: decoded)
     const sc = wh && wh.w > 0 && wh.h > 0 ? Math.min(1, 800 / Math.max(wh.w, wh.h)) : 0, out = sc ? { w: Math.round(wh.w * sc), h: Math.round(wh.h * sc) } : null;
     if (phDimC.size > 5000) phDimC.clear(); phDimC.set(k, out); return out;
+  }
+  /** (Plan kept) A JPEG whose EXIF orientation turns it a quarter (5 to 8): the phone's decoder (imageOrientation from-image, as the export's
+   *  pdfJpeg reads it) shows it with its width and height swapped, so the preview's photo size swaps them too. b: its first bytes. */
+  function jpegTurned(b) {
+    let i = 2;
+    while (i + 9 < b.length && b[i] === 0xff) {
+      const mk = b[i + 1], len = (b[i + 2] << 8) | b[i + 3]; if (mk === 0xda || mk === 0xd9 || len < 2) break;
+      if (mk === 0xe1 && b[i + 4] === 0x45 && b[i + 5] === 0x78 && b[i + 6] === 0x69 && b[i + 7] === 0x66) { // APP1 Exif: its TIFF header, IFD0, the orientation (0x0112)
+        const t = i + 10, le = b[t] === 0x49, u16 = (o) => (le ? b[o] | (b[o + 1] << 8) : (b[o] << 8) | b[o + 1]), u32 = (o) => (le ? (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16)) + b[o + 3] * 16777216 : b[o] * 16777216 + ((b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]));
+        const ifd = t + u32(t + 4); if (ifd + 2 > b.length) return false;
+        for (let k = 0, n = u16(ifd); k < n; k++) { const e = ifd + 2 + k * 12; if (e + 10 > b.length) break; if (u16(e) === 0x0112) { const v = u16(e + 8); return v >= 5 && v <= 8; } }
+        return false;
+      }
+      i += 2 + len;
+    }
+    return false;
   }
   /** The Drawing's hint, with a line about the photos once the plan's places are there. */
   function drwPhHint() {
@@ -2244,10 +2255,19 @@
       else { const k = Math.min(w / 18, h / 14) * 0.8, s = (u) => u * k, X = -s(9), Y = -s(7); // (the picture sign, as the frames before)
         g.fillStyle = hand ? '#74c0fc' : '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill(); } }
     g.strokeStyle = hand ? '#1c7ed6' : '#495057'; g.lineWidth = (hand ? 1.8 : 1.2) * d; g.strokeRect(-w / 2, -h / 2, w, h);
+    const warn = !dr && drwPhCut(A); // ((Plan kept) across a sheet's edge: it prints cut on both sheets: outlined orange, dashed)
+    if (warn) { g.strokeStyle = '#f08c00'; g.lineWidth = 2.4 * d; g.setLineDash([5 * d, 3 * d]); g.strokeRect(-w / 2 - 3 * d, -h / 2 - 3 * d, w + 6 * d, h + 6 * d); g.setLineDash([]); }
     g.restore();
     const ex = Math.abs(Math.cos(rot)) * w / 2 + Math.abs(Math.sin(rot)) * h / 2, ey = Math.abs(Math.sin(rot)) * w / 2 + Math.abs(Math.cos(rot)) * h / 2;
-    placed.push([cx - ex - d, cy - ey - d, 2 * ex + 2 * d, 2 * ey + 2 * d]); drw.phHit.push({ id, cx, cy, w, h, rot });
+    placed.push([cx - ex - d, cy - ey - d, 2 * ex + 2 * d, 2 * ey + 2 * d]); drw.phHit.push({ id, cx, cy, w, h, rot, ...(warn ? { warn: true } : {}) });
   }
+  /** (Plan kept, tests) A display list's hash (dxfpdf.js planList, or the Drawing's plan made from one, drwPlanMake): its lines' points and items,
+   *  its texts and pictures as drawn, its styles, origin and scale. */
+  const planListHash = (pl) => { if (!pl) return null; const raw = pl.raw || pl; let h = 2166136261 >>> 0; const fnv = (u8) => { for (let i = 0; i < u8.length; i++) h = Math.imul(h ^ u8[i], 16777619) >>> 0; };
+    for (const k of ['pts', 'subs', 'items']) { const a = raw[k]; if (a && a.buffer) fnv(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
+    fnv(new TextEncoder().encode(JSON.stringify([(pl.texts || []).map((t) => [t.s, t.m, t.f, t.c, t.w, t.sc, t.lw]), (pl.images || []).map((im) => [im.name, im.m]), pl.styles, pl.origin, pl.K]))); return `${h.toString(16)}:${(pl.texts || []).length}`; };
+  /** (Plan kept) A photo across a sheet's edge (report.photoAt[id].cut: the sheets it prints cut on), or null. */
+  const drwPhCut = (A) => (A && Array.isArray(A.cut) && A.cut.length > 1 ? A.cut : null);
   /** The photo frame under a finger (the one drawn last first), or null; a point's centre right there wins (its tap, as before). */
   function drwPhAt(e) {
     if (!drw || !drw.phHit || !drw.phHit.length) return null;
@@ -2262,7 +2282,8 @@
     const it = drwEdById(id); if (!it || !drw) return;
     const p = it.p, n = drw.seq && drw.seq.get(String(id)), pin = (pmeta(drw.project).phPin || {})[String(id)], info = $('drawInfo');
     drw.sel = null; drw.selRun = null; drw.selPh = String(id);
-    info.textContent = `Photo of ${p.poleId || elemOf(p)}${n ? ` (No. ${n})` : ''} · ${pin ? 'placed by hand on the plan' : 'where the plan puts it: drag it to place it by hand'}`;
+    const cut = drwPhCut(drw.ph && drw.ph.at[String(id)]); // ((Plan kept) across a sheet's edge: said)
+    info.textContent = `Photo of ${p.poleId || elemOf(p)}${n ? ` (No. ${n})` : ''} · ${pin ? 'placed by hand on the plan' : 'where the plan puts it: drag it to place it by hand'}${cut ? ` · across the edge of sheets ${andList(cut)}: it prints cut on both, drag it inside one` : ''}`;
     if (pin) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawPhAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwPhAuto(String(id))); info.appendChild(b); }
     info.hidden = false; $('drawHint').hidden = true;
     if (cefHooks.drawSync) cefHooks.drawSync(); if (splHooks.drawSync) splHooks.drawSync(); drawDrawing();
@@ -2272,14 +2293,15 @@
     const A = drw && drw.ph && drw.ph.at[id]; if (!A) { if (drw) drawDrawing(); return; }
     const sc = drw.view.sc, off = [+(A.x - A.dp[0] + dx / sc).toFixed(2), +(A.y - A.dp[1] - dy / sc).toFixed(2)], proj = drw.project, m0 = pmeta(proj);
     S.meta = S.meta || {}; S.meta[proj] = { ...m0, phPin: { ...(m0.phPin || {}), [id]: off } }; persist();
-    drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null } } }; // (where it was let go, until the plan's own comes: its line, the others moved aside; the one kept stays as it was made)
+    planGridKeep(proj, drw.ph.grid, drw.ph.lab, drw.ph.split); // ((Plan kept) the first photo placed by hand: the plan keeps the grid it shows)
+    drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null, cut: null } } }; // (where it was let go, until the plan's own comes: its line, the others moved aside, whether it is across a sheet's edge; the one kept stays as it was made)
     LOG.info('draw.photo.pin', { n: Object.keys(S.meta[proj].phPin).length });
     drwPlanUi(); drwPhTap(id); drwPhSoon(250); // ((beta 7.9, Drawing preview) the chip of the photos placed by hand at once)
   }
   /** Back to automatic: the photo placed by hand goes back where the plan puts it. */
   function drwPhAuto(id) {
     if (!drw) return; const proj = drw.project, m0 = pmeta(proj); if (!m0.phPin || !(id in m0.phPin)) return;
-    const P = { ...m0.phPin }; delete P[id]; const m = { ...m0, phPin: P }; if (!Object.keys(P).length) delete m.phPin;
+    const P = { ...m0.phPin }; delete P[id]; const m = { ...m0, phPin: P }; if (!Object.keys(P).length) { delete m.phPin; delete m.planGrid; } // ((Plan kept) the last one: the grid is worked out again)
     S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.auto', { n: Object.keys(P).length });
     if (drw.ph && drw.ph.at[id]) drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...drw.ph.at[id], how: 'auto' } } }; // (where it is until the plan's place comes)
     drwPlanUi(); drwPhTap(id); drwPhSoon(0);
@@ -2303,7 +2325,25 @@
   /** Where the Drawing shows a point: where the plan draws it while the plan is shown, else where it was surveyed (metres). */
   const drwAt = (it) => (drwPlanOn() && drw.ph.drawnAt && drw.ph.drawnAt[String(it.p.id)]) || it.xy;
   /** The plan's GEO sheets from its report: [{ sheet, name, box: [x0, y0, x1, y1] }] (null: a builder that does not say). */
-  const drwGridOf = (rep) => (rep && rep.grid && Array.isArray(rep.grid.sheets) ? { cell: rep.grid.cell, sheets: rep.grid.sheets } : null);
+  const drwGridOf = (rep) => (rep && rep.grid && Array.isArray(rep.grid.sheets) ? { cell: rep.grid.cell, sheets: rep.grid.sheets, geo: Array.isArray(rep.grid.geo) ? rep.grid.geo.slice() : null, n: +rep.grid.n || ((rep.tidy || {}).grid || {}).n || 1, kept: !!rep.grid.kept } : null); // ((Plan kept) + the GEO cells' origin, the split, whether it was the grid kept)
+  /* (Plan kept) Once a photo is placed by hand on the Drawing, the plan keeps its grid: the GEO cells' origin and (Tidy) its split, as the plan shown
+     had them (pmeta().planGrid { geo, n, cell, lab, split, at }), passed to every later plan (job.gridKeep: the preview and every export), so its
+     sheets and their names no longer change by themselves (another grid found best after a photo moved, a pole moved a little); the route's new
+     parts get new cells of the same grid. For the Pole labels (Standard / Tidy) and the Sheet split it was kept with (another: worked out as
+     before, then kept anew). Back to automatic for every photo (asked first) or for the last one placed by hand lets it go. On this phone only. */
+  const planLab = () => (S.exp.dxfLabels === 'tidy' ? 'tidy' : 'std');
+  /** The grid kept with a project, { origin, n } for the plan's job, or null (none, or kept for other labels or another split). */
+  function planGridOf(m) {
+    const G = m && m.planGrid; if (!G || !Array.isArray(G.geo) || G.geo.length !== 2 || !G.geo.every((v) => Number.isFinite(+v))) return null;
+    return G.lab === planLab() && (+G.split || 0) === (+plStyle().grid.split || 0) ? { origin: [+G.geo[0], +G.geo[1]], n: Math.max(1, +G.n || 1) } : null;
+  }
+  /** The grid of the plan shown (G, drwGridOf; lab, split: what it was made with) kept with the project, when a photo is placed by hand and none is kept. */
+  function planGridKeep(proj, G, lab, split) {
+    const m0 = pmeta(proj); if (!G || !Array.isArray(G.geo) || !Object.keys(m0.phPin || {}).length || planGridOf(m0)) return false;
+    if (lab !== planLab() || (+split || 0) !== (+plStyle().grid.split || 0)) return false; // (made with other labels or split than now: the next one)
+    S.meta = S.meta || {}; S.meta[proj] = { ...m0, planGrid: { geo: G.geo.slice(), n: G.n || 1, cell: G.cell, lab, split: +split || 0, at: new Date().toISOString() } }; persist();
+    LOG.info('plan.grid.keep', { n: G.n || 1, sheets: (G.sheets || []).length }); return true;
+  }
   const PL_TILE = 120, PL_FONT = ['', 'bold ', 'italic ', 'italic bold '].map((w) => `${w}64px Helvetica, Arial, sans-serif`); // (texts drawn at 64 px, scaled: Helvetica as the PDF's, else the nearest)
   /** The display list (dxfpdf.js modelList) made ready to draw: the items in the order printed, each run of lines or fills of one look one
    *  Path2D for each tile its items are in (an even-odd fill over another of its run starts a run of its own), each run of texts their list. */
@@ -2393,7 +2433,7 @@
     const sel = drw.sel != null ? drwEdById(drw.sel) : null; if (sel) { const [px, py] = drwPx(drwAt(sel)); g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 4 * d; g.beginPath(); g.arc(px, py, 13 * d, 0, 2 * Math.PI); g.stroke(); }
     g.restore();
     const A0 = drw.ph.at || {}, dg = drw.phDrag; // the photos: each frame over the plan's own, big enough to take (zoomed out: the plan's)
-    drw.items.forEach((it) => { const id = String(it.p.id), A = A0[id]; if (A && !(dg && dg.id === id) && (Math.max(A.w, A.h) * v.sc >= 6 * d || drwPhMoved(id))) drwPhFrame(g, d, it, A, [], true); });
+    drw.items.forEach((it) => { const id = String(it.p.id), A = A0[id]; if (A && !(dg && dg.id === id) && (Math.max(A.w, A.h) * v.sc >= 6 * d || drwPhMoved(id) || drwPhCut(A))) drwPhFrame(g, d, it, A, [], true); }); // ((Plan kept) one across a sheet's edge always, outlined)
     if (dg) { const it = drwEdById(dg.id), A = it && drwPhOf(it); if (A) drwPhFrame(g, d, it, A, [], true); } // (the one dragged: over everything)
     drwNorthScale(g, d, cv, v);
   }
@@ -2437,9 +2477,9 @@
   /** Back to automatic for every photo placed by hand on this project's plan, asked first. */
   async function drwPhAutoAll() {
     if (!drw) return; const proj = drw.project, n = Object.keys(pmeta(proj).phPin || {}).length; if (!n) return;
-    if (!(await ask(`Back to automatic: ${n} photo${n === 1 ? '' : 's'}?`, `${n === 1 ? 'The photo placed by hand goes' : `The ${n} photos placed by hand go`} back where the plan puts ${n === 1 ? 'it' : 'them'}. The next export has ${n === 1 ? 'it' : 'them'} there too.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
+    if (!(await ask(`Back to automatic: ${n} photo${n === 1 ? '' : 's'}?`, `${n === 1 ? 'The photo placed by hand goes' : `The ${n} photos placed by hand go`} back where the plan puts ${n === 1 ? 'it' : 'them'}, and the plan's sheets are worked out again (kept as they were while photos were placed by hand). The next export has ${n === 1 ? 'it' : 'them'} there too.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
     if (!drw || drw.project !== proj) return;
-    const m = { ...pmeta(proj) }; delete m.phPin; S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n });
+    const m = { ...pmeta(proj) }; delete m.phPin; delete m.planGrid; S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n }); // ((Plan kept) and the grid kept: worked out again)
     if (drw.ph) drw.ph = { ...drw.ph, sig: '', at: Object.fromEntries(Object.entries(drw.ph.at).map(([k, a]) => [k, a.how === 'by hand' ? { ...a, how: 'auto' } : a])) }; // (where they are until the plan's places come)
     if (drw.selPh) drwPhTap(drw.selPh); drwPlanUi(); drawDrawing(); drwPhSoon(0);
   }
@@ -2949,6 +2989,8 @@
       rows.push([sv('<path d="M2 12 8 5l4 4 3-3 5 6" fill="none" stroke="#1b1b1b" stroke-width="1.4"/><circle cx="8" cy="5" r="1.8" fill="#fff" stroke="#e03131" stroke-width="1.2"/>'), 'The plan as its PDF prints it: its lines, symbols and texts (its LEGENDS sheet says what each one is)']);
       rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><rect x="11" y="3" width="8.5" height="5" fill="#ae3ec9"/>'), 'A sheet of the plan (GEO) and its name, as the plan writes it']);
       if (drw.ph && Object.keys(drw.ph.at || {}).length) rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#1c7ed6" stroke-width="1.5"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#74c0fc"/>'), 'A photo where the plan puts it: drag it to place it by hand (blue: placed by hand)']);
+      if (drw.ph && Object.values(drw.ph.at || {}).some(drwPhCut)) rows.push([sv('<rect x="4" y="3.5" width="14" height="9" fill="#fff" stroke="#495057" stroke-width="1.2"/><rect x="2" y="1.5" width="18" height="13" fill="none" stroke="#f08c00" stroke-width="1.6" stroke-dasharray="3 2"/>'), 'A photo across a sheet\u2019s edge (orange): it prints cut on both sheets; drag it inside one']); // ((Plan kept))
+      if (drw.ph && drw.ph.grid && drw.ph.grid.kept) rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><path d="M8 9.5l2.2 2.2L15 6.5" fill="none" stroke="#ae3ec9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'), 'The sheets are kept as they were when a photo was first placed by hand: they no longer change by themselves (Back to automatic for all the photos works them out again)']); // ((Plan kept))
       rows.push([sv('<path d="M17 7.5a6 6 0 0 0-11-2.3M5 3v3h3M5 8.5a6 6 0 0 0 11 2.3M17 13v-3h-3" fill="none" stroke="#1b3a6b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'), 'Made again by itself when the drawing, its points or Plan style change; Regenerate plan preview (the round arrows): again now']);
       if (drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); }
       $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join(''); return;
@@ -10212,7 +10254,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; /* (Drawing photos: the photos placed by hand stay on this phone for now) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; /* (Drawing photos: the photos placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((Plan kept) the grid kept with them and the plan's roads too) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -10231,6 +10273,7 @@
     await deletePhotosIfUnused(pids, ids); busy(false);
     points = points.filter((p) => p.project !== name);
     if (cefHooks.drop) await cefHooks.drop(name); // v2.44: the photos of its CEF plans
+    { const rid = (m.planRoads || {}).id; if (rid) { await dbDel('packs', RK_PRE + rid).catch(() => {}); rkMem.delete(rid); } } // ((Plan kept) the roads kept with its plan)
     if (S.meta) delete S.meta[name];
     for (const ar of (S.areas || []).filter((x) => x.project === name)) await deleteArea(ar.id);
     if (refInfo(name)) { await dbDel('packs', refKey(refInfo(name).id)).catch(() => {}); const r = { ...S.refs }; delete r[name]; S.refs = r; if (refFor === name) { refGeo = null; refFor = null; } }
@@ -12481,17 +12524,19 @@
   /** The roads around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that covers them. */
   /** The roads and named places around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that
       covers them. bb: [south, west, north, east] of the vicinity; nb: the same for the places (round the route only). */
-  async function planRoads(bb, nb, quiet) { // ((beta 7.8, Drawing photos) quiet: for the Drawing's preview: no busy screen, nothing downloaded)
+  async function planRoads(bb, nb, quiet, noNet) { // ((beta 7.8, Drawing photos) quiet: for the Drawing's preview: no busy screen; (Plan kept) downloaded too, as the export does (noNet: not, after a try that failed); src: where they came from, for planRoadsOf)
     const U = (la, lo) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; };
     const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', hw: r.hw || '', lanes: r.lanes || '', width: r.width || '', bridge: !!r.bridge, name: r.name || '', pts: r.coords.map(([la, lo]) => U(la, lo)) }));
     // v2.35: a road pack on the phone first: no internet needed, and the same roads every time
     try {
       const P = await roadsFromRoadPacks(bb, nb, quiet);
-      if (P) return { roads: conv(P.roads), pois: P.pois.map((q) => { const [E, N] = U(q.lat, q.lon); return { name: q.name, kind: q.kind, E, N }; }), note: P.note };
+      if (P) return { roads: conv(P.roads), pois: P.pois.map((q) => { const [E, N] = U(q.lat, q.lon); return { name: q.name, kind: q.kind, E, N }; }), note: P.note, src: 'pack' };
     } catch (e) { LOG.warn('plan.roads.roadpack', errInfo(e)); }
-    if (!quiet && navigator.onLine !== false) { // ((beta 7.8, Drawing photos) the preview downloads nothing)
+    let tried = false;
+    if (!noNet && navigator.onLine !== false) { // ((Plan kept) the preview too, quietly: the roads it gets are kept for the export)
+      tried = true;
       try {
-        busy('Downloading the roads and places from OpenStreetMap…');
+        if (!quiet) busy('Downloading the roads and places from OpenStreetMap…');
         const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 90000), B = bb.map((v) => v.toFixed(6)).join(','), NB = (nb || bb).map((v) => v.toFixed(6)).join(',');
         const kinds = ['building', 'amenity', 'shop', 'office', 'leisure', 'tourism', 'healthcare', 'craft', 'historic'];
         const q = `[out:json][timeout:90];way["highway"](${B});out geom;(${kinds.map((k) => `nwr["name"]["${k}"](${NB});`).join('')});out center tags;`;
@@ -12504,12 +12549,59 @@
             const la = el.lat != null ? el.lat : el.center && el.center.lat, lo = el.lon != null ? el.lon : el.center && el.center.lon; if (la == null || lo == null) continue;
             const [E, N] = U(la, lo); pois.push({ name: el.tags.name, kind: kinds.map((k) => el.tags[k]).find(Boolean) || '', E, N });
           }
-          return { roads, pois, note: `${roads.length} roads and ${pois.length} named places from OpenStreetMap (Overpass)` };
+          return { roads, pois, note: `${roads.length} roads and ${pois.length} named places from OpenStreetMap (Overpass)`, src: js.remark && /error|time ?out|timed out/i.test(String(js.remark)) ? 'osm-part' : 'osm' }; // ((Plan kept) an answer cut short by Overpass itself is used, not kept)
         }
       } catch (e) { LOG.warn('plan.roads.online', errInfo(e)); }
     }
-    try { const R = await roadsFromPack(bb, nb, quiet); if (R) return R; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
-    return { roads: [], pois: [], note: navigator.onLine === false ? 'no roads: offline, and no road pack or offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no road pack or offline map pack covers the area' };
+    try { const R = await roadsFromPack(bb, nb, quiet); if (R) return { ...R, src: 'map', tried }; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
+    return { roads: [], pois: [], note: navigator.onLine === false ? 'no roads: offline, and no road pack or offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no road pack or offline map pack covers the area', src: 'none', tried };
+  }
+  /* (Plan kept) The roads of each project's plan, one set for the Drawing's preview and every export. The first roads a place of the plan gets (a
+     road pack on the phone, else OpenStreetMap downloaded: by an export, or quietly by the preview when the phone is online) are kept with the
+     project (IndexedDB, packs store, ~planroads:<id>; pmeta().planRoads { id } names it), and every later plan of that place reads them there:
+     the plan no longer changes by itself between sessions (another download, OpenStreetMap edited since or not answering, a road pack added,
+     read differently or gone). Kept for the place's area until it grows (a point added outside it): then the larger area's roads are got and
+     kept. The fallback (offline, OpenStreetMap not answering, no road pack: the offline map pack, else no roads) is the same for both and not
+     kept, so the roads are got next time. The team does not get them (shareMeta). */
+  const RK_PRE = '~planroads:', rkMem = new Map(), rkBusy = new Map(), rkFail = new Map();
+  const rkBox = (a, b) => !!b && a[0] >= b[0] - 1e-9 && a[1] >= b[1] - 1e-9 && a[2] <= b[2] + 1e-9 && a[3] <= b[3] + 1e-9;
+  /** The roads kept with a project { id, parts: [{ bb, nb, zone, src, at, note, roads, pois }] }, or null when it has none. */
+  async function rkGet(proj) {
+    const id = (pmeta(proj).planRoads || {}).id; if (!id) return null;
+    if (rkMem.has(id)) return rkMem.get(id);
+    const r = await dbGet('packs', RK_PRE + id).catch(() => null), K = { id, parts: r && Array.isArray(r.parts) ? r.parts : [] };
+    if (rkMem.size > 3) rkMem.clear(); rkMem.set(id, K); return K;
+  }
+  /** Roads for a place of a project's plan (bb, nb as planRoads): the kept ones covering it, else got (planRoads) and kept when they came from a
+   *  road pack or OpenStreetMap. One get at a time for the same place (the preview and an export wait for the same); the preview does not try
+   *  the internet again for 3 minutes after a try that failed. */
+  async function planRoadsOf(proj, bb, nb, quiet) {
+    const nbb = nb || bb, zone = S.zone, K = await rkGet(proj).catch(() => null);
+    const hit = K && K.parts.filter((x) => x.zone === zone && rkBox(bb, x.bb) && rkBox(nbb, x.nb)).sort((x, y) => (x.at < y.at ? 1 : -1))[0];
+    if (hit) return { roads: hit.roads, pois: hit.pois, note: hit.note, src: hit.src, keptAt: hit.at };
+    const key = `${proj}|${zone}|${JSON.stringify([bb, nbb])}`;
+    if (rkBusy.has(key)) { if (!quiet) busy('Downloading the roads and places from OpenStreetMap…'); return rkBusy.get(key); } // (the preview's get, under way: the export waits for it, said)
+    const job = (async () => {
+      const r = await planRoads(bb, nb, quiet, quiet && Date.now() - (rkFail.get(key) || 0) < 180000);
+      if (r.src !== 'pack' && r.src !== 'osm') { if (r.tried) rkFail.set(key, Date.now()); return r; }
+      rkFail.delete(key);
+      const part = { bb: bb.slice(), nb: nbb.slice(), zone, src: r.src, at: new Date().toISOString(), note: r.note, roads: r.roads, pois: r.pois };
+      try { const got = await rkPut(proj, part); return { roads: got.roads, pois: got.pois, note: got.note, src: got.src, keptAt: got.at }; } catch (e) { LOG.warn('plan.roads.keep', errInfo(e)); return r; }
+    })().finally(() => rkBusy.delete(key));
+    rkBusy.set(key, job); return job;
+  }
+  /** Keep a place's roads with the project (the parts its area holds go: the larger one has them); kept already by another get: that one. One at a time. */
+  let rkChain = Promise.resolve();
+  function rkPut(proj, part) { const r = rkChain.then(() => rkPut0(proj, part)); rkChain = r.catch(() => {}); return r; }
+  async function rkPut0(proj, part) {
+    let id = (pmeta(proj).planRoads || {}).id;
+    if (!id) { id = uid(); S.meta = S.meta || {}; S.meta[proj] = { ...pmeta(proj), planRoads: { id, at: part.at } }; persist(); }
+    const K = (await rkGet(proj)) || { id, parts: [] }, have = K.parts.find((x) => x.zone === part.zone && rkBox(part.bb, x.bb) && rkBox(part.nb, x.nb));
+    if (have) return have;
+    const parts = K.parts.filter((x) => !(x.zone === part.zone && rkBox(x.bb, part.bb) && rkBox(x.nb, part.nb))).concat([part]).slice(-16);
+    await dbPut('packs', { k: RK_PRE + id, project: proj, parts }); rkMem.set(id, { id, parts });
+    LOG.info('plan.roads.kept', { src: part.src, roads: part.roads.length, pois: part.pois.length, parts: parts.length });
+    return part;
   }
   /** Roads and named places read from the downloaded map packs (Protomaps vector tiles, zoom 14) that cover the area. Each road is
       cut exactly at its tile's edge, so the pieces of neighbouring tiles meet (the plan joins them again). Every pack at once:
@@ -12764,12 +12856,13 @@
      export and for the Drawing's preview of where the plan puts each photo. pts: the points as an export sees them (projPoints() inside
      xScope or xNow); everything that reads the records and the route is worked out before the first wait, so the preview (in xNow) leaves
      the hidden records out as the export does. o.one: the One PDF's drawing only (the one the Drawing shows). o.preview: that drawing too,
-     for the Drawing, made quietly from what is on the phone: no busy screen; the roads from the road packs or the offline map only (never
-     downloaded); no photo files (each photo's size from its file, as the export makes it), vicinity pictures, logo, ROW table or addresses,
-     which move nothing on the GEO sheets. Returns what the export goes on with, and jobOf(st): the job of one drawing of SETS. */
+     for the Drawing, made quietly: no busy screen; ((Plan kept) the roads kept with the project, planRoadsOf, the same as the export's: got
+     quietly the first time); no photo files (each photo's size from its file, as the export makes it), vicinity pictures, logo, ROW table or
+     addresses, which move nothing on the GEO sheets. (Plan kept) With photos placed by hand, the grid kept with the plan (job.gridKeep,
+     planGridOf). Returns what the export goes on with, and jobOf(st): the job of one drawing of SETS. */
   async function planJob(pts, o) {
     const one = !!(o && o.one), prev = !!(o && o.preview), say = prev ? () => {} : busy; // (beta 4.6: One PDF: only the plan's sheets are made, of the drawing the Drawing shows)
-    const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
+    const proj = S.project, m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
     const QC = { loops: [] }, R = routeModel(), Q = surveyQty(pts, QC), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R); // v2.42.16: the maintenance loops the app adds (As-Plan); v2.42.18: the own ones
     const showCT = S.exp.dxfClampType !== false; // v2.40: the plan's options (v2.41: set on the Drawing screen)
@@ -12892,13 +12985,14 @@
     const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
     const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
     const phPin = { ...(m.phPin || {}) }; // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres)
+    const gridKeep = Object.keys(phPin).length ? planGridOf(m) : null; // ((Plan kept) the plan edited on the Drawing keeps its grid: its sheets and their names)
     // (what follows waits for the phone: the roads, the photos, the vicinity pictures, the logo)
-    let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)';
+    let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)'; const keptAt = [];
     if ($('dxfRoads').checked) {
       const notes = [], seenR = new Set(), seenP = new Set();
       for (let k = 0; k < nLoc; k++) {
         if (nLoc > 1) say(`Roads and places: place ${k + 1} of ${nLoc}…`);
-        const r = await (prev ? drwPhRoads : planRoads)(llBox(locs[k].box, 500), llBox(locs[k].box, 250)); notes.push(r.note);
+        const r = await planRoadsOf(proj, llBox(locs[k].box, 500), llBox(locs[k].box, 250), prev); notes.push(r.note); keptAt.push(r.keptAt || ''); // ((Plan kept) the roads kept with the project: the preview's and the export's the same)
         for (const x of r.roads || []) { const a = x.pts[0], b = x.pts[x.pts.length - 1], kk = `${x.name}|${x.pts.length}|${Math.round(a[0])},${Math.round(a[1])}|${Math.round(b[0])},${Math.round(b[1])}`; if (!seenR.has(kk)) { seenR.add(kk); roads.push(x); } }
         for (const q of r.pois || []) { const kk = `${q.name}|${Math.round(q.E)},${Math.round(q.N)}`; if (!seenP.has(kk)) { seenP.add(kk); pois.push(q); } }
       }
@@ -12965,9 +13059,10 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       return { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, jnName: PLS.jn.name, /* beta 7.4 / 2.45.6 */ odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', phPin, /* (beta 7.8, Drawing photos) */ date: new Date() };
+        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', phPin, /* (beta 7.8, Drawing photos) */ ...(gridKeep ? { gridKeep } : {}), /* (Plan kept) */ date: new Date() };
     };
-    return { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name, byPt, many, rtaC, rtaN, boxLoopN, jobOf };
+    const roadsKept = keptAt.length && keptAt.every(Boolean) ? keptAt.slice().sort()[0] : ''; // ((Plan kept) the roads kept with the project: since when)
+    return { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, roadsKept, gridKeep, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name, byPt, many, rtaC, rtaN, boxLoopN, jobOf };
   }
   async function exportPlanDxf(pts, o) {
     const one = !!(o && o.one); // beta 4.6: One PDF (the plan, the CEF plan, the splicing details): only the plan's sheets are made here, of the drawing the Drawing shows
@@ -12976,7 +13071,7 @@
     if (!seed) { if (!seedId()) toast('No plan template yet: ask your admin to share it, or load the template file they sent you', 6000); renderDxfTpl(); return; }
     busy('Preparing the plan drawing…');
     drwPhStop(); // (beta 7.8, Drawing photos) a preview of the Drawing's photos still being made stops: the export first
-    const { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name, byPt, many, rtaC, rtaN, boxLoopN, jobOf } = await planJob(pts, { one }), outs = [];
+    const { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, roadsKept, gridKeep, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name, byPt, many, rtaC, rtaN, boxLoopN, jobOf } = await planJob(pts, { one }), outs = [];
     for (let k = 0; k < SETS.length; k++) { // v2.41: one DXF for each drawing of the export
       const st = SETS[k];
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
@@ -13032,8 +13127,8 @@
       ...(() => { const J = pts.filter(isJn); if (!J.length) return []; const n = (el) => J.filter((p) => elemOf(p) === el).length, mm = J.reduce((t, p) => t + jnMsgM(p).m, 0); // beta 6.9
         return [`Pull-offs (${n('Pull-off')}) and cross-overs (${n('Cross-over')}), at a corner with no pole: a small red square (pull-off, block G-ESAA PULL-OFF) or circle (cross-over, block G-ESAA CROSS-OVER) where the cable turns, a thin continuous red line (layer MESSENGER) for each extended messenger to its poles (3 for a pull-off, 4 for a cross-over), and its name (PULL-OFF / CROSS-OVER) in red ${PLS.jn.name === 'bubble' ? 'in a dashed bubble above it, with a dashed tail to it, as high as the red PROPOSED CLOSURE text (or the pole labels\' lines where those are smaller)' : 'right beside it, as small as the poles\' lat / long lines (Plan style › Cables › Pull-off / cross-over name: Small text beside it)'}; EXTENDED MESSENGER along each extended messenger with no cable on it; no lat / long of it (beta 7.3). The spans to and from it are written as the others (the cable is measured round the corner). Extended messenger with no cable on it: ${mm} m (BOQ, survey quantities; not in the PMI table).`]; })(),
       `Sheets: TITLE, TOC, LEGENDS, ${(rp.vicinities || [{ sheet: 'VICINITY MAP' }]).map((v) => v.sheet).join(', ')}, ROW AREA COVERAGE, ${(rp.vicinities || [0]).map((_, k) => (k ? `KEYMAP (${k + 1})` : 'KEYMAP')).join(', ')}, ${rp.sheets.join(', ')}, PMI.`,
-      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Plan style \u203a Map sheets \u203a Sheet split, 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}).`, // (beta 6.0: the scale of a finer Tidy grid; which split)
-      `Roads: ${roadsNote}.`,
+      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Plan style \u203a Map sheets \u203a Sheet split, 1/${rp.tidy.grid.n}` : ((rp.tidy || {}).grid || {}).mode === 'kept' ? `; split 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}${gridKeep ? '; kept as the plan was when its photos were placed by hand on the Drawing, so its sheets and their names stay (Back to automatic, for all the photos, works them out again)' : ''}).`, // (beta 6.0: the scale of a finer Tidy grid; which split; (Plan kept) the grid kept)
+      `Roads: ${roadsNote}${roadsKept ? ` (kept with this project since ${roadsKept.slice(0, 10)}: the Drawing's preview and every export of the plan use these roads)` : ''}.`, // ((Plan kept) planRoadsOf)
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
       ...(() => { const N = [...new Set(outs.flatMap((o) => o.out.report.notes || []))]; return N.length ? [`Drawing checks (${N.length}): ${N.join(' · ')}.`] : []; })(), // v2.42.8: e.g. an object far from the plan
@@ -21427,7 +21522,7 @@
      (each one's centre and size in page pixels, its turn), the pins kept, and where a point stands as the Drawing draws it (metres) */
   window.__polecam.drwPh = () => { if (!drw) return null; const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1;
     return { busy: !!drw.phBusy, row: drw.ph ? drw.ph.row : null, at: drw.ph ? JSON.parse(JSON.stringify(drw.ph.at)) : null, notes: drw.ph ? drw.ph.notes : [], sc: drw.view ? drw.view.sc / d : 0, sel: drw.selPh || null, pins: JSON.parse(JSON.stringify(pmeta(drw.project).phPin || {})),
-      frames: (drw.phHit || []).map((H) => ({ id: H.id, x: r.left + H.cx / d, y: r.top + H.cy / d, w: H.w / d, h: H.h / d, rot: H.rot })), xy: Object.fromEntries(drw.items.map((it) => [String(it.p.id), it.xy])) }; };
+      frames: (drw.phHit || []).map((H) => ({ id: H.id, x: r.left + H.cx / d, y: r.top + H.cy / d, w: H.w / d, h: H.h / d, rot: H.rot, warn: !!H.warn })), xy: Object.fromEntries(drw.items.map((it) => [String(it.p.id), it.xy])) }; }; // ((Plan kept) warn: outlined, across a sheet's edge)
   window.__polecam.drwLL = (lat, lon) => { if (!drw || !drw.view) return null; const p = RT_DRW.pt([lat, lon]), r = $('drawCanvas').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
   window.__polecam.drwLook = (lat, lon, mpp, ox, oy) => { if (!drw || !drw.view) return; const d = window.devicePixelRatio || 1, cv = $('drawCanvas'), u = C.utmForward(lat, lon, drw.zone, lat < 0), sc = d / mpp; drw.view = { ...drw.view, sc, cx: u.E - ((ox == null ? cv.width / 2 / d : ox) * d - cv.width / 2) / sc, cy: u.N + ((oy == null ? cv.height / 2 / d : oy) * d - cv.height / 2) / sc }; drawDrawing(); };
   window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(drwAt(it)), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; }; // ((beta 7.9, Drawing preview) where the Drawing shows it: where the plan draws it, while the plan is shown)
@@ -21438,6 +21533,12 @@
     return { on: drwPlanOn(), want: !!drw.plWant, busy: !!drw.phBusy, made: drwPlanN, n: drw.ph ? drw.ph.n || 0 : 0, ms: drw.ph ? drw.ph.ms : 0, count: P ? { ...P.count } : null, K: P ? P.K : 0, sheet: P ? P.sheet : null, origin: P ? P.origin.slice() : null,
       sheets: drw.ph && drw.ph.grid ? JSON.parse(JSON.stringify(drw.ph.grid.sheets)) : null, gridOn: S.drawGrid !== false, gridDrawn: (drw.gridDrawn || []).map((x) => ({ ...x, x: r.left + x.x / d, y: r.top + x.y / d })), drawn: drw.planDrawn || null,
       regen: { hidden: $('drawRegen').hidden, disabled: $('drawRegen').disabled, say: $('drawRegenT').textContent }, phAll: $('drawPhAll').hidden ? null : $('drawPhAllT').textContent }; };
+  /* (Plan kept) for tests: what is kept with a project's plan (the grid, the roads: each place's area, where they came from, when, how many), a display
+     list's hash (the Drawing's plan; or the one dxfpdf.js's planList makes of a DXF and its report, on the page: an export's) */
+  window.__polecam.planKept = async (n) => { const nm = n || S.project, m = pmeta(nm), K = await rkGet(nm).catch(() => null);
+    return { grid: m.planGrid ? JSON.parse(JSON.stringify(m.planGrid)) : null, id: (m.planRoads || {}).id || null, roads: K ? K.parts.map((x) => ({ bb: x.bb, nb: x.nb, zone: x.zone, src: x.src, at: x.at, roads: x.roads.length, pois: x.pois.length, note: x.note })) : null }; };
+  window.__polecam.drwPlanHash = () => (drw && drw.ph && drw.ph.plan ? planListHash(drw.ph.plan) : null);
+  window.__polecam.planListHash = (text, report) => (window.GeDxfPdf ? planListHash(window.GeDxfPdf.planList(text, report)) : null);
   window.__polecam.drwPx = (E, N) => { if (!drw || !drw.view) return null; const [x, y] = drwPx([E, N]), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; };
   window.__polecam.drwRedraw = () => { const t0 = performance.now(); drawDrawing(); return performance.now() - t0; };
   window.__polecam.drwView = (o) => { if (drw && drw.view) Object.assign(drw.view, o); }; // (where it looks, not drawn yet: cx, cy metres, sc canvas pixels a metre)
