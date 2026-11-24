@@ -1793,7 +1793,7 @@
   const PIN_KINDS = [
     ['Poles and corners', [{ k: 'pole', n: 'Pole', sub: 'new', el: 'Pole', pole: true }, { k: 'po', n: 'Pull-off', sub: '3 poles', el: 'Pull-off', pole: true },
       { k: 'co', n: 'Cross-over', sub: '4 poles', el: 'Cross-over', pole: true }]],
-    ['On the cable', [{ k: 'cl', n: 'Closure', sub: 'hybrid · on its pole', el: 'Closure', nw: true }, { k: 'dnap', n: 'Dummy NAP box', sub: 'DN · on its pole', el: 'NAP', boq: { napType: 'Dummy NAP' }, nw: true, size: true },
+    ['On the cable', [{ k: 'cl', n: 'Hybrid closure', sub: 'CL · on its pole', el: 'Closure', nw: true } /* (the owner: one kind of closure, the hybrid closure, named so) */, { k: 'dnap', n: 'Dummy NAP box', sub: 'DN · on its pole', el: 'NAP', boq: { napType: 'Dummy NAP' }, nw: true, size: true },
       { k: 'lcp', n: 'LCP', sub: '1:4 · on its pole', el: 'NAP', boq: { napType: 'LCP 1x4' }, nw: true, size: true }]],
     ['Boxes underground', [{ k: 'hh', n: 'Handhole', sub: 'HH', el: 'Handhole', nw: true }, { k: 'mh', n: 'Manhole', sub: 'MH', el: 'Manhole', nw: true },
       { k: 'sb', n: 'Service box', sub: 'SB', el: 'Service box', nw: true }]],
