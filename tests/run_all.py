@@ -23,7 +23,7 @@ WHY = {
 }
 # The test files, in this order: quick ones first; the 4-phone team tests; the rest as the release notes list them; t2357a last,
 # alone (it serves the app on port 8765 itself). What each needs from the private folder is read from its code (PRIV + '/…').
-TESTS = ['image-preparation.test.cjs', 'photo-save.spec.cjs', 'dxf-cleanup.test.cjs', 'tutorial-search.test.cjs', 'find-setting.spec.cjs', 'project-name-title.spec.cjs', 'geotag-plan-stamp.spec.cjs', 'plan-export.spec.cjs', 'drawing-photos.spec.cjs', 'add-pin.spec.cjs', 'drawing-preview.spec.cjs'] + ['regression/' + f for f in (
+TESTS = ['image-preparation.test.cjs', 'photo-save.spec.cjs', 'dxf-cleanup.test.cjs', 'tutorial-search.test.cjs', 'find-setting.spec.cjs', 'project-name-title.spec.cjs', 'geotag-plan-stamp.spec.cjs', 'plan-export.spec.cjs', 'drawing-photos.spec.cjs', 'add-pin.spec.cjs', 'drawing-preview.spec.cjs', 'plan-keep.spec.cjs'] + ['regression/' + f for f in (
     'v243/sheet/sheet_stub_test.js v243/sheet/sheet_stub_test_v2431.js v243/sheet/sheet_stub_test_v2432.js v243/sheet/sheet_qa08_qa18_test.js '
     'v243/mailbox/stub_test.js v243/t24333a.py v243/t24333c.py v243/t24333d.py v243/t24333e.py v243/t24333f.py v243/t24333b.py v243/t24332e.py v243/t2433d.py '
     'v243/t2433c.py v243/smoke21.py v243/t243a.py v243/t24228a_v243.py v24228/t24227a_v28.py v24228/t24226a_v28.py v24226/t24225a_v26.py '
