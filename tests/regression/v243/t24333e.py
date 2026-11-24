@@ -22,14 +22,19 @@ async def make_task(A, name, who):
     for w in who: await A.click(f'#npAssign .chip:has-text("{w}")')
     await A.click('#npCreate'); await idle(A, 40000); await W(A, 500)
 async def get_task(pg):
-    await projects(pg); j, _ = await dl(pg, ms=40000); await W(pg, 300); return j
+    await mbx(pg, 'noAuto', True)  # (beta 7.9: the Team mailbox's Check now brings an update in by itself; this step is the manual Download and merge, so the bring-in is off for it)
+    try: await projects(pg); j, _ = await dl(pg, ms=40000); await W(pg, 300); return j
+    finally: await mbx(pg, 'noAuto', False)
 async def send_up(pg, ms=60000):
     await close_sheets(pg); await pg.click('#projectBtn'); await W(pg, 300); await send_sheet(pg); st = await send_go(pg, ms); await W(pg, 300); return st
 async def merge_from(pg, who, ms=60000):
     """Juan: Download and merge the update from that person (the inbox row with his name)."""
-    await projects(pg); rows = await inbox(pg); i = next((k for k, r in enumerate(rows) if who in r), None)
-    if i is None: return {'line': f'no update from {who} in {rows}', 'sub': ''}
-    j, _ = await dl(pg, i, ms=ms); return j or {}
+    await mbx(pg, 'noAuto', True)  # (beta 7.9: the Team mailbox's Check now brings an update in by itself; this step is the manual Download and merge, so the bring-in is off for it)
+    try:
+        await projects(pg); rows = await inbox(pg); i = next((k for k, r in enumerate(rows) if who in r), None)
+        if i is None: return {'line': f'no update from {who} in {rows}', 'sub': ''}
+        j, _ = await dl(pg, i, ms=ms); return j or {}
+    finally: await mbx(pg, 'noAuto', False)
 async def send_to(pg, only, ms=60000):
     """The coordinator's Send of the open project: only the changes, to the partners named."""
     await close_sheets(pg); await pg.click('#projectBtn'); await W(pg, 300); await pg.click('#curTools .tmtool[data-tool="send"]'); await W(pg, 500)

@@ -18441,11 +18441,11 @@
   const mbxWaitsWifi = () => false; // 2.44.13: nothing waits for Wi-Fi (it was: an update over 20 MB on mobile data)
   let mbxAutoRun = null, mbxNoAuto = false; // (mbxNoAuto: the tests of the manual path, beta 3.3's, turn Sync's bringing in off)
   /** Brings in what is listed (mbxRefresh first), one at a time, oldest first. Returns { n, said: [...], notes: [...], wifi, err }. */
-  async function mbxAutoIn() {
+  async function mbxAutoIn(o) { // (o.ownBusy: the caller shows the busy screen itself: beta 7.9, the Team mailbox's Check brings in again)
     if (!mbxOn() || navigator.onLine === false || !mbxIn || mbxNoAuto) return null;
     if (mbxAutoRun) return mbxAutoRun;
     mbxAutoRun = (async () => {
-      const res = { n: 0, said: [], notes: [], wifi: 0, held: 0, err: '' }, hold = reloadBlocked(); // (a record or the camera open: no merge under it)
+      const res = { n: 0, said: [], notes: [], wifi: 0, held: 0, err: '' }, hold = reloadBlocked(o && o.ownBusy); // (a record or the camera open: no merge under it)
       const items = mbxIn.filter(mbxAutoOk).sort((a, b) => String(a.created || '').localeCompare(String(b.created || '')));
       for (const it of items) {
         if (mbxJob && !['done', 'fail'].includes(mbxJob.stage)) break; // a download you started: the rest come at the next Sync
@@ -18487,7 +18487,7 @@
     return res;
   }
   /** The team mailbox checked, and what is for projects here brought in (the mailbox's Check, Projects, the start). */
-  async function mbxCheck() { const ok = await mbxRefresh(); const a = ok ? await mbxAutoIn() : null; if (a && a.n) await mbxRefresh(); return { ok, a }; }
+  async function mbxCheck(o) { const ok = await mbxRefresh(); const a = ok ? await mbxAutoIn(o) : null; if (a && a.n) await mbxRefresh(); return { ok, a }; }
   const mbxAutoSay = (a, s) => [a && a.n ? `brought in: ${a.said.join('; ')}` : '', s && s.n ? `sent: ${s.said.join('; ')}` : '', a && a.wifi ? `${pl2(a.wifi, 'big update')} waiting for Wi-Fi (Projects → Get it now)` : '',
     a && a.held ? `${pl2(a.held, 'update')} at the next Sync (a record was open)` : '', a && a.err ? `not brought in: ${a.err}` : '', s && s.err ? `not sent: ${s.err}` : ''].filter(Boolean).join(' · ');
 
@@ -18876,7 +18876,7 @@
     o.st = 'resent'; persist(); busy(false); renderProjects(); toast(`Sent again to ${tmFirst(o.to, o.toName)}.`);
   }
   $('mbxCheckIn').addEventListener('click', () => guard(async () => { // beta 3.4: Check brings in what is for projects here, as Sync does
-    let a = null; busy('Checking the mailbox…'); try { ({ a } = await mbxCheck()); } finally { busy(false); }
+    let a = null; busy('Checking the mailbox…'); try { ({ a } = await mbxCheck({ ownBusy: true })); } finally { busy(false); } // (beta 7.9: its own busy screen no longer holds the updates back as "a record was open")
     const t = mbxAutoSay(a, null); if (t) toast(`Team mailbox: ${t}`, 6000);
   }, 'Not checked'));
 
@@ -19806,9 +19806,9 @@
      record or the marking screen is open, so a stray tap during capture or editing does nothing. */
   const verNum = (v) => String(v || '').split('.').map((x) => parseInt(x, 10) || 0);
   const verNewer = (a, b) => { const x = verNum(a), y = verNum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
-  function reloadBlocked() {
+  function reloadBlocked(ownBusy) { // (ownBusy: the busy screen is the caller's own, e.g. the Team mailbox's Check: it does not count)
     const open = (id) => { const e = $(id); return !!e && !e.hidden; };
-    return ['camera', 'editor', 'boxer', 'photoView', 'qrScan', 'busy', 'askBox', 'pinBox', 'promptBox', 'pickBox'].some(open) || !!ed;
+    return ['camera', 'editor', 'boxer', 'photoView', 'qrScan', ownBusy ? '' : 'busy', 'askBox', 'pinBox', 'promptBox', 'pickBox'].filter(Boolean).some(open) || !!ed;
   }
   $('brandBtn').addEventListener('click', () => guard(async () => {
     if (reloadBlocked()) return; // capture or editing in progress: the tap does nothing
