@@ -2184,7 +2184,8 @@
     let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before)
     if (res.perr) LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) });
     const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
-      planAt: rep.photoAt, fileId: Object.fromEntries(Object.entries(job.photos || {}).map(([id, x]) => [x.file, id])), lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0 }; // (the places the plan's pictures are drawn at; each picture's point; (Plan kept) the labels and split it was made with)
+      planAt: rep.photoAt, fileId: Object.fromEntries(Object.entries(job.photos || {}).map(([id, x]) => [x.file, id])), lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (Plan kept) the labels and split it was made with)
+      mv: Array.isArray(rep.movable) ? rep.movable : null, mvIdx: new Map((rep.movable || []).map((m, i) => [m.id, i])) }; // ((Drawing labels) the items the Drawing may move, and each one's place in that list)
     for (const [k, v] of drwPhMem) if (k !== proj && v.plan) drwPhMem.set(k, { ...v, plan: null, sig: '' }); // (one project's plan kept at a time: another one opened makes its own again)
     drwPhMem.set(proj, ph); planGridKeep(proj, ph.grid, ph.lab, ph.split); /* ((Plan kept) photos placed by hand and no grid kept yet, e.g. placed before: this one's) */ LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length, force: !!force, ...(plan ? { plan: { ...plan.count, ms: res.plan.ms } } : {}) }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker; plan: its display list, made in ms after the plan)
     if (!drw || drw.project !== proj || $('drawing').hidden) return;
@@ -2233,7 +2234,7 @@
   function drwPhHint() {
     if (!drw || drw.hint0 == null) return;
     const pl = drwPlanOn(), G = pl && drw.ph.grid ? drw.ph.grid.sheets : [], n = drw.ph ? Object.keys(drw.ph.at || {}).length : 0; // ((beta 7.9, Drawing preview) the plan shown: what it is; its photos: drag them)
-    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.` : drw.hint0)
+    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.${drwMvs().some((m) => m.kind !== 'photo') ? ` Drag a cable label, a pole number or a pole's details to place it by hand; ↶ undoes.` : ''}` : drw.hint0)
       + (n ? ' Photos sit where the plan puts them: drag one to place it by hand.' : '');
   }
   /** The plan's place of this point's photo (report.photoAt), for the drawing shown; null: none (no preview yet, or the plan has none). */
@@ -2243,6 +2244,7 @@
   function drwPhFrame(g, d, it, A, placed, pl) {
     const id = String(it.p.id), dr = drw.phDrag && drw.phDrag.id === id ? drw.phDrag : null, sh = pl ? [0, 0] : [it.xy[0] - A.dp[0], it.xy[1] - A.dp[1]], at = (q) => drwPx([q[0] + sh[0], q[1] + sh[1]]);
     let [cx, cy] = at([A.x, A.y]); if (dr) { cx += dr.dx; cy += dr.dy; }
+    if (pl) { const mo = drwMvPhOff(id); cx += mo[0] * drw.view.sc; cy -= mo[1] * drw.view.sc; } // ((Drawing labels) its block moved: with it)
     const sc = drw.view.sc, w = Math.max(8 * d, A.w * sc), h = Math.max(8 * d, A.h * sc), rot = -(+A.rot || 0) * Math.PI / 180, hand = A.how === 'by hand', sel = String(drw.selPh) === id;
     if (dr) { const [px, py] = drwPx(pl ? A.dp : it.xy); g.strokeStyle = 'rgba(28,126,214,.8)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(px, py); g.lineTo(cx, cy); g.stroke(); g.setLineDash([]); }
     else if (A.line && A.line.length > 1) { g.strokeStyle = '#868e96'; g.lineWidth = 1.2 * d; g.beginPath(); A.line.forEach((q, k) => { const P = at(q); if (k) g.lineTo(P[0], P[1]); else g.moveTo(P[0], P[1]); }); g.stroke(); }
@@ -2281,7 +2283,7 @@
   function drwPhTap(id) {
     const it = drwEdById(id); if (!it || !drw) return;
     const p = it.p, n = drw.seq && drw.seq.get(String(id)), pin = (pmeta(drw.project).phPin || {})[String(id)], info = $('drawInfo');
-    drw.sel = null; drw.selRun = null; drw.selPh = String(id);
+    drw.sel = null; drw.selRun = null; drw.selPh = String(id); drw.mvSel = null;
     const cut = drwPhCut(drw.ph && drw.ph.at[String(id)]); // ((Plan kept) across a sheet's edge: said)
     info.textContent = `Photo of ${p.poleId || elemOf(p)}${n ? ` (No. ${n})` : ''} · ${pin ? 'placed by hand on the plan' : 'where the plan puts it: drag it to place it by hand'}${cut ? ` · across the edge of sheets ${andList(cut)}: it prints cut on both, drag it inside one` : ''}`;
     if (pin) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawPhAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwPhAuto(String(id))); info.appendChild(b); }
@@ -2291,7 +2293,7 @@
   /** A photo let go after a drag (dx, dy: canvas pixels): kept where it was let go, its centre from its pole as the plan draws it. */
   function drwPhDrop(id, dx, dy) {
     const A = drw && drw.ph && drw.ph.at[id]; if (!A) { if (drw) drawDrawing(); return; }
-    const sc = drw.view.sc, off = [+(A.x - A.dp[0] + dx / sc).toFixed(2), +(A.y - A.dp[1] - dy / sc).toFixed(2)], proj = drw.project, m0 = pmeta(proj);
+    const sc = drw.view.sc, off = [+(A.x - A.dp[0] + dx / sc).toFixed(2), +(A.y - A.dp[1] - dy / sc).toFixed(2)], proj = drw.project; drwUndoPush('photo moved'); const m0 = pmeta(proj); // ((Drawing labels) Undo takes it back)
     S.meta = S.meta || {}; S.meta[proj] = { ...m0, phPin: { ...(m0.phPin || {}), [id]: off } }; persist();
     planGridKeep(proj, drw.ph.grid, drw.ph.lab, drw.ph.split); // ((Plan kept) the first photo placed by hand: the plan keeps the grid it shows)
     drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null, cut: null } } }; // (where it was let go, until the plan's own comes: its line, the others moved aside, whether it is across a sheet's edge; the one kept stays as it was made)
@@ -2301,6 +2303,7 @@
   /** Back to automatic: the photo placed by hand goes back where the plan puts it. */
   function drwPhAuto(id) {
     if (!drw) return; const proj = drw.project, m0 = pmeta(proj); if (!m0.phPin || !(id in m0.phPin)) return;
+    drwUndoPush('photo back to automatic'); // ((Drawing labels) Undo takes it back)
     const P = { ...m0.phPin }; delete P[id]; const m = { ...m0, phPin: P }; if (!Object.keys(P).length) { delete m.phPin; delete m.planGrid; } // ((Plan kept) the last one: the grid is worked out again)
     S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.auto', { n: Object.keys(P).length });
     if (drw.ph && drw.ph.at[id]) drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...drw.ph.at[id], how: 'auto' } } }; // (where it is until the plan's place comes)
@@ -2345,25 +2348,47 @@
     LOG.info('plan.grid.keep', { n: G.n || 1, sheets: (G.sheets || []).length }); return true;
   }
   const PL_TILE = 120, PL_FONT = ['', 'bold ', 'italic ', 'italic bold '].map((w) => `${w}64px Helvetica, Arial, sans-serif`); // (texts drawn at 64 px, scaled: Helvetica as the PDF's, else the nearest)
+  /** (Drawing labels) an item's subpaths (s0, ns of the display list's points P and subpaths SB) added to the Path2D p. */
+  function drwPlanSub(p, P, SB, s0, ns) { for (let q = s0; q < s0 + ns; q++) { const f = SB[3 * q], c = SB[3 * q + 1]; if (c < 1) continue; p.moveTo(P[2 * f], P[2 * f + 1]); for (let m = 1; m < c; m++) p.lineTo(P[2 * (f + m)], P[2 * (f + m) + 1]); if (SB[3 * q + 2]) p.closePath(); } }
+  /** (Drawing labels) Item i of report.movable (a label, a number, pole details, a photo) drawn apart from the plan's tiles, moved by off ([E, N] metres;
+   *  null: back in its tiles, where the plan has it): the tiles it is in made again without it, its own paths made once (drawn over the rest). */
+  function drwPlanLift(PL, i, off) {
+    if (!PL || !PL.byOwn || !PL.byOwn.has(i)) return;
+    const had = PL.lifted.get(i);
+    if (!off) { if (had) { PL.lifted.delete(i); drwPlanRetile(PL, i); } return; }
+    if (had) { had.off = off; return; }
+    const { items: IT, subs: SB, pts: P } = PL.raw, own = [];
+    for (const k of PL.byOwn.get(i)) { const kind = IT[4 * k]; if (kind <= 2) { const p = new Path2D(); drwPlanSub(p, P, SB, IT[4 * k + 2], IT[4 * k + 3]); own.push({ kind, style: IT[4 * k + 1], p }); } else own.push({ kind, ix: IT[4 * k + 1] }); }
+    PL.lifted.set(i, { off, own }); drwPlanRetile(PL, i);
+  }
+  /** (Drawing labels) The plan's tiles that hold item i's lines and fills made again, without the items lifted off them. */
+  function drwPlanRetile(PL, i) {
+    const { items: IT, subs: SB, pts: P } = PL.raw;
+    for (const t of PL.tilesAll) { if (!t.mv || !t.mv.has(i)) continue; const p = new Path2D(); for (const k of t.items) if (!PL.lifted.has(PL.own[k])) drwPlanSub(p, P, SB, IT[4 * k + 2], IT[4 * k + 3]); t.p = p; }
+  }
   /** The display list (dxfpdf.js modelList) made ready to draw: the items in the order printed, each run of lines or fills of one look one
    *  Path2D for each tile its items are in (an even-odd fill over another of its run starts a run of its own), each run of texts their list. */
   function drwPlanMake(pl) {
     if (!pl || !pl.items || typeof Path2D === 'undefined') return null;
     const t0 = performance.now(), P = pl.pts, SB = pl.subs, IT = pl.items, BX = pl.boxes, n = IT.length / 4, runs = [], kinds = [0, 0, 0, 0, 0];
+    const OWN = pl.own && pl.own.length === n ? pl.own : null, byOwn = new Map(), tilesAll = []; // ((Drawing labels) each item's report.movable index; each one's items; every tile (its items, to make it again without a moved one))
     const grow = (a, b) => { if (b[0] < a[0]) a[0] = b[0]; if (b[1] < a[1]) a[1] = b[1]; if (b[2] > a[2]) a[2] = b[2]; if (b[3] > a[3]) a[3] = b[3]; };
     const hits = (a, b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
     let run = null, tiles = 0;
     for (let k = 0; k < n; k++) {
       const kind = IT[4 * k], ix = IT[4 * k + 1], s0 = IT[4 * k + 2], ns = IT[4 * k + 3], b = [BX[4 * k], BX[4 * k + 1], BX[4 * k + 2], BX[4 * k + 3]]; kinds[kind]++;
-      if (kind >= 3) { if (!run || run.kind !== 3) runs.push(run = { kind: 3, idx: [], box: b.slice() }); else grow(run.box, b); if (kind === 3) { pl.texts[ix].b = b; run.idx.push(ix); } else { pl.images[ix].b = b; run.idx.push(-1 - ix); } continue; } // (texts and pictures as they come)
+      const ow = OWN ? OWN[k] : -1; if (ow >= 0) { const L = byOwn.get(ow); if (L) L.push(k); else byOwn.set(ow, [k]); }
+      if (kind >= 3) { if (!run || run.kind !== 3) runs.push(run = { kind: 3, idx: [], box: b.slice() }); else grow(run.box, b); if (kind === 3) { pl.texts[ix].b = b; pl.texts[ix].o = ow; run.idx.push(ix); } else { pl.images[ix].b = b; pl.images[ix].o = ow; run.idx.push(-1 - ix); } continue; } // (texts and pictures as they come)
       if (!run || run.kind !== kind || run.style !== ix || (kind === 2 && hits(run.box, b))) runs.push(run = { kind, style: ix, tiles: new Map(), box: b.slice() }); else grow(run.box, b);
       const tk = `${Math.floor((b[0] + b[2]) / 2 / PL_TILE)},${Math.floor((b[1] + b[3]) / 2 / PL_TILE)}`;
-      let t = run.tiles.get(tk); if (!t) { run.tiles.set(tk, t = { p: new Path2D(), box: b.slice() }); tiles++; } else grow(t.box, b);
-      for (let q = s0; q < s0 + ns; q++) { const f = SB[3 * q], c = SB[3 * q + 1]; if (c < 1) continue; t.p.moveTo(P[2 * f], P[2 * f + 1]); for (let m = 1; m < c; m++) t.p.lineTo(P[2 * (f + m)], P[2 * (f + m) + 1]); if (SB[3 * q + 2]) t.p.closePath(); }
+      let t = run.tiles.get(tk); if (!t) { run.tiles.set(tk, t = { p: new Path2D(), box: b.slice(), items: [] }); tilesAll.push(t); tiles++; } else grow(t.box, b);
+      t.items.push(k); if (ow >= 0) (t.mv || (t.mv = new Set())).add(ow);
+      drwPlanSub(t.p, P, SB, s0, ns);
     }
     runs.forEach((r) => { if (r.tiles) r.tiles = [...r.tiles.values()]; });
     const kb = (P.byteLength + SB.byteLength + IT.byteLength + BX.byteLength + pl.texts.reduce((t, x) => t + 2 * x.s.length + 96, 0)) / 1024;
     return { runs, styles: pl.styles, texts: pl.texts, images: pl.images, origin: pl.origin, K: pl.K, sheet: pl.sheet, raw: { items: IT, subs: SB, pts: P }, // (raw: its lines' points, for a check)
+      own: OWN, byOwn, tilesAll, lifted: new Map(), // ((Drawing labels) lifted: the items moved since this plan was made (dragged, or let go and not made again yet): index → its own paths, where it is now)
       count: { items: n, lines: kinds[0], fills: kinds[1] + kinds[2], texts: kinds[3], pictures: kinds[4], points: P.length / 2, runs: runs.length, tiles, kb: Math.round(kb), make: Math.round(performance.now() - t0) } };
   }
   /** The plan drawn with the view: model metres from its origin to the canvas, only what is on it. */
@@ -2373,33 +2398,50 @@
     const minW = 0.6 * d / sc, minT = 3 * d / sc, labels = drw.labels !== false; let nP = 0, nT = 0; // (a line thinner than 0.6 px drawn 0.6 px; a text under 3 px left out)
     const now = performance.now(), zooming = drw.plSc != null && Math.abs(drw.plSc - sc) > 1e-9 * sc ? (drw.plZoom = now, true) : now - (drw.plZoom || 0) < 200; drw.plSc = sc; drwFrameN++;
     if (zooming) { clearTimeout(drwZoomT); drwZoomT = setTimeout(() => { if (drw && !$('drawing').hidden && drwPlanOn()) drawDrawing(); }, 230); } // (pinched or scrolled: the texts drawn as they print once it stops)
+    const LF = PL.lifted, lifted = (o) => o >= 0 && LF && LF.has(o); // ((Drawing labels) the items moved since this plan was made: drawn last, where they are now)
+    /** a picture (a pole's photo): its picture from the phone where the plan prints it (ox, oy: moved by, metres); moved since, where it is now (drwPhFrame) */
+    const pic = (im, ox, oy) => {
+      const m = im.m, id = drw.ph.fileId ? drw.ph.fileId[im.name] : null, it = id != null ? drwEdById(id) : null;
+      if (it && drwPhMoved(id)) return;
+      const bm = it && Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d ? drwThumb(it) : null;
+      g.setTransform(sc * m[0], -sc * m[1], -sc * m[2], sc * m[3], e + sc * (m[2] + m[4] + ox), f - sc * (m[3] + m[5] + oy));
+      if (bm) g.drawImage(bm, 0, 0, 1, 1); else { g.fillStyle = '#e9ecef'; g.fillRect(0, 0, 1, 1); } // (until it is read, or none: a grey square)
+      nT++;
+    };
+    /** a text as it prints (ox, oy: moved by, metres) */
+    const txt = (t, ox, oy) => {
+      const m = t.m; g.font = PL_FONT[t.f] || PL_FONT[0]; if (t.k == null) { const w = g.measureText(t.s).width / 64; t.k = w > 0 && t.w > 0 ? t.w / w : 1; } // (as wide as Helvetica prints it)
+      g.setTransform(sc * m[0] * t.k / 64, -sc * m[1] * t.k / 64, -sc * m[2] / 64, sc * m[3] / 64, e + sc * (m[4] + ox), f - sc * (m[5] + oy));
+      g.fillStyle = t.c;
+      if (zooming && Math.hypot(m[2], m[3]) * sc < 40 * d) { g.globalAlpha = 0.5; g.fillRect(0, -42, t.w * 64 / t.k, 34); g.globalAlpha = 1; nT++; return; } // (while zooming: a bar where it is)
+      g.fillText(t.s, 0, 0);
+      if (t.sc && t.lw > 0) { g.strokeStyle = t.sc; g.lineWidth = t.lw * 64; g.lineJoin = 'round'; g.setLineDash([]); g.strokeText(t.s, 0, 0); } // (an SHX font's strokes as thick as its line weight)
+      nT++;
+    };
     g.save(); g.setTransform(sc, 0, 0, -sc, e, f); g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     for (const r of PL.runs) {
       if (!on(r.box)) continue;
       if (r.kind === 3) {
         for (const ix of r.idx) {
-          if (ix < 0) { // a picture (a pole's photo): its picture from the phone where the plan prints it; moved since, where it is now (drwPhFrame)
-            const im = PL.images[-1 - ix], m = im.m, id = drw.ph.fileId ? drw.ph.fileId[im.name] : null, it = id != null ? drwEdById(id) : null;
-            if (!on(im.b) || (it && drwPhMoved(id))) continue;
-            const bm = it && Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d ? drwThumb(it) : null;
-            g.setTransform(sc * m[0], -sc * m[1], -sc * m[2], sc * m[3], e + sc * (m[2] + m[4]), f - sc * (m[3] + m[5]));
-            if (bm) g.drawImage(bm, 0, 0, 1, 1); else { g.fillStyle = '#e9ecef'; g.fillRect(0, 0, 1, 1); } // (until it is read, or none: a grey square)
-            nT++; continue;
-          }
-          const t = PL.texts[ix], m = t.m; if (!labels || Math.hypot(m[2], m[3]) < minT || !on(t.b)) continue;
-          g.font = PL_FONT[t.f] || PL_FONT[0]; if (t.k == null) { const w = g.measureText(t.s).width / 64; t.k = w > 0 && t.w > 0 ? t.w / w : 1; } // (as wide as Helvetica prints it)
-          g.setTransform(sc * m[0] * t.k / 64, -sc * m[1] * t.k / 64, -sc * m[2] / 64, sc * m[3] / 64, e + sc * m[4], f - sc * m[5]);
-          g.fillStyle = t.c;
-          if (zooming && Math.hypot(m[2], m[3]) * sc < 40 * d) { g.globalAlpha = 0.5; g.fillRect(0, -42, t.w * 64 / t.k, 34); g.globalAlpha = 1; nT++; continue; } // (while zooming: a bar where it is)
-          g.fillText(t.s, 0, 0);
-          if (t.sc && t.lw > 0) { g.strokeStyle = t.sc; g.lineWidth = t.lw * 64; g.lineJoin = 'round'; g.setLineDash([]); g.strokeText(t.s, 0, 0); } // (an SHX font's strokes as thick as its line weight)
-          nT++;
+          if (ix < 0) { const im = PL.images[-1 - ix]; if (on(im.b) && !lifted(im.o)) pic(im, 0, 0); continue; }
+          const t = PL.texts[ix]; if (!labels || Math.hypot(t.m[2], t.m[3]) < minT || !on(t.b) || lifted(t.o)) continue;
+          txt(t, 0, 0);
         }
         g.setTransform(sc, 0, 0, -sc, e, f); continue;
       }
       const st = PL.styles[r.style];
       if (r.kind === 0) { g.strokeStyle = st.c; g.lineWidth = Math.max(st.w, minW); g.lineCap = st.cap; g.lineJoin = st.join; g.setLineDash(st.dash || []); for (const t of r.tiles) if (on(t.box)) { g.stroke(t.p); nP++; } }
       else { g.fillStyle = st.c; for (const t of r.tiles) if (on(t.box)) { g.fill(t.p, r.kind === 2 ? 'evenodd' : 'nonzero'); nP++; } }
+    }
+    if (LF && LF.size) for (const [i, L] of LF) { // ((Drawing labels) a label, number or pole details moved: its own lines, texts and pictures where it is now, over the rest)
+      const [ox, oy] = drwMvOff(i, L); g.setTransform(sc, 0, 0, -sc, e + ox * sc, f - oy * sc);
+      for (const x of L.own) {
+        if (x.kind === 3) { const t = PL.texts[x.ix]; if (labels && Math.hypot(t.m[2], t.m[3]) >= minT) txt(t, ox, oy); g.setTransform(sc, 0, 0, -sc, e + ox * sc, f - oy * sc); continue; }
+        if (x.kind === 4) { pic(PL.images[x.ix], ox, oy); g.setTransform(sc, 0, 0, -sc, e + ox * sc, f - oy * sc); continue; }
+        const st = PL.styles[x.style];
+        if (x.kind === 0) { g.strokeStyle = st.c; g.lineWidth = Math.max(st.w, minW); g.lineCap = st.cap; g.lineJoin = st.join; g.setLineDash(st.dash || []); g.stroke(x.p); } else { g.fillStyle = st.c; g.fill(x.p, x.kind === 2 ? 'evenodd' : 'nonzero'); }
+        nP++;
+      }
     }
     g.restore(); drw.planDrawn = { paths: nP, texts: nT };
   }
@@ -2435,6 +2477,7 @@
     const A0 = drw.ph.at || {}, dg = drw.phDrag; // the photos: each frame over the plan's own, big enough to take (zoomed out: the plan's)
     drw.items.forEach((it) => { const id = String(it.p.id), A = A0[id]; if (A && !(dg && dg.id === id) && (Math.max(A.w, A.h) * v.sc >= 6 * d || drwPhMoved(id) || drwPhCut(A))) drwPhFrame(g, d, it, A, [], true); }); // ((Plan kept) one across a sheet's edge always, outlined)
     if (dg) { const it = drwEdById(dg.id), A = it && drwPhOf(it); if (A) drwPhFrame(g, d, it, A, [], true); } // (the one dragged: over everything)
+    drwMvDraw(g, d); // ((Drawing labels) the item tapped, the ones placed by hand across a sheet's edge, the one dragged)
     drwNorthScale(g, d, cv, v);
   }
   /** A photo's picture for its frame (the photo on the phone, made 96 px wide: the whole of it, as the plan prints it; the list's small copy is
@@ -2462,30 +2505,167 @@
   function drwPlanNone() { if (!drw) return; const had = !!drw.ph || drw.plWant; drw.ph = null; drw.phBusy = false; drw.plWant = false; drwPhForce = false; drwPlanUi(); if (had) { drwPhHint(); renderDrawLegend(); drawDrawing(); } }
   /** The preview made (or as made last time): shown. said: made again by Regenerate plan preview: said beside it, a moment. */
   function drwPlanShow(said) {
-    if (!drw) return; drwPhHint(); drwPlanUi(); renderDrawLegend(); drawDrawing();
+    if (!drw) return; drwMvShowPins(); if (drw.mvSel && !(drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.mvSel))) drw.mvSel = null; drwPhHint(); drwPlanUi(); renderDrawLegend(); drawDrawing(); // ((Drawing labels) each item where its pin puts it, until the plan made with it comes)
     if (said && drw.ph) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
   }
   /** The Drawing's plan tools: Regenerate plan preview (busy while it is made), Sheet grid, the photos placed by hand. */
   function drwPlanUi() {
     if (!drw) return;
-    const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen'), n = Object.keys(pmeta(drw.project).phPin || {}).length;
+    const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen'), C = drwPinsN(drw.project), n = C.n; // ((Drawing labels) everything placed by hand: photos, numbers, pole details, cable labels)
     rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
     if (busy) $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = '';
     $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
-    $('drawPhAll').hidden = !(pl && n); $('drawPhAllT').textContent = `${n} photo${n === 1 ? '' : 's'} placed by hand · Back to automatic`;
+    $('drawPhAll').hidden = !(pl && n); $('drawPhAllT').textContent = `${drwPinsSay(C)} placed by hand · Back to automatic`;
+    const nu = drwUndoStack.filter((u) => u.project === drw.project).length, ub = $('drawUndo'); ub.hidden = !(pl && nu); ub.title = nu ? `Undo: where things were before the last change (${nu})` : 'Undo'; // ((Drawing labels) Undo, while there is a change to take back)
   }
   /** Back to automatic for every photo placed by hand on this project's plan, asked first. */
   async function drwPhAutoAll() {
-    if (!drw) return; const proj = drw.project, n = Object.keys(pmeta(proj).phPin || {}).length; if (!n) return;
-    if (!(await ask(`Back to automatic: ${n} photo${n === 1 ? '' : 's'}?`, `${n === 1 ? 'The photo placed by hand goes' : `The ${n} photos placed by hand go`} back where the plan puts ${n === 1 ? 'it' : 'them'}, and the plan's sheets are worked out again (kept as they were while photos were placed by hand). The next export has ${n === 1 ? 'it' : 'them'} there too.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
+    if (!drw) return; const proj = drw.project, C = drwPinsN(proj), n = C.n; if (!n) return; // ((Drawing labels) every photo, number, pole's details and cable label placed by hand)
+    const one = n === 1 && !C.lbl, it1 = one ? 'it' : 'them'; // (one photo, number or cable label: "it"; a pole's details, several: "them")
+    if (!(await ask(`Back to automatic: ${drwPinsSay(C)}?`, `The ${n === 1 ? drwPinsSay(C).replace(/^1 /, '') : drwPinsSay(C, true)} placed by hand ${one ? 'goes' : 'go'} back where the plan puts ${it1}, and the plan's sheets are worked out again (kept as they were while things were placed by hand). The next export has ${it1} there too. Undo (↶) brings ${it1} back.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
     if (!drw || drw.project !== proj) return;
-    const m = { ...pmeta(proj) }; delete m.phPin; delete m.planGrid; S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n }); // ((Plan kept) and the grid kept: worked out again)
+    drwUndoPush('all back to automatic');
+    const m = { ...pmeta(proj) }; PIN_KEYS.forEach((k) => { delete m[k]; }); delete m.planGrid; S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n, ...C }); // ((Plan kept) and the grid kept: worked out again)
     if (drw.ph) drw.ph = { ...drw.ph, sig: '', at: Object.fromEntries(Object.entries(drw.ph.at).map(([k, a]) => [k, a.how === 'by hand' ? { ...a, how: 'auto' } : a])) }; // (where they are until the plan's places come)
-    if (drw.selPh) drwPhTap(drw.selPh); drwPlanUi(); drawDrawing(); drwPhSoon(0);
+    drwMvShowPins(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel) drwMvTap(drw.mvSel); drwPlanUi(); drawDrawing(); drwPhSoon(0);
   }
   $('drawRegen').addEventListener('click', () => { if (!drw || drw.phBusy) return; LOG.info('draw.plan.regen', {}); clearTimeout(drwPhT); drwPhForce = true; drw.phBusy = true; drwPlanUi(); drwPhGo(true); });
   $('drawGrid').addEventListener('change', () => { S.drawGrid = !!$('drawGrid').checked; persist(); LOG.info('draw.plan.grid', { on: S.drawGrid }); drwPlanUi(); drawDrawing(); });
   $('drawPhAll').addEventListener('click', () => { drwPhAutoAll(); });
+  /* (Drawing labels) Labels, numbers and pole details placed by hand on the Drawing (the owner: "I want the drawing to be the preview of pdf export plan
+     that is editable and can be rearranged per user desires… for editing and polishing"). Over the plan shown (the template plan on the phone; not in
+     Edit route nor while a pull-off's poles are tapped; Labels on), each item the plan's report.movable lists (a cable's label, a pole's number, a
+     pole's details: Standard its label stack, Tidy its block with its number in it, the photo beside the block carried along) can be pressed and
+     dragged (8 px; a second finger cancels it, as the photos'): its own lines, texts and pictures follow the finger (drwPlanLift: the rest of the plan
+     stays as it is drawn), a dashed line to what it names. Let go: kept as a pin, pmeta().numPin / lblPin / cabPin (its middle from its point as the
+     plan draws it, or from its span's middle; the details' and a cable label's angle), which the export's job carries (GeDxfTpl.build puts it there
+     first: the rest keeps off it; an arrow or a thin line where it no longer touches what it names); the preview is made again, the item drawn where
+     it was let go until it comes. A tap says what it is (Pole number 12, Pole details of CC-1012, Cable label RUN 1), placed by hand with Back to
+     automatic. Placed by hand across a sheet's edge or off the sheets: outlined in orange. Undo (↶) takes back the last changes of where things are
+     (a drag, Back to automatic, all back to automatic; the photos' too), one at a time, while the app is open. The chip puts everything placed by
+     hand back (asked first). Kept on this phone, as the photos' pins (shareMeta leaves them out). */
+  const PIN_KEYS = ['phPin', 'numPin', 'lblPin', 'cabPin'], PIN_OF = { number: 'numPin', details: 'lblPin', cable: 'cabPin', photo: 'phPin' }, drwUndoStack = []; // (the placements changed this session: the pins before each change, the last last)
+  /** The items of the plan shown that the Drawing may move (report.movable), or none. */
+  const drwMvs = () => (drw && drw.ph && drw.ph.mv && drw.ph.row === rowIdx() ? drw.ph.mv : []);
+  /** An item's pin as kept (pmeta(), or M): its offset [dE, dN] (a cable's label: its at), or null. */
+  const drwPinOf = (m, M) => { const P = (M || pmeta(drw.project))[PIN_OF[m.kind]], v = P ? P[m.kind === 'cable' ? m.key : m.point] : null; return m.kind === 'cable' ? (v && Array.isArray(v.at) ? v.at : null) : Array.isArray(v) ? v : null; };
+  /** The pins kept for a project, by kind, and all. */
+  const drwPinsN = (proj) => { const m = pmeta(proj), c = (k) => Object.keys(m[k] || {}).length, r = { ph: c('phPin'), num: c('numPin'), lbl: c('lblPin'), cab: c('cabPin') }; r.n = r.ph + r.num + r.lbl + r.cab; return r; };
+  /** They in words: "2 photos", "1 cable label"; of several kinds "5 items" (long: "2 photos, 1 number and 2 cable labels"). */
+  const drwPinsSay = (C, long) => { const L = [[C.ph, 'photo', 'photos'], [C.num, 'number', 'numbers'], [C.lbl, 'pole\'s details', 'poles\' details'], [C.cab, 'cable label', 'cable labels']].filter((x) => x[0]).map(([n, a, b]) => `${n} ${n === 1 ? a : b}`);
+    return L.length === 1 ? L[0] : !long ? `${C.n} items` : `${L.slice(0, -1).join(', ')} and ${L[L.length - 1]}`; };
+  /** What an item is, as the information line says it. */
+  function drwMvName(m) {
+    if (m.kind === 'cable') return `Cable label ${m.name}`;
+    const it = drwEdById(m.point), pole = !it || it.el === 'Pole';
+    if (m.kind === 'number') return pole ? `Pole number ${m.seq}` : `Number ${m.seq} · ${m.name}`;
+    if (m.kind === 'details') return `Pole details of ${m.name}${m.number && m.seq ? ` (its number ${m.seq} with them)` : ''}`;
+    return `Photo of ${m.name}`;
+  }
+  /** Item i drawn moved by (metres): lifted off the plan (L: moved since the plan was made), and by the finger while it (or the block carrying it) is dragged. */
+  function drwMvOff(i, L) { const D = drw.mvDrag, o = L.off; if (D && (D.i === i || (D.with && D.with.includes(i)))) { const sc = drw.view.sc; return [o[0] + D.dx / sc, o[1] - D.dy / sc]; } return o; }
+  /** A pole photo carried by its block being moved: how far it is moved now (metres). */
+  const drwMvPhOff = (id) => { const P = drw && drw.ph, PL = P && P.plan, i = P && P.mvIdx ? P.mvIdx.get(`ph:${id}`) : null, L = i != null && PL && PL.lifted ? PL.lifted.get(i) : null; return L ? drwMvOff(i, L) : [0, 0]; };
+  /** Item i's box where it is drawn now: [cx, cy, w, h, deg] (metres). */
+  const drwMvBox = (m, i) => { const PL = drw.ph && drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null, o = L ? drwMvOff(i, L) : [0, 0]; return [m.box[0] + o[0], m.box[1] + o[1], m.box[2], m.box[3], m.box[4]]; };
+  /** The item under a finger (a label, a number, pole details; the smallest there), or null: a point's centre right there, a photo (drwPhAt), or one too
+   *  small on the screen to take (its texts are not drawn either) is not one. */
+  function drwMvAt(e) {
+    if (!drw || drw.labels === false || !drwPlanOn()) return null;
+    const M = drwMvs(); if (!M.length) return null;
+    const cv = $('drawCanvas'), r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1, x = (e.clientX - r.left) * d, y = (e.clientY - r.top) * d;
+    if (drw.items.some((it) => { const [px, py] = drwPx(drwAt(it)); return Math.hypot(px - x, py - y) < 10 * d; })) return null; // (its tap, as before)
+    const v = drw.view, sc = v.sc, E = v.cx + (x - cv.width / 2) / sc, N = v.cy - (y - cv.height / 2) / sc, mg = (e.pointerType === 'mouse' ? 5 : 9) * d / sc; let best = null; // (a finger: a little more round it)
+    M.forEach((m, i) => {
+      if (m.kind === 'photo' || Math.min(m.box[2], m.box[3]) * sc < 3 * d) return;
+      const B = drwMvBox(m, i), a = B[4] * Math.PI / 180, dx = E - B[0], dy = N - B[1], u = dx * Math.cos(a) + dy * Math.sin(a), w = -dx * Math.sin(a) + dy * Math.cos(a);
+      if (Math.abs(u) <= B[2] / 2 + mg && Math.abs(w) <= B[3] / 2 + mg && (!best || B[2] * B[3] < best.ar)) best = { id: m.id, i, ar: B[2] * B[3] };
+    });
+    return best;
+  }
+  /** Each item drawn where its pin puts it until the plan made with it comes (lifted off the plan by the difference), the others where the plan has them
+   *  (one placed by hand and now back to automatic: where it is, until then); a block's photo with its block. After every change and every plan shown. */
+  function drwMvShowPins() {
+    const P = drw && drw.ph, PL = P && P.plan; if (!PL || !PL.lifted || !P.mv || !P.mvIdx) return;
+    const M = pmeta(drw.project), want = new Map();
+    P.mv.forEach((m, i) => {
+      if (m.kind === 'photo') { if (!want.has(i)) want.set(i, null); return; }
+      const pin = drwPinOf(m, M); let off = null;
+      if (pin) { const dx = m.anchor[0] + +pin[0] - m.box[0], dy = m.anchor[1] + +pin[1] - m.box[1]; if (Math.hypot(dx, dy) > 0.02) off = [dx, dy]; }
+      else if (m.how === 'by hand') { const L = PL.lifted.get(i); off = L ? L.off : null; }
+      want.set(i, off); for (const w of m.with || []) { const j = P.mvIdx.get(w); if (j != null) want.set(j, off); }
+    });
+    for (const [i, off] of want) drwPlanLift(PL, i, off);
+  }
+  /** An item tapped: the information line says what it is, placed by hand with Back to automatic. */
+  function drwMvTap(id) {
+    const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null; if (!m) return;
+    drw.sel = null; drw.selRun = null; drw.selPh = null; drw.mvSel = id;
+    const pin = drwPinOf(m), info = $('drawInfo'), edge = pin && m.how === 'by hand' && m.edge ? (m.edge === 'cut' ? ' (across a sheet\'s edge: each sheet shows only its part)' : ' (on none of the plan\'s sheets)') : '';
+    info.textContent = `${drwMvName(m)} · ${pin ? `placed by hand on the plan${edge}` : 'where the plan puts it: drag it to place it by hand'}`;
+    if (pin) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawMvAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwMvAuto(id)); info.appendChild(b); }
+    info.hidden = false; $('drawHint').hidden = true;
+    if (cefHooks.drawSync) cefHooks.drawSync(); if (splHooks.drawSync) splHooks.drawSync(); drawDrawing();
+  }
+  /** An item let go after a drag (dx, dy: canvas pixels): kept where it was let go (its pin), drawn there until the plan made with it comes. */
+  function drwMvDrop(id, dx, dy) {
+    const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null; if (!m || m.kind === 'photo') { if (drw) drawDrawing(); return; }
+    const sc = drw.view.sc, L = P.plan && P.plan.lifted ? P.plan.lifted.get(i) : null, o = L ? L.off : [0, 0], c = [m.box[0] + o[0] + dx / sc, m.box[1] + o[1] - dy / sc];
+    const off = [+(c[0] - m.anchor[0]).toFixed(2), +(c[1] - m.anchor[1]).toFixed(2)], ang = +(+m.box[4] || 0).toFixed(3), key = PIN_OF[m.kind], k = m.kind === 'cable' ? m.key : m.point;
+    drwUndoPush(`${m.kind} moved`); const proj = drw.project, m0 = pmeta(proj);
+    S.meta = S.meta || {}; S.meta[proj] = { ...m0, [key]: { ...(m0[key] || {}), [k]: m.kind === 'cable' ? { at: off, rot: ang } : m.kind === 'details' ? [off[0], off[1], ang] : off } }; persist(); // (as it was let go: where, and its angle)
+    LOG.info('draw.label.pin', { kind: m.kind, n: Object.keys(S.meta[proj][key]).length });
+    drwMvShowPins(); drwPlanUi(); drwMvTap(id); drwPhSoon(250);
+  }
+  /** Back to automatic: the item placed by hand goes back where the plan puts it. */
+  function drwMvAuto(id) {
+    const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null; if (!m) return;
+    const proj = drw.project, m0 = pmeta(proj), key = PIN_OF[m.kind], k = m.kind === 'cable' ? m.key : m.point; if (!m0[key] || !(k in m0[key])) return;
+    drwUndoPush(`${m.kind} back to automatic`);
+    const Q = { ...m0[key] }; delete Q[k]; const nm = { ...m0, [key]: Q }; if (!Object.keys(Q).length) delete nm[key];
+    S.meta[proj] = nm; persist(); LOG.info('draw.label.auto', { kind: m.kind, n: Object.keys(Q).length });
+    drwMvShowPins(); drwPlanUi(); drwMvTap(id); drwPhSoon(0);
+  }
+  /** Undo: the pins as they were before the last change of where things are on this project's plan (kept: a drag, Back to automatic, all of them back). */
+  function drwUndoPush(what) {
+    if (!drw) return; const M = pmeta(drw.project);
+    drwUndoStack.push({ project: drw.project, what, pins: Object.fromEntries(PIN_KEYS.map((k) => [k, M[k] ? JSON.parse(JSON.stringify(M[k])) : null])) });
+    if (drwUndoStack.length > 60) drwUndoStack.shift();
+  }
+  function drwUndo() {
+    if (!drw) return; const proj = drw.project; let j = drwUndoStack.length - 1; while (j >= 0 && drwUndoStack[j].project !== proj) j--; if (j < 0) return;
+    const U = drwUndoStack.splice(j, 1)[0], m = { ...pmeta(proj) };
+    for (const k of PIN_KEYS) { if (U.pins[k] && Object.keys(U.pins[k]).length) m[k] = U.pins[k]; else delete m[k]; }
+    S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.undo', { what: U.what, left: drwUndoStack.filter((u) => u.project === proj).length });
+    if (drw.ph && drw.ph.at) { // (the photos where their pins put them, until the plan's places come)
+      const pp = m.phPin || {}, at = {};
+      for (const [id, A] of Object.entries(drw.ph.at)) {
+        const pin = pp[id], A0 = drw.ph.planAt ? drw.ph.planAt[id] : null, x = pin ? A.dp[0] + pin[0] : 0, y = pin ? A.dp[1] + pin[1] : 0;
+        at[id] = pin ? (A0 && A0.how === 'by hand' && Math.hypot(A0.x - x, A0.y - y) < 0.02 ? A0 : { ...A, x, y, how: 'by hand', line: null }) : A0 && A0.how !== 'by hand' ? A0 : A.how === 'by hand' ? { ...A, how: 'auto' } : A;
+      }
+      drw.ph = { ...drw.ph, sig: '', at };
+    }
+    drwMvShowPins(); drwPlanUi(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel) drwMvTap(drw.mvSel); else drawDrawing(); drwPhSoon(0);
+  }
+  $('drawUndo').addEventListener('click', () => { drwUndo(); });
+  /** Over the plan: the item tapped outlined (yellow), the items placed by hand across a sheet's edge or off the sheets (orange, dashed), the one
+   *  dragged with a dashed line to what it names. */
+  function drwMvDraw(g, d) {
+    const M = drwMvs(); if (!M.length || drw.labels === false) return; // (Labels off: the plan's texts are not drawn, nor these)
+    const P = drw.ph, out = (B, col, w, dash) => { const [cx, cy] = drwPx([B[0], B[1]]), sc = drw.view.sc, a = -B[4] * Math.PI / 180; g.save(); g.translate(cx, cy); g.rotate(a); g.strokeStyle = col; g.lineWidth = w * d; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.strokeRect(-B[2] * sc / 2 - 2 * d, -B[3] * sc / 2 - 2 * d, B[2] * sc + 4 * d, B[3] * sc + 4 * d); g.restore(); };
+    M.forEach((m, i) => { if (m.how === 'by hand' && m.edge && drwPinOf(m)) { const B = m.kind === 'photo' ? drwPhBoxNow(m) : drwMvBox(m, i); if (B) out(B, 'rgba(240,140,0,.95)', 2, [6, 4]); } }); // (a photo: its frame where it is now)
+    const s = drw.mvSel != null && P.mvIdx ? P.mvIdx.get(drw.mvSel) : null; if (s != null) out(drwMvBox(M[s], s), 'rgba(255,212,59,.95)', 4);
+    const D = drw.mvDrag; if (D && M[D.i]) { const B = drwMvBox(M[D.i], D.i), [ax, ay] = drwPx(M[D.i].anchor), [bx, by] = drwPx([B[0], B[1]]); g.save(); g.strokeStyle = 'rgba(28,126,214,.8)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.restore(); }
+  }
+  /** A photo placed by hand: its box where its frame is drawn now (metres), from the plan's places (drw.ph.at). */
+  const drwPhBoxNow = (m) => { const A = drw.ph && drw.ph.at ? drw.ph.at[m.point] : null; return A ? [A.x, A.y, A.w, A.h, +A.rot || 0] : null; };
+  /** A drag begun on item id: lifted off the plan (and the photo its block carries), followed by the finger. */
+  function drwMvGrab(id) {
+    const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null, PL = P && P.plan; if (!m || !PL) return null;
+    const w = (m.with || []).map((x) => P.mvIdx.get(x)).filter((j) => j != null);
+    for (const j of [i, ...w]) { const L = PL.lifted ? PL.lifted.get(j) : null; drwPlanLift(PL, j, L ? L.off : [0, 0]); }
+    return { id, i, with: w, dx: 0, dy: 0 };
+  }
   function sizeDrawing() { const cv = $('drawCanvas'), r = $('drawWrap').getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d)); }
   if ('ResizeObserver' in window) { let rq = 0; new ResizeObserver(() => { cancelAnimationFrame(rq); rq = requestAnimationFrame(() => { if (drw && drw.view && !$('drawing').hidden) { sizeDrawing(); drawDrawing(); } }); }).observe($('drawWrap')); } // v2.42.28
   function fitDrawing() {
@@ -2836,10 +3016,10 @@
   }
   (() => { // pan, pinch, wheel and tap on the drawing
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
-    let last = null, moved = 0, pinch = null, phD = null; // (beta 7.8, Drawing photos) phD: a photo frame pressed (outside Edit route), dragged rather than the drawing
+    let last = null, moved = 0, pinch = null, phD = null, mvD = null; // (beta 7.8, Drawing photos) phD: a photo frame pressed (outside Edit route), dragged rather than the drawing ((Drawing labels) mvD: a label, number or pole's details, the same)
     cv.addEventListener('pointerdown', (e) => { if (!drw) return; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0;
-      if (drw.ptrs.size === 1) { const H = !drwEd && !jnPick && (e.pointerType !== 'mouse' || e.button === 0) ? drwPhAt(e) : null; phD = H ? { id: H.id, x0: e.clientX, y0: e.clientY } : null; }
-      if (drw.ptrs.size === 2) { if (phD) { phD = null; drw.phDrag = null; } const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc };
+      if (drw.ptrs.size === 1) { const ok = !drwEd && !jnPick && (e.pointerType !== 'mouse' || e.button === 0), H = ok ? drwPhAt(e) : null; phD = H ? { id: H.id, x0: e.clientX, y0: e.clientY } : null; const Mv = ok && !H ? drwMvAt(e) : null; mvD = Mv ? { id: Mv.id, x0: e.clientX, y0: e.clientY } : null; }
+      if (drw.ptrs.size === 2) { if (phD) { phD = null; drw.phDrag = null; } if (mvD) { mvD = null; if (drw.mvDrag) { drw.mvDrag = null; drawDrawing(); } } const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc };
         if (drwEd) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; pinch.m = m; pinch.w = [drw.view.cx + (m[0] * d() - cv.width / 2) / drw.view.sc, drw.view.cy - (m[1] * d() - cv.height / 2) / drw.view.sc]; } } }); // (beta 6.7, Edit route: two fingers move and zoom it, about their middle)
     cv.addEventListener('pointermove', (e) => {
       if (!drw || !drw.ptrs.has(e.pointerId)) return; drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]);
@@ -2848,6 +3028,8 @@
         drawDrawing(); return; }
       const dx = e.clientX - last[0], dy = e.clientY - last[1]; last = [e.clientX, e.clientY]; moved += Math.abs(dx) + Math.abs(dy);
       if (phD) { if (moved >= 8) { drw.phDrag = { id: phD.id, dx: (e.clientX - phD.x0) * d(), dy: (e.clientY - phD.y0) * d() }; drawDrawing(); } return; } // (beta 7.8, Drawing photos) the photo follows the finger; the drawing stays
+      if (mvD && moved >= 8 && !drw.mvDrag && !(drw.mvDrag = drwMvGrab(mvD.id))) mvD = null; // ((Drawing labels) lifted off the plan at the first move)
+      if (mvD) { if (drw.mvDrag) { drw.mvDrag.dx = (e.clientX - mvD.x0) * d(); drw.mvDrag.dy = (e.clientY - mvD.y0) * d(); drawDrawing(); } return; } // ((Drawing labels) the item follows the finger; the drawing stays
       if (drwEd && (rtDrawing() || rtGrab || rtDraft || rtMpan || (e.pointerType === 'mouse' && e.buttons !== 1))) return; // beta 6.7, Edit route: ✎ one finger draws (Route's gestures, rtGest); ✋ one finger moves it
       drw.view.cx -= dx * d() / drw.view.sc; drw.view.cy += dy * d() / drw.view.sc; drawDrawing();
     });
@@ -2855,11 +3037,13 @@
       if (!drw) return; drw.ptrs.delete(e.pointerId); if (drw.ptrs.size < 2) pinch = null;
       if (phD) { const D = phD, G = drw.phDrag; phD = null; drw.phDrag = null; // (beta 7.8, Drawing photos) a photo let go where it was dragged, or tapped
         if (e.type === 'pointerup' && moved >= 8 && G) drwPhDrop(D.id, G.dx, G.dy); else if (e.type === 'pointerup' && moved < 8) drwPhTap(D.id); else drawDrawing(); return; }
+      if (mvD) { const D = mvD, G = drw.mvDrag; mvD = null; drw.mvDrag = null; // ((Drawing labels) a label, number or pole's details let go where it was dragged, or tapped
+        if (e.type === 'pointerup' && moved >= 8 && G) drwMvDrop(D.id, G.dx, G.dy); else if (e.type === 'pointerup' && moved < 8) drwMvTap(D.id); else drawDrawing(); return; }
       if (moved < 8 && e.type === 'pointerup' && !drwEd) { // a tap: the nearest point (beta 6.7: in Edit route, Route's tap)
         const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
         let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(drwAt(it)), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; }); // ((beta 7.9, Drawing preview) where the plan draws it, while the plan is shown)
         if (jnPick && jnPick.surf === 'drawing') { if (best) jnPickTap(best.it.p.id); return; } // beta 6.9: a pull-off's or cross-over's pole
-        drw.sel = best ? best.it.p.id : null; drw.selPh = null; const info = $('drawInfo');
+        drw.sel = best ? best.it.p.id : null; drw.selPh = null; drw.mvSel = null; const info = $('drawInfo');
         drw.selRun = null; if (!best) { let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((L) => { for (let k = 1; k < L.length; k++) { const a = L[k - 1], b = L[k], vx = b[0] - a[0], vy = b[1] - a[1], t = Math.max(0, Math.min(1, ((tx - a[0]) * vx + (ty - a[1]) * vy) / (vx * vx + vy * vy || 1))), dd = Math.hypot(a[0] + vx * t - tx, a[1] + vy * t - ty); if (dd < 16 * d() && (!bc || dd < bc.dd)) bc = { n, dd }; } }));
           if (bc) { drw.selRun = bc.n; const f = drw.R && drw.R.fib ? drw.R.fib.list.find((x) => x.n === bc.n) : null; // v2.42.26: a cable tapped: its whole run lit
             if (f) { const by = drw.R.fib.by, a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by); let len = 0; for (let k = 1; k < f.path.length; k++) { const p = by.get(f.path[k - 1]), q = by.get(f.path[k]); if (p && q) len += haversine(p, q); }
@@ -2991,6 +3175,8 @@
       if (drw.ph && Object.keys(drw.ph.at || {}).length) rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#1c7ed6" stroke-width="1.5"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#74c0fc"/>'), 'A photo where the plan puts it: drag it to place it by hand (blue: placed by hand)']);
       if (drw.ph && Object.values(drw.ph.at || {}).some(drwPhCut)) rows.push([sv('<rect x="4" y="3.5" width="14" height="9" fill="#fff" stroke="#495057" stroke-width="1.2"/><rect x="2" y="1.5" width="18" height="13" fill="none" stroke="#f08c00" stroke-width="1.6" stroke-dasharray="3 2"/>'), 'A photo across a sheet\u2019s edge (orange): it prints cut on both sheets; drag it inside one']); // ((Plan kept))
       if (drw.ph && drw.ph.grid && drw.ph.grid.kept) rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><path d="M8 9.5l2.2 2.2L15 6.5" fill="none" stroke="#ae3ec9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'), 'The sheets are kept as they were when a photo was first placed by hand: they no longer change by themselves (Back to automatic for all the photos works them out again)']); // ((Plan kept))
+      if (drwMvs().some((m) => m.kind !== 'photo')) { rows.push([sv('<rect x="2" y="4" width="18" height="8" fill="none" stroke="#fab005" stroke-width="2"/><path d="M5 8h12" stroke="#1b1b1b" stroke-width="1.6"/>'), 'A cable label, a pole number or a pole\'s details: drag it to place it by hand (tap it: what it is; ↶ undoes)']); // ((Drawing labels))
+        rows.push([sv('<rect x="2" y="4" width="18" height="8" fill="none" stroke="#f08c00" stroke-width="1.6" stroke-dasharray="3 2"/>'), 'Placed by hand across a sheet\'s edge, or on no sheet: each sheet shows only its part']); }
       rows.push([sv('<path d="M17 7.5a6 6 0 0 0-11-2.3M5 3v3h3M5 8.5a6 6 0 0 0 11 2.3M17 13v-3h-3" fill="none" stroke="#1b3a6b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'), 'Made again by itself when the drawing, its points or Plan style change; Regenerate plan preview (the round arrows): again now']);
       if (drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); }
       $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join(''); return;
@@ -10254,7 +10440,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; /* (Drawing photos: the photos placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((Plan kept) the grid kept with them and the plan's roads too) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((Plan kept) the grid kept with them and the plan's roads too) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -12985,6 +13171,7 @@
     const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
     const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
     const phPin = { ...(m.phPin || {}) }; // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres)
+    const numPin = { ...(m.numPin || {}) }, lblPin = { ...(m.lblPin || {}) }, cabPin = { ...(m.cabPin || {}) }; // ((Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
     const gridKeep = Object.keys(phPin).length ? planGridOf(m) : null; // ((Plan kept) the plan edited on the Drawing keeps its grid: its sheets and their names)
     // (what follows waits for the phone: the roads, the photos, the vicinity pictures, the logo)
     let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)'; const keptAt = [];
@@ -13059,7 +13246,7 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       return { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, jnName: PLS.jn.name, /* beta 7.4 / 2.45.6 */ odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', phPin, /* (beta 7.8, Drawing photos) */ ...(gridKeep ? { gridKeep } : {}), /* (Plan kept) */ date: new Date() };
+        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', phPin, /* (beta 7.8, Drawing photos) */ numPin, lblPin, cabPin, /* (Drawing labels) */ ...(gridKeep ? { gridKeep } : {}), /* (Plan kept) */ date: new Date() };
     };
     const roadsKept = keptAt.length && keptAt.every(Boolean) ? keptAt.slice().sort()[0] : ''; // ((Plan kept) the roads kept with the project: since when)
     return { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, roadsKept, gridKeep, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name, byPt, many, rtaC, rtaN, boxLoopN, jobOf };
@@ -21523,6 +21710,13 @@
   window.__polecam.drwPh = () => { if (!drw) return null; const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1;
     return { busy: !!drw.phBusy, row: drw.ph ? drw.ph.row : null, at: drw.ph ? JSON.parse(JSON.stringify(drw.ph.at)) : null, notes: drw.ph ? drw.ph.notes : [], sc: drw.view ? drw.view.sc / d : 0, sel: drw.selPh || null, pins: JSON.parse(JSON.stringify(pmeta(drw.project).phPin || {})),
       frames: (drw.phHit || []).map((H) => ({ id: H.id, x: r.left + H.cx / d, y: r.top + H.cy / d, w: H.w / d, h: H.h / d, rot: H.rot, warn: !!H.warn })), xy: Object.fromEntries(drw.items.map((it) => [String(it.p.id), it.xy])) }; }; // ((Plan kept) warn: outlined, across a sheet's edge)
+  /* (Drawing labels) for tests: the plan's movable items (report.movable) where they are drawn now (their box in page pixels: centre, size, turn), the
+     one tapped, the one dragged, the pins kept, the items lifted off the plan (moved since it was made) and the Undo steps of this project */
+  window.__polecam.drwMv = () => { if (!drw) return null; const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1, M = drwMvs(), PL = drw.ph && drw.ph.plan, sc = drw.view ? drw.view.sc : 1;
+    return { items: M.map((m, i) => { const B = drwMvBox(m, i), [x, y] = drwPx([B[0], B[1]]); return { id: m.id, kind: m.kind, how: m.how, x: r.left + x / d, y: r.top + y / d, w: B[2] * sc / d, h: B[3] * sc / d, deg: B[4], box: B, anchor: m.anchor, edge: m.edge || null, name: drwMvName(m), with: m.with || [], handles: m.handles.length }; }),
+      sel: drw.mvSel || null, drag: drw.mvDrag ? { id: drw.mvDrag.id, dx: drw.mvDrag.dx / d, dy: drw.mvDrag.dy / d } : null, pins: Object.fromEntries(PIN_KEYS.map((k) => [k, JSON.parse(JSON.stringify(pmeta(drw.project)[k] || {}))])),
+      lifted: PL && PL.lifted ? [...PL.lifted].map(([i, L]) => ({ id: M[i] ? M[i].id : i, off: L.off.slice() })) : [], undo: drwUndoStack.filter((u) => u.project === drw.project).map((u) => u.what), own: PL && PL.own ? PL.own.length : 0,
+      undoBtn: { hidden: $('drawUndo').hidden }, info: $('drawInfo').hidden ? null : $('drawInfo').textContent }; };
   window.__polecam.drwLL = (lat, lon) => { if (!drw || !drw.view) return null; const p = RT_DRW.pt([lat, lon]), r = $('drawCanvas').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
   window.__polecam.drwLook = (lat, lon, mpp, ox, oy) => { if (!drw || !drw.view) return; const d = window.devicePixelRatio || 1, cv = $('drawCanvas'), u = C.utmForward(lat, lon, drw.zone, lat < 0), sc = d / mpp; drw.view = { ...drw.view, sc, cx: u.E - ((ox == null ? cv.width / 2 / d : ox) * d - cv.width / 2) / sc, cy: u.N + ((oy == null ? cv.height / 2 / d : oy) * d - cv.height / 2) / sc }; drawDrawing(); };
   window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(drwAt(it)), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; }; // ((beta 7.9, Drawing preview) where the Drawing shows it: where the plan draws it, while the plan is shown)
