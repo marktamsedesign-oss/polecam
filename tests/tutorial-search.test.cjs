@@ -106,6 +106,8 @@ const LINES = [
   ['6.9', '!corner without pole · !extended messenger · corner with no pole · cable across houses · messenger', 'pulloff'],
   // beta 7.6 / 2.45.8: Photos with their locations › Same stamp on the plan's photos (the geotag band on the plan's photos)
   ['7.6', '!same stamp on the plan\'s photos · !geotag stamp on the plan · plan photo stamp · caption band', 'fieldsettings planstyle'],
+  // (Drawing photos): the Drawing's photos where the plan puts them; drag one to place it by hand, Back to automatic
+  ['Drawing photos', '!drag a photo · !back to automatic · photo placed by hand · move photo on the drawing', 'drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];
