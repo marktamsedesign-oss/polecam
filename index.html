@@ -1022,6 +1022,7 @@ body.svdrag,body.svdrag *{cursor:grabbing!important}
 .pole-label.oth{opacity:.75;color:#5b6577;background:#f4f5f7;border-color:#d5dbe5}
 #pinMapWrap.mini{height:96px;min-height:0}
 #pinMapWrap.mini #edHint,#pinMapWrap.mini #pinLayer,#pinMapWrap.mini #pinSizeBtn,#pinMapWrap.mini #pinInfo{opacity:0;pointer-events:none}
+#pinMapWrap.mini #pinLayer *,#pinMapWrap.mini #pinInfo *{pointer-events:none} /* beta 7.7: their buttons too (#pinInfo > * takes taps again): hidden, they took the tap meant for the small map (Street View, Reset to GPS) */
 #pinMapWrap.mini #pinLabel{top:-36px}
 #pinMiniTag{position:absolute;left:8px;top:8px;z-index:400;display:none;background:rgba(15,37,71,.85);color:#fff;border-radius:999px;padding:4px 10px;font-size:calc(12px * var(--fs));font-weight:600;pointer-events:none}
 #pinMapWrap.mini #pinMiniTag{display:block}
