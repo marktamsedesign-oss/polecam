@@ -21,7 +21,7 @@ let directOk = process.env.DIRECT !== 'no'; // DIRECT=no: the upload server refu
 // beta 2: chunked uploads. range: expose Google's Range header to the page (its CORS); drop: the Nth piece PUT from now is
 // taken in part (half its bytes) and the connection dropped, as on a weak signal; puts: the piece PUTs seen
 let exposeRange = true, dropAt = 0, puts = 0, chunked = 0, probes = 0, dropRange = '';
-const LIM = { max: 0, delay: 0, refuseUntil: 0, how: 'html', fail: [], free: null, calls: 0, refused: 0, inflight: 0, maxInflight: 0 }; // beta 3.3 (QA-10) // dropRange: the browser's own retry of the dropped piece fails too
+const LIM = { max: 0, delay: 0, refuseUntil: 0, how: 'html', refuseAct: '', fail: [], free: null, calls: 0, refused: 0, inflight: 0, maxInflight: 0 }; // beta 3.3 (QA-10) // dropRange: the browser's own retry of the dropped piece fails too
 http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   if (req.method === 'OPTIONS') return send(res, 204, '');
@@ -54,7 +54,7 @@ http.createServer(async (req, res) => {
       try {
         const html = () => { LIM.refused++; res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' }); res.end('<!DOCTYPE html><html><body>There are too many scripts running simultaneously for this Google user account.</body></html>'); };
         if (LIM.max && LIM.inflight > LIM.max) return html();
-        if (LIM.refuseUntil > Date.now()) { if (LIM.how === 'html') return html(); LIM.refused++; return send(res, 200, JSON.stringify({ ok: false, error: LIM.how })); }
+        if (LIM.refuseUntil > Date.now() && (!LIM.refuseAct || LIM.refuseAct === act)) { if (LIM.how === 'html') return html(); LIM.refused++; return send(res, 200, JSON.stringify({ ok: false, error: LIM.how })); }
         const f = LIM.fail.findIndex((x) => !x.action || x.action === act);
         if (f >= 0) { const x = LIM.fail[f]; if (--x.n <= 0) LIM.fail.splice(f, 1); LIM.refused++; if (x.code === 'html') return html(); return send(res, 200, JSON.stringify({ ok: false, error: x.code })); }
         if (act === 'space' && LIM.free != null) return send(res, 200, JSON.stringify({ ok: true, limit: 16106127360, usage: 16106127360 - LIM.free, inDrive: 0, inTrash: 0 }));
@@ -89,13 +89,13 @@ http.createServer(async (req, res) => {
     if (u.pathname === '/mail') { const to = u.searchParams.get('to'); const m = sheet.world.mail.filter((x) => x.to === to).pop(); const k = m && /\b(\d{6})\b/.exec(m.subject); return send(res, 200, JSON.stringify({ code: k ? k[1] : null, n: sheet.world.mail.length })); }
     if (u.pathname === '/drive') return send(res, 200, JSON.stringify(Object.values(mbx.DRIVE.files).filter((f) => !f.trashed).map((f) => f.name)));
     if (u.pathname === '/rows') { const sh = tab(u.searchParams.get('tab')); return send(res, 200, JSON.stringify(sh && sh.getLastRow() > 0 ? sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues() : [])); }
-    if (u.pathname === '/mbxlimit') { // ?max=30&delay=300 · ?refuse=30&how=html|rate|busy · ?fail=code&n=1&action=get · ?free=bytes (-1: off) · ?reset=1
+    if (u.pathname === '/mbxlimit') { // ?max=30&delay=300 · ?refuse=30&how=html|rate|busy (&action=get: only those calls; beta 7.8) · ?fail=code&n=1&action=get · ?free=bytes (-1: off) · ?reset=1
       const q = u.searchParams;
       if (q.has('max')) LIM.max = +q.get('max'); if (q.has('delay')) LIM.delay = +q.get('delay');
-      if (q.has('refuse')) { LIM.refuseUntil = Date.now() + 1000 * +q.get('refuse'); LIM.how = q.get('how') || 'html'; }
+      if (q.has('refuse')) { LIM.refuseUntil = Date.now() + 1000 * +q.get('refuse'); LIM.how = q.get('how') || 'html'; LIM.refuseAct = q.get('action') || ''; }
       if (q.has('fail')) LIM.fail.push({ code: q.get('fail'), n: +(q.get('n') || 1), action: q.get('action') || '' });
       if (q.has('free')) LIM.free = +q.get('free') < 0 ? null : +q.get('free');
-      if (q.has('reset')) Object.assign(LIM, { max: 0, delay: 0, refuseUntil: 0, fail: [], free: null, calls: 0, refused: 0, maxInflight: 0 });
+      if (q.has('reset')) Object.assign(LIM, { max: 0, delay: 0, refuseUntil: 0, refuseAct: '', fail: [], free: null, calls: 0, refused: 0, maxInflight: 0 });
       return send(res, 200, JSON.stringify({ ...LIM, now: Date.now() }));
     }
     if (u.pathname === '/direct') { directOk = u.searchParams.get('on') !== '0'; return send(res, 200, JSON.stringify({ directOk })); }
