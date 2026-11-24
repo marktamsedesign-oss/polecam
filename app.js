@@ -10559,41 +10559,18 @@
     guard(() => mapsGuide(b.dataset.need, b.dataset.region || ''), 'Maps not opened'); });
   $('dxfRoads').addEventListener('change', () => { try { renderDxfNeed(); } catch (e) { /* not shown */ } });
   /* ---- beta 6.7 (UX step 3): the rows, their groups and badges, which one is open, Several at once ---- */
-  const XGH = { client: 'For the client or office', photos: 'Photos', lists: 'Lists and quantities', finish: 'Finish and keep', team: 'For the app team', handon: 'Hand on to the next stage', forms: 'Forms and reports', mapphotos: 'Map and photos' };
-  const XGROUPS = { survey: ['client', 'photos', 'lists', 'finish', 'team'], acc: ['handon', 'forms', 'mapphotos', 'finish', 'team'], cef: ['client', 'finish'] };
-  const XFOLDED = new Set(['team']); // For the app team (Photos for teaching the app: not needed for the task): folded
-  let xMany = false, xTeamOpen = false;
-  const xGroupOf = (c) => (isAcc() && c.dataset.groupAcc) || c.dataset.group || '';
-  /** The headings of the groups (made once, in the body). */
-  function xHeads() {
-    const body = $('export').querySelector('.body'), H = {};
-    Object.keys(XGH).forEach((g) => {
-      let h = body.querySelector(`:scope > .xgh[data-gh="${g}"]`);
-      if (!h) {
-        h = document.createElement(XFOLDED.has(g) ? 'button' : 'div'); h.className = 'xgh'; h.dataset.gh = g;
-        if (XFOLDED.has(g)) { h.type = 'button'; h.setAttribute('aria-expanded', 'false'); h.addEventListener('click', () => { xTeamOpen = h.getAttribute('aria-expanded') !== 'true'; xLayout(); }); }
-        else { h.setAttribute('role', 'heading'); h.setAttribute('aria-level', '3'); }
-        body.insertBefore(h, $('xOther'));
-      }
-      H[g] = h;
-    });
-    return H;
-  }
+  // ((Export picks): the group headings (For the client or office, Photos, Lists and quantities, Finish and keep, For the app team) and their
+  // fold went: the tiles name each file, More exports holds the rest)
+  let xMany = false;
   /** The rows in their groups: CSS order (the body is a flex column; the cards stay where they are), the headings, the fold; the Ready
-      box under the row it came from. */
+      box under the row it came from. (Export picks): the rows picked, in the tiles' order, under What you get; no headings (the tiles
+      name each file); Your file is ready under the row it came from, else just above the button at the foot. */
   function xLayout() {
-    const cards = exportCards(), shown = new Set(cards), H = xHeads(), groups = XGROUPS[xMode()] || [];
+    const cards = exportCards(), shown = new Set(cards);
     document.querySelectorAll('#export .xcard').forEach((c) => { c.classList.toggle('xoff', !shown.has(c)); c.style.order = ''; c.classList.remove('xfold'); });
-    Object.values(H).forEach((h) => { h.hidden = true; });
-    groups.forEach((g, gi) => {
-      const mine = cards.filter((c) => xGroupOf(c) === g); if (!mine.length) return;
-      const h = H[g], fold = XFOLDED.has(g) && !xMany, open = !fold || xTeamOpen || mine.some((c) => c.classList.contains('xopen'));
-      h.hidden = false; h.style.order = String(10 + gi * 100); h.textContent = fold ? `${XGH[g]} (${mine.length})` : XGH[g];
-      if (fold) h.setAttribute('aria-expanded', String(open));
-      mine.forEach((c, i) => { c.style.order = String(12 + gi * 100 + i * 2); c.classList.toggle('xfold', !open); });
-    });
-    // Your file is ready: under the row it came from (xResKey; beta 6.7 UX step 3 fixes), at the foot when that row is folded or not shown
-    const oc = document.querySelector('#export .xcard.xopen'), rc = xResKey ? xCard(xResKey) : oc, at = !xMany && rc && shown.has(rc) && !rc.classList.contains('xfold') && rc.style.order ? rc : null;
+    const P = xPicked(); P.forEach((c, k) => { c.style.order = String(500 + k * 2); });
+    $('xGetH').hidden = !P.length;
+    const rc = xResKey && xResKey !== '*' ? xCard(xResKey) || (xResKey === 'xOnePdf' ? $('dxfCard') : null) : null, at = !xMany && rc && P.includes(rc) ? rc : null;
     $('resultBox').style.order = at ? String(+at.style.order + 1) : '';
   }
   /** The row of the project's next step when that step is an export ('' otherwise). */
@@ -10637,47 +10614,154 @@
   /** Brings a row to the top of the sheet (its head; a row near the top: the sheet from its top, What do you need? in view). */
   function xScrollTo(c, smooth) {
     const body = $('export').querySelector('.body');
-    requestAnimationFrame(() => { const first = exportCards().filter((x) => x.offsetParent).sort((a, b2) => a.getBoundingClientRect().top - b2.getBoundingClientRect().top)[0] === c; // (the first row: What do you need? stays in view)
-      const t = c.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 8, top = first || t < body.clientHeight * 0.3 ? 0 : t;
+    requestAnimationFrame(() => { // ((Export picks): the row picked under What you get, its title at the top: its choices and button under it)
+      const t = c.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 8, top = t < body.clientHeight * 0.3 ? 0 : t;
       if (smooth && body.scrollTo) body.scrollTo({ top, behavior: 'smooth' }); else body.scrollTop = top; });
   }
-  /** Opens one row and closes the others ('' : none open). */
+  /* ---- (Export picks; the owner: "make Plan style and Exports be: 1. Simple, intuitive and ease of use by the users (non technical, new
+     users)"): What do you need? as tiles, quick picks (For the client, For the drafter, Everything), More exports folded; the rows
+     picked under What you get, each with its You get and Change › (its choices); the checks before export, each with its Fix ›; one
+     button at the foot: one file picked, its own row's button as before (Make the Google Earth map…); two or more, Several at once's
+     (one ZIP, each with its own choices). The Plan drawing row gives two tiles: Plan to print (its One PDF, with the Drawing) and Plan
+     for AutoCAD (its AutoCAD files). Nothing that makes a file changed. ---- */
+  let xSel = []; // the tiles picked: their keys (the id of the button that makes the file), in the tiles' order
+  const XMAIN = new Set(['doDxf', 'doKmz', 'doBoq', 'doPhotos', 'doCef', 'xShare', 'doPdf', 'doXlsx', 'doAccKmz']); // (the others under More exports)
+  const XIC = { Excel: 'XLS', 'PDF · AutoCAD · Both': 'CEF' };
+  /** The tiles of this project, in the screen's order: { k, c (its row), n, d, ic, main, solo (it makes no file here: alone) }. */
+  function xTileList() {
+    const cards = exportCards(), few = cards.length <= 3, out = [];
+    cards.forEach((c) => {
+      const k = xKey(c); if (!k) return;
+      const tag = ((c.querySelector(':scope > .head .xtag') || {}).textContent || '').trim(), hint = ((c.querySelector(':scope > .head .xhint') || {}).textContent || '').trim();
+      const b = { c, solo: xSolo(c), main: few || XMAIN.has(k) };
+      if (k === 'doDxf') {
+        if (drawOn() && !isAcc()) out.push({ ...b, k: 'xOnePdf', n: 'Plan to print', d: 'One PDF of the plan, for the client', ic: 'PDF' });
+        out.push({ ...b, k: 'doDxf', n: 'Plan for AutoCAD', d: 'AutoCAD files (ZIP), for the drafter', ic: 'DXF' });
+        return;
+      }
+      out.push({ ...b, k, n: xName(c), d: hint, ic: XIC[tag] || tag.split(/[\s·+]/)[0].slice(0, 4).toUpperCase() });
+    });
+    return out;
+  }
+  const xTileCard = (k) => (k === 'xOnePdf' ? $('dxfCard') : xCard(k));
+  /** The rows picked, in the tiles' order. */
+  const xPicked = () => [...new Set(xSel.map(xTileCard))].filter((c) => c && exportCards().includes(c));
+  /** A row's tile for its key: the Plan drawing's AutoCAD files or One PDF, as What to make says. */
+  const xTileOf = (k) => (k === 'doDxf' && planOut() === 'onepdf' && drawOn() && !isAcc() ? 'xOnePdf' : k);
+  /** The quick picks (a survey): For the client, For the drafter, Everything. */
+  const XPICKS = [
+    { k: 'client', n: 'For the client', keys: (H) => [H.has('xOnePdf') ? 'xOnePdf' : 'doDxf', 'doBoq'] },
+    { k: 'drafter', n: 'For the drafter', keys: () => ['doDxf', 'doKmz', 'doPhotos'] },
+    { k: 'every', n: 'Everything', keys: (H, T) => T.filter((t) => t.main && !t.solo).map((t) => t.k) }];
+  const XSHORT = { xOnePdf: 'plan PDF', doDxf: 'AutoCAD', doKmz: 'Google Earth', doBoq: 'materials', doPhotos: 'photos' };
+  /** Picks these tiles (keys; a solo tile goes alone). o: open, its choices open (one row: Change ›, as a row opened before); scroll,
+      smooth: the row brought into view; focus: on its title; keep: not remembered (S.xSel, per survey, acceptance or CEF plan). */
+  function xPickSet(keys, o) {
+    o = o || {}; const T = xTileList(), have = new Set(T.map((t) => t.k));
+    let K = [...new Set(keys || [])].filter((k) => have.has(k));
+    const solo = K.filter((k) => T.find((t) => t.k === k).solo); if (solo.length && K.length > 1) K = [solo[solo.length - 1]];
+    K = T.map((t) => t.k).filter((k) => K.includes(k));
+    xSel = K; if (!o.keep) { S.xSel = { ...(S.xSel || {}), [xMode()]: K }; persist(); }
+    const cad = K.includes('doDxf'), pr = K.includes('xOnePdf'); // the Plan drawing: AutoCAD files, the One PDF, or both (Several at once)
+    if (cad !== pr) { const v = pr ? 'onepdf' : 'files'; if (planOut() !== v) { S.exp.planOut = v; persist(); } }
+    xMany = K.length > 1;
+    const P = xPicked(), one = K.length === 1;
+    document.querySelectorAll('#export .xcard').forEach((c) => {
+      const on = P.includes(c); c.classList.toggle('xsel', on); c.classList.toggle('xmany', on && xMany);
+      if (!on || (o.open && !one)) c.classList.remove('xopen'); else if (o.open) c.classList.add('xopen');
+      xChgLbl(c);
+    });
+    $('export').classList.toggle('xone', one);
+    xBoxes(P.map(xKey)); dxfOutRender(); xTilesRender(); xChecksRender(); xGoRender(); xLayout();
+    const c = one ? P[0] : null;
+    if (c && o.scroll) xScrollTo(c, o.smooth);
+    if (c && o.focus) requestAnimationFrame(() => { const h = c.querySelector(':scope > .head'); if (h && !$('export').hidden) try { h.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } });
+  }
+  /** A row's choices: shown (Change ›) or folded. */
+  function xChange(c, on) { c.classList.toggle('xopen', !!on); xChgLbl(c); xGoRender(); if (on) xScrollTo(c, true); }
+  function xChgLbl(c) {
+    const h = c.querySelector(':scope > .head'); if (!h) return; let l = h.querySelector('.xchgl');
+    if (!l) { l = document.createElement('span'); l.className = 'xchgl'; l.setAttribute('aria-hidden', 'true'); h.appendChild(l); }
+    const open = c.classList.contains('xopen'); l.textContent = open ? 'Close' : 'Change ›'; h.setAttribute('aria-expanded', String(open));
+  }
+  /** The quick picks, the tiles (More exports folded, opened when a tile of it is picked) and the Everything tile. */
+  function xTilesRender() {
+    const T = xTileList(), H = new Set(T.map((t) => t.k)), e = (x) => C.xmlEsc(String(x == null ? '' : x)), sel = new Set(xSel), same = (K) => K.length === xSel.length && K.every((k) => sel.has(k));
+    const main = T.filter((t) => t.main), more = T.filter((t) => !t.main), every = main.filter((t) => !t.solo).map((t) => t.k);
+    const tile = (t) => `<button type="button" class="xtile" data-xt="${e(t.k)}" aria-pressed="${sel.has(t.k)}"><span class="fi" aria-hidden="true">${e(t.ic)}</span><b>${e(t.n)}</b><small>${e(t.d)}</small></button>`;
+    $('xTiles').innerHTML = main.map(tile).join('') + (every.length > 1 ? `<button type="button" class="xtile" data-xt="*all" aria-pressed="${same(every)}"><span class="fi" aria-hidden="true">ZIP</span><b>Everything</b><small>All of these in one ZIP</small></button>` : '');
+    $('xTiles2').innerHTML = more.map(tile).join(''); $('xMoreT').hidden = !more.length;
+    $('xMoreTSum').textContent = more.map((t) => t.n).join(', ');
+    if (more.some((t) => sel.has(t.k))) $('xMoreT').open = true;
+    const P = xMode() === 'survey' ? XPICKS.map((q) => ({ ...q, K: [...new Set(q.keys(H, T))].filter((k) => H.has(k)) })).filter((q) => q.K.length > 1) : [];
+    $('xPicks').hidden = !P.length;
+    const sum = (K) => { const t = K.map((k) => XSHORT[k] || k).join(' + '); return t.charAt(0).toUpperCase() + t.slice(1); };
+    $('xPicks').innerHTML = P.map((q) => `<button type="button" class="xpk" data-xp="${q.k}" aria-pressed="${same(q.K)}"><b>${e(q.n)}</b><small>${e(q.k === 'every' ? 'All of these in one ZIP' : sum(q.K))}</small></button>`).join('');
+  }
+  /** The button at the foot, always on the screen: none picked, Pick what you need; one, worded as its row's own button, which it presses
+      (that button shows itself, at the foot of its row, once the row's choices are open); two or more, one ZIP. */
+  function xGoRender() {
+    const n = xSel.length, P = xPicked(), b1 = n === 1 ? $(xSel[0]) : null;
+    $('xGoBox').hidden = n === 1 && !!P[0] && P[0].classList.contains('xopen');
+    $('xMultiGo').disabled = !n; $('xMultiGo').textContent = n >= 2 ? `Export ${n} files (one ZIP)` : b1 ? b1.textContent.trim() : 'Pick what you need';
+    $('xMultiInfo').hidden = n < 2;
+  }
+  /** The checks before export, from the app's own: the poles on no cable (Fix ›: on the map, one at a time), the poles left out of the
+      files (Show ›: the Records list); with the plan picked, the company template and the road pack and offline map of the area (as
+      under the plan's You get: Get it, Get the roads, Download the map). ✓: what is fine. */
+  let xChk = [];
+  function xChecksRender() {
+    const box = $('xChecks'); if (!box) return; const acc = isAcc(), cef = !acc && !!S.project && isCefProj(), L = [], e = (x) => C.xmlEsc(String(x == null ? '' : x));
+    if (S.project && !acc && !cef) {
+      const on = onCableIds(), loose = loosePoles(), left = new Set((pmeta().xLeft || []).map(String)), nw = loose.filter((p) => !left.has(String(p.id)));
+      const np = xNow(projPoints).filter((p) => elemOf(p) === 'Pole').length, hid = xHiddenIds().size;
+      if (loose.length) L.push(['no', `${loose.length} pole${loose.length === 1 ? '' : 's'} on no cable${nw.length ? '' : ' (exported as they are)'}`, 'Fix ›', 'loose']);
+      else if (on.size && np) L.push(['ok', np === 1 ? 'The pole is on a cable' : `${np} poles, all on a cable`]);
+      if (hid) L.push(['no', `${hid} left out of the files (on no cable)`, 'Show ›', 'hidden']);
+      if (xSel.includes('doDxf') || xSel.includes('xOnePdf')) {
+        const tpl = dxfMode() === 'tpl'; let N = null; try { N = planNeeds(S.project); } catch (x) { N = null; }
+        if (tpl && !S.dxfSeed && !seedBusy) L.push(['no', 'No company template on this phone', 'Get it ›', 'tpl']);
+        else if (tpl && S.dxfSeed) L.push(['ok', 'On your company’s plan template']);
+        if (N && N.roads && (tpl || $('dxfRoads').checked)) L.push(['no', `The road pack of ${N.roads.regions.length === 1 && REGION_BY[N.roads.regions[0]] ? REGION_BY[N.roads.regions[0]][2] : 'this area'} is not on this phone`, 'Get it ›', 'roads', N.roads.regions[0] || '']);
+        if (N && N.map && tpl) L.push(['no', 'The offline map of this area is not on this phone', 'Get it ›', 'map']);
+      }
+    }
+    xChk = L; box.hidden = !L.length;
+    box.innerHTML = L.map(([k, t, b, a, v], n) => `<div class="xchk ${k}"><i aria-hidden="true">${k === 'ok' ? '✓' : '!'}</i><span>${e(t)}</span>${b ? `<button type="button" class="btn sm" data-xfix="${n}" aria-label="${e(`${b.replace(' ›', '')}: ${t}`)}">${e(b)}</button>` : ''}</div>`).join('');
+  }
+  $('xChecks').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-xfix]'); if (!b) return; const x = xChk[+b.dataset.xfix]; if (!x) return; const what = x[3];
+    LOG.info('export.check.fix', { what });
+    if (what === 'loose') { const ids = loosePoles().map((p) => p.id); if (ids.length) xfStart(ids, null, false); }
+    else if (what === 'hidden') { $('listSearch').value = 'not exported'; renderList(); openSheet('list'); }
+    else if (what === 'tpl') { if (seedId()) $('dxfTplGet').click(); else openStyle('advanced', 'stFile'); }
+    else guard(() => mapsGuide(what, x[4] || ''), 'Maps not opened');
+  });
+  // a tile: picked or not (a solo tile alone); Everything: every main tile, or none; a quick pick: its tiles
+  $('export').addEventListener('click', (ev) => {
+    const t = ev.target.closest && ev.target.closest('#export [data-xt], #export [data-xp]'); if (!t) return;
+    const T = xTileList(), every = T.filter((x) => x.main && !x.solo).map((x) => x.k);
+    if (t.dataset.xp) { const q = XPICKS.find((x) => x.k === t.dataset.xp), H = new Set(T.map((x) => x.k)); if (q) xPickSet(q.keys(H, T)); return; }
+    const k = t.dataset.xt;
+    if (k === '*all') { xPickSet(t.getAttribute('aria-pressed') === 'true' ? [] : every); return; }
+    const x = T.find((y) => y.k === k); if (!x) return;
+    if (xSel.includes(k)) xPickSet(xSel.filter((y) => y !== k));
+    else xPickSet(x.solo ? [k] : [...xSel.filter((y) => !(T.find((z) => z.k === y) || {}).solo), k]);
+    xRemember(k === 'xOnePdf' ? 'doDxf' : k);
+  });
+  /** Opens one row and closes the others ('' : none open). (Export picks): picks it alone, its choices open (the Plan drawing as What to
+      make says). */
   function xOpen(key, how) {
-    how = how || {}; const c = xCard(key);
-    document.querySelectorAll('#export .xcard').forEach((x) => { const on = x === c; x.classList.toggle('xopen', on); const h = x.querySelector(':scope > .head'); if (h && !xMany) h.setAttribute('aria-expanded', String(on)); });
-    xBoxes(c ? [key] : []);
-    if (c && XFOLDED.has(xGroupOf(c))) xTeamOpen = true;
-    xLayout();
-    if (c && how.scroll !== false) xScrollTo(c, how.smooth);
-    if (c && how.focus) requestAnimationFrame(() => { const h = c.querySelector(':scope > .head'); if (h && !$('export').hidden) try { h.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } }); // (critic: the focus on the row that opens)
+    how = how || {};
+    if (!key) { xPickSet([], { keep: true }); return; }
+    xPickSet([xTileOf(key)], { open: true, scroll: how.scroll !== false, smooth: how.smooth, focus: how.focus });
   }
   /** Several at once: every row a tick (its head), the ticked rows open with their names and choices, their own buttons hidden; one
-      button for a ZIP with them all. */
-  function xManyOn(ids) {
-    xMany = true; $('export').classList.add('xmode'); $('xModeBar').hidden = false; $('xGoBox').hidden = false; if ($('export').classList.contains('plan')) { $('export').classList.add('planall'); $('xOther').hidden = true; } // (from Export plan: every row)
-    document.querySelectorAll('#export .xcard').forEach((x) => { x.classList.remove('xopen'); const h = x.querySelector(':scope > .head'); if (h) { h.setAttribute('role', 'checkbox'); h.removeAttribute('aria-expanded'); } });
-    xBoxes(ids); applyXPick(); xLayout(); xAgainRender();
-    $('export').querySelector('.body').scrollTop = 0;
-    try { $('xOneAtATime').focus({ preventScroll: true }); } catch (e) { /* old WebView */ }
-  }
-  function xManyOff(key) {
-    if (xMany) { xMany = false; $('export').classList.remove('xmode'); $('xModeBar').hidden = true; } $('xGoBox').hidden = true;
-    document.querySelectorAll('#export .xcard').forEach((x) => { x.classList.remove('xmany'); const h = x.querySelector(':scope > .head'); if (h) { h.removeAttribute('role'); h.removeAttribute('aria-checked'); } });
-    dxfOutRender(); xOpen(key || '', { focus: true }); xAgainRender();
-  }
-  function applyXPick() {
-    const ids = xTicked(), shown = new Set(exportCards()), n = ids.length;
-    document.querySelectorAll('#export .xcard').forEach((c) => { const on = xMany && shown.has(c) && ids.includes(xKey(c)); c.classList.toggle('xmany', on); const h = c.querySelector(':scope > .head'); if (h && xMany) h.setAttribute('aria-checked', String(on)); });
-    $('xMultiGo').disabled = n < 2; $('xMultiGo').textContent = n >= 2 ? `Make ${n} files (one ZIP)` : n === 1 ? 'Tick one more' : 'Tick two or more';
-    if (xMany && n >= 2) { S.xMulti = { ...(S.xMulti || {}), [xMode()]: ids }; persist(); }
-    dxfOutRender();
-  }
-  /** Several at once (one ZIP)… and Again: the last set (shown when one is kept). */
-  function xAgainRender() {
-    const many = exportCards().filter((c) => !xSolo(c)), keys = many.map(xKey), set = ((S.xMulti || {})[xMode()] || []).filter((k) => keys.includes(k)), b = $('xAgain');
-    b.hidden = set.length < 2 || xMany; if (!b.hidden) b.textContent = `Again: ${set.map((k) => xName(xCard(k))).join(' + ')} (one ZIP)`;
-    $('xManyBtn').hidden = many.length < 2; $('xFoot').hidden = $('xManyBtn').hidden && b.hidden;
-  }
+      button for a ZIP with them all. (Export picks): the tiles of these rows picked. */
+  function xManyOn(ids) { xPickSet((ids || []).map(xTileOf)); }
+  function xManyOff(key) { xOpen(key || ''); }
+  function applyXPick() { xPickSet(xTicked().map(xTileOf)); }
+  // ((Export picks): Several at once (one ZIP)… and Again went: the tiles picked are one ZIP, and are picked again next time)
   /** The project's line of the Completion report: its button (again, once complete) and what it does in this kind of task. */
   function complRender() {
     const m = pmeta(), cat = taskCat();
@@ -10691,47 +10775,46 @@
     opts = opts || {};
     renderDxfTpl(); // v2.30
     try { renderDxfNeed(); } catch (e) { LOG.warn('plan.need', errInfo(e)); } // v2.43 beta 2.1
-    if (xMany) xManyOff(''); // (Export always opens one row at a time)
-    xTeamOpen = false;
     const cards = exportCards(), acc = isAcc(), keys = cards.map(xKey), next = xNextKey(), last = (S.xLast || {})[xMode()];
     xBadges(next); complRender();
     $('boqCardText').textContent = svPurpose() === 'As-built' && !acc // v2.26.1
       ? 'what was built, by size, against the As-Plan (its KMZ as this project’s reference): planned, built and the difference, with the IDs, the planned elements not found and what was built outside the plan. The same BOQ is in the Completion report and in Route and span lengths.'
       : 'what the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and span lengths.';
-    const want = pick && keys.includes(pick) ? pick : next && keys.includes(next) ? next : last && keys.includes(last) ? last : keys[0] || '';
-    if (pick && keys.includes(pick)) xRemember(pick);
-    dxfOutRender(); xOpen(want, { focus: !opts.noFocus }); xAgainRender();
+    // (Export picks): a row asked for (Export plan, the next step's button, Show me…): its tile alone, its choices open; else the project's
+    // next step when it is an export, else the tiles picked last, else the first tile
+    if (pick && keys.includes(pick)) { xRemember(pick); xOpen(pick, { focus: !opts.noFocus }); return; }
+    const T = xTileList(), kept = ((S.xSel || {})[xMode()] || []).filter((k) => T.some((t) => t.k === k));
+    const want = next && keys.includes(next) ? [xTileOf(next)] : kept.length ? kept : last && keys.includes(last) ? [xTileOf(last)] : T.length ? [T[0].k] : [];
+    xPickSet(want, { keep: true });
+    requestAnimationFrame(() => { const b = $('export').querySelector('.body'); if (b && !$('export').hidden) b.scrollTop = 0; });
   }
   /** beta 6.7 (UX step 3 fixes; review): Export on top again after a screen opened over it (Look › Change ›: Plan settings and its Drawing
       style; Get the roads: Maps; the CEF editor, the splicing details): what they change is shown anew. Before, the Look line still said
       "Your own · 1 change: Pole labels: Standard" after Tidy was chosen there. The open row, the ticks and the scroll stay. */
   function xBackOn() {
     if ($('export').hidden) return;
-    try { renderDxfTpl(); renderDxfNeed(); xBadges(xNextKey()); complRender(); } catch (e) { LOG.warn('export.back', errInfo(e)); }
+    try { renderDxfTpl(); renderDxfNeed(); xBadges(xNextKey()); complRender(); xTilesRender(); xChecksRender(); } catch (e) { LOG.warn('export.back', errInfo(e)); } // ((Export picks): + the tiles and checks)
   }
-  // a row's head: opens it (closes the others), or closes it; in Several at once, its tick
+  // a row's head: opens it (closes the others), or closes it; in Several at once, its tick. (Export picks): a row picked: Change › (its
+  // choices shown or folded); a row not picked (a test's click): picked alone, its choices open
   $('export').addEventListener('click', (e) => {
     const h = e.target.closest && e.target.closest('#export .xcard > .head'); if (!h) return;
     const c = h.parentElement, k = xKey(c); if (!k) return;
-    if (xMany) { const cb = $('xMultiList').querySelector(`input[value="${k}"]`); if (cb) { cb.checked = !cb.checked; applyXPick(); } return; }
-    if (c.classList.contains('xopen')) { xOpen('', { scroll: false }); return; }
-    xRemember(k); xOpen(k, { smooth: true });
+    if (!c.classList.contains('xsel')) { xRemember(k); xOpen(k, { smooth: true }); return; }
+    xChange(c, !c.classList.contains('xopen'));
   });
   // the row used: kept (the bar's Export opens on it next time); not while Several at once makes its files. beta 6.7 (UX step 3 fixes):
   // the row whose button was pressed (a tap, Show me, the next step, the tests' click()) is where Your file is ready goes
   $('export').addEventListener('click', (e) => { if (xCollect) return; const b = e.target.closest && e.target.closest('#export .xcard > button:not(.head)'); if (!b) return; xBtnKey = xKey(b.parentElement); if (e.isTrusted) xRemember(xBtnKey); }, true);
-  $('xMultiList').addEventListener('change', () => { // (the tests tick here: one ticked opens its row, two or more open Several at once)
+  $('xMultiList').addEventListener('change', () => { // (the tests tick here: one ticked opens its row, two or more open Several at once; (Export picks): their tiles)
     const ids = xTicked();
-    if (xMany) { applyXPick(); return; }
-    if (ids.length > 1) xManyOn(ids); else if (ids.length === 1) { xRemember(ids[0]); xOpen(ids[0]); }
+    if (ids.length > 1) xManyOn(ids); else if (ids.length === 1) { xRemember(ids[0]); xOpen(ids[0]); } else xPickSet([]);
   });
-  $('xManyBtn').addEventListener('click', () => { const oc = document.querySelector('#export .xcard.xopen'), k = oc && !xSolo(oc) ? xKey(oc) : ''; xManyOn(k ? [k] : []); });
-  $('xAgain').addEventListener('click', () => { const keys = exportCards().filter((c) => !xSolo(c)).map(xKey); xManyOn(((S.xMulti || {})[xMode()] || []).filter((k) => keys.includes(k))); });
-  $('xOneAtATime').addEventListener('click', () => { const ids = xTicked(); xManyOff(ids[0] || (S.xLast || {})[xMode()] || ''); });
   $('xOther').addEventListener('click', () => { $('export').classList.add('planall'); $('xOther').hidden = true; xLayout(); }); // Export plan: the other rows too
   $('xMultiGo').addEventListener('click', async () => {
-    const ids = [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value);
-    if (ids.length < 2) { toast('Tick two or more (one file: Back to one at a time, then its own button)', 4000); return; }
+    if (xSel.length === 1) { const b = $(xSel[0]); if (b) b.click(); return; } // ((Export picks): one file: its row's own button)
+    const ids = xSel.length > 1 ? xSel.slice() : [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value); // ((Export picks): the tiles picked)
+    if (ids.length < 2) { toast('Pick two or more (one file: its own button)', 4000); return; }
     xCollect = []; const failed = [];
     try {
       for (const id of ids) {
@@ -10976,11 +11059,12 @@
   const planOut = () => (S.exp.planOut === 'onepdf' ? 'onepdf' : 'files');
   function dxfOutRender() {
     const card = $('dxfCard'), seg = $('dxfOut'); if (!card || !seg) return;
-    const tpl = dxfMode() === 'tpl', can = drawOn() && !isAcc(), one = can && tpl && planOut() === 'onepdf' && !xMany;
-    card.dataset.out = one ? 'onepdf' : 'files'; seg.hidden = !can;
-    $('dxfDescTpl').hidden = !tpl || one; $('dxfDescSimple').hidden = tpl; $('dxfDescOne').hidden = !one; // beta 6.7 (UX step 3 fixes; review): You get: the One PDF when it is chosen
+    const tpl = dxfMode() === 'tpl', can = drawOn() && !isAcc(), both = can && xSel.includes('xOnePdf') && xSel.includes('doDxf'), one = !both && can && tpl && planOut() === 'onepdf' && (!xMany || xSel.includes('xOnePdf')); // ((Export picks): the tiles say it)
+    card.dataset.out = both ? 'both' : one ? 'onepdf' : 'files'; seg.hidden = !can;
+    { const tg = card.querySelector(':scope > .head .xtag'); if (tg) tg.textContent = !can ? 'AutoCAD' : both ? 'AutoCAD + one PDF' : one ? 'One PDF to print' : 'AutoCAD files'; } // ((Export picks): what it makes, as its tile says)
+    $('dxfDescTpl').hidden = !tpl || one; $('dxfDescSimple').hidden = tpl; $('dxfDescOne').hidden = !(one || both); // beta 6.7 (UX step 3 fixes; review): You get: the One PDF when it is chosen
     seg.querySelectorAll('.chip').forEach((b) => { const on = b.dataset.v === (one ? 'onepdf' : 'files'); b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; if (b.dataset.v === 'onepdf') { b.setAttribute('aria-disabled', String(!tpl)); b.title = tpl ? '' : 'Needs the company template'; } });
-    const t = xMany ? 'Several at once: the AutoCAD files go in the ZIP (the One PDF is made one at a time).' : can && !tpl ? 'One PDF to print needs the company template: tap it to get it.' : '';
+    const t = can && !tpl && (one || xSel.includes('xOnePdf')) ? 'Plan to print needs the company template (Plan style › More settings › Plan file).' : ''; // ((Export picks))
     $('dxfOutNote').textContent = t; $('dxfOutNote').hidden = !t;
   }
   $('dxfOut').addEventListener('click', (e) => {
@@ -11550,7 +11634,7 @@
     renderSig(); renderNums();
     if (!$('dxfFiles')) return;
     const tpl = dxfMode() === 'tpl', R = dxfRows(), pts = xNow(projPoints), np = pts.filter((p) => elemOf(p) === 'Pole').length, RM = xNow(routeModel), info = S.dxfSeed, stale = seedStale(); // (what the export makes: not the poles hidden from it)
-    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan style › Plan file)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan style › Plan file.'];
+    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan style › More settings › Plan file)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan style › More settings › Plan file.'];
     $('dxfSum').innerHTML = `<span class="nm">${C.xmlEsc(S.project || '')}</span><span class="mt">${C.xmlEsc([pu === 'As-built' ? 'As-Built' : pu === 'As-plan' ? 'As-Plan' : pu, `${np} pole${np === 1 ? '' : 's'}`, `${RM.spans.length} span${RM.spans.length === 1 ? '' : 's'}`, fmtLen(RM.total)].filter(Boolean).join(' · '))}</span><span class="${st[0]}">${C.xmlEsc(st[1])}</span>`;
     $('dxfFilesBox').hidden = !tpl; $('dxfWhatRow').hidden = !tpl; $('dxfWhat').hidden = !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl; $('dxfCefRow').hidden = !tpl || !(cefHooks.plansN && cefHooks.plansN(S.project)); // (beta 4.1: shown when the project holds a CEF plan)
     // beta 6.7 (UX step 3): Drawings (1 · Every point · Photo) and Look (the company standard, or what differs from it)
@@ -13943,7 +14027,7 @@
     if (sh.id === 'drwStyle') { const d = el.closest('details.stsec'); if (d && !d.open) { plOne([d]); did = true; } } // ((Plan style cards): one card open at a time)
     const xc = el.closest('#export .xcard'), xk = xc ? xKey(xc) : ''; // beta 6.7 (UX step 3): the row is opened (one at a time); Several at once for its ticks and its ZIP button
     if (xk && exportCards().includes(xc) && !xc.classList.contains('xopen') && !xc.classList.contains('xmany')) { showExport(xk); did = true; }
-    if (!xMany && el.closest('#xMulti, #xGoBox') && sh.id === 'export') { xManyOn([]); did = true; }
+    if (el.closest('#xMoreT') && !$('xMoreT').open && sh.id === 'export') { $('xMoreT').open = true; did = true; } // ((Export picks): More exports)
     for (let d = el.closest('details:not([open])'); d; d = d.parentElement ? d.parentElement.closest('details:not([open])') : null) {
       if (el.tagName !== 'SUMMARY' || el.parentElement !== d) { d.open = true; did = true; } // (a fold's own title shows while it is shut)
     }
@@ -20816,7 +20900,7 @@
     $('dxfDescOne').textContent = `one PDF to print, with a bookmark for each part: ${andList(parts.map(([k]) => ({ plan: 'the plan', cef: 'the CEF plans', spl: 'the splicing details' })[k]))}.`; // beta 6.7 (UX step 3 fixes): You get, with the parts this project has
     const draw = () => {
       $('xOneParts').innerHTML = parts.map(([k, t, st, v]) => `<span role="listitem" data-p="${k}"><i class="${st === 'miss' ? 'miss' : ''}" aria-hidden="true"></i>${C.xmlEsc(t)}${v ? `: ${C.xmlEsc(v)}` : ' ✓'}</span>`).join('');
-      const lbl = tpl ? `One PDF: ${andList(parts.map((x) => x[1].toLowerCase()))}${parts.some((x) => x[2] === 'miss') ? ` (${parts.filter((x) => x[2] === 'miss').map((x) => `${x[1].toLowerCase()}: ${x[3]}`).join('; ')})` : ''}` : 'One PDF: it needs your company’s plan template (Plan style › Plan file)';
+      const lbl = tpl ? `One PDF: ${andList(parts.map((x) => x[1].toLowerCase()))}${parts.some((x) => x[2] === 'miss') ? ` (${parts.filter((x) => x[2] === 'miss').map((x) => `${x[1].toLowerCase()}: ${x[3]}`).join('; ')})` : ''}` : 'One PDF: it needs your company’s plan template (Plan style › More settings › Plan file)';
       btn.title = lbl;
     };
     draw();
@@ -20830,7 +20914,7 @@
   $('xOnePdf').addEventListener('animationend', () => $('xOnePdf').classList.remove('pulse'));
   $('xOnePdf').addEventListener('click', () => xguard(async () => {
     if (dxfMode() !== 'tpl') { // (Simple DXF: the plan's sheets of the One PDF are drawn on the company template)
-      const v = await ask('One PDF needs your plan template', 'The plan’s sheets in the One PDF are drawn on your company’s template, as the Plan drawing draws them. Load the template in Plan style › Plan file, then come back here.',
+      const v = await ask('One PDF needs your plan template', 'The plan’s sheets in the One PDF are drawn on your company’s template, as the Plan drawing draws them. Load the template in Plan style › More settings › Plan file, then come back here.',
         [{ label: 'Cancel', value: false }, { label: 'Plan style', value: true, primary: true }]);
       if (v) openStyle('advanced', 'stFile'); return; // (beta 6.7, UX step 4: Plan style › Plan file)
     }

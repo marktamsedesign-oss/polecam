@@ -828,12 +828,42 @@ body.kb .sheet{bottom:var(--kb,0px)}
 /* beta 6.7 (UX step 3): Export · What do you need? Rows by purpose under plain headings, one open at a time (its head is the row
    button), You get, 0-4 choices, More options, one sticky button worded like the row. Several at once: the rows become ticks. */
 .xask h3{margin:0;font-size:calc(17px * var(--fs))}.xask p{margin:2px 0 0;color:var(--muted);font-size:calc(13px * var(--fs))}
-.xgh{margin:4px 2px -6px;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
-button.xgh{display:flex;align-items:center;gap:8px;background:none;border:0;padding:4px 2px;min-height:44px;cursor:pointer;text-align:left;font-family:inherit}
-button.xgh::before{content:'›';display:inline-block;font-size:calc(17px * var(--fs));line-height:1;transition:transform .15s}button.xgh[aria-expanded=true]::before{transform:rotate(90deg)}
 #export .xcard{padding:0 14px 14px;gap:10px}
-#export .xcard:not(.xopen):not(.xmany){padding-bottom:0}
-#export .xcard:not(.xopen):not(.xmany) > :not(.head){display:none!important}
+/* (Export picks): only the rows picked, under What you get: folded, a row shows its title (Change › at its right) and You get; Change ›
+   opens its choices (.xopen); its own button only when it is the one file picked and open (#export.xone), else the button at the foot
+   (#xGoBox), always on the screen, does it */
+#export .xcard:not(.xsel){display:none!important}
+#export .xcard.xsel:not(.xopen) > :not(.head):not(.xget){display:none!important}
+#export:not(.xone) .xcard > .btn{display:none!important}
+#export .xcard > .head .xhint,#export .xcard > .head .xchev,#export .xcard > .head .xck{display:none!important}
+#export .xcard > .head{min-height:52px}
+.xchgl{flex:none;align-self:center;color:var(--accent);font-weight:700;font-size:calc(13.5px * var(--fs));white-space:nowrap}
+#export #dxfMakeL,#export #dxfOut{display:none!important} /* (What to make: the tiles Plan to print and Plan for AutoCAD say it) */
+.xchecks{display:flex;flex-direction:column;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px;font-size:calc(13.5px * var(--fs));line-height:1.35}
+.xchecks[hidden]{display:none}
+.xchk{display:flex;align-items:center;gap:10px;min-height:36px}
+.xchk > i{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:800;font-size:calc(12.5px * var(--fs));color:var(--surface)}
+.xchk.ok > i{background:var(--ok)}.xchk.no > i{background:var(--warn)}
+.xchk > span{flex:1;min-width:0;overflow-wrap:anywhere}
+.xchk > .btn{flex:none}
+.xpicks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,7em),1fr));gap:8px} /* (three in a row on a phone; fewer, wider, with large text) */.xpicks[hidden]{display:none}
+.xpk{min-height:var(--tap);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--r);padding:8px 10px;text-align:left;display:flex;flex-direction:column;justify-content:center;gap:2px;font:inherit;min-width:0}
+.xpk b{font-size:calc(13.5px * var(--fs));line-height:1.2}.xpk small{font-size:calc(12px * var(--fs));color:var(--muted);line-height:1.25}
+.xpk[aria-pressed=true]{border-color:var(--accent);background:var(--soft);box-shadow:0 0 0 1px var(--accent)}
+.xtiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.xtile{position:relative;min-height:96px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--r);padding:10px;text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:4px;font:inherit;min-width:0}
+.xtile .fi{width:38px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--soft);color:var(--accent);font:800 calc(11px * var(--fs)) var(--mono);letter-spacing:.02em}
+.xtile b{font-size:calc(14px * var(--fs));line-height:1.25;overflow-wrap:anywhere}.xtile small{color:var(--muted);font-size:calc(12.5px * var(--fs));line-height:1.3;overflow-wrap:anywhere}
+.xtile[aria-pressed=true]{border-color:var(--accent);background:var(--soft);box-shadow:0 0 0 1px var(--accent)}
+.xtile[aria-pressed=true]::after{content:"\2713";position:absolute;top:8px;right:8px;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-size:13px;font-weight:800}
+details.xmoret{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:0 12px}details.xmoret[hidden]{display:none}
+details.xmoret > summary{display:flex;align-items:center;gap:10px;min-height:56px;padding:8px 0;list-style:none;cursor:pointer}
+details.xmoret > summary::-webkit-details-marker{display:none}
+details.xmoret > summary::after{content:"›";color:var(--muted);font-size:22px;transition:transform .15s}details.xmoret[open] > summary::after{transform:rotate(90deg)}
+details.xmoret > summary .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}details.xmoret > summary small{color:var(--muted);font-size:calc(12.5px * var(--fs));line-height:1.35}
+details.xmoret > .xtiles{padding:0 0 12px}
+.xgeth{margin:6px 2px -4px;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;order:499}
+@media (min-width:900px){#export:not(.side) .xtiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
 #export .xcard > .head{display:flex;align-items:center;gap:10px;width:calc(100% + 28px);margin:0 -14px;padding:12px 14px;min-height:56px;background:none;border:0;border-radius:var(--r);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
 #export .xcard > .head:focus-visible{outline:3px solid var(--hi);outline-offset:-3px}
 #export .xcard.xopen{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
@@ -865,13 +895,13 @@ button.xgh::before{content:'›';display:inline-block;font-size:calc(17px * var(
 .xlink{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;background:none;border:0;padding:6px 2px;min-height:44px;color:var(--accent);font:inherit;font-weight:650;font-size:calc(14px * var(--fs));text-align:left;cursor:pointer}.xlink small{color:var(--muted);font-weight:500;font-size:calc(12px * var(--fs))}
 .phdochint{display:block;color:var(--muted);font-size:calc(12px * var(--fs));font-weight:500;letter-spacing:0}
 #export .xother{order:890}
-.xfoot{order:900;display:flex;flex-wrap:wrap;gap:8px}.xfoot .btn{flex:1 1 auto}.xagain{border-style:dashed;color:var(--accent);white-space:normal;text-align:left;min-height:44px;padding:6px 14px}
-.xmodebar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;background:var(--soft);border:1px solid var(--accent);border-radius:var(--r);padding:10px 12px}.xmodebar .t{flex:1 1 200px;display:flex;flex-direction:column;gap:2px}.xmodebar small{color:var(--muted);font-size:calc(12.5px * var(--fs))}
 #export > .body{scroll-padding-bottom:calc(64px * var(--fs) + 24px)} /* beta 6.8 (UX step 6; reviewer): Tab to a control under the sticky button: it scrolls clear of it */
 #export .xgo{order:950;position:sticky;bottom:0;z-index:3;background:var(--bg);padding-top:8px;box-shadow:0 -10px 10px -4px var(--bg)}
-#export #resultBox{order:960}
+#export #resultBox{order:940} /* ((Export picks): above the button at the foot) */
+#export .xgo{bottom:calc(-1 * (env(safe-area-inset-bottom,0px) + 24px));padding:8px 3px calc(env(safe-area-inset-bottom,0px) + 14px);margin:0 -3px calc(-1 * (env(safe-area-inset-bottom,0px) + 24px))} /* ((Export picks): the foot of the screen, over the body's bottom padding: nothing shows under it) */
+#export .xcard.xsel:not(.xopen) > .head{padding-bottom:6px}
 #export #bkName,#export #resStepsName{overflow-wrap:anywhere} /* beta 6.7 (UX step 3 fixes; review): a long file name with no spaces wraps (it pushed the sheet sideways on a phone) */
-#export.xmode #xFoot,#export.xmode #xAsk,#export:not(.xmode) #xGoBox{display:none!important}
+/* ((Export picks): #xGoBox is the button at the foot whenever one row's own button is not: none picked, or two files or more) */
 .xcard.xfold{display:none!important}
 #export .xcard:has(input[type=text]:focus,input[type=number]:focus,textarea:focus) > .btn,#export .body:has(input[type=text]:focus,input[type=number]:focus) > .xgo{position:static;box-shadow:none} /* (critic: the keyboard open, the sticky button does not cover the field) */
 @media (min-width:900px){#export:not(.side) > .body{padding-left:max(16px,calc(50% - 400px));padding-right:max(16px,calc(50% - 400px))}} /* a computer: the rows at a readable width */
@@ -1478,7 +1508,7 @@ body.fixing #mapSummary{display:none}
 .inzip .ic{width:36px;height:30px;border-radius:8px;background:var(--soft);display:grid;place-items:center;font:700 calc(10px * var(--fs)) var(--mono)}
 .inzip b{font-family:var(--mono);font-size:calc(12px * var(--fs));word-break:break-all}
 .inzip small{display:block;color:var(--muted)}
-#export.plan:not(.planall) .xcard:not(#dxfCard),#export.plan:not(.planall) .xgh,#export.plan:not(.planall) #xFoot,#export.plan:not(.planall) #xAsk,#export.plan:not(.planall) #exportScope{display:none!important} /* beta 6.7 (UX step 3): Export plan: the Plan drawing row, Other exports › for the rest */
+#export.plan:not(.planall) .xcard:not(#dxfCard),#export.plan:not(.planall) #xAsk,#export.plan:not(.planall) #exportScope,#export.plan:not(.planall) #xPicks,#export.plan:not(.planall) #xTiles,#export.plan:not(.planall) #xMoreT,#export.plan:not(.planall) #xGetH{display:none!important} /* beta 6.7 (UX step 3): Export plan: the Plan drawing row, Other exports › for the rest */
 #export.plan:not(.side){top:8vh;border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.25);overflow:hidden}
 body.deskpane #drawing .drwwhatbox{position:static;width:400px;max-height:none;flex:none;border-radius:0;box-shadow:none;border-left:1px solid var(--line)}
 body.deskpane #export.side,body.deskpane #drwStyle.side{left:auto;width:400px;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18)}
@@ -2107,8 +2137,14 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <p class="hint" id="exportScope"></p>
     <p class="hint" id="creditInfo" hidden></p>
-    <div class="xask" id="xAsk"><h3 id="xAskT">What do you need?</h3><p>Pick one. It opens with its choices and one button.</p></div>
-    <div class="xmodebar" id="xModeBar" hidden><span class="t"><b>Several at once (one ZIP)</b><small>Tick the files to put in one ZIP. Each keeps its own choices.</small></span><button class="btn sm" id="xOneAtATime" type="button">Back to one at a time</button></div>
+    <!-- (Export picks): the checks before export (each with its Fix ›), then What do you need?: quick picks and tiles (More exports
+         folded); the rows picked are listed under What you get (their choices behind Change ›), with one button at the foot. -->
+    <div class="xchecks" id="xChecks" role="group" aria-label="Checks before export" hidden></div>
+    <div class="xask" id="xAsk"><h3 id="xAskT">What do you need?</h3><p>Tap a quick pick, or the tiles you need. Then Export at the bottom.</p></div>
+    <div class="xpicks" id="xPicks" role="group" aria-label="Quick picks" hidden></div>
+    <div class="xtiles" id="xTiles" role="group" aria-labelledby="xAskT"></div>
+    <details class="xmoret" id="xMoreT" hidden><summary><span class="t"><b>More exports</b><small id="xMoreTSum"></small></span></summary><div class="xtiles" id="xTiles2" role="group" aria-label="More exports"></div></details>
+    <h3 class="xgeth" id="xGetH" hidden>What you get</h3>
     <!-- v2.41 (beta 6.7, UX step 3): the formats as ticks, kept for Several at once and for the tests (a change on them still opens the row,
          or tick mode for two or more); not shown: the rows themselves are the ticks -->
     <div class="xmulti" id="xMulti" hidden><span class="lbl">FORMATS · TICK ONE OR MORE</span>
@@ -2289,8 +2325,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <button class="btn primary" id="doDataset">Make the training ZIP</button>
     </div>
     <button class="btn xother" id="xOther" type="button" hidden>Other exports ›</button>
-    <div class="xfoot" id="xFoot"><button class="btn" id="xManyBtn" type="button">Several at once (one ZIP)…</button><button class="btn xagain" id="xAgain" type="button" hidden></button></div>
-    <div class="xgo" id="xGoBox" hidden><button class="btn primary" id="xMultiGo" type="button">Tick two or more</button><p class="hint" id="xMultiInfo" style="margin:0">One ZIP with every file. Each keeps its own choices; questions some of them ask still come up one by one.</p></div>
+    <div class="xgo" id="xGoBox" hidden><button class="btn primary" id="xMultiGo" type="button">Pick what you need</button><p class="hint" id="xMultiInfo" style="margin:0">One ZIP; each file keeps its own choices.</p></div>
     <div class="group" id="resultBox" hidden>
       <h3>Your file is ready</h3>
       <p id="resultName" class="mono" style="margin:0;word-break:break-all"></p>
