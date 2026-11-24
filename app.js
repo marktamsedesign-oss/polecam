@@ -740,6 +740,7 @@
     if (JN[element]) return jnNextId(element, recs); // beta 6.9: PO-0001, CO-0001 (the next in the project)
     const latest = (list) => list.reduce((m, p) => (p.created > m.created ? p : m));
     if ((!element || element === 'Pole') && ed && !ed.acc && ed.status === 'Proposed') {
+      if (ed.noPP) return ''; // (Add Pin) a pole added with Add Pin: no PP- number given (an ID typed, or the generic number at Save)
       const n = recs.filter((p) => PP_RE.test(p.poleId || '')).reduce((m, p) => Math.max(m, +PP_RE.exec(p.poleId)[1]), 0);
       return `PP-${String(n + 1).padStart(4, '0')}`;
     }
@@ -1773,26 +1774,71 @@
   $('drawBtn').addEventListener('click', () => { if (!S.project) { openProjects(); return; } if (drawOn()) { openDrawing(); if (splHooks.remind) splHooks.remind(); } else openFind(); }); // (beta 4.6: the plans still to make, once)
   /* v2.36: a pin placed on the map by hand (no photo needed): v2.37 a tower or OLT site, or an ODC, with
      its name and colour. It is a survey record like the others: the route links it, the exports and the plan drawing have it
-     (drawn exactly where it is placed). A photo can be added later (open the pin → Add photo). */
+     (drawn exactly where it is placed). A photo can be added later (open the pin → Add photo).
+     beta 6.8 (the owner): and a proposed pole, "since some did not take a picture during survey, it will only be plotted during plan
+     drawing"; beta 6.9 (the owner): and a pull-off (3 poles) or a cross-over (4 poles) at a corner with no pole.
+     (Add Pin) the owner: "add pin: remove proposed pole name. Just put "Add Pin" and then the user will select which pin it is, either
+     new Pole, HH, SB, MH and so on"; "NAP dummy box it should be.. allow other pin to add soon like LCP etc. may be this button can be
+     add on the drawing side"; "MAP add Pin is not found". Add Pin, in words on the map (and ＋ Add Pin on the Drawing's route bar),
+     asks which kind, in the approved demo's groups, each with the symbol the plan draws for it (symSvg); NEW marks a kind the map had
+     no pin for (it was recorded with the camera only), until one is picked on this phone. Each kind is a record the app already has:
+     a pole (as before: Proposed in an As-Plan, New in an As-Built, a Globe pole, put on a cable's span it is offered onto that cable,
+     ppOnCable; but no PP- number given: an ID typed, or the generic P- number at Save), a pull-off or cross-over (beta 6.9, jnPlaced),
+     a closure pin (CL-) and a NAP pin of the kind Dummy NAP or LCP 1x4 (NAP-): they stand on their pole, the nearest pole of the
+     route within 30 m, as the Drawing, the plan, the loops and the route check take NAP and closure pins; a handhole, manhole or
+     service box (UG_BOXES); a tower or OLT site, an ODC. The closure, NAP and box kinds start Proposed (an As-Built: New; an Audit:
+     Existing). Not in the list: a hybrid closure (the app's closure is the hybrid closure: one kind in the plan, the BOQ and the PMI),
+     a riser (on its pole's record, AE to UG, or found from the cables: no pin of its own), and in an Audit a dummy NAP box or an LCP
+     (their kind is a size, and an Audit keeps no sizes). */
+  const PIN_KINDS = [
+    ['Poles and corners', [{ k: 'pole', n: 'Pole', sub: 'new', el: 'Pole', pole: true }, { k: 'po', n: 'Pull-off', sub: '3 poles', el: 'Pull-off', pole: true },
+      { k: 'co', n: 'Cross-over', sub: '4 poles', el: 'Cross-over', pole: true }]],
+    ['On the cable', [{ k: 'cl', n: 'Closure', sub: 'hybrid · on its pole', el: 'Closure', nw: true }, { k: 'dnap', n: 'Dummy NAP box', sub: 'DN · on its pole', el: 'NAP', boq: { napType: 'Dummy NAP' }, nw: true, size: true },
+      { k: 'lcp', n: 'LCP', sub: '1:4 · on its pole', el: 'NAP', boq: { napType: 'LCP 1x4' }, nw: true, size: true }]],
+    ['Boxes underground', [{ k: 'hh', n: 'Handhole', sub: 'HH', el: 'Handhole', nw: true }, { k: 'mh', n: 'Manhole', sub: 'MH', el: 'Manhole', nw: true },
+      { k: 'sb', n: 'Service box', sub: 'SB', el: 'Service box', nw: true }]],
+    ['Sites', [{ k: 'tower', n: 'Tower', sub: 'site', el: 'Site', site: 'Tower' }, { k: 'odc', n: 'ODC', sub: 'cabinet', el: 'ODC' }, { k: 'olt', n: 'OLT', sub: 'site', el: 'Site', site: 'OLT' }]],
+  ];
+  const PIN_BY = new Map(PIN_KINDS.flatMap(([, L]) => L).map((x) => [x.k, x]));
+  /** (Add Pin) the status a pin of kind x starts with ('' : the survey has none, or its usual one, svDefaultStatus): a pole, pull-off or
+      cross-over as before (ppStatus); a tower, OLT or ODC its usual one (Existing is set for the homing site); the others proposed. */
+  function pinStatus(x) {
+    if (x.el === 'Pole' || JN[x.el]) return ppStatus();
+    if (x.el === 'Site' || x.el === 'ODC') return '';
+    const L = svStatuses(x.el); return L.includes('Proposed') ? 'Proposed' : L.includes('New') ? 'New' : L[0] || '';
+  }
+  /** (Add Pin) the record a pin of kind x opens with (openEditor), less where it is: a pole is a Globe pole (GT, as beta 6.8's) with no
+      PP- number given (noPP); a NAP pin its kind (a size: napType). */
+  function pinOpts(x) {
+    const st = pinStatus(x);
+    return { mode: 'new', element: x.el, siteKind: x.site || '', ...(st ? { status: st } : {}), ...(x.el === 'Pole' ? { type: globeType(), noPP: true } : {}), ...(x.boq ? { boq: { ...x.boq } } : {}), pinKind: x.k };
+  }
+  /** (Add Pin) "Add Pin: what is it?": the kinds this survey can have (a pole, pull-off or cross-over where poles have a status; a dummy
+      NAP box or LCP where sizes are kept), each with its symbol as it will start; where: 'map' (drag the map) or 'draw' (tap the
+      Drawing). The kind picked (PIN_KINDS), or null. */
+  async function pinAsk(where) {
+    const pp = ppStatus(), sz = boqOn(), seen = S.pinSeen || {}, btns = [];
+    PIN_KINDS.forEach(([g, L]) => { let first = true; L.forEach((x) => {
+      if ((x.pole && !pp) || (x.size && !sz)) return;
+      const st = pinStatus(x) || (svStatuses(x.el).length ? svDefaultStatus(x.el) : ''), sy = symOfRec(x.el, st, x.site, x.boq, globeType());
+      btns.push({ label: `${x.n} (${x.sub})`, value: x.k, group: first ? g : '', pin: { svg: symSvg(sy.kind, sy.isNew, 40), name: x.n, sub: x.sub, isNew: !!x.nw && !seen[x.k] } }); first = false; }); });
+    btns.push({ label: 'Cancel', value: '' });
+    const k = await ask('Add Pin: what is it?', where === 'draw' ? 'Pick one, then tap the Drawing where it goes. Its record opens for its name; no photo needed.' : 'Pick one, then drag the map so the pin is where it goes. Its record opens for its name; no photo needed.', btns);
+    const x = PIN_BY.get(k) || null;
+    if (x && x.nw && !seen[x.k]) { S.pinSeen = { ...seen, [x.k]: 1 }; persist(); } // (its NEW goes once it was picked on this phone)
+    return x;
+  }
   $('pinAddBtn').addEventListener('click', async () => {
     if (!S.project) { openProjects(); return; }
     if (isAcc()) return;
     { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // beta 3.3 (QA-09): an accepted task
-    // v2.37: only the models: a tower or an OLT site, or an ODC (poles, ODFs and handholes are recorded from the camera)
-    // beta 6.8 (the owner): and a proposed pole, "since some did not take a picture during survey, it will only be plotted during plan drawing"
-    // beta 6.9 (the owner): and a pull-off (3 poles) or a cross-over (4 poles) at a corner with no pole
-    const pp = ppStatus(), k = await ask('Add a pin on the map', `${pp ? `${pp === 'New' ? 'New pole' : 'Proposed pole'}, pull-off, cross-over, tower` : 'Tower'}, OLT or ODC? Then drag the map to place it${pp ? ' (a pole on a cable: on its line; a pull-off or cross-over at the corner with no pole)' : ''}, type its name and pick its colour. A photo is optional${pp ? ': a proposed pole needs none' : ''}. For the homing site or ODC (where the route starts or ends), set Existing.`, [
-      ...(pp ? [{ label: pp === 'New' ? 'New pole' : 'Proposed pole', value: 'Pole' }, { label: 'Pull-off (3 poles)', value: 'Pull-off' }, { label: 'Cross-over (4 poles)', value: 'Cross-over' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
-    if (!k) return;
-    const c = map.getCenter(), el = k === 'Pole' || JN[k] ? k : k === 'ODC' ? 'ODC' : 'Site';
-    LOG.info('pin.add', { el, k });
-    await openEditor({ mode: 'new', element: el, siteKind: el === 'Site' ? k : '', ...(el === 'Pole' ? ppRec() : JN[el] ? { status: ppStatus() } : {}), lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: el === 'Pole' || JN[el] ? 'Placed on the map · no photo needed' : 'Placed on the map · photo optional' });
+    const x = await pinAsk('map'); if (!x) return;
+    const c = map.getCenter();
+    LOG.info('pin.add', { el: x.el, k: x.k });
+    await openEditor({ ...pinOpts(x), lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: x.el === 'Pole' || JN[x.el] ? 'Placed on the map · no photo needed' : 'Placed on the map · photo optional' });
   });
   /** beta 6.8: the status of a pole placed by hand (no photo): Proposed in an As-Plan, New in an As-Built; '' where a survey has none (Audit). */
   const ppStatus = () => { const L = svStatuses('Pole'); return L.includes('Proposed') ? 'Proposed' : L.includes('New') ? 'New' : ''; };
-  /** beta 6.8: what a proposed pole placed by hand starts with, as one from the camera: Proposed (or New), a Globe pole (GT; its owner
-      Globe, ownerNameOf), its PP- number suggested in the record (editable). */
-  const ppRec = () => ({ status: ppStatus(), type: globeType() });
   /** beta 6.8: a proposed pole just placed by hand (the map's ＋ pin or the Drawing's ＋): on a span of a proposed cable (within tol
       metres of its line, between its ends), the question to put it on that cable, splitting the span at it (as a cable grabbed onto a
       pole: rtAttach); with ↶ in Route. */
@@ -5325,19 +5371,17 @@
   }
   /** ＋ Tower · OLT · ODC on the Drawing: which, then a tap where it stands; its record opens for its name (as the map's ＋ pin).
       beta 6.8: and a proposed pole (no photo: "it will only be plotted during plan drawing"); tapped on a cable's span, it is offered
-      onto that cable once its record is saved (ppOnCable). */
+      onto that cable once its record is saved (ppOnCable). (Add Pin): ＋ Add Pin, the map's list (pinAsk). */
   async function drwSiteAsk() {
-    const pp = ppStatus(), ppL = pp === 'New' ? 'New pole' : 'Proposed pole';
-    const k = await ask('Add on the Drawing', `${pp ? `A ${ppL.toLowerCase()}, a pull-off, a cross-over, a tower` : 'A tower'}, an OLT or an ODC: pick it, then tap the Drawing where it stands${pp ? ' (a pole: on the cable\'s line, to put it on that cable; a pull-off or cross-over: on the cable at the corner with no pole, then tap its poles)' : ''}. Its record opens for its name and colour (a photo is optional). To move one later, hold it, then drag it.`, [
-      ...(pp ? [{ label: ppL, value: 'Pole' }, { label: 'Pull-off (3 poles)', value: 'Pull-off' }, { label: 'Cross-over (4 poles)', value: 'Cross-over' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
-    if (!k || !drwEd) return; drwSiteArm = { el: k === 'Pole' || JN[k] ? k : k === 'ODC' ? 'ODC' : 'Site', kind: k }; // (beta 6.9: + a pull-off or cross-over)
-    rtHint(k === 'Pole' ? `Tap the Drawing where the ${pp === 'New' ? 'new' : 'proposed'} pole goes (on a cable: on its line). Esc: cancel` : JN[k] ? `Tap the cable at the corner where the ${JN[k].name} goes. Esc: cancel` : `Tap the Drawing where the ${k === 'ODC' ? 'ODC' : k === 'OLT' ? 'OLT' : 'tower'} stands (Esc: cancel)`);
+    const x = await pinAsk('draw'); if (!x || !drwEd) return; drwSiteArm = { el: x.el, kind: x.k, pin: x }; // (beta 6.9: + a pull-off or cross-over; (Add Pin): every kind)
+    const w = x.n.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase()); // (tower, closure, dummy NAP box, LCP, ODC…)
+    rtHint(x.el === 'Pole' ? 'Tap the Drawing where the pole goes (on a cable: on its line). Esc: cancel' : JN[x.el] ? `Tap the cable at the corner where the ${JN[x.el].name} goes. Esc: cancel` : x.el === 'NAP' || x.el === 'Closure' ? `Tap the pole the ${w} goes on (Esc: cancel)` : `Tap the Drawing where the ${w} ${x.el === 'Site' || x.el === 'ODC' ? 'stands' : 'goes'} (Esc: cancel)`);
   }
   function drwSitePlace(ll) {
     const a = drwSiteArm; drwSiteArm = null; rtHint(''); if (!a || !ll) return;
     const d = window.devicePixelRatio || 1, tol = drw && drw.view ? Math.min(25, Math.max(3, 20 * d / drw.view.sc)) : 8; // (beta 6.8: a pole tapped within 20 px of a cable's span: on it)
     drwSiteWait = { ids: new Set(points.map((p) => p.id)), tol }; LOG.info('draw.site.add', { el: a.el, k: a.kind });
-    openEditor({ mode: 'new', element: a.el, siteKind: a.el === 'Site' ? a.kind : '', ...(a.el === 'Pole' ? ppRec() : JN[a.el] ? { status: ppStatus() } : {}), lat: ll.lat, lon: ll.lng, source: 'map', takenAt: new Date().toISOString(), note: a.el === 'Pole' || JN[a.el] ? 'Placed on the Drawing · no photo needed' : 'Placed on the Drawing · photo optional' }).catch((e) => { LOG.warn('draw.site.add', errInfo(e)); drwSiteWait = null; });
+    openEditor({ ...pinOpts(a.pin), lat: ll.lat, lon: ll.lng, source: 'map', takenAt: new Date().toISOString(), note: a.el === 'Pole' || JN[a.el] ? 'Placed on the Drawing · no photo needed' : 'Placed on the Drawing · photo optional' }).catch((e) => { LOG.warn('draw.site.add', errInfo(e)); drwSiteWait = null; });
   }
   /** A tower, OLT or ODC let go where it was dragged on the Drawing: its record's place (pin adjusted), with ↶. */
   async function drwSiteMove(g) {
@@ -5476,7 +5520,7 @@
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
         h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
-        if (drwEd && !rtPairs) { const pp = ppStatus(); h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add ${pp ? `a ${pp === 'New' ? 'new' : 'proposed'} pole, a pull-off, a cross-over, ` : ''}a tower, an OLT or an ODC: tap the Drawing where it stands">＋ ${pp ? 'Pole · ' : ''}Tower · OLT · ODC</button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over)
+        if (drwEd && !rtPairs) { h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add Pin: pick what it is (as the map's Add Pin), then tap the Drawing where it goes">＋ Add Pin</button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over; (Add Pin): the map's list)
       }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
@@ -7165,6 +7209,7 @@
     let msg = '';
     // v2.19: in PAT, cleanup and FAT an empty ID (or only the prefix) is fine: the record is saved as D-0001…
     if (ed.acc && (!id || DREF_RE.test(id) || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(id))) msg = '';
+    else if (ed.noPP && kind === 'Pole' && (!id || new RegExp(`^(${prefixAlt()})-?$`).test(id))) msg = ''; // (Add Pin) a pole added by hand with no ID yet: the generic number at Save
     else if (id && kind === 'Pole' && poleIdXRe().test(id)) msg = 'X = a character the camera could not read. Type it if you can see it on the tag, or keep the X.';
     // v2.18: the ID after the prefix may mix letters and digits (CC-0123A); only one with no digit at all is flagged
     else if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id) && !PP_RE.test(id) && !new RegExp(`^(${prefixAlt()})-(?=[A-Z0-9-]*[0-9])[A-Z0-9][A-Z0-9-]*$`).test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
@@ -7270,7 +7315,8 @@
       const mk = Array.isArray(o.marks) ? o.marks : [];
       Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, details: JSON.parse(JSON.stringify(o.details || [])),
         marks: JSON.parse(JSON.stringify(mk)).map(normMark), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false,
-        nap: !!o.nap, nap2: !!o.nap2, closure: !!o.closure || (UG_BOXES.has(o.element || 'Pole') && !!o.closureId) }); // v2.41: the NAP and the hybrid closure on the pole (v2.42: a second box; v2.42.17: the closure in a handhole, manhole or service box)
+        nap: !!o.nap, nap2: !!o.nap2, closure: !!o.closure || (UG_BOXES.has(o.element || 'Pole') && !!o.closureId), // v2.41: the NAP and the hybrid closure on the pole (v2.42: a second box; v2.42.17: the closure in a handhole, manhole or service box)
+        noPP: !!o.noPP && o.mode === 'new', pinKind: o.mode === 'new' ? o.pinKind || '' : '' }); // (Add Pin) its kind; a pole: no PP- number given
       const onPoleRec = (o.element || 'Pole') === 'Pole';
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = onPoleRec ? '' : o.closureId || '';
       $('napId').value = onPoleRec ? o.napId || '' : ''; $('closureId').value = onPoleRec ? o.closureId || '' : ''; $('nap2Id').value = onPoleRec ? o.nap2Id || '' : '';
@@ -7286,7 +7332,7 @@
     edLayout(!acc); edTab = !acc && o.mode === 'new' && o.blob && !o.restore ? 'photo' : 'details'; // beta 6.7: a photo just taken: the record opens on it (Photo/Model), to add a model or text $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
     $('editor').querySelector('.edbody').scrollTop = 0;
     $('svColorBox').hidden = acc; if (!acc) renderPinColors();
-    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole', 'Pull-off': 'pull-off', 'Cross-over': 'cross-over' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
+    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${mapPinWord(ed.element || 'Pole')} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
     $('siteKindBox').hidden = true; // shown for a site (survey)
     $('edHint').textContent = ed.mapPin ? 'Drag the map to place the pin where it goes' : `Drag the map to place the pin on the ${acc ? 'element' : 'pole'}`;
     $('edHint').classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => $('edHint').classList.add('gone'), 5000);
@@ -7391,7 +7437,7 @@
       mloop: !!ed.mloop, nap: !!ed.nap, nap2: !!ed.nap2, closure: !!ed.closure, odf: ed.odf || '', boq: ed.boq || {}, gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
       idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: (ed.dragged || ed.mapPin) && c ? { lat: c.lat, lon: c.lng } : null, color: ed.color || '', siteKind: ed.siteKind || '',
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
-      noDef: !!ed.noDef, pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
+      noDef: !!ed.noDef, noPP: !!ed.noPP, pinKind: ed.pinKind || '', pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
     };
   }
   const draftSig = (st) => JSON.stringify({ ...st, q: null, pin: st.pin ? [st.pin.lat.toFixed(6), st.pin.lon.toFixed(6)] : null });
@@ -7486,7 +7532,7 @@
       await openEditor({ mode: 'new', id: st.id, restore: true, gps: st.gps, takenAt: st.takenAt, source: st.source, q: st.q, type: st.type || undefined, element: st.element, status: st.status,
         poleId: st.poleId, remarks: st.svRemarks, closureId: st.acc ? st.closureId : st.svClosureId, napId: st.napId, nap2Id: st.nap2Id || '', details: st.details, marks: st.marks, origPid: st.origPid,
         photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, nap2: !!st.nap2, closure: st.closure, odf: st.odf, boq: st.boq || {}, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
-        blob: st.acc ? null : nb || sb, noDef: !!st.noDef, color: st.color || '', siteKind: st.siteKind || '', ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
+        blob: st.acc ? null : nb || sb, noDef: !!st.noDef, noPP: !!st.noPP, pinKind: st.pinKind || '', color: st.color || '', siteKind: st.siteKind || '', ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
     }
     if (!ed) return;
     Object.assign(ed, { pending: { ...ed.pending, ...pend }, removed: st.removed || [], idRead: st.idRead, idTouched: st.idTouched, dragged: st.dragged, element: st.element, type: st.type || ed.type,
@@ -8021,16 +8067,21 @@
     if (ed.mode === 'new' && (!ed.idTouched || !id || (kindOf(id) && kindOf(id) !== el))) { $('poleId').value = suggestId(el, ed.type); ed.idTouched = false; }
     applyElement(); checkDup(); checkFormat(); applyPlan();
   });
+  /** (Add Pin) "New … on the map": the word for a pin placed by hand (a NAP pin by its kind: dummy NAP box, LCP). */
+  function mapPinWord(el) {
+    const nt = ((ed && ed.boq) || {}).napType || '';
+    return ({ Pole: 'pole', Site: ed && ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', NAP: /dummy/i.test(nt) ? 'dummy NAP box' : /lcp/i.test(nt) ? 'LCP' : 'NAP', Closure: 'closure', Handhole: 'handhole', Manhole: 'manhole', 'Service box': 'service box', 'Pull-off': 'pull-off', 'Cross-over': 'cross-over' })[el] || el;
+  }
   function applyElement() {
     const el = ed.element;
     if (cefHooks.pinRow) cefHooks.pinRow(); // v2.44: a site pin of an As-Plan: its CEF plan
     if (!ed.acc) { // survey point
       const isNew = ed.mode !== 'edit', nm = el === 'Pole' ? 'pole' : el;
-      $('editorTitle').textContent = ed.mapPin ? `New ${({ Pole: ed.status === 'Proposed' ? 'proposed pole' : 'pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole', 'Pull-off': 'pull-off', 'Cross-over': 'cross-over' })[el] || el} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : JN[el] ? JN[el].name : nm}`; // v2.36 (beta 6.9: + pull-off, cross-over)
+      $('editorTitle').textContent = ed.mapPin ? `New ${mapPinWord(el)} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : JN[el] ? JN[el].name : nm}`; // v2.36 (beta 6.9: + pull-off, cross-over; (Add Pin): every kind, and "pole", not "proposed pole")
       $('siteKindBox').hidden = el !== 'Site'; $('siteKindSel').value = ed.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37
       $('idLabel').textContent = el === 'Site' ? 'SITE NAME / ID' : `${el.toUpperCase()} ID`;
       const sts = svStatuses(el); if (!sts.includes(ed.status)) ed.status = svDefaultStatus(el);
-      $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? 'e.g. PP-0001' : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001', Manhole: 'e.g. MH-0001', 'Service box': 'e.g. SB-0001', 'Pull-off': 'e.g. PO-0001', 'Cross-over': 'e.g. CO-0001' }[el];
+      $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? (ed.noPP ? 'Optional: a number is given at Save' : 'e.g. PP-0001') : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001', Manhole: 'e.g. MH-0001', 'Service box': 'e.g. SB-0001', 'Pull-off': 'e.g. PO-0001', 'Cross-over': 'e.g. CO-0001' }[el];
       $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole' || ed.status === 'Proposed';
       const ppGlobe = el === 'Pole' && ed.status === 'Proposed'; // v2.27: a proposed pole is a Globe pole (GT)
       if (ppGlobe && ed.type !== globeType()) { ed.type = globeType(); renderTypeChips(ed.type); }
@@ -8043,7 +8094,7 @@
       // v2.41: what is on the pole: the NAP and the hybrid closure (the maintenance loop is in the sizes)
       $('poleAttach').hidden = el !== 'Pole'; $('atMloop').closest('.tchip').hidden = true; $('atNap').checked = !!ed.nap; $('atClosure').checked = !!ed.closure; noCloSync(); markToggles(); renderAttach();
       renderBoq();
-      $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : JN[el] ? `Drag the map to place the pin at the corner (on the cable: on its line)` : `Drag the map to place the pin on the ${nm}`;
+      $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : JN[el] ? `Drag the map to place the pin at the corner (on the cable: on its line)` : ed.mapPin && (el === 'NAP' || el === 'Closure') ? `Drag the map to place the pin at its pole: it stands on the nearest pole within 30 m` : ed.mapPin ? `Drag the map to place the pin where the ${mapPinWord(el)} ${ed.status === 'Existing' ? 'is' : 'goes'}` : `Drag the map to place the pin on the ${nm}`; // ((Add Pin) a NAP or closure pin: on its pole)
       jnBoxRender(); // beta 6.9: a pull-off's or cross-over's poles
       renderBoxInfo(); renderEdSym(); // v2.37: the legend symbol beside the photo, and on the pin
       idPadSync(); edRefreshSoon(); // v2.42.17
@@ -9156,7 +9207,7 @@
       if ((ed.removed || []).length) deletePhotosIfUnused(ed.removed.slice(), new Set()).catch(() => {}); // beta 3.5: the photos removed from the pin
       if (ed.mode === 'new' && !isNpt(poleId) && !genId && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
       if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type) && !['Proposed', 'New'].includes(ed.status)) S.lastType = ed.type; // v2.27: not the Globe type of a proposed / new pole
-      if (rec.status) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status };
+      if (rec.status && !(ed.pinKind && !ed.stTouched)) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status }; // ((Add Pin): not the status a pin placed by hand started with: the camera's own stays)
       if (ed.newBlob) notePerf(Date.now() - t0);
       persist(); notePerson();
       LOG.info('save.done', { ms: Date.now() - t0 }); LOG.done('save.survey');
@@ -9184,10 +9235,10 @@
     requestAnimationFrame(() => setTimeout(() => { try { renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); } }, 0));
   }
   /** v2.27: the generic number of a survey record saved without its ID: P-0001 (pole), ODF-0001, SITE-0001, ODC-, NAP-, CL-, HH-0001;
-      a proposed pole keeps its PP- number. The next free number in the project. */
+      a proposed pole keeps its PP- number (but one added with Add Pin: P-). The next free number in the project. */
   const GEN_PRE = { Pole: 'P', ODF: 'ODF', Site: 'SITE', ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB', 'Pull-off': 'PO', 'Cross-over': 'CO' }; // v2.42.4: + MH, SB (they got X-0001)
   function genSvId(el, status) {
-    if (el === 'Pole' && status === 'Proposed') return suggestId('Pole', ed && ed.type);
+    if (el === 'Pole' && status === 'Proposed' && !(ed && ed.noPP)) return suggestId('Pole', ed && ed.type); // ((Add Pin): P-, as any pole saved without its ID)
     if (JN[el]) return jnNextId(el, points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id))); // beta 6.9
     const pre = GEN_PRE[el] || 'X', re = new RegExp(`^${pre}-(\\d+)$`);
     const n = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id)).reduce((m, p) => { const x = re.exec(String(p.poleId || '').toUpperCase()); return x ? Math.max(m, +x[1]) : m; }, 0);
@@ -15113,17 +15164,24 @@
     $('askTitle').textContent = title; $('askText').textContent = text || '';
     const row = $('askBox').querySelector('.row'); row.innerHTML = '';
     const tiles = btns.some((b) => b.tile); row.classList.toggle('tiles', tiles); $('askBox').querySelector('.panel').classList.toggle('hasx', btns.some((b) => b.x)); // beta 4.6: big icon tiles (a caption under each), a quiet ✕
-    const stack = btns.length > 2 && !tiles; row.classList.toggle('stack', stack); // v2.19: three or more choices are listed one under another, Cancel last
+    const pins = btns.some((b) => b.pin); row.classList.toggle('pins', pins); $('askBox').classList.toggle('pinask', pins); if (pins) $('askBox').querySelector('.panel').scrollTop = 0; // (Add Pin) the kinds of pin, in their groups (pinAsk)
+    const stack = btns.length > 2 && !tiles && !pins; row.classList.toggle('stack', stack); // v2.19: three or more choices are listed one under another, Cancel last
     const list = stack ? btns.filter((b) => b.label !== 'Cancel').concat(btns.filter((b) => b.label === 'Cancel')) : btns;
     return new Promise((res) => {
-      let mine = null; const done = (v) => { $('askBox').hidden = true; if (askEsc === mine) askEsc = null; res(v); };
+      let mine = null, gbox = null; const done = (v) => { $('askBox').hidden = true; if (askEsc === mine) askEsc = null; res(v); };
       list.forEach((b) => {
         const el = document.createElement('button'); el.type = 'button'; el.className = `btn grow${b.primary ? ' primary' : ''}`; el.textContent = b.label;
         if (b.x) { el.className = 'btn askx'; el.textContent = '✕'; el.setAttribute('aria-label', b.label); el.title = b.label; } // (beta 4.6: Later as a quiet ✕ in the corner)
         else if (b.tile) { el.className = `btn tile${b.primary ? ' primary' : ''}`; el.textContent = b.caption || b.label; el.setAttribute('aria-label', b.label); el.title = b.label; if (b.sub) { const sm = document.createElement('small'); sm.textContent = b.sub; el.appendChild(sm); } } // (a second, smaller line)
+        else if (b.pin) { // (Add Pin) its symbol (the app's own SVG, symSvg), its name, a small line, NEW; in its group (b.group: the first of a group)
+          el.className = 'btn ptile'; el.textContent = ''; el.dataset.kind = b.value; el.setAttribute('aria-label', b.label);
+          const sy = document.createElement('span'); sy.className = 'psym'; sy.innerHTML = b.pin.svg; const nm = document.createElement('b'); nm.textContent = b.pin.name; const sm = document.createElement('small'); sm.textContent = b.pin.sub; el.append(sy, nm, sm);
+          if (b.pin.isNew) { const nw = document.createElement('span'); nw.className = 'pnew'; nw.textContent = 'NEW'; nw.setAttribute('aria-hidden', 'true'); el.appendChild(nw); }
+          if (b.group) { gbox = document.createElement('div'); gbox.className = 'pgrp'; gbox.setAttribute('role', 'group'); gbox.setAttribute('aria-label', b.group); const h = document.createElement('div'); h.className = 'pgrpt'; h.textContent = b.group; h.setAttribute('aria-hidden', 'true'); gbox.appendChild(h); row.appendChild(gbox); }
+        }
         if (b.icon && !b.x) { const sv = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', `#${b.icon}`); sv.appendChild(u); sv.setAttribute('class', 'aic'); sv.setAttribute('aria-hidden', 'true'); el.insertBefore(sv, el.firstChild); el.classList.add('ic1'); } // beta 4.6: an icon before the words (a sprite id)
         el.addEventListener('click', () => done(b.value));
-        row.appendChild(el);
+        (b.pin && gbox ? gbox : row).appendChild(el);
       });
       // v2.42.27: Esc on a computer answers Cancel (Keep, Keep editing, Back to the form…), or the only button; a question with
       // neither stays until a button is pressed (never a guess: the Unsaved record question's Discard is not taken)

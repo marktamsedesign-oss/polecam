@@ -76,6 +76,11 @@ body.visiting #legendBtn,body.visiting #legend{top:calc(env(safe-area-inset-top,
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
 .dot.good{background:var(--ok)}.dot.fair{background:var(--warn)}.dot.poor{background:var(--bad)}
 .mapbtns{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 164px);z-index:450;display:flex;flex-direction:column;gap:10px}
+/* (Add Pin) the owner: "MAP add Pin is not found": Add Pin in words, at the top of the map's buttons. It reaches to the left of them; the
+   column stays one button wide (width, flex-end), so the map beside the buttons stays the map */
+.mapbtns{width:var(--tap);align-items:flex-end}
+.round.pinadd{width:auto;border-radius:999px;display:flex;align-items:center;gap:6px;padding:0 16px 0 11px;font-weight:800;font-size:calc(15px * var(--fs));white-space:nowrap;box-shadow:var(--shadow),inset 0 0 0 2px var(--pin)}
+.round.pinadd svg{color:var(--pin);flex:none}
 .round{width:var(--tap);height:var(--tap);border-radius:50%;border:0;background:var(--surface);color:var(--ink);box-shadow:var(--shadow);display:grid;place-items:center}
 .round svg{width:22px;height:22px}
 #refBtn{position:relative}#refBtn .refdot{position:absolute;top:6px;right:6px;width:9px;height:9px;border-radius:50%;background:var(--bad);border:2px solid var(--surface);display:none}#refBtn.partial .refdot{display:block}
@@ -1327,6 +1332,21 @@ details.psrow[open]>summary::after{transform:rotate(90deg)}
 .xonebtn.pulse{animation:xonePulse 1.1s ease-out 3}@media (prefers-reduced-motion:reduce){.xonebtn.pulse{animation:none;outline:3px solid var(--hi)}}@keyframes xonePulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 60%,transparent)}100%{box-shadow:0 0 0 14px transparent}}
 #askBox .btn .aic{width:22px;height:22px;flex:none}#askBox .panel{position:relative}#askBox .panel.hasx h3{padding-right:44px}
 #askBox .row.tiles{flex-direction:row;flex-wrap:nowrap;gap:12px}#askBox .btn.tile{flex:1 1 0;min-width:0;flex-direction:column;gap:8px;min-height:108px;padding:14px 8px;border-radius:18px;font-size:calc(13px * var(--fs));font-weight:700;line-height:1.2;text-align:center;white-space:normal}
+/* (Add Pin) "Add Pin: what is it?" (ask with pin tiles): the kinds in their groups, three to a row, each with the symbol the plan draws for it on
+   white (as the record's symbol), its name, a small line and NEW for a kind the map had no pin for; a sheet from the foot on a phone */
+#askBox.pinask .panel{width:min(600px,100%)}
+#askBox .row.pins{display:grid;grid-template-columns:minmax(0,1fr);gap:12px 16px;align-items:start}
+#askBox .row.pins .pgrp{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,max(6.6em,calc((100% - 16px) / 3))),1fr));gap:8px;align-items:stretch} /* (three to a row; two with large text) */
+#askBox .row.pins .pgrpt{grid-column:1/-1;font-size:calc(11.5px * var(--fs));font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+#askBox .row.pins > .btn{grid-column:1/-1;margin-top:2px}
+@media (min-width:760px){#askBox.pinask .panel{width:min(780px,100%)}#askBox .row.pins{grid-template-columns:repeat(2,minmax(0,1fr))}} /* (a computer: the groups two by two, all on the screen) */
+#askBox .btn.ptile{position:relative;min-width:0;flex-direction:column;justify-content:flex-start;gap:3px;min-height:100px;padding:10px 6px 8px;border-radius:14px;white-space:normal;text-align:center;line-height:1.2;font-size:calc(13.5px * var(--fs));font-weight:700;overflow-wrap:anywhere}
+#askBox .btn.ptile:hover{border-color:var(--accent)}
+#askBox .ptile .psym{width:46px;height:46px;border-radius:10px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;flex:none;margin-bottom:2px}
+#askBox .ptile .psym svg{width:40px;height:40px;display:block}
+#askBox .ptile small{font-size:calc(11.5px * var(--fs));font-weight:600;color:var(--muted)}
+#askBox .ptile .pnew{position:absolute;top:5px;right:5px;padding:1px 6px;border-radius:999px;background:var(--pin);color:#fff;font-size:calc(9.5px * var(--fs));font-weight:800;letter-spacing:.06em;line-height:1.5}
+@media (max-width:599px){#askBox.pinask{align-items:end;padding:0}#askBox.pinask .panel{width:100%;border-radius:16px 16px 0 0;max-height:94%;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}}
 #askBox .btn.tile .aic{width:40px;height:40px}#askBox .btn.askx{position:absolute;top:6px;right:6px;width:44px;height:44px;min-height:44px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:20px;flex:none}
 .xonebtn .cap .xsub{display:block;font-size:calc(12px * var(--fs));font-weight:600;color:var(--muted)}.xonebtn .cap .xsub[hidden]{display:none}.xonebtn.off{border-style:dashed;border-color:var(--line);background:var(--surface);color:var(--muted)}.xonebtn.off .xp{opacity:.55}#askBox .row.stack .btn.ic1{justify-content:flex-start;padding-left:14px;gap:12px}
 .inzip .ic svg{width:20px;height:20px;color:var(--accent)}
@@ -1562,7 +1582,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div id="legend" hidden role="note" aria-label="Map legend"></div>
   <div id="hlChip" hidden role="group" aria-label="The pole you found"><button type="button" id="hlGo" title="Show it again"><span aria-hidden="true">◎</span> <b id="hlChipId"></b></button><button type="button" id="hlEdit" class="ed">Edit</button><button type="button" id="hlList" title="The list, with your search">List</button><button type="button" id="hlX" aria-label="Stop marking it" title="Stop marking it">✕</button></div>
   <div class="mapbtns">
-    <button class="round" id="pinAddBtn" type="button" hidden aria-label="Add a pin on the map: proposed pole, site or tower, ODC, ODF or handhole" title="Add a pin on the map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.8-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21Z"/><path d="M12 6.8v6M9 9.8h6"/></svg></button>
+    <button class="round pinadd" id="pinAddBtn" type="button" hidden aria-label="Add Pin: pick what it is (a pole, pull-off, cross-over, closure, dummy NAP box, LCP, handhole, manhole, service box, tower, ODC or OLT), then place it on the map" title="Add Pin: pick what it is, then place it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.8-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21Z"/><path d="M12 6.8v6M9 9.8h6"/></svg><span>Add Pin</span></button>
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
     <button class="round" id="routeFitBtn" type="button" hidden aria-label="Show the whole route" title="Show the whole route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button class="round" id="offlineBtn" hidden aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
