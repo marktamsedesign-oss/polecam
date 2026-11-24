@@ -2796,11 +2796,12 @@
   $('stCabH').addEventListener('input', () => setPl('cab', 'h', +$('stCabH').value)); $('stCabHAuto').addEventListener('click', () => setPl('cab', 'h', 0));
   $('stCabW').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; const w = { ...plStyle().cab.w, [b.dataset.k]: !plStyle().cab.w[b.dataset.k] }; setPl('cab', 'w', w); });
   /* beta 6.7 (UX step 4; critic: Reset… and Use company standard did different things with nothing to tell them apart): Reset… puts every
-     look choice back, Basic to the company standard (PL_STD) and Advanced to its defaults (PL_DEF), and says so first; never this
+     look choice back, Basic to the company standard (PL_STD) and Advanced to its defaults (PL_DEF), and says so first ((Plan style cards):
+     Reset to recommended, the main choices and the others); never this
      project's pole numbers nor the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). beta 6.7 (UX
      step 6; reviewer): it says the owner colours and their legend texts go back to the standard four (RTA_STD). */
   $('stReset').addEventListener('click', async () => {
-    if (!(await ask('Reset Plan style?', `Every look choice goes back: Basic to the company standard, Advanced (sizes, colours, cables and their span length allowance, ${DEF.exp.focPct} %, tower site, location map, map sheets) to its defaults. The owner colours and their legend texts go back to the standard four (${RTA_STD.map((x) => x.text).join(', ')}): owner colours you added are taken off. Not changed: this project’s pole numbers and the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). Use company standard, at the top, changes only the Basic look and keeps your Advanced choices.`, [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
+    if (!(await ask('Reset to recommended?', `Every look choice goes back: the main ones to the company standard, the others (sizes, colours, cables and their span length allowance, ${DEF.exp.focPct} %, tower site, location map, map sheets) to their defaults. The owner colours and their legend texts go back to the standard four (${RTA_STD.map((x) => x.text).join(', ')}): owner colours you added are taken off. Not changed: this project’s pole numbers and More settings › Plan file (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). Use company standard, at the top, changes only the main look and keeps your other choices.`, [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return; // ((Plan style cards): Reset to recommended, was Reset…)
     delete S.plStyle; S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid; S.exp.focPct = DEF.exp.focPct; /* 2.45.1 / beta 6.9: the span length allowance back to 10 % */ persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Plan style: the company standard and the defaults', 2500);
   });
   $('stDone').addEventListener('click', () => closeSheet());
@@ -3199,8 +3200,9 @@
     }
     function pick(key) {
       const rows = rowsOf(key); if (!rows.length) return false;
-      // beta 6.7 (UX step 4): its tab, its section and its Colours and sizes opened (the scene stays: the label tapped is in it)
-      pickAt = Date.now(); const pane = rows[0].closest('[role="tabpanel"]'); if (pane) plTab(pane.id === 'plAdv' ? 'advanced' : 'basic', null, true);
+      // beta 6.7 (UX step 4): its section and its Colours and sizes opened (the scene stays: the label tapped is in it). (Plan style cards):
+      // its card (or More settings and its section), the other cards closed
+      pickAt = Date.now(); plOne(rows.map((x) => x.closest('details.stsec')));
       rows.forEach((x) => { for (let d = x.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) if (!d.open) d.open = true; });
       picked = key; render();
       const root = $('drwStyle'); root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); rows.forEach((x) => x.classList.add('sthl'));
@@ -3226,14 +3228,16 @@
     function wire() {
       if (wired) return; wired = true;
       const root = $('drwStyle');
-      // beta 6.7 (UX step 4): an Advanced section opened shows its part of the plan (Plan file: the scene stays); kept for next time
+      // beta 6.7 (UX step 4): a section opened shows its part of the plan (Plan file: the scene stays). (Plan style cards): a card or a
+      // section of More settings; the last one closed: the street again
       root.querySelectorAll('details.stsec').forEach((d) => d.addEventListener('toggle', () => {
-        if (!d.open) return; if (S.plOpen !== d.id) { S.plOpen = d.id; persist(); }
-        if (!picking() && d.dataset.scene) setScene(d.dataset.scene.split(' ')[0]);
+        if (picking()) return;
+        if (d.open) { if (d.dataset.scene) setScene(d.dataset.scene.split(' ')[0]); return; }
+        if (!root.querySelector('details.stsec[open]')) setScene('street');
       }));
-      // Basic: the street; the photos while a photo row is changed
-      $('plBasic').addEventListener('pointerdown', (e) => { if (e.target.closest('#plPhRow, #plStampRow')) setScene('photo'); else if (e.target.closest('.plb')) setScene('street'); });
-      $('plBasic').addEventListener('focusin', (e) => { if (e.target.closest('#plPhRow, #plStampRow')) setScene('photo'); });
+      // (Plan style cards): one card open at a time: a card (or a section of More settings) opened by a tap closes the others, and comes
+      // up just under the preview, its rows under it
+      root.addEventListener('click', (e) => { const s = e.target.closest('details.stsec > summary'), d = s && s.parentElement; if (!d || d.open) return; plOne([d]); setTimeout(() => { if (d.open) toRow(d); }, 0); });
       // beta 4.3: a tap on the preview: the label under the finger, or the nearest one within reach (the labels are small on a phone); on empty ground the marks go
       $('stPrev').addEventListener('click', (e) => { let best = null; $('stPrev').querySelectorAll('[data-st]').forEach((el) => { const r = el.getBoundingClientRect(); if (!(r.width > 0 || r.height > 0)) return;
           const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right), dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom), d = Math.hypot(dx, dy), ar = r.width * r.height; if (d <= 14 && (!best || d < best.d || (d === best.d && ar < best.ar))) best = { d, ar, k: el.getAttribute('data-st') }; });
@@ -11613,7 +11617,7 @@
   SIG_CEF.forEach(([id, k]) => { const el = $(id); if (!el) return; el.addEventListener('input', () => { cefSetSign({ ...cefSign(), [k]: el.value }); }); el.addEventListener('change', () => { renderSig(); sigLine(); }); });
   /* v2.42.28: the DXF card's links: What to export (on the Drawing) and Plan settings */
   $('dxfWhat').addEventListener('click', () => { const under = stack.includes('drawing'); closeSheet().then(() => { if (!under) { if (!drawOn()) { toast('The Drawing is for As-Plan and As-Built surveys'); return; } openDrawing(); } if (!$('drawing').hidden) setWhat(true, deskOn()); }); });
-  $('dxfSetBtn').addEventListener('click', () => openStyle('basic')); // beta 6.7 (UX step 4): Look · Change › opens Plan style › Basic
+  $('dxfSetBtn').addEventListener('click', () => openStyle('basic')); // beta 6.7 (UX step 4): Look · Change › opens Plan style › Basic ((Plan style cards): its cards)
   $('dxfPdf').addEventListener('change', () => setTimeout(renderDxfMarks, 0));
   /* beta 4.7: Pole labels on the plan: Standard (each pole's details and coordinates turned with the cable, as before) or Tidy (one
      straight label per pole: tag · type, then its clamps, owner and lat/long in smaller text), on the company template only; kept with the export settings */
@@ -11647,7 +11651,7 @@
     // the banners: no template on this phone (Get it); the Simple drawing (Basic's look is the company plan's: greyed, no company standard card)
     $('plBanTpl').hidden = !tpl || !!S.dxfSeed; $('plBanTplGet').textContent = seedId() ? 'Get it' : 'Load it ›'; $('plBanTplGet').disabled = !!seedBusy;
     $('plBanSimple').hidden = tpl;
-    $('plBasic').querySelectorAll('.plb:not(#psNum)').forEach((r) => r.classList.toggle('dim', !tpl));
+    $('drwStyle').querySelectorAll('.plb:not(#psNum)').forEach((r) => r.classList.toggle('dim', !tpl)); // ((Plan style cards): the main rows, in their cards)
     planStdRender(tpl);
   }
   /** The company standard in words, from PL_STD (one place: flipping it there changes this). */
@@ -11663,7 +11667,7 @@
     const P = plStyle();
     S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid;
     S.plStyle = { ...P, num: { ...P.num, rta: { ...P.num.rta, on: PL_STD.rtaOn } }, photo: { ...P.photo, size: PL_STD.photoSize, stamp: PL_STD.photoStamp }, cab: { ...P.cab, boxLoops: PL_STD.boxLoops } };
-    persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Company standard ✓ (your Advanced choices are kept)', 2500);
+    persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Company standard ✓ (your other choices are kept)', 2500); // ((Plan style cards): no Advanced tab now)
   }
   $('psStdUse').addEventListener('click', useStd);
   /** Pole labels Tidy or Standard (Basic, and the Switch of a greyed row). */
@@ -11698,62 +11702,63 @@
       ctl.forEach((c) => { c.setAttribute('aria-disabled', 'true'); c.setAttribute('aria-describedby', w.id); });
     });
   }
-  /** Each Advanced section, closed, says what it is set to (e.g. Pole numbers: Keep · owner colours on · key Off). */
+  /** Each Advanced section, closed, says what it is set to (e.g. Pole numbers: Keep · owner colours on · key Off). (Plan style cards): each
+      card in one line, its main choices first (e.g. Pole numbers: 1, 2, 3… for the whole project · numbers kept · colours by pole owner). */
   function plSums(P) {
     const on = (b) => (b ? 'on' : 'off'), c = numCfg(), set = (id, t) => { const d = $(id), x = d && d.querySelector(':scope > summary .secsum'); if (x) x.textContent = t; };
-    set('stNum', `${S.project ? `${c.keep ? 'Keep the numbers' : 'Renumber at each export'} · ` : ''}owner colours ${on(P.num.rta.on)} · key ${{ off: 'Off', boq: 'under the BOQ tables', sheet: 'on the LEGENDS sheet' }[P.num.rta.legend]}`);
-    set('stPole', `Pole ID ${{ auto: 'Auto', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · sizes ${[P.pole.idH, P.pole.ownH, P.pole.llH, P.span.h].some(Boolean) ? 'your own' : 'Auto'}`);
+    const tidy = S.exp.dxfLabels === 'tidy', key = { off: '', boq: 'key under the BOQ tables', sheet: 'key on the LEGENDS sheet' }[P.num.rta.legend];
+    set('stNum', [S.project ? (c.mode === 'owner' ? 'Each owner from 1' : '1, 2, 3… for the whole project') : '', S.project ? (c.keep ? 'numbers kept' : 'renumbered at each export') : '', P.num.rta.on ? 'colours by pole owner' : 'one colour', P.num.rta.on ? key : ''].filter(Boolean).join(' · '));
+    set('stPole', `${tidy ? 'Tidy labels' : 'Standard labels'} · clamp types ${on(S.exp.dxfClampType !== false)} · pole ID ${{ auto: 'Auto', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]}${[P.pole.idH, P.pole.ownH, P.pole.llH, P.span.h].some(Boolean) ? ' · your own sizes' : ''}`);
+    set('stCab', `${P.cab.on ? `Along each cable: ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'No cable names'}${P.cab.boxLoops ? ' · 20 m loops written' : ''}`);
     set('stId', `${P.id.bold ? 'Bold' : 'Normal'} · ${mmOf(P.id.h)} mm high`); // (beta 6.8, UX step 6: mm on the printed sheet, as its row)
-    set('stCl', S.exp.dxfClampType === false ? 'Clamp types off (Basic)' : S.exp.dxfLabels === 'tidy' ? 'In the pole block (Tidy labels)' : `${{ label: 'In the pole label', tag: 'Small box (tag)', callout: 'Box with a line (callout)' }[P.clamp.place]}${P.clamp.place !== 'label' ? ` · side ${{ auto: 'Auto', up: 'above', down: 'below', left: 'left', right: 'right' }[P.clamp.pos]}` : ''}`);
-    set('stRoute', `${P.cab.route === 'straight' ? 'Straight from point to point' : 'Follows the road'} · name ${on(P.cab.on)} · allowance ${allowPct()} %`); // (2.45.1 / beta 6.9)
-    set('stPh', `${phName(P.photo.size)} · ${phTidyMm(P.photo.size)} mm · near its pole ${P.photo.near} mm`);
+    set('stCl', S.exp.dxfClampType === false ? 'Clamp types off (Pole details and span lengths)' : tidy ? 'In the pole block (Tidy labels)' : `${{ label: 'In the pole label', tag: 'Small box (tag)', callout: 'Box with a line (callout)' }[P.clamp.place]}${P.clamp.place !== 'label' ? ` · side ${{ auto: 'Auto', up: 'above', down: 'below', left: 'left', right: 'right' }[P.clamp.pos]}` : ''}`);
+    set('stRoute', `${P.cab.route === 'straight' ? 'Straight from point to point' : 'Follows the road'} · allowance ${allowPct()} %`); // (2.45.1 / beta 6.9; (Plan style cards): the cable's name is in Cable labels)
+    set('stPh', `${phName(P.photo.size)} (${phTidyMm(P.photo.size)} mm) · ${geoOnPlan() ? 'the geotag stamp' : { off: 'no stamp', ll: 'stamped lat-long', addr: 'stamped lat-long + address' }[P.photo.stamp] || 'no stamp'}`);
     set('stCrowd', P.crowd.auto ? 'Fit automatically' : 'Leave as they are');
     set('stLm', `Icons ${on(P.crowd.icons)} · names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]}`);
     set('stSite', `Name ${{ on: 'on the tower', top: 'top', side: 'side', bottom: 'bottom' }[P.site.name]} · ${P.site.move === 'point' ? 'kept at its point' : 'moved aside'} · ODF ${P.odf.place === 'auto' ? 'Auto' : P.odf.place}`);
     set('stVic', `Zoom ${on(P.vic.zoom)} · circle ${P.vic.area ? 'shown' : 'hidden'}`);
-    set('stGrid', `Split ${P.grid.split ? `1/${P.grid.split}` : 'Auto'} · sheet name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}`);
+    set('stGrid', `Split ${P.grid.split ? `1/${P.grid.split}` : 'Auto'} · ${S.exp.dxfBoqGrid !== false ? 'BOQ table on each sheet' : 'no BOQ table'} · name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}`);
     set('stFile', `${dxfMode() === 'tpl' ? (S.dxfSeed ? 'Company template ✓' : 'Company plan, no template yet') : 'Simple drawing'} · UTM ${S.zone}N · loops in the PMI ${on(S.exp.pmiLoops !== false)}`);
   }
-  /** An Advanced section by its id (stNum…) or the tutorial's part (numbers, sheets, file…); null for none. */
-  const plSec = (k) => { if (!k) return null; const d = $(k) || $(TUT_PLPART[k] || ''); return d && d.matches('#plAdv details.stsec') ? d : null; };
-  /** Basic or Advanced (and the section asked opened): the preview follows (Basic: the street; Advanced: the open section's part). keep:
-      the scene stays (a label tapped on the preview). The tab used last is kept (S.plTab), as the section opened last (S.plOpen). */
-  function plTab(t, sec, keep) {
-    const adv = t === 'advanced';
-    [['plTabB', !adv], ['plTabA', adv]].forEach(([id, on]) => { $(id).setAttribute('aria-selected', String(on)); $(id).tabIndex = on ? 0 : -1; });
-    $('plBasic').hidden = adv; $('plAdv').hidden = !adv;
-    if (S.plTab !== (adv ? 'advanced' : 'basic')) { S.plTab = adv ? 'advanced' : 'basic'; persist(); }
-    const d = adv ? plSec(sec) : null; if (d && !d.open) d.open = true;
-    if (!keep) { const o = d || (adv ? [...$('plAdv').querySelectorAll('details.stsec[open]')].pop() : null); DSP.setScene(o && o.dataset.scene ? o.dataset.scene.split(' ')[0] : 'street'); }
+  /** A section of Plan style, a card or one in More settings, by its id (stNum…) or the tutorial's part (numbers, sheets, file…); null for none. */
+  const plSec = (k) => { if (!k) return null; const d = $(k) || $(TUT_PLPART[k] || ''); return d && d.matches('#drwStyle details.stsec') ? d : null; };
+  /** (Plan style cards): one card open at a time: every card and section of More settings closed but those of keep (an array). */
+  function plOne(keep) { const K = new Set((keep || []).filter(Boolean)); $('drwStyle').querySelectorAll('details.stsec[open]').forEach((d) => { if (!K.has(d)) d.open = false; }); }
+  /** (Plan style cards; were the Basic and Advanced tabs, beta 6.7, UX step 4): a card, or a section of More settings (its id or the
+      tutorial's part), opened and the others closed; more: More settings opened. The preview shows the part of the plan it changes (none
+      opened: the street); keep: the scene stays (a label tapped on the preview). Returns the section opened, or null. */
+  function plShow(sec, keep, more) {
+    const d = plSec(sec);
+    if (d) { plOne([d]); if (!d.open) d.open = true; }
+    if (more || (d && d.closest('#plMore'))) $('plMore').open = true;
+    if (!keep && d) DSP.setScene(d.dataset.scene ? d.dataset.scene.split(' ')[0] : DSP.scene()); // (Plan file has no part of its own: the scene stays)
     return d;
   }
-  /** Plan style: tab 'basic' or 'advanced' (else the one used last), sec: an Advanced section (its id or part) to open and show. top
-      (beta 6.7, UX step 5 fixes, round 2): no section brought into view (the one opened last stays as it is): Find a setting's turn. */
+  /** Plan style: sec, a card or a section of More settings (its id or the tutorial's part) to open and show; tab 'advanced' with no
+      sec: More settings opened (the tutorial's planstyle:advanced; 'basic': the cards, as before). A fresh opening shows the cards, every
+      one closed, from the top (the preview: the street). top (beta 6.7, UX step 5 fixes, round 2): nothing brought into view (Find a
+      setting's turn). */
   function openStyle(tab, sec, top) {
-    const t = tab === 'advanced' || tab === 'basic' ? tab : sec ? 'advanced' : S.plTab === 'advanced' ? 'advanced' : 'basic', s2 = sec || (t === 'advanced' && !top ? S.plOpen : '');
-    if (toSheet('drwStyle')) { const d = plTab(t, s2); setTimeout(() => { if (d) DSP.toRow(d); }, 0); return; }
+    const more = tab === 'advanced' && !sec;
+    if (toSheet('drwStyle')) { const d = plShow(sec, false, more), t = d || (more ? $('plMore') : null); setTimeout(() => { if (t && !top) DSP.toRow(t); }, 0); return; }
     renderDxfTpl(); syncExpUi(); renderNums();
     const side = stack.includes('drawing') && deskOn(); if (side && drwEd) drwEditSet(false); $('drwStyle').classList.toggle('side', side); if (side) document.body.classList.add('drwside'); // (beside the plan it would cover ✎'s route bar: ✎ ends first)
-    DSP.reset(); if ($('plFindQ').value) { $('plFindQ').value = ''; plFindRender(); } plFindReset(); const d = plTab(t, s2); renderStyle(); DSP.render(); openSheet('drwStyle'); // (beta 6.7, UX step 5: Find a setting empty at each opening)
-    setTimeout(() => { const bd = $('drwStyle').querySelector('.dsbody'); if (bd) bd.scrollTop = 0; DSP.onScroll(); if (d) DSP.toRow(d); }, 0); // (from the top, the preview large; a section asked: in view)
+    DSP.reset(); if ($('plFindQ').value) { $('plFindQ').value = ''; plFindRender(); } plFindReset(); // (beta 6.7, UX step 5: Find a setting empty at each opening)
+    plOne(null); $('plMore').open = false; DSP.setScene('street'); const d = plShow(sec, false, more), t = d || (more ? $('plMore') : null); renderStyle(); DSP.render(); openSheet('drwStyle');
+    setTimeout(() => { const bd = $('drwStyle').querySelector('.dsbody'); if (bd) bd.scrollTop = 0; DSP.onScroll(); if (t && !top) DSP.toRow(t); }, 0); // (from the top, the preview large; a card asked: in view)
   }
-  /** v2.42.28's Plan settings: Plan style › Basic (the old name kept for the tests and the tutorial's planset). */
-  function openPlanSet() { openStyle('basic'); }
-  ['plTabB', 'plTabA'].forEach((id) => $(id).addEventListener('click', () => { const adv = id === 'plTabA', d = plTab(adv ? 'advanced' : 'basic', adv ? S.plOpen : ''); if (d) setTimeout(() => DSP.toRow(d), 0); }));
-  // the tabs from the keyboard (critic; ARIA tabs): the arrows go to the other tab, Home to Basic, End to Advanced; the tab chosen has focus
-  document.querySelector('#drwStyle .pltabs').addEventListener('keydown', (e) => {
-    const k = e.key; if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(k)) return; e.preventDefault();
-    const adv = k === 'End' ? true : k === 'Home' ? false : $('plAdv').hidden; plTab(adv ? 'advanced' : 'basic', adv ? S.plOpen : ''); $(adv ? 'plTabA' : 'plTabB').focus();
-  });
-  $('plRtaLink').addEventListener('click', () => { plTab('advanced', 'stNum'); setTimeout(() => DSP.toRow($('stRtaRow')), 0); }); // Owner colours and key ›
+  /** v2.42.28's Plan settings: Plan style, its cards (the old name kept for the tests and the tutorial's planset). */
+  function openPlanSet() { openStyle(); }
+  $('plRtaLink').addEventListener('click', () => { plShow('stNum'); setTimeout(() => DSP.toRow($('stRtaRow')), 0); }); // Owner colours and key › ((Plan style cards): further down its card)
   // beta 7.6 / 2.45.8: Change › under Stamp on the plan's photos (the geotag stamp used): Export's Photos with their locations, its tick marked
   $('stPhStampGeoGo').addEventListener('click', () => {
     const mark = () => { xOpen('doPhotos', { focus: false }); const el = $('setStampPlan'); if (el) requestAnimationFrame(() => { try { el.closest('label').scrollIntoView({ block: 'center' }); el.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } }); };
     if (toSheet('export')) { setTimeout(mark, 450); return; }
     exportPick = 'doPhotos'; $('exportBtn').click(); setTimeout(mark, 450);
   });
-  $('plBanTplGet').addEventListener('click', () => { if (seedId()) { $('dxfTplGet').click(); return; } plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psTpl')), 0); });
-  $('plBanSimpleGo').addEventListener('click', () => { plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psKind')), 0); });
+  $('plBanTplGet').addEventListener('click', () => { if (seedId()) { $('dxfTplGet').click(); return; } plShow('stFile'); setTimeout(() => DSP.toRow($('psTpl')), 0); }); // ((Plan style cards): More settings › Plan file)
+  $('plBanSimpleGo').addEventListener('click', () => { plShow('stFile'); setTimeout(() => DSP.toRow($('psKind')), 0); });
   $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderStyle(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
   ['pmiLoops', 'dxfMode', 'setZone', 'dxfBoqGrid', 'dxfRoads'].forEach((id) => $(id).addEventListener('change', () => setTimeout(() => { if (!$('drwStyle').hidden) renderStyle(); }, 0)));
   $('psBoxLoop').addEventListener('change', () => { setPl('cab', 'boxLoops', $('psBoxLoop').checked); toast($('psBoxLoop').checked ? 'The 20 m loops at boxes and ODF entrances are written on the plan' : 'The loops at boxes and ODF entrances: counted, not written', 2500); }); // beta 6.7: one setting (S.plStyle.cab.boxLoops)
@@ -11781,11 +11786,13 @@
       const c = el.cloneNode(true); c.querySelectorAll('details.help, .dimwhy, .findwhy, output, .secsum, .qhelp, .nopv, [data-find], [data-findx]').forEach((x) => x.remove());
       const w = document.createTreeWalker(c, NodeFilter.SHOW_TEXT), out = []; while (w.nextNode()) out.push(w.currentNode.nodeValue); return out.join(' ').replace(/\s+/g, ' ').trim();
     };
-    plIdx = [...$('drwStyle').querySelectorAll('[data-find], [data-findx]')].filter((el) => el.closest('#plBasic, #plAdv')).map((el) => {
-      const isSec = el.matches('details.stsec'), sec = isSec ? el : el.closest('details.stsec'), basic = !!el.closest('#plBasic'), nd = el.closest('[data-findneed]');
-      const where = ['Plan style', isSec ? 'Advanced' : basic ? 'Basic' : sec ? sec.dataset.find : '', el.closest('details.stcs') ? 'Colours and sizes' : ''].filter(Boolean).join(' › ');
-      return { label: el.dataset.find || el.dataset.findx, where, text: isSec ? '' : words(el), el, tab: basic ? 'basic' : 'advanced', sec: sec ? sec.id : '', main: basic,
-        when: /\btidy\b/.test(el.dataset.dim || '') ? 'Tidy' : el.closest('#dxfSimpleOpts') ? 'Simple drawing' : '', // (main: a Basic choice; when: Sheet split (Tidy) works with Tidy: GESAA_TUTORIAL.settings)
+    // (Plan style cards): where: Plan style › its card (a card itself: Plan style), or Plan style › More settings › its section; main: one of
+    // the main choices (.plb, the rows of Basic before: the company standard's), first among equals
+    plIdx = [...$('drwStyle').querySelectorAll('[data-find], [data-findx]')].filter((el) => el.closest('#plCards, #plMore')).map((el) => {
+      const isSec = el.matches('details.stsec'), sec = isSec ? el : el.closest('details.stsec'), more = !!el.closest('#plMore'), nd = el.closest('[data-findneed]');
+      const where = ['Plan style', more ? 'More settings' : '', !isSec && sec ? sec.dataset.find : '', el.closest('details.stcs') ? 'Colours and sizes' : ''].filter(Boolean).join(' › ');
+      return { label: el.dataset.find || el.dataset.findx, where, text: isSec ? '' : words(el), el, sec: sec ? sec.id : '', main: el.classList.contains('plb'),
+        when: /\btidy\b/.test(el.dataset.dim || '') ? 'Tidy' : el.closest('#dxfSimpleOpts') ? 'Simple drawing' : '', // (main: a main choice; when: Sheet split (Tidy) works with Tidy: GESAA_TUTORIAL.settings)
         need: nd ? nd.dataset.findneed : '', why: nd ? nd.dataset.findwhy || '' : '', how: nd ? nd.dataset.findhow || '' : '', offIf: nd ? nd.dataset.findoff || '' : '' };
     });
     return plIdx;
@@ -11796,7 +11803,7 @@
       or Export opens, so right after launch the Tutorial's search read the Simple drawing's rows as shown. The screen still tells for a
       row with no data-findoff. */
   const PL_OFF = { tpl: () => dxfMode() === 'tpl' }; // (data-findoff="tpl": hidden while Kind of drawing is the company plan)
-  const plOff = (e) => { if (e.offIf && PL_OFF[e.offIf]) return PL_OFF[e.offIf](); for (let x = e.el; x && !x.matches('#plBasic, #plAdv'); x = x.parentElement) if (x.hidden) return true; return false; };
+  const plOff = (e) => { if (e.offIf && PL_OFF[e.offIf]) return PL_OFF[e.offIf](); for (let x = e.el; x && !x.matches('#plCards, #plMore'); x = x.parentElement) if (x.hidden) return true; return false; };
   /** Where a row is, and when it is used if it is hidden now: Plan style › Plan file · only with the Simple drawing (beta 6.7). */
   const plWhere = (r) => (r.off && r.e.why ? `${r.e.where} · ${r.e.why}` : r.e.where);
   /** The settings for q, the best first: [{ e (the row), score, label (words in its label), strong (every word in its label or place),
@@ -11855,11 +11862,11 @@
     const need = e.need && plOff(e) ? $(e.need) : null; // (from the setting itself: right after launch too, before renderDxfTpl has run)
     if (need) {
       const ns = need.closest('details.stsec'), name = e.when && e.label.endsWith(`(${e.when})`) ? e.label.slice(0, -(e.when.length + 2)).trim() : e.label;
-      openStyle(need.closest('#plBasic') ? 'basic' : 'advanced', ns ? ns.id : ''); plPend = e;
+      openStyle('', ns ? ns.id : ''); plPend = e; // ((Plan style cards): its card, or More settings and its section)
       setTimeout(() => plMark(need, { note: `${name}: ${e.why}. ${e.how}`.trim(), focus: need.querySelector('select, input, button') }), 80);
       return;
     }
-    plPend = null; openStyle(e.tab, e.sec);
+    plPend = null; openStyle('', e.sec);
     setTimeout(() => plMark(e.el), 80);
   }
   /** beta 6.7 (UX step 5 fixes): the Tutorial's More ›: Plan style (over the screen the Tutorial was opened on), Find a setting
@@ -13875,16 +13882,19 @@
   const TUT_SCREEN = { map: '', projects: 'projects', newProject: 'newProj', projectDetails: 'projects', records: 'list', export: 'export', settings: 'settings',
     profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin', planset: 'drwStyle', planstyle: 'drwStyle', team: 'teamSheet', mbxset: 'mbxSetSheet' };
   /* beta 6.7 (UX step 1, 4): go 'planstyle' (Plan style; 'planset' is its old name) or 'planstyle:<part>': basic, advanced, or the
-     Advanced section that is the part (opened, its part of the plan in the preview). */
-  const TUT_PLPART = { numbers: 'stNum', details: 'stPole', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
+     Advanced section that is the part (opened, its part of the plan in the preview). (Plan style cards): the part is a card (numbers,
+     details, labels, photos, landmarks, vicinity, sheets) or a section of More settings (boxes, clamps, cables, crowded, site, file);
+     basic: the cards; advanced: More settings. */
+  const TUT_PLPART = { numbers: 'stNum', details: 'stPole', labels: 'stCab', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
   const tutGoBase = (go) => String(go || '').split(':')[0];
   const tutHlEl = (st) => { try { return st && st.hl ? document.querySelector(st.hl) : null; } catch (e) { return null; } };
-  /** beta 6.7 (UX step 4): Plan style's tab and Advanced section for a step: its part, else where its control is. */
+  /** beta 6.7 (UX step 4): Plan style's card or section of More settings for a step: its part, else where its control is. (Plan style
+      cards): more: More settings opened (the part advanced, or a control in it). */
   const tutPlanAt = (go, st) => {
-    const part = String(go || '').split(':')[1] || '', el = tutHlEl(st), sec = TUT_PLPART[part] ? $(TUT_PLPART[part]) : el && el.closest('#plAdv details.stsec');
-    return { tab: part === 'basic' ? 'basic' : part === 'advanced' || sec || (el && el.closest('#plAdv')) ? 'advanced' : 'basic', sec: sec ? sec.id : '' };
+    const part = String(go || '').split(':')[1] || '', el = tutHlEl(st), sec = TUT_PLPART[part] ? $(TUT_PLPART[part]) : el && el.closest('#drwStyle details.stsec');
+    return { more: part === 'advanced' || !!(sec && sec.closest('#plMore')) || !!(el && el.closest('#plMore')), sec: sec ? sec.id : '' };
   };
-  const tutPlanOn = (go, st) => { const a = tutPlanAt(go, st); return tutTop() === 'drwStyle' && $(a.tab === 'advanced' ? 'plAdv' : 'plBasic').hidden === false && (!a.sec || $(a.sec).open); };
+  const tutPlanOn = (go, st) => { const a = tutPlanAt(go, st); return tutTop() === 'drwStyle' && (!a.more || $('plMore').open) && (!a.sec || $(a.sec).open); };
   const tutTop = () => stack[stack.length - 1] || '';
   const tutOnScreen = (go, st) => { const g = tutGoBase(go); return g === 'map' ? !stack.length : g === 'projectDetails' ? tutTop() === 'projects' && $('curMore').open : g === 'planstyle' || g === 'planset' ? tutPlanOn(go, st) : tutTop() === TUT_SCREEN[g]; };
   const tutModal = () => ['askBox', 'pinBox', 'promptBox', 'qrShow', 'busy', 'qrScan'].some((id) => { const e = $(id); return e && !e.hidden; });
@@ -13897,8 +13907,8 @@
       case 'projectDetails': if (tutTop() !== 'projects') openProjects(); await tutWait(150); $('curMore').open = true; break;
       case 'records': if (tutTop() !== 'list') $('listBtn').click(); break;
       case 'export': if (tutTop() !== 'export') $('exportBtn').click(); break;
-      case 'planset': case 'planstyle': { // v2.42.28; beta 6.7 (UX step 1): planstyle, planstyle:<part>; UX step 4: Plan style's tab and section
-        const a = tutPlanAt(go, st); openStyle(a.tab, a.sec); await tutWait(120); // (a section without a control: its heading just under the preview)
+      case 'planset': case 'planstyle': { // v2.42.28; beta 6.7 (UX step 1): planstyle, planstyle:<part>; UX step 4: Plan style's tab and section ((Plan style cards): its card)
+        const a = tutPlanAt(go, st); openStyle(a.more ? 'advanced' : '', a.sec); await tutWait(120); // (a section without a control: its heading just under the preview)
         break;
       }
       case 'team': if (tutTop() !== 'teamSheet') { if (tutTop() !== 'settings') { $('settingsBtn').click(); await tutWait(150); } $('goTeam').click(); } break; // v2.43
@@ -13925,13 +13935,12 @@
   }
   /** beta 6.7 (UX step 1): the Export card that holds the step's control (its "do…" button id; #prCard, #sigBox… too), or ''. */
   const tutXCard = (st) => { const el = tutHlEl(st), c = el && el.closest('#export .xcard'), k = c ? xKey(c) : ''; return k && exportCards().includes(c) ? k : ''; }; // (beta 6.7, UX step 3: the row's own button id: doBackup, not the Restore link under it)
-  /** beta 6.7 (UX step 1): on the screen on top, what hides the step's control is opened: its tab (Plan style's Basic | Advanced),
-      its Export card, the closed folds (details: an Advanced section, its Colours and sizes) around it. true: something was opened. */
+  /** beta 6.7 (UX step 1): on the screen on top, what hides the step's control is opened: its Export card, the closed folds (details:
+      a card of Plan style, More settings and its sections, their Colours and sizes) around it. true: something was opened. */
   function tutUnfold(el) {
     const sh = el.closest('section.sheet'); if (!sh || sh.hidden || sh.id !== tutTop()) return false;
     let did = false;
-    const pane = el.closest('[role="tabpanel"][hidden]'), tab = pane && pane.id ? sh.querySelector(`[role="tab"][aria-controls="${pane.id}"]`) : null; // (Plan style's Basic | Advanced, step 4)
-    if (tab) { tab.click(); did = true; }
+    if (sh.id === 'drwStyle') { const d = el.closest('details.stsec'); if (d && !d.open) { plOne([d]); did = true; } } // ((Plan style cards): one card open at a time)
     const xc = el.closest('#export .xcard'), xk = xc ? xKey(xc) : ''; // beta 6.7 (UX step 3): the row is opened (one at a time); Several at once for its ticks and its ZIP button
     if (xk && exportCards().includes(xc) && !xc.classList.contains('xopen') && !xc.classList.contains('xmany')) { showExport(xk); did = true; }
     if (!xMany && el.closest('#xMulti, #xGoBox') && sh.id === 'export') { xManyOn([]); did = true; }

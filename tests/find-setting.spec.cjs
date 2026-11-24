@@ -16,6 +16,8 @@
    - (round 2) More › with Plan style used last on Advanced (a section open far down, a row just marked): Find a setting and its
      results on the screen under the preview, from the top, focus on the first result, nothing marked; and the same with the
      Tutorial opened over Plan style (its Search the Tutorial link).
+   (Plan style cards) the Basic and Advanced tabs became cards and More settings: a row's place is Plan style › its card, or Plan style ›
+   More settings › its section; the old saved tab and section (plTab, plOpen) are no longer used.
    Uses an isolated browser profile and a local HTTP server; no production data. */
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -119,7 +121,7 @@ for (const size of ['phone', 'small']) {
     try {
       for (const [q, label, name] of [['photo width', 'Photo width (Simple drawing)', 'Photo width'], ['pole circle size', 'Pole circle size (Simple drawing)', 'Pole circle size']]) { // (2.45.1 / beta 6.9: FOC % moved to Cables)
         const where = await find(page, q, label);
-        assert.match(where, /Plan style › Plan file · only with the Simple drawing$/);
+        assert.match(where, /Plan style › More settings › Plan file · only with the Simple drawing$/); // ((Plan style cards): in More settings)
         const m = await marked(page);
         assert.ok(m && m.label === 'Kind of drawing' && m.focus, `${q}: ${JSON.stringify(m)}`);
         assert.equal(m.note, `${name}: only with the Simple drawing. To use it, choose Simple points and photos here.`);
@@ -147,7 +149,7 @@ for (const size of ['phone', 'small']) {
     try {
       for (const q of ['allowance', 'foc', 'extra cable', 'sag', 'wastage']) {
         const where = await find(page, q, ALLOW);
-        assert.equal(where, 'Plan style › Cables', q);
+        assert.equal(where, 'Plan style › More settings › Cables', q);
         const m = await marked(page);
         assert.ok(m && m.label === ALLOW && m.focus && !m.note, `${q}: ${JSON.stringify(m)}`);
         assert.equal(await onTop(page, '[data-tmark]'), true, `${q}: the row marked is on top`);
@@ -155,14 +157,14 @@ for (const size of ['phone', 'small']) {
       }
       assert.equal(await page.inputValue('#focPct'), '10', 'never set: 10 %');
       await page.fill('#focPct', '15'); await page.locator('#focPct').blur(); await page.waitForTimeout(300);
-      assert.deepEqual(await page.evaluate(() => [window.__polecam.S.exp.focPct, JSON.parse(localStorage.getItem('polecam.settings')).exp.focPct, document.querySelector('#stRoute .secsum').textContent]), [15, 15, 'Follows the road · name on · allowance 15 %']);
+      assert.deepEqual(await page.evaluate(() => [window.__polecam.S.exp.focPct, JSON.parse(localStorage.getItem('polecam.settings')).exp.focPct, document.querySelector('#stRoute .secsum').textContent]), [15, 15, 'Follows the road · allowance 15 %']); // ((Plan style cards): the cable's name is in Cable labels)
       await page.fill('#focPct', '80'); await page.locator('#focPct').blur(); await page.waitForTimeout(300);
       assert.equal(await page.evaluate(() => window.__polecam.S.exp.focPct), 50, 'at most 50 %');
       assert.equal(await page.inputValue('#focPct'), '50');
       await tutOpen(page, 'span length allowance');
       const row = page.locator('#tutList .tutset').filter({ has: page.locator('b', { hasText: ALLOW }) }).first();
       assert.equal(await row.count(), 1, 'the Tutorial lists the setting');
-      assert.equal(await row.locator('small').textContent(), 'Plan style › Cables');
+      assert.equal(await row.locator('small').textContent(), 'Plan style › More settings › Cables');
       await tap(page, row); await page.waitForTimeout(800);
       const m = await marked(page);
       assert.ok(m && m.label === ALLOW && m.focus, `Show me: ${JSON.stringify(m)}`);
@@ -176,8 +178,8 @@ for (const size of ['phone', 'small']) {
 test('small: every row of Plan style, found by its label and tapped, is marked, on top and focused (company plan)', async () => {
   const { ctx, page, errors } = await open('small');
   try {
-    const rows = await page.evaluate(() => [...document.querySelectorAll('#drwStyle [data-find], #drwStyle [data-findx]')].filter((el) => el.closest('#plBasic, #plAdv')).map((el, i) => {
-      el.dataset.tfa = String(i); let off = false; for (let x = el; x && !x.matches('#plBasic, #plAdv'); x = x.parentElement) if (x.hidden) off = true;
+    const rows = await page.evaluate(() => [...document.querySelectorAll('#drwStyle [data-find], #drwStyle [data-findx]')].filter((el) => el.closest('#plCards, #plMore')).map((el, i) => {
+      el.dataset.tfa = String(i); let off = false; for (let x = el; x && !x.matches('#plCards, #plMore'); x = x.parentElement) if (x.hidden) off = true;
       return { i, label: el.dataset.find || el.dataset.findx, off };
     }));
     assert.ok(rows.length >= 85, `${rows.length} rows`);
@@ -255,8 +257,8 @@ for (const size of Object.keys(SIZES)) {
         await tutOpen(page, q);
         const row = page.locator('#tutList .tutset').filter({ has: page.locator('b', { hasText: label }) }).first();
         assert.equal(await row.count(), 1, `${q}: the setting row`);
-        assert.equal(await row.locator('small').textContent(), 'Plan style › Plan file · only with the Simple drawing', `${q}: its place`);
-        assert.match(await row.getAttribute('aria-label'), /in Plan style › Plan file · only with the Simple drawing\. Show me$/, `${q}: its aria-label`);
+        assert.equal(await row.locator('small').textContent(), 'Plan style › More settings › Plan file · only with the Simple drawing', `${q}: its place`);
+        assert.match(await row.getAttribute('aria-label'), /in Plan style › More settings › Plan file · only with the Simple drawing\. Show me$/, `${q}: its aria-label`);
         await tap(page, row); await page.waitForTimeout(800);
         const m = await marked(page);
         assert.ok(m && m.label === 'Kind of drawing' && m.focus, `${q}: ${JSON.stringify(m)}`);
