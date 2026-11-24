@@ -3,7 +3,7 @@
    (beta 7.8, Drawing photos) only: 'report': out is { report } (the Drawing's preview of where the plan puts the photos needs no DXF).
    (beta 7.9, Drawing preview) only: 'plan': out is { report, plan }: plan, the plan's model space as its PDF prints it (dxfpdf.js's planList: the
    same drawing code as the PDF), for the Drawing to draw; what is on or near its GEO sheets, their grid left out (the Drawing draws the
-   sheets itself); its arrays sent, not copied. plan null (perr: why) when it cannot be made: the report still comes. (Drawing labels) plan.own:
+   sheets itself); its arrays sent, not copied. plan null (perr: why) when it cannot be made: the report still comes. (beta 7.10, Drawing labels) plan.own:
    each item's index in report.movable (the label, number, pole details or photo it draws), sent too. */
 importScripts('dxftpl.js');
 self.onmessage = (ev) => {

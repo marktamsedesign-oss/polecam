@@ -12,7 +12,7 @@
      GeDxfPdf.toPdf(dxfText, { images: { 'VICINITY_MAP.jpg': Uint8Array (JPEG), … }, title, deflate: async (bytes) => bytes })
      → Promise<Uint8Array> (the PDF), with .report = { sheets, pictures, missing }
    (beta 7.9, Drawing preview) GeDxfPdf.planList(dxfText, report) → the plan's model space as its GEO sheets print it, drawn by the same draw(), as a
-     display list in model metres for the Drawing screen (modelList); toPdf's output is the same as before, byte for byte. (Drawing labels) Each
+     display list in model metres for the Drawing screen (modelList); toPdf's output is the same as before, byte for byte. (beta 7.10, Drawing labels) Each
      item of it says which of report.movable it draws (own). */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./dxftpl.js'), require('./reports.js'));
@@ -176,7 +176,7 @@
       let ins = null, insInh = null; // beta 7.4 / 2.45.6: the block reference the attributes after it belong to
       for (let n = 0; n < recs.length; n++) {
         const r = recs[n], t = typ(r), lay = get(r, 8, '0');
-        if (ctx.tag && !ctx.depth) { const w = ctx.tag.get(get(r, 5)); ctx.tag.cur = w != null ? w : (t === 'ATTRIB' || t === 'SEQEND') && ctx.tag.has(owner(r)) ? ctx.tag.get(owner(r)) : -1; } // ((Drawing labels) the item this record draws, for the Drawing: report.movable)
+        if (ctx.tag && !ctx.depth) { const w = ctx.tag.get(get(r, 5)); ctx.tag.cur = w != null ? w : (t === 'ATTRIB' || t === 'SEQEND') && ctx.tag.has(owner(r)) ? ctx.tag.get(owner(r)) : -1; } // ((beta 7.10, Drawing labels) the item this record draws, for the Drawing: report.movable)
         if (t === 'INSERT') { ins = r; insInh = null; } else if (t !== 'ATTRIB') ins = null;
         if (t === 'SEQEND' || t === 'ATTDEF' || t === 'VIEWPORT' || t === 'VERTEX') continue;
         const L = LAY.get(lay); if ((L && L.off) || ctx.frozen.has(lay) || int(r, 60, 0) === 1) { if (t === 'POLYLINE') while (n + 1 < recs.length && typ(recs[n + 1]) === 'VERTEX') n++; continue; }
@@ -399,7 +399,7 @@
       const vp = vps.find((v) => Math.abs(num(v, 40, 0) - num(v, 41, 0)) < 1) || vps[0]; if (!vp) return null; // (its map: the square one the plan aims, else the largest)
       const K = pp.k * num(vp, 41, 0) / num(vp, 45, 0), ox = +((mo.origin || [])[0]) || 0, oy = +((mo.origin || [])[1]) || 0, skip = new Set(mo.skip || []), ops = [];
       const frozen = new Set([...all(vp, 331), ...all(vp, 341)].map((h2) => LH.get(h2)).filter(Boolean));
-      const tag = mo.tag instanceof Map && mo.tag.size ? mo.tag : null, opOwn = tag ? [] : null; // ((Drawing labels) mo.tag: handle → item: each operator's item (opOwn), as drawn)
+      const tag = mo.tag instanceof Map && mo.tag.size ? mo.tag : null, opOwn = tag ? [] : null; // ((beta 7.10, Drawing labels) mo.tag: handle → item: each operator's item (opOwn), as drawn)
       if (tag) { tag.cur = -1; ops.push = function (...a) { for (const x of a) { Array.prototype.push.call(this, x); opOwn.push(tag.cur); } return this.length; }; }
       draw(skip.size ? model.filter((r) => !skip.has(get(r, 5))) : model, [K, 0, 0, K, -ox * K, -oy * K], { ops, k: K, ltk: pp.k, frozen, inh: { color: [0, 0, 0], lw: -3, lt: null }, depth: 0, cull: mo.cull || null, tag });
       return { ops, opOwn, K, sheet: L.name, origin: [ox, oy], frozen: [...frozen].sort(), files: Object.fromEntries([...images.values()].filter(Boolean).map((im) => [`Im${im.idx}`, im.file])) };
@@ -470,12 +470,12 @@
 
   /* (beta 7.9, Drawing preview) The plan's model space as the plan's sheets print it, for a canvas (the Drawing screen): modelOps' PDF operators
      read back as a PDF reader reads them, so what the canvas draws is what the PDF prints (the same lines, colours, line weights, line
-     types, texts and symbols). o: { origin: [x, y], cull: [x0, y0, x1, y1], skip: [handle…], sheet, tag } (model units; (Drawing labels) tag: a Map
+     types, texts and symbols). o: { origin: [x, y], cull: [x0, y0, x1, y1], skip: [handle…], sheet, tag } (model units; (beta 7.10, Drawing labels) tag: a Map
      of entity handles to the item each draws (a number)). Returns null without
      a plan sheet, else { K: pt per model unit printed, sheet, origin, frozen, pts: Float32Array (x, y in model units from the origin),
      subs: Int32Array ([first point, points, closed] each subpath), items: Int32Array ([kind, index, first subpath, subpaths] each, in the
      order printed; kind 0: a line (index: styles), 1: a fill, 2: an even-odd fill, 3: a text (index: texts), 4: a picture (index: images)),
-     boxes: Float32Array ([x0, y0, x1, y1] each item), own: Int32Array (each item's tag: the item its entity draws, -1: none; (Drawing labels)),
+     boxes: Float32Array ([x0, y0, x1, y1] each item), own: Int32Array (each item's tag: the item its entity draws, -1: none; (beta 7.10, Drawing labels)),
      styles: [{ c: '#rrggbb', w, cap, join, dash }], texts: [{ s, f: 0 Helvetica, 1 bold,
      2 oblique, 3 bold oblique, c, m: [a, b, c, d, e, f] (1 em to model units), w: its Helvetica width (em), sc, lw: an SHX font's
      strokes, their colour and width (em) }], images: [{ name: its file, m: [a, b, c, d, e, f] (its unit square to model units) }]: each
@@ -487,16 +487,16 @@
   }
   /** (beta 7.9, Drawing preview) The plan's model space for the Drawing, from the plan made (dxftpl.js: its text and report): what is on its GEO sheets
    *  and a quarter of a sheet round them, from the grid's origin, the grid's own lines and names left out (report.grid: the Drawing draws the
-   *  sheets itself). As modelList; null without a grid. (Drawing labels) own: each item's index in report.movable (the label, number, pole
+   *  sheets itself). As modelList; null without a grid. (beta 7.10, Drawing labels) own: each item's index in report.movable (the label, number, pole
    *  details or photo its entity draws; -1: none), so the Drawing can find, outline and move one. */
   function planList(text, report) {
     const G = (report && report.grid) || {}, B = (G.sheets || []).map((x) => x.box), m = (+G.cell || 440) * 0.25; if (!B.length) return null;
     const cull = [Math.min(...B.map((b) => b[0])) - m, Math.min(...B.map((b) => b[1])) - m, Math.max(...B.map((b) => b[2])) + m, Math.max(...B.map((b) => b[3])) + m];
-    const tag = new Map(); ((report && report.movable) || []).forEach((it, i) => (it.handles || []).forEach((h) => tag.set(h, i))); // ((Drawing labels) each item the Drawing may move: its index in report.movable, own)
+    const tag = new Map(); ((report && report.movable) || []).forEach((it, i) => (it.handles || []).forEach((h) => tag.set(h, i))); // ((beta 7.10, Drawing labels) each item the Drawing may move: its index in report.movable, own)
     return modelList(text, { origin: G.origin || [0, 0], cull, skip: G.ents || [], tag });
   }
   function listOf(ops, K, files, opOwn) {
-    const P = [], SUB = [], IT = [], BX = [], OWN = [], styles = [], sIdx = new Map(), texts = [], images = [], stack = [], A = []; let ow = -1; // ((Drawing labels) OWN: each item's report.movable index (-1: none), from opOwn)
+    const P = [], SUB = [], IT = [], BX = [], OWN = [], styles = [], sIdx = new Map(), texts = [], images = [], stack = [], A = []; let ow = -1; // ((beta 7.10, Drawing labels) OWN: each item's report.movable index (-1: none), from opOwn)
     let g = { S: '#000000', F: '#000000', w: 1, J: 0, j: 0, d: null, f: 0, tr: 0, tw: 0, cm: null }, tm = null, sub0 = 0, cur = -1, b = null;
     const hex = (x, y, z) => `#${[x, y, z].map((v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, '0')).join('')}`;
     const styleIx = (key, mk) => { let i = sIdx.get(key); if (i == null) { i = styles.length; styles.push(mk()); sIdx.set(key, i); } return i; };

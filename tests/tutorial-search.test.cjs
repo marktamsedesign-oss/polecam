@@ -113,7 +113,7 @@ const LINES = [
   ['Drawing photos', '!drag a photo · !back to automatic · photo placed by hand · move photo on the drawing', 'drawing'],
   // (beta 7.9, Drawing preview): the Drawing shows the plan as its PDF prints it, its sheet grid, Regenerate plan preview
   ['Drawing preview', '!regenerate plan preview · plan preview · sheet grid · drawing grid · pdf preview on the drawing', 'drawing'],
-  // (Drawing labels): on the Drawing, drag a cable label, a pole number or a pole's details to place it by hand; Undo; Back to automatic for all
+  // (beta 7.10, Drawing labels): on the Drawing, drag a cable label, a pole number or a pole's details to place it by hand; Undo; Back to automatic for all
   ['Drawing labels', '!drag a label · !move pole details · move cable label · move pole number · undo on the drawing · labels placed by hand', 'drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],

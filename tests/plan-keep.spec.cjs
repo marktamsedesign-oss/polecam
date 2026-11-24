@@ -1,4 +1,4 @@
-/* (Plan kept) The plan edited on the Drawing stays as edited, the Drawing is the plan the export makes, and nothing drawn on it is left off the
+/* (beta 7.10, Plan kept) The plan edited on the Drawing stays as edited, the Drawing is the plan the export makes, and nothing drawn on it is left off the
    printed sheets (the owner, beta 7.9: "the edited drawing of the project was not saved… if i go back to the first project i edit… it regenerate
    the preview with photos and grid and others not the same"; "some photos has no grid box"). Run: node --test tests/plan-keep.spec.cjs (or
    python3 tests/run_all.py --only plan-keep).

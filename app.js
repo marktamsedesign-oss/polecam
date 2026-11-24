@@ -979,10 +979,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.45.11';
+  const APP_VER = '2.45.12';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '7.9'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '7.10'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -2117,7 +2117,7 @@
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
     drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), ia: String(h.a), ib: String(h.b), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     drw.blocks = drwBlocks(items, R, U); // v2.42.24: the dummy NAPs and closures on the cable
-    { const M = drwPhMem.get(S.project); drw.ph = M && M.row === rowIdx() && dxfMode() === 'tpl' ? M : null; drw.selPh = null; drw.phHit = []; drw.plWant = !!drw.ph; drwPlanUi(); } // (beta 7.8, Drawing photos) where the plan put the photos last time, until the preview comes (drwPhRun) ((Plan kept) its roads: those kept with the project, planRoadsOf)
+    { const M = drwPhMem.get(S.project); drw.ph = M && M.row === rowIdx() && dxfMode() === 'tpl' ? M : null; drw.selPh = null; drw.phHit = []; drw.plWant = !!drw.ph; drwPlanUi(); } // (beta 7.8, Drawing photos) where the plan put the photos last time, until the preview comes (drwPhRun) ((beta 7.10, Plan kept) its roads: those kept with the project, planRoadsOf)
     { const byI = new Map(items.map((it) => [String(it.p.id), it])); // beta 6.9: each pull-off and cross-over, its poles on the Drawing
       drw.jns = items.filter((it) => JN[it.el]).map((it) => ({ it, att: jnAtt(it.p).map((q) => byI.get(String(q.id))).filter(Boolean) })); }
     drw.pts = pts; drwXHid(); // beta 6.2: the points as exported (clamps); the hidden ones' chip
@@ -2145,7 +2145,7 @@
     if (window.GeDxfTpl && window.GeDxfTpl.markOrder) go(); else loadScript('dxftpl.js').then(go).catch((e) => LOG.warn('draw.seq', errInfo(e)));
   }
   /* (beta 7.8, Drawing photos) The photos where the plan puts them: with the company template on the phone, the Drawing makes the plan of the
-     drawing it shows (planJob, as Export › Plan drawing makes it, quietly: (Plan kept) the roads kept with the project, no photo files) in a worker of
+     drawing it shows (planJob, as Export › Plan drawing makes it, quietly: (beta 7.10, Plan kept) the roads kept with the project, no photo files) in a worker of
      its own, and draws each photo's frame where report.photoAt says, at its size, with its line to its pole when the plan has one: from
      the pole as the Drawing shows it (the plan draws the pole beside its road, dp; the photo keeps its place from it). Made again when the
      Drawing opens, when its drawing, points or plan style change, and after a photo is moved; a newer one, an export or Back stops the one
@@ -2184,10 +2184,10 @@
     let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before)
     if (res.perr) LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) });
     const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
-      planAt: rep.photoAt, fileId: Object.fromEntries(Object.entries(job.photos || {}).map(([id, x]) => [x.file, id])), lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (Plan kept) the labels and split it was made with)
-      mv: Array.isArray(rep.movable) ? rep.movable : null, mvIdx: new Map((rep.movable || []).map((m, i) => [m.id, i])) }; // ((Drawing labels) the items the Drawing may move, and each one's place in that list)
+      planAt: rep.photoAt, fileId: Object.fromEntries(Object.entries(job.photos || {}).map(([id, x]) => [x.file, id])), lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (beta 7.10, Plan kept) the labels and split it was made with)
+      mv: Array.isArray(rep.movable) ? rep.movable : null, mvIdx: new Map((rep.movable || []).map((m, i) => [m.id, i])) }; // ((beta 7.10, Drawing labels) the items the Drawing may move, and each one's place in that list)
     for (const [k, v] of drwPhMem) if (k !== proj && v.plan) drwPhMem.set(k, { ...v, plan: null, sig: '' }); // (one project's plan kept at a time: another one opened makes its own again)
-    drwPhMem.set(proj, ph); planGridKeep(proj, ph.grid, ph.lab, ph.split); /* ((Plan kept) photos placed by hand and no grid kept yet, e.g. placed before: this one's) */ LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length, force: !!force, ...(plan ? { plan: { ...plan.count, ms: res.plan.ms } } : {}) }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker; plan: its display list, made in ms after the plan)
+    drwPhMem.set(proj, ph); planGridKeep(proj, ph.grid, ph.lab, ph.split); /* ((beta 7.10, Plan kept) photos placed by hand and no grid kept yet, e.g. placed before: this one's) */ LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length, force: !!force, ...(plan ? { plan: { ...plan.count, ms: res.plan.ms } } : {}) }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker; plan: its display list, made in ms after the plan)
     if (!drw || drw.project !== proj || $('drawing').hidden) return;
     drw.ph = ph; drw.phBusy = false; drwPlanShow(force);
   }
@@ -2209,12 +2209,12 @@
     const ph = await dbGet('photos', pid).catch(() => null), b0 = ph && ph.clean; if (!(b0 instanceof Blob) || !b0.size) return null;
     const k = `${pid}|${b0.size}`; if (phDimC.has(k)) return phDimC.get(k);
     let wh = null;
-    for (const n of [131072, b0.size]) { try { const b = new Uint8Array(await b0.slice(0, n).arrayBuffer()); if (b[0] === 0xff && b[1] === 0xd8) { wh = window.PoleReports.jpegInfo(b); if (wh && jpegTurned(b)) wh = { w: wh.h, h: wh.w }; } } catch (e) { wh = null; } if (wh || n >= b0.size) break; } // ((Plan kept) turned a quarter by its EXIF orientation: as the export's decode shows it)
+    for (const n of [131072, b0.size]) { try { const b = new Uint8Array(await b0.slice(0, n).arrayBuffer()); if (b[0] === 0xff && b[1] === 0xd8) { wh = window.PoleReports.jpegInfo(b); if (wh && jpegTurned(b)) wh = { w: wh.h, h: wh.w }; } } catch (e) { wh = null; } if (wh || n >= b0.size) break; } // ((beta 7.10, Plan kept) turned a quarter by its EXIF orientation: as the export's decode shows it)
     if (!wh) { try { const im = await loadImage(b0); wh = dims(im); if (im.close) im.close(); } catch (e) { wh = null; } } // (not a JPEG the header reader knows: decoded)
     const sc = wh && wh.w > 0 && wh.h > 0 ? Math.min(1, 800 / Math.max(wh.w, wh.h)) : 0, out = sc ? { w: Math.round(wh.w * sc), h: Math.round(wh.h * sc) } : null;
     if (phDimC.size > 5000) phDimC.clear(); phDimC.set(k, out); return out;
   }
-  /** (Plan kept) A JPEG whose EXIF orientation turns it a quarter (5 to 8): the phone's decoder (imageOrientation from-image, as the export's
+  /** (beta 7.10, Plan kept) A JPEG whose EXIF orientation turns it a quarter (5 to 8): the phone's decoder (imageOrientation from-image, as the export's
    *  pdfJpeg reads it) shows it with its width and height swapped, so the preview's photo size swaps them too. b: its first bytes. */
   function jpegTurned(b) {
     let i = 2;
@@ -2244,7 +2244,7 @@
   function drwPhFrame(g, d, it, A, placed, pl) {
     const id = String(it.p.id), dr = drw.phDrag && drw.phDrag.id === id ? drw.phDrag : null, sh = pl ? [0, 0] : [it.xy[0] - A.dp[0], it.xy[1] - A.dp[1]], at = (q) => drwPx([q[0] + sh[0], q[1] + sh[1]]);
     let [cx, cy] = at([A.x, A.y]); if (dr) { cx += dr.dx; cy += dr.dy; }
-    if (pl) { const mo = drwMvPhOff(id); cx += mo[0] * drw.view.sc; cy -= mo[1] * drw.view.sc; } // ((Drawing labels) its block moved: with it)
+    if (pl) { const mo = drwMvPhOff(id); cx += mo[0] * drw.view.sc; cy -= mo[1] * drw.view.sc; } // ((beta 7.10, Drawing labels) its block moved: with it)
     const sc = drw.view.sc, w = Math.max(8 * d, A.w * sc), h = Math.max(8 * d, A.h * sc), rot = -(+A.rot || 0) * Math.PI / 180, hand = A.how === 'by hand', sel = String(drw.selPh) === id;
     if (dr) { const [px, py] = drwPx(pl ? A.dp : it.xy); g.strokeStyle = 'rgba(28,126,214,.8)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(px, py); g.lineTo(cx, cy); g.stroke(); g.setLineDash([]); }
     else if (A.line && A.line.length > 1) { g.strokeStyle = '#868e96'; g.lineWidth = 1.2 * d; g.beginPath(); A.line.forEach((q, k) => { const P = at(q); if (k) g.lineTo(P[0], P[1]); else g.moveTo(P[0], P[1]); }); g.stroke(); }
@@ -2257,7 +2257,7 @@
       else { const k = Math.min(w / 18, h / 14) * 0.8, s = (u) => u * k, X = -s(9), Y = -s(7); // (the picture sign, as the frames before)
         g.fillStyle = hand ? '#74c0fc' : '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill(); } }
     g.strokeStyle = hand ? '#1c7ed6' : '#495057'; g.lineWidth = (hand ? 1.8 : 1.2) * d; g.strokeRect(-w / 2, -h / 2, w, h);
-    const warn = !dr && drwPhCut(A); // ((Plan kept) across a sheet's edge: it prints cut on both sheets: outlined orange, dashed)
+    const warn = !dr && drwPhCut(A); // ((beta 7.10, Plan kept) across a sheet's edge: it prints cut on both sheets: outlined orange, dashed)
     if (warn) { g.strokeStyle = '#f08c00'; g.lineWidth = 2.4 * d; g.setLineDash([5 * d, 3 * d]); g.strokeRect(-w / 2 - 3 * d, -h / 2 - 3 * d, w + 6 * d, h + 6 * d); g.setLineDash([]); }
     g.restore();
     const ex = Math.abs(Math.cos(rot)) * w / 2 + Math.abs(Math.sin(rot)) * h / 2, ey = Math.abs(Math.sin(rot)) * w / 2 + Math.abs(Math.cos(rot)) * h / 2;
@@ -2268,7 +2268,7 @@
   const planListHash = (pl) => { if (!pl) return null; const raw = pl.raw || pl; let h = 2166136261 >>> 0; const fnv = (u8) => { for (let i = 0; i < u8.length; i++) h = Math.imul(h ^ u8[i], 16777619) >>> 0; };
     for (const k of ['pts', 'subs', 'items']) { const a = raw[k]; if (a && a.buffer) fnv(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
     fnv(new TextEncoder().encode(JSON.stringify([(pl.texts || []).map((t) => [t.s, t.m, t.f, t.c, t.w, t.sc, t.lw]), (pl.images || []).map((im) => [im.name, im.m]), pl.styles, pl.origin, pl.K]))); return `${h.toString(16)}:${(pl.texts || []).length}`; };
-  /** (Plan kept) A photo across a sheet's edge (report.photoAt[id].cut: the sheets it prints cut on), or null. */
+  /** (beta 7.10, Plan kept) A photo across a sheet's edge (report.photoAt[id].cut: the sheets it prints cut on), or null. */
   const drwPhCut = (A) => (A && Array.isArray(A.cut) && A.cut.length > 1 ? A.cut : null);
   /** The photo frame under a finger (the one drawn last first), or null; a point's centre right there wins (its tap, as before). */
   function drwPhAt(e) {
@@ -2284,7 +2284,7 @@
     const it = drwEdById(id); if (!it || !drw) return;
     const p = it.p, n = drw.seq && drw.seq.get(String(id)), pin = (pmeta(drw.project).phPin || {})[String(id)], info = $('drawInfo');
     drw.sel = null; drw.selRun = null; drw.selPh = String(id); drw.mvSel = null;
-    const cut = drwPhCut(drw.ph && drw.ph.at[String(id)]); // ((Plan kept) across a sheet's edge: said)
+    const cut = drwPhCut(drw.ph && drw.ph.at[String(id)]); // ((beta 7.10, Plan kept) across a sheet's edge: said)
     info.textContent = `Photo of ${p.poleId || elemOf(p)}${n ? ` (No. ${n})` : ''} · ${pin ? 'placed by hand on the plan' : 'where the plan puts it: drag it to place it by hand'}${cut ? ` · across the edge of sheets ${andList(cut)}: it prints cut on both, drag it inside one` : ''}`;
     if (pin) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawPhAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwPhAuto(String(id))); info.appendChild(b); }
     info.hidden = false; $('drawHint').hidden = true;
@@ -2293,9 +2293,9 @@
   /** A photo let go after a drag (dx, dy: canvas pixels): kept where it was let go, its centre from its pole as the plan draws it. */
   function drwPhDrop(id, dx, dy) {
     const A = drw && drw.ph && drw.ph.at[id]; if (!A) { if (drw) drawDrawing(); return; }
-    const sc = drw.view.sc, off = [+(A.x - A.dp[0] + dx / sc).toFixed(2), +(A.y - A.dp[1] - dy / sc).toFixed(2)], proj = drw.project; drwUndoPush('photo moved'); const m0 = pmeta(proj); // ((Drawing labels) Undo takes it back)
+    const sc = drw.view.sc, off = [+(A.x - A.dp[0] + dx / sc).toFixed(2), +(A.y - A.dp[1] - dy / sc).toFixed(2)], proj = drw.project; drwUndoPush('photo moved'); const m0 = pmeta(proj); // ((beta 7.10, Drawing labels) Undo takes it back)
     S.meta = S.meta || {}; S.meta[proj] = { ...m0, phPin: { ...(m0.phPin || {}), [id]: off } }; persist();
-    planGridKeep(proj, drw.ph.grid, drw.ph.lab, drw.ph.split); // ((Plan kept) the first photo placed by hand: the plan keeps the grid it shows)
+    planGridKeep(proj, drw.ph.grid, drw.ph.lab, drw.ph.split); // ((beta 7.10, Plan kept) the first photo placed by hand: the plan keeps the grid it shows)
     drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null, cut: null } } }; // (where it was let go, until the plan's own comes: its line, the others moved aside, whether it is across a sheet's edge; the one kept stays as it was made)
     LOG.info('draw.photo.pin', { n: Object.keys(S.meta[proj].phPin).length });
     drwPlanUi(); drwPhTap(id); drwPhSoon(250); // ((beta 7.9, Drawing preview) the chip of the photos placed by hand at once)
@@ -2303,8 +2303,8 @@
   /** Back to automatic: the photo placed by hand goes back where the plan puts it. */
   function drwPhAuto(id) {
     if (!drw) return; const proj = drw.project, m0 = pmeta(proj); if (!m0.phPin || !(id in m0.phPin)) return;
-    drwUndoPush('photo back to automatic'); // ((Drawing labels) Undo takes it back)
-    const P = { ...m0.phPin }; delete P[id]; const m = { ...m0, phPin: P }; if (!Object.keys(P).length) delete m.phPin; if (!pinsAny(m)) delete m.planGrid; // ((Plan kept; (Drawing labels)) nothing placed by hand left: the grid is worked out again)
+    drwUndoPush('photo back to automatic'); // ((beta 7.10, Drawing labels) Undo takes it back)
+    const P = { ...m0.phPin }; delete P[id]; const m = { ...m0, phPin: P }; if (!Object.keys(P).length) delete m.phPin; if (!pinsAny(m)) delete m.planGrid; // ((Plan kept; (beta 7.10, Drawing labels)) nothing placed by hand left: the grid is worked out again)
     S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.auto', { n: Object.keys(P).length });
     if (drw.ph && drw.ph.at[id]) drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...drw.ph.at[id], how: 'auto' } } }; // (where it is until the plan's place comes)
     drwPlanUi(); drwPhTap(id); drwPhSoon(0);
@@ -2328,8 +2328,8 @@
   /** Where the Drawing shows a point: where the plan draws it while the plan is shown, else where it was surveyed (metres). */
   const drwAt = (it) => (drwPlanOn() && drw.ph.drawnAt && drw.ph.drawnAt[String(it.p.id)]) || it.xy;
   /** The plan's GEO sheets from its report: [{ sheet, name, box: [x0, y0, x1, y1] }] (null: a builder that does not say). */
-  const drwGridOf = (rep) => (rep && rep.grid && Array.isArray(rep.grid.sheets) ? { cell: rep.grid.cell, sheets: rep.grid.sheets, geo: Array.isArray(rep.grid.geo) ? rep.grid.geo.slice() : null, n: +rep.grid.n || ((rep.tidy || {}).grid || {}).n || 1, kept: !!rep.grid.kept } : null); // ((Plan kept) + the GEO cells' origin, the split, whether it was the grid kept)
-  /* (Plan kept) Once a photo ((Drawing labels) or a label, a number, a pole's details) is placed by hand on the Drawing, the plan keeps its grid: the GEO cells' origin and (Tidy) its split, as the plan shown
+  const drwGridOf = (rep) => (rep && rep.grid && Array.isArray(rep.grid.sheets) ? { cell: rep.grid.cell, sheets: rep.grid.sheets, geo: Array.isArray(rep.grid.geo) ? rep.grid.geo.slice() : null, n: +rep.grid.n || ((rep.tidy || {}).grid || {}).n || 1, kept: !!rep.grid.kept } : null); // ((beta 7.10, Plan kept) + the GEO cells' origin, the split, whether it was the grid kept)
+  /* (beta 7.10, Plan kept) Once a photo ((beta 7.10, Drawing labels) or a label, a number, a pole's details) is placed by hand on the Drawing, the plan keeps its grid: the GEO cells' origin and (Tidy) its split, as the plan shown
      had them (pmeta().planGrid { geo, n, cell, lab, split, at }), passed to every later plan (job.gridKeep: the preview and every export), so its
      sheets and their names no longer change by themselves (another grid found best after a photo moved, a pole moved a little); the route's new
      parts get new cells of the same grid. For the Pole labels (Standard / Tidy) and the Sheet split it was kept with (another: worked out as
@@ -2342,15 +2342,15 @@
   }
   /** The grid of the plan shown (G, drwGridOf; lab, split: what it was made with) kept with the project, when a photo is placed by hand and none is kept. */
   function planGridKeep(proj, G, lab, split) {
-    const m0 = pmeta(proj); if (!G || !Array.isArray(G.geo) || !pinsAny(m0) || planGridOf(m0)) return false; // ((Drawing labels) a photo, label, number or pole's details placed by hand)
+    const m0 = pmeta(proj); if (!G || !Array.isArray(G.geo) || !pinsAny(m0) || planGridOf(m0)) return false; // ((beta 7.10, Drawing labels) a photo, label, number or pole's details placed by hand)
     if (lab !== planLab() || (+split || 0) !== (+plStyle().grid.split || 0)) return false; // (made with other labels or split than now: the next one)
     S.meta = S.meta || {}; S.meta[proj] = { ...m0, planGrid: { geo: G.geo.slice(), n: G.n || 1, cell: G.cell, lab, split: +split || 0, at: new Date().toISOString() } }; persist();
     LOG.info('plan.grid.keep', { n: G.n || 1, sheets: (G.sheets || []).length }); return true;
   }
   const PL_TILE = 120, PL_FONT = ['', 'bold ', 'italic ', 'italic bold '].map((w) => `${w}64px Helvetica, Arial, sans-serif`); // (texts drawn at 64 px, scaled: Helvetica as the PDF's, else the nearest)
-  /** (Drawing labels) an item's subpaths (s0, ns of the display list's points P and subpaths SB) added to the Path2D p. */
+  /** (beta 7.10, Drawing labels) an item's subpaths (s0, ns of the display list's points P and subpaths SB) added to the Path2D p. */
   function drwPlanSub(p, P, SB, s0, ns) { for (let q = s0; q < s0 + ns; q++) { const f = SB[3 * q], c = SB[3 * q + 1]; if (c < 1) continue; p.moveTo(P[2 * f], P[2 * f + 1]); for (let m = 1; m < c; m++) p.lineTo(P[2 * (f + m)], P[2 * (f + m) + 1]); if (SB[3 * q + 2]) p.closePath(); } }
-  /** (Drawing labels) Item i of report.movable (a label, a number, pole details, a photo) drawn apart from the plan's tiles, moved by off ([E, N] metres;
+  /** (beta 7.10, Drawing labels) Item i of report.movable (a label, a number, pole details, a photo) drawn apart from the plan's tiles, moved by off ([E, N] metres;
    *  null: back in its tiles, where the plan has it): the tiles it is in made again without it, its own paths made once (drawn over the rest). */
   function drwPlanLift(PL, i, off) {
     if (!PL || !PL.byOwn || !PL.byOwn.has(i)) return;
@@ -2361,7 +2361,7 @@
     for (const k of PL.byOwn.get(i)) { const kind = IT[4 * k]; if (kind <= 2) { const p = new Path2D(); drwPlanSub(p, P, SB, IT[4 * k + 2], IT[4 * k + 3]); own.push({ kind, style: IT[4 * k + 1], p }); } else own.push({ kind, ix: IT[4 * k + 1] }); }
     PL.lifted.set(i, { off, own }); drwPlanRetile(PL, i);
   }
-  /** (Drawing labels) The plan's tiles that hold item i's lines and fills made again, without the items lifted off them. */
+  /** (beta 7.10, Drawing labels) The plan's tiles that hold item i's lines and fills made again, without the items lifted off them. */
   function drwPlanRetile(PL, i) {
     const { items: IT, subs: SB, pts: P } = PL.raw;
     for (const t of PL.tilesAll) { if (!t.mv || !t.mv.has(i)) continue; const p = new Path2D(); for (const k of t.items) if (!PL.lifted.has(PL.own[k])) drwPlanSub(p, P, SB, IT[4 * k + 2], IT[4 * k + 3]); t.p = p; }
@@ -2371,7 +2371,7 @@
   function drwPlanMake(pl) {
     if (!pl || !pl.items || typeof Path2D === 'undefined') return null;
     const t0 = performance.now(), P = pl.pts, SB = pl.subs, IT = pl.items, BX = pl.boxes, n = IT.length / 4, runs = [], kinds = [0, 0, 0, 0, 0];
-    const OWN = pl.own && pl.own.length === n ? pl.own : null, byOwn = new Map(), tilesAll = []; // ((Drawing labels) each item's report.movable index; each one's items; every tile (its items, to make it again without a moved one))
+    const OWN = pl.own && pl.own.length === n ? pl.own : null, byOwn = new Map(), tilesAll = []; // ((beta 7.10, Drawing labels) each item's report.movable index; each one's items; every tile (its items, to make it again without a moved one))
     const grow = (a, b) => { if (b[0] < a[0]) a[0] = b[0]; if (b[1] < a[1]) a[1] = b[1]; if (b[2] > a[2]) a[2] = b[2]; if (b[3] > a[3]) a[3] = b[3]; };
     const hits = (a, b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
     let run = null, tiles = 0;
@@ -2388,7 +2388,7 @@
     runs.forEach((r) => { if (r.tiles) r.tiles = [...r.tiles.values()]; });
     const kb = (P.byteLength + SB.byteLength + IT.byteLength + BX.byteLength + pl.texts.reduce((t, x) => t + 2 * x.s.length + 96, 0)) / 1024;
     return { runs, styles: pl.styles, texts: pl.texts, images: pl.images, origin: pl.origin, K: pl.K, sheet: pl.sheet, raw: { items: IT, subs: SB, pts: P }, // (raw: its lines' points, for a check)
-      own: OWN, byOwn, tilesAll, lifted: new Map(), // ((Drawing labels) lifted: the items moved since this plan was made (dragged, or let go and not made again yet): index → its own paths, where it is now)
+      own: OWN, byOwn, tilesAll, lifted: new Map(), // ((beta 7.10, Drawing labels) lifted: the items moved since this plan was made (dragged, or let go and not made again yet): index → its own paths, where it is now)
       count: { items: n, lines: kinds[0], fills: kinds[1] + kinds[2], texts: kinds[3], pictures: kinds[4], points: P.length / 2, runs: runs.length, tiles, kb: Math.round(kb), make: Math.round(performance.now() - t0) } };
   }
   /** The plan drawn with the view: model metres from its origin to the canvas, only what is on it. */
@@ -2398,7 +2398,7 @@
     const minW = 0.6 * d / sc, minT = 3 * d / sc, labels = drw.labels !== false; let nP = 0, nT = 0; // (a line thinner than 0.6 px drawn 0.6 px; a text under 3 px left out)
     const now = performance.now(), zooming = drw.plSc != null && Math.abs(drw.plSc - sc) > 1e-9 * sc ? (drw.plZoom = now, true) : now - (drw.plZoom || 0) < 200; drw.plSc = sc; drwFrameN++;
     if (zooming) { clearTimeout(drwZoomT); drwZoomT = setTimeout(() => { if (drw && !$('drawing').hidden && drwPlanOn()) drawDrawing(); }, 230); } // (pinched or scrolled: the texts drawn as they print once it stops)
-    const LF = PL.lifted, lifted = (o) => o >= 0 && LF && LF.has(o); // ((Drawing labels) the items moved since this plan was made: drawn last, where they are now)
+    const LF = PL.lifted, lifted = (o) => o >= 0 && LF && LF.has(o); // ((beta 7.10, Drawing labels) the items moved since this plan was made: drawn last, where they are now)
     /** a picture (a pole's photo): its picture from the phone where the plan prints it (ox, oy: moved by, metres); moved since, where it is now (drwPhFrame) */
     const pic = (im, ox, oy) => {
       const m = im.m, id = drw.ph.fileId ? drw.ph.fileId[im.name] : null, it = id != null ? drwEdById(id) : null;
@@ -2433,7 +2433,7 @@
       if (r.kind === 0) { g.strokeStyle = st.c; g.lineWidth = Math.max(st.w, minW); g.lineCap = st.cap; g.lineJoin = st.join; g.setLineDash(st.dash || []); for (const t of r.tiles) if (on(t.box)) { g.stroke(t.p); nP++; } }
       else { g.fillStyle = st.c; for (const t of r.tiles) if (on(t.box)) { g.fill(t.p, r.kind === 2 ? 'evenodd' : 'nonzero'); nP++; } }
     }
-    if (LF && LF.size) for (const [i, L] of LF) { // ((Drawing labels) a label, number or pole details moved: its own lines, texts and pictures where it is now, over the rest)
+    if (LF && LF.size) for (const [i, L] of LF) { // ((beta 7.10, Drawing labels) a label, number or pole details moved: its own lines, texts and pictures where it is now, over the rest)
       const [ox, oy] = drwMvOff(i, L); g.setTransform(sc, 0, 0, -sc, e + ox * sc, f - oy * sc);
       for (const x of L.own) {
         if (x.kind === 3) { const t = PL.texts[x.ix]; if (labels && Math.hypot(t.m[2], t.m[3]) >= minT) txt(t, ox, oy); g.setTransform(sc, 0, 0, -sc, e + ox * sc, f - oy * sc); continue; }
@@ -2475,9 +2475,9 @@
     const sel = drw.sel != null ? drwEdById(drw.sel) : null; if (sel) { const [px, py] = drwPx(drwAt(sel)); g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 4 * d; g.beginPath(); g.arc(px, py, 13 * d, 0, 2 * Math.PI); g.stroke(); }
     g.restore();
     const A0 = drw.ph.at || {}, dg = drw.phDrag; // the photos: each frame over the plan's own, big enough to take (zoomed out: the plan's)
-    drw.items.forEach((it) => { const id = String(it.p.id), A = A0[id]; if (A && !(dg && dg.id === id) && (Math.max(A.w, A.h) * v.sc >= 6 * d || drwPhMoved(id) || drwPhCut(A))) drwPhFrame(g, d, it, A, [], true); }); // ((Plan kept) one across a sheet's edge always, outlined)
+    drw.items.forEach((it) => { const id = String(it.p.id), A = A0[id]; if (A && !(dg && dg.id === id) && (Math.max(A.w, A.h) * v.sc >= 6 * d || drwPhMoved(id) || drwPhCut(A))) drwPhFrame(g, d, it, A, [], true); }); // ((beta 7.10, Plan kept) one across a sheet's edge always, outlined)
     if (dg) { const it = drwEdById(dg.id), A = it && drwPhOf(it); if (A) drwPhFrame(g, d, it, A, [], true); } // (the one dragged: over everything)
-    drwMvDraw(g, d); // ((Drawing labels) the item tapped, the ones placed by hand across a sheet's edge, the one dragged)
+    drwMvDraw(g, d); // ((beta 7.10, Drawing labels) the item tapped, the ones placed by hand across a sheet's edge, the one dragged)
     drwNorthScale(g, d, cv, v);
   }
   /** A photo's picture for its frame (the photo on the phone, made 96 px wide: the whole of it, as the plan prints it; the list's small copy is
@@ -2505,34 +2505,34 @@
   function drwPlanNone() { if (!drw) return; const had = !!drw.ph || drw.plWant; drw.ph = null; drw.phBusy = false; drw.plWant = false; drwPhForce = false; drwPlanUi(); if (had) { drwPhHint(); renderDrawLegend(); drawDrawing(); } }
   /** The preview made (or as made last time): shown. said: made again by Regenerate plan preview: said beside it, a moment. */
   function drwPlanShow(said) {
-    if (!drw) return; drwMvShowPins(); if (drw.mvSel && !(drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.mvSel))) drw.mvSel = null; drwPhHint(); drwPlanUi(); renderDrawLegend(); drawDrawing(); // ((Drawing labels) each item where its pin puts it, until the plan made with it comes)
+    if (!drw) return; drwMvShowPins(); if (drw.mvSel && !(drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.mvSel))) drw.mvSel = null; drwPhHint(); drwPlanUi(); renderDrawLegend(); drawDrawing(); // ((beta 7.10, Drawing labels) each item where its pin puts it, until the plan made with it comes)
     if (said && drw.ph) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
   }
   /** The Drawing's plan tools: Regenerate plan preview (busy while it is made), Sheet grid, the photos placed by hand. */
   function drwPlanUi() {
     if (!drw) return;
-    const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen'), C = drwPinsN(drw.project), n = C.n; // ((Drawing labels) everything placed by hand: photos, numbers, pole details, cable labels)
+    const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen'), C = drwPinsN(drw.project), n = C.n; // ((beta 7.10, Drawing labels) everything placed by hand: photos, numbers, pole details, cable labels)
     rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
     if (busy) $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = '';
     $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
     $('drawPhAll').hidden = !(pl && n); $('drawPhAllT').textContent = `${drwPinsSay(C)} placed by hand · Back to automatic`;
-    const nu = drwUndoStack.filter((u) => u.project === drw.project).length, ub = $('drawUndo'); ub.hidden = !(pl && nu); ub.title = nu ? `Undo: where things were before the last change (${nu})` : 'Undo'; // ((Drawing labels) Undo, while there is a change to take back)
+    const nu = drwUndoStack.filter((u) => u.project === drw.project).length, ub = $('drawUndo'); ub.hidden = !(pl && nu); ub.title = nu ? `Undo: where things were before the last change (${nu})` : 'Undo'; // ((beta 7.10, Drawing labels) Undo, while there is a change to take back)
   }
   /** Back to automatic for every photo placed by hand on this project's plan, asked first. */
   async function drwPhAutoAll() {
-    if (!drw) return; const proj = drw.project, C = drwPinsN(proj), n = C.n; if (!n) return; // ((Drawing labels) every photo, number, pole's details and cable label placed by hand)
+    if (!drw) return; const proj = drw.project, C = drwPinsN(proj), n = C.n; if (!n) return; // ((beta 7.10, Drawing labels) every photo, number, pole's details and cable label placed by hand)
     const one = n === 1 && !C.lbl, it1 = one ? 'it' : 'them'; // (one photo, number or cable label: "it"; a pole's details, several: "them")
     if (!(await ask(`Back to automatic: ${drwPinsSay(C)}?`, `The ${n === 1 ? drwPinsSay(C).replace(/^1 /, '') : drwPinsSay(C, true)} placed by hand ${one ? 'goes' : 'go'} back where the plan puts ${it1}, and the plan's sheets are worked out again (kept as they were while things were placed by hand). The next export has ${it1} there too. Undo (↶) brings ${it1} back.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
     if (!drw || drw.project !== proj) return;
     drwUndoPush('all back to automatic');
-    const m = { ...pmeta(proj) }; PIN_KEYS.forEach((k) => { delete m[k]; }); delete m.planGrid; S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n, ...C }); // ((Plan kept) and the grid kept: worked out again)
+    const m = { ...pmeta(proj) }; PIN_KEYS.forEach((k) => { delete m[k]; }); delete m.planGrid; S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n, ...C }); // ((beta 7.10, Plan kept) and the grid kept: worked out again)
     if (drw.ph) drw.ph = { ...drw.ph, sig: '', at: Object.fromEntries(Object.entries(drw.ph.at).map(([k, a]) => [k, a.how === 'by hand' ? { ...a, how: 'auto' } : a])) }; // (where they are until the plan's places come)
     drwMvShowPins(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel) drwMvTap(drw.mvSel); drwPlanUi(); drawDrawing(); drwPhSoon(0);
   }
   $('drawRegen').addEventListener('click', () => { if (!drw || drw.phBusy) return; LOG.info('draw.plan.regen', {}); clearTimeout(drwPhT); drwPhForce = true; drw.phBusy = true; drwPlanUi(); drwPhGo(true); });
   $('drawGrid').addEventListener('change', () => { S.drawGrid = !!$('drawGrid').checked; persist(); LOG.info('draw.plan.grid', { on: S.drawGrid }); drwPlanUi(); drawDrawing(); });
   $('drawPhAll').addEventListener('click', () => { drwPhAutoAll(); });
-  /* (Drawing labels) Labels, numbers and pole details placed by hand on the Drawing (the owner: "I want the drawing to be the preview of pdf export plan
+  /* (beta 7.10, Drawing labels) Labels, numbers and pole details placed by hand on the Drawing (the owner: "I want the drawing to be the preview of pdf export plan
      that is editable and can be rearranged per user desires… for editing and polishing"). Over the plan shown (the template plan on the phone; not in
      Edit route nor while a pull-off's poles are tapped; Labels on), each item the plan's report.movable lists (a cable's label, a pole's number, a
      pole's details: Standard its label stack, Tidy its block with its number in it, the photo beside the block carried along) can be pressed and
@@ -2541,11 +2541,11 @@
      plan draws it, or from its span's middle; the details' and a cable label's angle), which the export's job carries (GeDxfTpl.build puts it there
      first: the rest keeps off it; an arrow or a thin line where it no longer touches what it names); the preview is made again, the item drawn where
      it was let go until it comes. A tap says what it is (Pole number 12, Pole details of CC-1012, Cable label RUN 1), placed by hand with Back to
-     automatic. Placed by hand across a sheet's edge: outlined in orange, as a photo ((Plan kept): on no sheet, its sheet is added). Undo (↶) takes back the last changes of where things are
+     automatic. Placed by hand across a sheet's edge: outlined in orange, as a photo ((beta 7.10, Plan kept): on no sheet, its sheet is added). Undo (↶) takes back the last changes of where things are
      (a drag, Back to automatic, all back to automatic; the photos' too), one at a time, while the app is open. The chip puts everything placed by
      hand back (asked first). Kept on this phone, as the photos' pins (shareMeta leaves them out). */
   const PIN_KEYS = ['phPin', 'numPin', 'lblPin', 'cabPin'], PIN_OF = { number: 'numPin', details: 'lblPin', cable: 'cabPin', photo: 'phPin' }, drwUndoStack = []; // (the placements changed this session: the pins before each change, the last last)
-  /** Something placed by hand in a project (pmeta() m): a photo, a label, a number or a pole's details ((Plan kept): the grid is kept while there is). */
+  /** Something placed by hand in a project (pmeta() m): a photo, a label, a number or a pole's details ((beta 7.10, Plan kept): the grid is kept while there is). */
   const pinsAny = (m) => PIN_KEYS.some((k) => !!(m && m[k] && Object.keys(m[k]).length));
   /** The items of the plan shown that the Drawing may move (report.movable), or none. */
   const drwMvs = () => (drw && drw.ph && drw.ph.mv && drw.ph.row === rowIdx() ? drw.ph.mv : []);
@@ -2603,7 +2603,7 @@
   function drwMvTap(id) {
     const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null; if (!m) return;
     drw.sel = null; drw.selRun = null; drw.selPh = null; drw.mvSel = id;
-    const pin = drwPinOf(m), info = $('drawInfo'), cut = pin ? drwMvCut(m, i) : null; // ((Plan kept) across a sheet's edge: said, as a photo's)
+    const pin = drwPinOf(m), info = $('drawInfo'), cut = pin ? drwMvCut(m, i) : null; // ((beta 7.10, Plan kept) across a sheet's edge: said, as a photo's)
     info.textContent = `${drwMvName(m)} · ${pin ? 'placed by hand on the plan' : 'where the plan puts it: drag it to place it by hand'}${cut ? ` · across the edge of sheets ${andList(cut)}: it prints cut on both, drag it inside one` : ''}`;
     if (pin) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawMvAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwMvAuto(id)); info.appendChild(b); }
     info.hidden = false; $('drawHint').hidden = true;
@@ -2617,7 +2617,7 @@
     drwUndoPush(`${m.kind} moved`); const proj = drw.project, m0 = pmeta(proj);
     S.meta = S.meta || {}; S.meta[proj] = { ...m0, [key]: { ...(m0[key] || {}), [k]: m.kind === 'cable' ? { at: off, rot: ang } : m.kind === 'details' ? [off[0], off[1], ang] : off } }; persist(); // (as it was let go: where, and its angle)
     LOG.info('draw.label.pin', { kind: m.kind, n: Object.keys(S.meta[proj][key]).length });
-    planGridKeep(proj, P.grid, P.lab, P.split); // ((Plan kept) the first item placed by hand: the plan keeps the grid it shows)
+    planGridKeep(proj, P.grid, P.lab, P.split); // ((beta 7.10, Plan kept) the first item placed by hand: the plan keeps the grid it shows)
     drwMvShowPins(); drwPlanUi(); drwMvTap(id); drwPhSoon(250);
   }
   /** Back to automatic: the item placed by hand goes back where the plan puts it. */
@@ -2625,21 +2625,21 @@
     const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null; if (!m) return;
     const proj = drw.project, m0 = pmeta(proj), key = PIN_OF[m.kind], k = m.kind === 'cable' ? m.key : m.point; if (!m0[key] || !(k in m0[key])) return;
     drwUndoPush(`${m.kind} back to automatic`);
-    const Q = { ...m0[key] }; delete Q[k]; const nm = { ...m0, [key]: Q }; if (!Object.keys(Q).length) delete nm[key]; if (!pinsAny(nm)) delete nm.planGrid; // ((Plan kept) nothing placed by hand left: the grid is worked out again)
+    const Q = { ...m0[key] }; delete Q[k]; const nm = { ...m0, [key]: Q }; if (!Object.keys(Q).length) delete nm[key]; if (!pinsAny(nm)) delete nm.planGrid; // ((beta 7.10, Plan kept) nothing placed by hand left: the grid is worked out again)
     S.meta[proj] = nm; persist(); LOG.info('draw.label.auto', { kind: m.kind, n: Object.keys(Q).length });
     drwMvShowPins(); drwPlanUi(); drwMvTap(id); drwPhSoon(0);
   }
   /** Undo: the pins as they were before the last change of where things are on this project's plan (kept: a drag, Back to automatic, all of them back). */
   function drwUndoPush(what) {
     if (!drw) return; const M = pmeta(drw.project);
-    drwUndoStack.push({ project: drw.project, what, pins: Object.fromEntries([...PIN_KEYS, 'planGrid'].map((k) => [k, M[k] ? JSON.parse(JSON.stringify(M[k])) : null])) }); // ((Plan kept) the grid kept with them, as it was)
+    drwUndoStack.push({ project: drw.project, what, pins: Object.fromEntries([...PIN_KEYS, 'planGrid'].map((k) => [k, M[k] ? JSON.parse(JSON.stringify(M[k])) : null])) }); // ((beta 7.10, Plan kept) the grid kept with them, as it was)
     if (drwUndoStack.length > 60) drwUndoStack.shift();
   }
   function drwUndo() {
     if (!drw) return; const proj = drw.project; let j = drwUndoStack.length - 1; while (j >= 0 && drwUndoStack[j].project !== proj) j--; if (j < 0) return;
     const U = drwUndoStack.splice(j, 1)[0], m = { ...pmeta(proj) };
     for (const k of PIN_KEYS) { if (U.pins[k] && Object.keys(U.pins[k]).length) m[k] = U.pins[k]; else delete m[k]; }
-    if (!pinsAny(m)) delete m.planGrid; else if (U.pins.planGrid) m.planGrid = U.pins.planGrid; // ((Plan kept) the grid as it was kept then (none kept then: the one kept now); none placed by hand: worked out again)
+    if (!pinsAny(m)) delete m.planGrid; else if (U.pins.planGrid) m.planGrid = U.pins.planGrid; // ((beta 7.10, Plan kept) the grid as it was kept then (none kept then: the one kept now); none placed by hand: worked out again)
     S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.undo', { what: U.what, left: drwUndoStack.filter((u) => u.project === proj).length });
     if (drw.ph && drw.ph.at) { // (the photos where their pins put them, until the plan's places come)
       const pp = m.phPin || {}, at = {};
@@ -2657,7 +2657,7 @@
   function drwMvDraw(g, d) {
     const M = drwMvs(); if (!M.length || drw.labels === false) return; // (Labels off: the plan's texts are not drawn, nor these)
     const P = drw.ph, out = (B, col, w, dash) => { const [cx, cy] = drwPx([B[0], B[1]]), sc = drw.view.sc, a = -B[4] * Math.PI / 180; g.save(); g.translate(cx, cy); g.rotate(a); g.strokeStyle = col; g.lineWidth = w * d; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.strokeRect(-B[2] * sc / 2 - 2 * d, -B[3] * sc / 2 - 2 * d, B[2] * sc + 4 * d, B[3] * sc + 4 * d); g.restore(); };
-    M.forEach((m, i) => { if (m.kind !== 'photo' && drwMvCut(m, i)) { const B = drwMvBox(m, i), [cx, cy] = drwPx([B[0], B[1]]), sc = drw.view.sc; g.save(); g.translate(cx, cy); g.rotate(-B[4] * Math.PI / 180); g.strokeStyle = '#f08c00'; g.lineWidth = 2.4 * d; g.setLineDash([5 * d, 3 * d]); g.strokeRect(-B[2] * sc / 2 - 3 * d, -B[3] * sc / 2 - 3 * d, B[2] * sc + 6 * d, B[3] * sc + 6 * d); g.restore(); } }); // ((Plan kept) as a photo across a sheet's edge (drwPhFrame): orange, dashed)
+    M.forEach((m, i) => { if (m.kind !== 'photo' && drwMvCut(m, i)) { const B = drwMvBox(m, i), [cx, cy] = drwPx([B[0], B[1]]), sc = drw.view.sc; g.save(); g.translate(cx, cy); g.rotate(-B[4] * Math.PI / 180); g.strokeStyle = '#f08c00'; g.lineWidth = 2.4 * d; g.setLineDash([5 * d, 3 * d]); g.strokeRect(-B[2] * sc / 2 - 3 * d, -B[3] * sc / 2 - 3 * d, B[2] * sc + 6 * d, B[3] * sc + 6 * d); g.restore(); } }); // ((beta 7.10, Plan kept) as a photo across a sheet's edge (drwPhFrame): orange, dashed)
     const s = drw.mvSel != null && P.mvIdx ? P.mvIdx.get(drw.mvSel) : null; if (s != null) out(drwMvBox(M[s], s), 'rgba(255,212,59,.95)', 4);
     const D = drw.mvDrag; if (D && M[D.i]) { const B = drwMvBox(M[D.i], D.i), [ax, ay] = drwPx(M[D.i].anchor), [bx, by] = drwPx([B[0], B[1]]); g.save(); g.strokeStyle = 'rgba(28,126,214,.8)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.restore(); }
   }
@@ -3021,7 +3021,7 @@
   }
   (() => { // pan, pinch, wheel and tap on the drawing
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
-    let last = null, moved = 0, pinch = null, phD = null, mvD = null; // (beta 7.8, Drawing photos) phD: a photo frame pressed (outside Edit route), dragged rather than the drawing ((Drawing labels) mvD: a label, number or pole's details, the same)
+    let last = null, moved = 0, pinch = null, phD = null, mvD = null; // (beta 7.8, Drawing photos) phD: a photo frame pressed (outside Edit route), dragged rather than the drawing ((beta 7.10, Drawing labels) mvD: a label, number or pole's details, the same)
     cv.addEventListener('pointerdown', (e) => { if (!drw) return; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0;
       if (drw.ptrs.size === 1) { const ok = !drwEd && !jnPick && (e.pointerType !== 'mouse' || e.button === 0), H = ok ? drwPhAt(e) : null; phD = H ? { id: H.id, x0: e.clientX, y0: e.clientY } : null; const Mv = ok && !H ? drwMvAt(e) : null; mvD = Mv ? { id: Mv.id, x0: e.clientX, y0: e.clientY } : null; }
       if (drw.ptrs.size === 2) { if (phD) { phD = null; drw.phDrag = null; } if (mvD) { mvD = null; if (drw.mvDrag) { drw.mvDrag = null; drawDrawing(); } } const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc };
@@ -3033,8 +3033,8 @@
         drawDrawing(); return; }
       const dx = e.clientX - last[0], dy = e.clientY - last[1]; last = [e.clientX, e.clientY]; moved += Math.abs(dx) + Math.abs(dy);
       if (phD) { if (moved >= 8) { drw.phDrag = { id: phD.id, dx: (e.clientX - phD.x0) * d(), dy: (e.clientY - phD.y0) * d() }; drawDrawing(); } return; } // (beta 7.8, Drawing photos) the photo follows the finger; the drawing stays
-      if (mvD && moved >= 8 && !drw.mvDrag && !(drw.mvDrag = drwMvGrab(mvD.id))) mvD = null; // ((Drawing labels) lifted off the plan at the first move)
-      if (mvD) { if (drw.mvDrag) { drw.mvDrag.dx = (e.clientX - mvD.x0) * d(); drw.mvDrag.dy = (e.clientY - mvD.y0) * d(); drawDrawing(); } return; } // ((Drawing labels) the item follows the finger; the drawing stays
+      if (mvD && moved >= 8 && !drw.mvDrag && !(drw.mvDrag = drwMvGrab(mvD.id))) mvD = null; // ((beta 7.10, Drawing labels) lifted off the plan at the first move)
+      if (mvD) { if (drw.mvDrag) { drw.mvDrag.dx = (e.clientX - mvD.x0) * d(); drw.mvDrag.dy = (e.clientY - mvD.y0) * d(); drawDrawing(); } return; } // ((beta 7.10, Drawing labels) the item follows the finger; the drawing stays
       if (drwEd && (rtDrawing() || rtGrab || rtDraft || rtMpan || (e.pointerType === 'mouse' && e.buttons !== 1))) return; // beta 6.7, Edit route: ✎ one finger draws (Route's gestures, rtGest); ✋ one finger moves it
       drw.view.cx -= dx * d() / drw.view.sc; drw.view.cy += dy * d() / drw.view.sc; drawDrawing();
     });
@@ -3042,7 +3042,7 @@
       if (!drw) return; drw.ptrs.delete(e.pointerId); if (drw.ptrs.size < 2) pinch = null;
       if (phD) { const D = phD, G = drw.phDrag; phD = null; drw.phDrag = null; // (beta 7.8, Drawing photos) a photo let go where it was dragged, or tapped
         if (e.type === 'pointerup' && moved >= 8 && G) drwPhDrop(D.id, G.dx, G.dy); else if (e.type === 'pointerup' && moved < 8) drwPhTap(D.id); else drawDrawing(); return; }
-      if (mvD) { const D = mvD, G = drw.mvDrag; mvD = null; drw.mvDrag = null; // ((Drawing labels) a label, number or pole's details let go where it was dragged, or tapped
+      if (mvD) { const D = mvD, G = drw.mvDrag; mvD = null; drw.mvDrag = null; // ((beta 7.10, Drawing labels) a label, number or pole's details let go where it was dragged, or tapped
         if (e.type === 'pointerup' && moved >= 8 && G) drwMvDrop(D.id, G.dx, G.dy); else if (e.type === 'pointerup' && moved < 8) drwMvTap(D.id); else drawDrawing(); return; }
       if (moved < 8 && e.type === 'pointerup' && !drwEd) { // a tap: the nearest point (beta 6.7: in Edit route, Route's tap)
         const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
@@ -3178,9 +3178,9 @@
       rows.push([sv('<path d="M2 12 8 5l4 4 3-3 5 6" fill="none" stroke="#1b1b1b" stroke-width="1.4"/><circle cx="8" cy="5" r="1.8" fill="#fff" stroke="#e03131" stroke-width="1.2"/>'), 'The plan as its PDF prints it: its lines, symbols and texts (its LEGENDS sheet says what each one is)']);
       rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><rect x="11" y="3" width="8.5" height="5" fill="#ae3ec9"/>'), 'A sheet of the plan (GEO) and its name, as the plan writes it']);
       if (drw.ph && Object.keys(drw.ph.at || {}).length) rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#1c7ed6" stroke-width="1.5"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#74c0fc"/>'), 'A photo where the plan puts it: drag it to place it by hand (blue: placed by hand)']);
-      if (drw.ph && (Object.values(drw.ph.at || {}).some(drwPhCut) || drwMvs().some((m, i) => m.kind !== 'photo' && drwMvCut(m, i)))) rows.push([sv('<rect x="4" y="3.5" width="14" height="9" fill="#fff" stroke="#495057" stroke-width="1.2"/><rect x="2" y="1.5" width="18" height="13" fill="none" stroke="#f08c00" stroke-width="1.6" stroke-dasharray="3 2"/>'), 'A photo across a sheet\u2019s edge (orange): it prints cut on both sheets (a label, number or pole\u2019s details too); drag it inside one']); // ((Plan kept); (Drawing labels) labels, numbers, pole details too)
-      if (drw.ph && drw.ph.grid && drw.ph.grid.kept) rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><path d="M8 9.5l2.2 2.2L15 6.5" fill="none" stroke="#ae3ec9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'), 'The sheets are kept as they were when something was first placed by hand: they no longer change by themselves (Back to automatic for all of them works them out again)']); // ((Plan kept))
-      if (drwMvs().some((m) => m.kind !== 'photo')) rows.push([sv('<rect x="2" y="4" width="18" height="8" fill="none" stroke="#fab005" stroke-width="2"/><path d="M5 8h12" stroke="#1b1b1b" stroke-width="1.6"/>'), 'A cable label, a pole number or a pole\'s details: drag it to place it by hand (tap it: what it is; ↶ undoes)']); // ((Drawing labels))
+      if (drw.ph && (Object.values(drw.ph.at || {}).some(drwPhCut) || drwMvs().some((m, i) => m.kind !== 'photo' && drwMvCut(m, i)))) rows.push([sv('<rect x="4" y="3.5" width="14" height="9" fill="#fff" stroke="#495057" stroke-width="1.2"/><rect x="2" y="1.5" width="18" height="13" fill="none" stroke="#f08c00" stroke-width="1.6" stroke-dasharray="3 2"/>'), 'A photo across a sheet\u2019s edge (orange): it prints cut on both sheets (a label, number or pole\u2019s details too); drag it inside one']); // ((beta 7.10, Plan kept); (beta 7.10, Drawing labels) labels, numbers, pole details too)
+      if (drw.ph && drw.ph.grid && drw.ph.grid.kept) rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><path d="M8 9.5l2.2 2.2L15 6.5" fill="none" stroke="#ae3ec9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'), 'The sheets are kept as they were when something was first placed by hand: they no longer change by themselves (Back to automatic for all of them works them out again)']); // ((beta 7.10, Plan kept))
+      if (drwMvs().some((m) => m.kind !== 'photo')) rows.push([sv('<rect x="2" y="4" width="18" height="8" fill="none" stroke="#fab005" stroke-width="2"/><path d="M5 8h12" stroke="#1b1b1b" stroke-width="1.6"/>'), 'A cable label, a pole number or a pole\'s details: drag it to place it by hand (tap it: what it is; ↶ undoes)']); // ((beta 7.10, Drawing labels))
       rows.push([sv('<path d="M17 7.5a6 6 0 0 0-11-2.3M5 3v3h3M5 8.5a6 6 0 0 0 11 2.3M17 13v-3h-3" fill="none" stroke="#1b3a6b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'), 'Made again by itself when the drawing, its points or Plan style change; Regenerate plan preview (the round arrows): again now']);
       if (drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); }
       $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join(''); return;
@@ -10444,7 +10444,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((Plan kept) the grid kept with them and the plan's roads too) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -10463,7 +10463,7 @@
     await deletePhotosIfUnused(pids, ids); busy(false);
     points = points.filter((p) => p.project !== name);
     if (cefHooks.drop) await cefHooks.drop(name); // v2.44: the photos of its CEF plans
-    { const rid = (m.planRoads || {}).id; if (rid) { await dbDel('packs', RK_PRE + rid).catch(() => {}); rkMem.delete(rid); } } // ((Plan kept) the roads kept with its plan)
+    { const rid = (m.planRoads || {}).id; if (rid) { await dbDel('packs', RK_PRE + rid).catch(() => {}); rkMem.delete(rid); } } // ((beta 7.10, Plan kept) the roads kept with its plan)
     if (S.meta) delete S.meta[name];
     for (const ar of (S.areas || []).filter((x) => x.project === name)) await deleteArea(ar.id);
     if (refInfo(name)) { await dbDel('packs', refKey(refInfo(name).id)).catch(() => {}); const r = { ...S.refs }; delete r[name]; S.refs = r; if (refFor === name) { refGeo = null; refFor = null; } }
@@ -12714,7 +12714,7 @@
   /** The roads around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that covers them. */
   /** The roads and named places around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that
       covers them. bb: [south, west, north, east] of the vicinity; nb: the same for the places (round the route only). */
-  async function planRoads(bb, nb, quiet, noNet) { // ((beta 7.8, Drawing photos) quiet: for the Drawing's preview: no busy screen; (Plan kept) downloaded too, as the export does (noNet: not, after a try that failed); src: where they came from, for planRoadsOf)
+  async function planRoads(bb, nb, quiet, noNet) { // ((beta 7.8, Drawing photos) quiet: for the Drawing's preview: no busy screen; (beta 7.10, Plan kept) downloaded too, as the export does (noNet: not, after a try that failed); src: where they came from, for planRoadsOf)
     const U = (la, lo) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; };
     const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', hw: r.hw || '', lanes: r.lanes || '', width: r.width || '', bridge: !!r.bridge, name: r.name || '', pts: r.coords.map(([la, lo]) => U(la, lo)) }));
     // v2.35: a road pack on the phone first: no internet needed, and the same roads every time
@@ -12723,7 +12723,7 @@
       if (P) return { roads: conv(P.roads), pois: P.pois.map((q) => { const [E, N] = U(q.lat, q.lon); return { name: q.name, kind: q.kind, E, N }; }), note: P.note, src: 'pack' };
     } catch (e) { LOG.warn('plan.roads.roadpack', errInfo(e)); }
     let tried = false;
-    if (!noNet && navigator.onLine !== false) { // ((Plan kept) the preview too, quietly: the roads it gets are kept for the export)
+    if (!noNet && navigator.onLine !== false) { // ((beta 7.10, Plan kept) the preview too, quietly: the roads it gets are kept for the export)
       tried = true;
       try {
         if (!quiet) busy('Downloading the roads and places from OpenStreetMap…');
@@ -12739,14 +12739,14 @@
             const la = el.lat != null ? el.lat : el.center && el.center.lat, lo = el.lon != null ? el.lon : el.center && el.center.lon; if (la == null || lo == null) continue;
             const [E, N] = U(la, lo); pois.push({ name: el.tags.name, kind: kinds.map((k) => el.tags[k]).find(Boolean) || '', E, N });
           }
-          return { roads, pois, note: `${roads.length} roads and ${pois.length} named places from OpenStreetMap (Overpass)`, src: js.remark && /error|time ?out|timed out/i.test(String(js.remark)) ? 'osm-part' : 'osm' }; // ((Plan kept) an answer cut short by Overpass itself is used, not kept)
+          return { roads, pois, note: `${roads.length} roads and ${pois.length} named places from OpenStreetMap (Overpass)`, src: js.remark && /error|time ?out|timed out/i.test(String(js.remark)) ? 'osm-part' : 'osm' }; // ((beta 7.10, Plan kept) an answer cut short by Overpass itself is used, not kept)
         }
       } catch (e) { LOG.warn('plan.roads.online', errInfo(e)); }
     }
     try { const R = await roadsFromPack(bb, nb, quiet); if (R) return { ...R, src: 'map', tried }; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
     return { roads: [], pois: [], note: navigator.onLine === false ? 'no roads: offline, and no road pack or offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no road pack or offline map pack covers the area', src: 'none', tried };
   }
-  /* (Plan kept) The roads of each project's plan, one set for the Drawing's preview and every export. The first roads a place of the plan gets (a
+  /* (beta 7.10, Plan kept) The roads of each project's plan, one set for the Drawing's preview and every export. The first roads a place of the plan gets (a
      road pack on the phone, else OpenStreetMap downloaded: by an export, or quietly by the preview when the phone is online) are kept with the
      project (IndexedDB, packs store, ~planroads:<id>; pmeta().planRoads { id } names it), and every later plan of that place reads them there:
      the plan no longer changes by itself between sessions (another download, OpenStreetMap edited since or not answering, a road pack added,
@@ -13046,9 +13046,9 @@
      export and for the Drawing's preview of where the plan puts each photo. pts: the points as an export sees them (projPoints() inside
      xScope or xNow); everything that reads the records and the route is worked out before the first wait, so the preview (in xNow) leaves
      the hidden records out as the export does. o.one: the One PDF's drawing only (the one the Drawing shows). o.preview: that drawing too,
-     for the Drawing, made quietly: no busy screen; ((Plan kept) the roads kept with the project, planRoadsOf, the same as the export's: got
+     for the Drawing, made quietly: no busy screen; ((beta 7.10, Plan kept) the roads kept with the project, planRoadsOf, the same as the export's: got
      quietly the first time); no photo files (each photo's size from its file, as the export makes it), vicinity pictures, logo, ROW table or
-     addresses, which move nothing on the GEO sheets. (Plan kept) With photos placed by hand, the grid kept with the plan (job.gridKeep,
+     addresses, which move nothing on the GEO sheets. (beta 7.10, Plan kept) With photos placed by hand, the grid kept with the plan (job.gridKeep,
      planGridOf). Returns what the export goes on with, and jobOf(st): the job of one drawing of SETS. */
   async function planJob(pts, o) {
     const one = !!(o && o.one), prev = !!(o && o.preview), say = prev ? () => {} : busy; // (beta 4.6: One PDF: only the plan's sheets are made, of the drawing the Drawing shows)
@@ -13175,15 +13175,15 @@
     const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
     const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
     const phPin = { ...(m.phPin || {}) }; // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres)
-    const numPin = { ...(m.numPin || {}) }, lblPin = { ...(m.lblPin || {}) }, cabPin = { ...(m.cabPin || {}) }; // ((Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
-    const gridKeep = pinsAny(m) ? planGridOf(m) : null; // ((Plan kept) the plan edited on the Drawing keeps its grid: its sheets and their names; (Drawing labels) a photo, label, number or pole's details placed by hand)
+    const numPin = { ...(m.numPin || {}) }, lblPin = { ...(m.lblPin || {}) }, cabPin = { ...(m.cabPin || {}) }; // ((beta 7.10, Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
+    const gridKeep = pinsAny(m) ? planGridOf(m) : null; // ((beta 7.10, Plan kept) the plan edited on the Drawing keeps its grid: its sheets and their names; (beta 7.10, Drawing labels) a photo, label, number or pole's details placed by hand)
     // (what follows waits for the phone: the roads, the photos, the vicinity pictures, the logo)
     let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)'; const keptAt = [];
     if ($('dxfRoads').checked) {
       const notes = [], seenR = new Set(), seenP = new Set();
       for (let k = 0; k < nLoc; k++) {
         if (nLoc > 1) say(`Roads and places: place ${k + 1} of ${nLoc}…`);
-        const r = await planRoadsOf(proj, llBox(locs[k].box, 500), llBox(locs[k].box, 250), prev); notes.push(r.note); keptAt.push(r.keptAt || ''); // ((Plan kept) the roads kept with the project: the preview's and the export's the same)
+        const r = await planRoadsOf(proj, llBox(locs[k].box, 500), llBox(locs[k].box, 250), prev); notes.push(r.note); keptAt.push(r.keptAt || ''); // ((beta 7.10, Plan kept) the roads kept with the project: the preview's and the export's the same)
         for (const x of r.roads || []) { const a = x.pts[0], b = x.pts[x.pts.length - 1], kk = `${x.name}|${x.pts.length}|${Math.round(a[0])},${Math.round(a[1])}|${Math.round(b[0])},${Math.round(b[1])}`; if (!seenR.has(kk)) { seenR.add(kk); roads.push(x); } }
         for (const q of r.pois || []) { const kk = `${q.name}|${Math.round(q.E)},${Math.round(q.N)}`; if (!seenP.has(kk)) { seenP.add(kk); pois.push(q); } }
       }
@@ -13250,9 +13250,9 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       return { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, jnName: PLS.jn.name, /* beta 7.4 / 2.45.6 */ odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', phPin, /* (beta 7.8, Drawing photos) */ numPin, lblPin, cabPin, /* (Drawing labels) */ ...(gridKeep ? { gridKeep } : {}), /* (Plan kept) */ date: new Date() };
+        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', phPin, /* (beta 7.8, Drawing photos) */ numPin, lblPin, cabPin, /* (beta 7.10, Drawing labels) */ ...(gridKeep ? { gridKeep } : {}), /* (beta 7.10, Plan kept) */ date: new Date() };
     };
-    const roadsKept = keptAt.length && keptAt.every(Boolean) ? keptAt.slice().sort()[0] : ''; // ((Plan kept) the roads kept with the project: since when)
+    const roadsKept = keptAt.length && keptAt.every(Boolean) ? keptAt.slice().sort()[0] : ''; // ((beta 7.10, Plan kept) the roads kept with the project: since when)
     return { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, roadsKept, gridKeep, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name, byPt, many, rtaC, rtaN, boxLoopN, jobOf };
   }
   async function exportPlanDxf(pts, o) {
@@ -13318,8 +13318,8 @@
       ...(() => { const J = pts.filter(isJn); if (!J.length) return []; const n = (el) => J.filter((p) => elemOf(p) === el).length, mm = J.reduce((t, p) => t + jnMsgM(p).m, 0); // beta 6.9
         return [`Pull-offs (${n('Pull-off')}) and cross-overs (${n('Cross-over')}), at a corner with no pole: a small red square (pull-off, block G-ESAA PULL-OFF) or circle (cross-over, block G-ESAA CROSS-OVER) where the cable turns, a thin continuous red line (layer MESSENGER) for each extended messenger to its poles (3 for a pull-off, 4 for a cross-over), and its name (PULL-OFF / CROSS-OVER) in red ${PLS.jn.name === 'bubble' ? 'in a dashed bubble above it, with a dashed tail to it, as high as the red PROPOSED CLOSURE text (or the pole labels\' lines where those are smaller)' : 'right beside it, as small as the poles\' lat / long lines (Plan style › Cables › Pull-off / cross-over name: Small text beside it)'}; EXTENDED MESSENGER along each extended messenger with no cable on it; no lat / long of it (beta 7.3). The spans to and from it are written as the others (the cable is measured round the corner). Extended messenger with no cable on it: ${mm} m (BOQ, survey quantities; not in the PMI table).`]; })(),
       `Sheets: TITLE, TOC, LEGENDS, ${(rp.vicinities || [{ sheet: 'VICINITY MAP' }]).map((v) => v.sheet).join(', ')}, ROW AREA COVERAGE, ${(rp.vicinities || [0]).map((_, k) => (k ? `KEYMAP (${k + 1})` : 'KEYMAP')).join(', ')}, ${rp.sheets.join(', ')}, PMI.`,
-      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Plan style \u203a Map sheets \u203a Sheet split, 1/${rp.tidy.grid.n}` : ((rp.tidy || {}).grid || {}).mode === 'kept' ? `; split 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}${gridKeep ? '; kept as the plan was when its photos were placed by hand on the Drawing, so its sheets and their names stay (Back to automatic, for all the photos, works them out again)' : ''}).`, // (beta 6.0: the scale of a finer Tidy grid; which split; (Plan kept) the grid kept)
-      `Roads: ${roadsNote}${roadsKept ? ` (kept with this project since ${roadsKept.slice(0, 10)}: the Drawing's preview and every export of the plan use these roads)` : ''}.`, // ((Plan kept) planRoadsOf)
+      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Plan style \u203a Map sheets \u203a Sheet split, 1/${rp.tidy.grid.n}` : ((rp.tidy || {}).grid || {}).mode === 'kept' ? `; split 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}${gridKeep ? '; kept as the plan was when its photos were placed by hand on the Drawing, so its sheets and their names stay (Back to automatic, for all the photos, works them out again)' : ''}).`, // (beta 6.0: the scale of a finer Tidy grid; which split; (beta 7.10, Plan kept) the grid kept)
+      `Roads: ${roadsNote}${roadsKept ? ` (kept with this project since ${roadsKept.slice(0, 10)}: the Drawing's preview and every export of the plan use these roads)` : ''}.`, // ((beta 7.10, Plan kept) planRoadsOf)
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
       ...(() => { const N = [...new Set(outs.flatMap((o) => o.out.report.notes || []))]; return N.length ? [`Drawing checks (${N.length}): ${N.join(' · ')}.`] : []; })(), // v2.42.8: e.g. an object far from the plan
@@ -21713,8 +21713,8 @@
      (each one's centre and size in page pixels, its turn), the pins kept, and where a point stands as the Drawing draws it (metres) */
   window.__polecam.drwPh = () => { if (!drw) return null; const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1;
     return { busy: !!drw.phBusy, row: drw.ph ? drw.ph.row : null, at: drw.ph ? JSON.parse(JSON.stringify(drw.ph.at)) : null, notes: drw.ph ? drw.ph.notes : [], sc: drw.view ? drw.view.sc / d : 0, sel: drw.selPh || null, pins: JSON.parse(JSON.stringify(pmeta(drw.project).phPin || {})),
-      frames: (drw.phHit || []).map((H) => ({ id: H.id, x: r.left + H.cx / d, y: r.top + H.cy / d, w: H.w / d, h: H.h / d, rot: H.rot, warn: !!H.warn })), xy: Object.fromEntries(drw.items.map((it) => [String(it.p.id), it.xy])) }; }; // ((Plan kept) warn: outlined, across a sheet's edge)
-  /* (Drawing labels) for tests: the plan's movable items (report.movable) where they are drawn now (their box in page pixels: centre, size, turn), the
+      frames: (drw.phHit || []).map((H) => ({ id: H.id, x: r.left + H.cx / d, y: r.top + H.cy / d, w: H.w / d, h: H.h / d, rot: H.rot, warn: !!H.warn })), xy: Object.fromEntries(drw.items.map((it) => [String(it.p.id), it.xy])) }; }; // ((beta 7.10, Plan kept) warn: outlined, across a sheet's edge)
+  /* (beta 7.10, Drawing labels) for tests: the plan's movable items (report.movable) where they are drawn now (their box in page pixels: centre, size, turn), the
      one tapped, the one dragged, the pins kept, the items lifted off the plan (moved since it was made) and the Undo steps of this project */
   window.__polecam.drwMv = () => { if (!drw) return null; const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1, M = drwMvs(), PL = drw.ph && drw.ph.plan, sc = drw.view ? drw.view.sc : 1;
     return { items: M.map((m, i) => { const B = drwMvBox(m, i), [x, y] = drwPx([B[0], B[1]]); return { id: m.id, kind: m.kind, how: m.how, x: r.left + x / d, y: r.top + y / d, w: B[2] * sc / d, h: B[3] * sc / d, deg: B[4], box: B, anchor: m.anchor, cut: drwMvCut(m, i), name: drwMvName(m), with: m.with || [], handles: m.handles.length }; }),
@@ -21731,7 +21731,7 @@
     return { on: drwPlanOn(), want: !!drw.plWant, busy: !!drw.phBusy, made: drwPlanN, n: drw.ph ? drw.ph.n || 0 : 0, ms: drw.ph ? drw.ph.ms : 0, count: P ? { ...P.count } : null, K: P ? P.K : 0, sheet: P ? P.sheet : null, origin: P ? P.origin.slice() : null,
       sheets: drw.ph && drw.ph.grid ? JSON.parse(JSON.stringify(drw.ph.grid.sheets)) : null, gridOn: S.drawGrid !== false, gridDrawn: (drw.gridDrawn || []).map((x) => ({ ...x, x: r.left + x.x / d, y: r.top + x.y / d })), drawn: drw.planDrawn || null,
       regen: { hidden: $('drawRegen').hidden, disabled: $('drawRegen').disabled, say: $('drawRegenT').textContent }, phAll: $('drawPhAll').hidden ? null : $('drawPhAllT').textContent }; };
-  /* (Plan kept) for tests: what is kept with a project's plan (the grid, the roads: each place's area, where they came from, when, how many), a display
+  /* (beta 7.10, Plan kept) for tests: what is kept with a project's plan (the grid, the roads: each place's area, where they came from, when, how many), a display
      list's hash (the Drawing's plan; or the one dxfpdf.js's planList makes of a DXF and its report, on the page: an export's) */
   window.__polecam.planKept = async (n) => { const nm = n || S.project, m = pmeta(nm), K = await rkGet(nm).catch(() => null);
     return { grid: m.planGrid ? JSON.parse(JSON.stringify(m.planGrid)) : null, id: (m.planRoads || {}).id || null, roads: K ? K.parts.map((x) => ({ bb: x.bb, nb: x.nb, zone: x.zone, src: x.src, at: x.at, roads: x.roads.length, pois: x.pois.length, note: x.note })) : null }; };

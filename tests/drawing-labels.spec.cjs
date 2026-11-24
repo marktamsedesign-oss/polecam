@@ -1,11 +1,11 @@
-/* (Drawing labels) on the Drawing (the plan as its PDF prints it) the cable labels, pole numbers and pole details can be dragged, and the export puts
+/* (beta 7.10, Drawing labels) on the Drawing (the plan as its PDF prints it) the cable labels, pole numbers and pole details can be dragged, and the export puts
    them where they were dragged. Run: node --test tests/drawing-labels.spec.cjs (or python3 tests/run_all.py --only drawing-labels).
    - The builder (dxftpl.js, in Node, as the app's worker runs it): report.movable lists every cable label, number, pole's details and photo the plan
      writes (its box, what its pin is measured from, placed by hand or by the plan, the DXF entities that draw it). job.numPin / lblPin / cabPin put
      the item where it was put (its box's middle = its anchor + the pin), first: an automatic item on that place moves aside; a cable label away
      from its cable gets the plan's arrow (shoulder, line, solid arrowhead), a number or pole details away from the pole a thin line; a cable label
      placed by hand is that cable's label there (no other beside it). Tidy: at every grid the same place; a pole's number is in its block and moves
-     with it (no number of its own to move; a numPin of a pole left out). (Plan kept) a cell holding an item placed by hand (its box, its line
+     with it (no number of its own to move; a numPin of a pole left out). (beta 7.10, Plan kept) a cell holding an item placed by hand (its box, its line
      or arrow) that no sheet prints becomes a printed GEO sheet; one across a sheet's edge says the sheets it is cut on (cut), and the notes.
    - Byte for byte: with no pin (none, empty, pins that name nothing) the DXF and its PDF as beta 7.9 made them (their SHA-256): a made-up job of
      12 poles with photos, numbers and its cable labelled, Standard, Tidy and numbers only, on both made-up templates; 300 poles.
@@ -15,7 +15,7 @@
      drawn where it was let go and still there when the new preview comes, and the export's plan has it there by hand with its arrow or line;
      Undo (↶) takes the changes back one at a time; Back to automatic for one, and for all of them (asked first, Cancel keeps them); without pins
      the export's DXF is the same as before any was made. Tidy (on a computer): a pole's block is dragged with its number and its photo. In Edit
-     route nothing is dragged. (Plan kept) a cable label dragged into a cell with no sheet: that sheet prints and the Drawing boxes it; pole details
+     route nothing is dragged. (beta 7.10, Plan kept) a cable label dragged into a cell with no sheet: that sheet prints and the Drawing boxes it; pole details
      across a sheet's edge: outlined orange and said when tapped, as a photo is; the grid kept from the first item placed by hand of any kind
      and let go when none is left (Back to automatic for one or all, Undo); the owner's sequence (a number, pole details and a cable label
      placed by hand; exported, AutoCAD files and PDF; another project; back): the same preview, its sheets, names and display list, and the
@@ -124,7 +124,7 @@ test('the builder: a number, a pole\'s details and a cable label placed by hand 
   const r2 = T.build(SEED_SQ, madeUpJob({ cabPin: { [cab.key]: { at: [cab.box[0] - cab.anchor[0] + 4 * ua[0], cab.box[1] - cab.anchor[1] + 4 * ua[1]], rot: cab.box[4] } } })), C2 = by(r2.report.movable, cab.id);
   assert.equal(C2.how, 'by hand'); assert.equal(C2.lead, false); assert.equal(C2.handles.length, 1, 'beside its cable: the text only'); near(C2.box[4], cab.box[4], 1e-6, 'along its cable');
   assert.deepEqual(r1.report.notes, [], 'nothing across a sheet\'s edge');
-  // a pin across the sheet's edge, into a cell with no sheet: that cell prints too ((Plan kept), as a photo's), the item says the two sheets it is cut on, and the notes
+  // a pin across the sheet's edge, into a cell with no sheet: that cell prints too ((beta 7.10, Plan kept), as a photo's), the item says the two sheets it is cut on, and the notes
   const G = r0.report.grid, s = G.sheets[0].box, d1 = by(M0, 'lbl:s1'), r3 = T.build(SEED_SQ, madeUpJob({ lblPin: { s1: [s[0] - d1.anchor[0], 0, 0] } })), L3 = by(r3.report.movable, 'lbl:s1'), S3 = r3.report.grid.sheets;
   assert.equal(S3.length, G.sheets.length + 1, 'a sheet added'); const added = S3.find((x) => x.forPhoto); assert.ok(added && added.box[2] === s[0], `the cell west of it: ${JSON.stringify(S3)}`);
   assert.deepEqual(L3.cut, [G.sheets[0].name, added.name].sort(), 'cut on both, as a photo\'s photoAt[id].cut');
@@ -206,7 +206,7 @@ const POLES = []; for (let i = 0; i < 8; i++) POLES.push([`s${i + 1}`, `CC-${900
 const RECS = POLES.map(([id, poleId, lat, lon], i) => ({ id, project: NAME, element: 'Pole', poleId, poleType: 'Concrete', status: 'Proposed', lat, lon, accuracy: 4.2, created: `2026-11-01T08:0${i}:00.000Z`, updated: T0, takenAt: T0, by: USER.name, boq: { owner: 'Electric', clamp: '8-10' } }));
 const LINKS = POLES.slice(1).map((p, i) => [POLES[i][0], p[0], 'F12']);
 const NO_PINS = { phPin: {}, numPin: {}, lblPin: {}, cabPin: {} };
-// ((Plan kept)) another made-up project 2 km away (4 poles), and OpenStreetMap as Overpass answers it, made up (as plan-keep.spec.cjs's): a street 9 m
+// ((beta 7.10, Plan kept)) another made-up project 2 km away (4 poles), and OpenStreetMap as Overpass answers it, made up (as plan-keep.spec.cjs's): a street 9 m
 // south of the first poles, an avenue 9 m east of the others, a chapel; a road along the other project
 const OTHER = 'DEMO DRAW OTHER', LA0 = 7.10465, LO0 = 125.6010, DD = 0.00036;
 const PO = []; for (let i = 0; i < 4; i++) PO.push([`o${i + 1}`, `CC-${9201 + i}`, 7.1230, 125.6200 + i * DD]);
@@ -249,7 +249,7 @@ async function open(o) {
   await page.evaluate(async () => {
     if (!window.GeDxfTpl) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'dxftpl.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
     const T = window.GeDxfTpl, real = T.build; T.__w = true; window.__exp = []; window.__outs = [];
-    T.build = function (seed, job) { // ((Plan kept)) and its grid kept, its roads, its sheets; with window.__alt, the same job without its grid kept (the grid the plan would find)
+    T.build = function (seed, job) { // ((beta 7.10, Plan kept)) and its grid kept, its roads, its sheets; with window.__alt, the same job without its grid kept (the grid the plan would find)
       const alt = window.__alt && job.gridKeep ? (() => { const j = structuredClone(job); delete j.gridKeep; const G = real.call(this, seed, j).report.grid || {}; return { cell: G.cell, n: G.n, names: (G.sheets || []).map((x) => x.name) }; })() : null;
       const out = real.call(this, seed, job), G = out.report.grid || {}; window.__outs.push(out);
       window.__exp.push({ pins: JSON.parse(JSON.stringify({ phPin: job.phPin, numPin: job.numPin, lblPin: job.lblPin, cabPin: job.cabPin })), movable: JSON.parse(JSON.stringify(out.report.movable)), notes: out.report.notes.slice(), text: out.text,
@@ -269,7 +269,7 @@ async function drawing(page, mpp) {
 }
 /** The Drawing looking at lat, lon (mpp metres a pixel) at fx, fy of its canvas. */
 const look = (page, lat, lon, mpp, fx, fy) => page.evaluate(([la, lo, m, x, y]) => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); window.__polecam.drwLook(la, lo, m, r.width * x, r.height * y); }, [lat, lon, mpp, fx, fy]);
-/** ((Plan kept)) The Drawing looking at E, N (metres), drawn. */
+/** ((beta 7.10, Plan kept)) The Drawing looking at E, N (metres), drawn. */
 const centre = (page, E, N) => page.evaluate(([X, Y]) => { window.__polecam.drwView({ cx: X, cy: Y }); window.__polecam.drwRedraw(); }, [E, N]);
 /** Until the plan is shown and not being made again (when: what else it must show). */
 async function shown(page, when) {
@@ -287,7 +287,7 @@ async function exportPlan(page) {
     if (st.res) break;
   }
   const e = await page.evaluate(() => window.__exp); assert.equal(e.length, 1, 'one plan made');
-  e[0].hash = await page.evaluate(async () => { // ((Plan kept)) its display list's hash, as the Drawing's (dxfpdf.js's planList of the DXF and its report)
+  e[0].hash = await page.evaluate(async () => { // ((beta 7.10, Plan kept)) its display list's hash, as the Drawing's (dxfpdf.js's planList of the DXF and its report)
     if (!window.GeDxfPdf) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'dxfpdf.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
     const o = window.__outs[0]; return window.__polecam.planListHash(o.text, o.report); });
   return e[0];
@@ -297,12 +297,12 @@ async function drag(page, x, y, dx, dy, at) {
   await page.mouse.move(x, y); await page.mouse.down(); for (let k = 1; k <= 12; k++) { await page.mouse.move(x + dx * k / 12, y + dy * k / 12); await page.waitForTimeout(16); }
   const held = at ? await mvOf(page) : null; await page.mouse.up(); return held;
 }
-/** ((Plan kept)) The plan shown (shown's), its display list's hash, its movable items, the grid and roads kept with the project. */
+/** ((beta 7.10, Plan kept)) The plan shown (shown's), its display list's hash, its movable items, the grid and roads kept with the project. */
 const snap = async (page, s) => ({ ...(s || (await pl(page))), hash: await page.evaluate(() => window.__polecam.drwPlanHash()), mv: await mvOf(page), kept: await page.evaluate(() => window.__polecam.planKept()) });
 const names = (s) => s.sheets.map((x) => `${x.sheet}: ${x.name}`);
 const round = (x) => JSON.parse(JSON.stringify(x, (k, v) => (typeof v === 'number' ? +v.toFixed(6) : v)));
 const handPlaced = (M) => round(M.filter((m) => m.how === 'by hand').map((m) => ({ id: m.id, box: m.box, cut: m.cut || null })));
-/** ((Plan kept)) Another project, through Projects (as the owner does), and back to the main screen. */
+/** ((beta 7.10, Plan kept)) Another project, through Projects (as the owner does), and back to the main screen. */
 async function openProject(page, name) {
   await closeAll(page); await page.evaluate(() => document.getElementById('projectBtn').click()); await page.waitForTimeout(800);
   await page.evaluate((nm) => document.querySelector(`#taskList .task[data-name="${nm}"]`).click(), name); await page.waitForTimeout(600);
@@ -420,7 +420,7 @@ test('a computer, Tidy: a pole\'s block dragged with its number and its photo; b
   await ctx.close();
 });
 
-// ((Plan kept)) the pins and the fix's mechanisms: cells holding an item placed by hand print, the grid kept from the first pin of any kind, one edge warning
+// ((beta 7.10, Plan kept)) the pins and the fix's mechanisms: cells holding an item placed by hand print, the grid kept from the first pin of any kind, one edge warning
 const inSheet = (S, E, N) => S.sheets.some((x) => E >= x.box[0] && E <= x.box[2] && N >= x.box[1] && N <= x.box[3]);
 const made = async (page) => { const s = await pl(page); return s ? s.made : 0; };
 const keptNow = (page) => page.evaluate(() => window.__polecam.planKept());
