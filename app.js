@@ -740,7 +740,7 @@
     if (JN[element]) return jnNextId(element, recs); // beta 6.9: PO-0001, CO-0001 (the next in the project)
     const latest = (list) => list.reduce((m, p) => (p.created > m.created ? p : m));
     if ((!element || element === 'Pole') && ed && !ed.acc && ed.status === 'Proposed') {
-      if (ed.noPP) return ''; // (Add Pin) a pole added with Add Pin: no PP- number given (an ID typed, or the generic number at Save)
+      if (ed.noPP) return ''; // (beta 7.9, Add Pin) a pole added with Add Pin: no PP- number given (an ID typed, or the generic number at Save)
       const n = recs.filter((p) => PP_RE.test(p.poleId || '')).reduce((m, p) => Math.max(m, +PP_RE.exec(p.poleId)[1]), 0);
       return `PP-${String(n + 1).padStart(4, '0')}`;
     }
@@ -903,7 +903,7 @@
   }));
   function onSheetClosed(id) {
     if (id === 'drawing' && drwEd) drwEditSet(false); // beta 6.7: Back from the Drawing ends its Edit route
-    if (id === 'drawing') { drwPhStop(); drwThumbsFree(); } // (beta 7.8, Drawing photos) where the plan puts the photos: no longer worked out ((Drawing preview) the photos' pictures let go)
+    if (id === 'drawing') { drwPhStop(); drwThumbsFree(); } // (beta 7.8, Drawing photos) where the plan puts the photos: no longer worked out ((beta 7.9, Drawing preview) the photos' pictures let go)
     if (id === 'drawing' && jnPick && jnPick.surf === 'drawing') jnPickEnd(); // beta 6.9: its poles were being tapped there
     if (id === 'editor' && drwEd) drwEdSoon(); // beta 6.7: a tower placed on the Drawing: its record saved (or not)
     if (id === 'editor') { document.body.classList.remove('edopen'); if (typeof ppxRefresh === 'function') ppxRefresh(); } // beta 4.1
@@ -979,10 +979,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.45.10';
+  const APP_VER = '2.45.11';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '7.8'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '7.9'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1777,7 +1777,7 @@
      (drawn exactly where it is placed). A photo can be added later (open the pin → Add photo).
      beta 6.8 (the owner): and a proposed pole, "since some did not take a picture during survey, it will only be plotted during plan
      drawing"; beta 6.9 (the owner): and a pull-off (3 poles) or a cross-over (4 poles) at a corner with no pole.
-     (Add Pin) the owner: "add pin: remove proposed pole name. Just put "Add Pin" and then the user will select which pin it is, either
+     (beta 7.9, Add Pin) the owner: "add pin: remove proposed pole name. Just put "Add Pin" and then the user will select which pin it is, either
      new Pole, HH, SB, MH and so on"; "NAP dummy box it should be.. allow other pin to add soon like LCP etc. may be this button can be
      add on the drawing side"; "MAP add Pin is not found". Add Pin, in words on the map (and ＋ Add Pin on the Drawing's route bar),
      asks which kind, in the approved demo's groups, each with the symbol the plan draws for it (symSvg); NEW marks a kind the map had
@@ -1800,20 +1800,20 @@
     ['Sites', [{ k: 'tower', n: 'Tower', sub: 'site', el: 'Site', site: 'Tower' }, { k: 'odc', n: 'ODC', sub: 'cabinet', el: 'ODC' }, { k: 'olt', n: 'OLT', sub: 'site', el: 'Site', site: 'OLT' }]],
   ];
   const PIN_BY = new Map(PIN_KINDS.flatMap(([, L]) => L).map((x) => [x.k, x]));
-  /** (Add Pin) the status a pin of kind x starts with ('' : the survey has none, or its usual one, svDefaultStatus): a pole, pull-off or
+  /** (beta 7.9, Add Pin) the status a pin of kind x starts with ('' : the survey has none, or its usual one, svDefaultStatus): a pole, pull-off or
       cross-over as before (ppStatus); a tower, OLT or ODC its usual one (Existing is set for the homing site); the others proposed. */
   function pinStatus(x) {
     if (x.el === 'Pole' || JN[x.el]) return ppStatus();
     if (x.el === 'Site' || x.el === 'ODC') return '';
     const L = svStatuses(x.el); return L.includes('Proposed') ? 'Proposed' : L.includes('New') ? 'New' : L[0] || '';
   }
-  /** (Add Pin) the record a pin of kind x opens with (openEditor), less where it is: a pole is a Globe pole (GT, as beta 6.8's) with no
+  /** (beta 7.9, Add Pin) the record a pin of kind x opens with (openEditor), less where it is: a pole is a Globe pole (GT, as beta 6.8's) with no
       PP- number given (noPP); a NAP pin its kind (a size: napType). */
   function pinOpts(x) {
     const st = pinStatus(x);
     return { mode: 'new', element: x.el, siteKind: x.site || '', ...(st ? { status: st } : {}), ...(x.el === 'Pole' ? { type: globeType(), noPP: true } : {}), ...(x.boq ? { boq: { ...x.boq } } : {}), pinKind: x.k };
   }
-  /** (Add Pin) "Add Pin: what is it?": the kinds this survey can have (a pole, pull-off or cross-over where poles have a status; a dummy
+  /** (beta 7.9, Add Pin) "Add Pin: what is it?": the kinds this survey can have (a pole, pull-off or cross-over where poles have a status; a dummy
       NAP box or LCP where sizes are kept), each with its symbol as it will start; where: 'map' (drag the map) or 'draw' (tap the
       Drawing). The kind picked (PIN_KINDS), or null. */
   async function pinAsk(where) {
@@ -2157,22 +2157,22 @@
   const drwPhMem = new Map(), drwPhRoadC = new Map(), phDimC = new Map(); // (each project's last preview; the roads read for it, this time the Drawing is open; each photo's size)
   const strHash = (s) => { let h = 2166136261, k = 5381; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h = Math.imul(h ^ c, 16777619); k = (Math.imul(k, 33) + c) | 0; } return `${s.length}:${(h >>> 0).toString(36)}:${(k >>> 0).toString(36)}`; };
   function drwPhSoon(ms) { clearTimeout(drwPhT); drwPhT = setTimeout(() => { drwPhGo(false); }, ms == null ? 300 : ms); }
-  /** (Drawing preview) The preview made now (force: again, even when nothing changed: Regenerate plan preview). */
+  /** (beta 7.9, Drawing preview) The preview made now (force: again, even when nothing changed: Regenerate plan preview). */
   function drwPhGo(force) { return drwPhRun(force).catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) { drw.phBusy = false; drwPlanUi(); } }); }
   /** The preview being made stops (an export, Back). */
   function drwPhStop() { clearTimeout(drwPhT); drwPhGen++; drwPhForce = false; if (drw) drw.phBusy = false; phStopBuild(); }
   function phStopBuild() { phBuild = null; if (phWorkerEnd) { const f = phWorkerEnd; phWorkerEnd = null; try { phWorker.terminate(); } catch (e) { /* gone */ } phWorker = null; f(); } }
   async function drwPhRun(force0) {
     if (!drw || $('drawing').hidden) return;
-    const force = !!force0 || drwPhForce; // ((Drawing preview) Regenerate plan preview: made again even when a newer call comes first)
+    const force = !!force0 || drwPhForce; // ((beta 7.9, Drawing preview) Regenerate plan preview: made again even when a newer call comes first)
     if (typeof Worker === 'undefined' || dxfMode() !== 'tpl') { drwPlanNone(); return; } // (the Simple drawing: the Drawing as before)
     const gen = ++drwPhGen, proj = drw.project, row = rowIdx(), tA = Date.now(), live = () => gen === drwPhGen && !!drw && drw.project === proj && !$('drawing').hidden;
     if (!window.GeDxfTpl) await loadScript('dxftpl.js');
     const seed = await seedText(); if (!live()) return;
     if (!seed || !seedOk(seed)) { drwPlanNone(); return; } // (no template on the phone: the Drawing as before)
-    if (!drw.plWant) { drw.plWant = true; drwPlanUi(); } // ((Drawing preview) a plan to preview: Regenerate plan preview on the Drawing)
+    if (!drw.plWant) { drw.plWant = true; drwPlanUi(); } // ((beta 7.9, Drawing preview) a plan to preview: Regenerate plan preview on the Drawing)
     const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live() || !st) return; // (the records as an export sees them)
-    // ((Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
+    // ((beta 7.9, Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
     const sk = `${seed.length}|${(S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once)
     const job = J.jobOf(st), sig = strHash(`${seedSigC.h}|${JSON.stringify({ ...job, date: 0 })}`), M = drwPhMem.get(proj);
     if (!force && M && M.sig === sig && M.row === row && M.plan) { if (phBuild) phStopBuild(); drw.ph = M; drw.phBusy = false; drwPlanShow(); return; } // (nothing changed: as made last time)
@@ -2181,7 +2181,7 @@
     const t0 = Date.now(), res = await planPreview(seed, job); if (phBuild !== me) return; phBuild = null;
     const rep = res && res.report;
     if (!rep || !rep.photoAt) { if (drw && drw.project === proj) { drw.phBusy = false; drwPlanUi(); } return; } // (the plan could not be made, or by a builder that does not say where its photos went: the photos stay as they are)
-    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); } // ((Drawing preview) the plan's model space, ready to draw; none: the Drawing as before)
+    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before)
     if (res.perr) LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) });
     const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
       planAt: rep.photoAt, fileId: Object.fromEntries(Object.entries(job.photos || {}).map(([id, x]) => [x.file, id])) }; // (the places the plan's pictures are drawn at; each picture's point)
@@ -2190,7 +2190,7 @@
     if (!drw || drw.project !== proj || $('drawing').hidden) return;
     drw.ph = ph; drw.phBusy = false; drwPlanShow(force);
   }
-  /** The plan made for the preview in a worker of its own (an export never waits for it): its report and ((Drawing preview) dxf-worker.js
+  /** The plan made for the preview in a worker of its own (an export never waits for it): its report and ((beta 7.9, Drawing preview) dxf-worker.js
    *  only: 'plan') its model space as the PDF prints it, { report, plan }, sent back; null when it fails. */
   function planPreview(seed, job) {
     return new Promise((res) => {
@@ -2221,14 +2221,14 @@
   /** The Drawing's hint, with a line about the photos once the plan's places are there. */
   function drwPhHint() {
     if (!drw || drw.hint0 == null) return;
-    const pl = drwPlanOn(), G = pl && drw.ph.grid ? drw.ph.grid.sheets : [], n = drw.ph ? Object.keys(drw.ph.at || {}).length : 0; // ((Drawing preview) the plan shown: what it is; its photos: drag them)
+    const pl = drwPlanOn(), G = pl && drw.ph.grid ? drw.ph.grid.sheets : [], n = drw.ph ? Object.keys(drw.ph.at || {}).length : 0; // ((beta 7.9, Drawing preview) the plan shown: what it is; its photos: drag them)
     $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.` : drw.hint0)
       + (n ? ' Photos sit where the plan puts them: drag one to place it by hand.' : '');
   }
   /** The plan's place of this point's photo (report.photoAt), for the drawing shown; null: none (no preview yet, or the plan has none). */
   const drwPhOf = (it) => (drw && drw.ph && drw.ph.row === rowIdx() ? drw.ph.at[String(it.p.id)] || null : null);
   /** Its frame where the plan puts it, at its size, its line to the pole when the plan has one (dragged: where the finger is, a dashed line to its pole).
-   *  pl: (Drawing preview) over the plan: where the plan draws it (not from the pole as the Drawing draws it), its picture in it. */
+   *  pl: (beta 7.9, Drawing preview) over the plan: where the plan draws it (not from the pole as the Drawing draws it), its picture in it. */
   function drwPhFrame(g, d, it, A, placed, pl) {
     const id = String(it.p.id), dr = drw.phDrag && drw.phDrag.id === id ? drw.phDrag : null, sh = pl ? [0, 0] : [it.xy[0] - A.dp[0], it.xy[1] - A.dp[1]], at = (q) => drwPx([q[0] + sh[0], q[1] + sh[1]]);
     let [cx, cy] = at([A.x, A.y]); if (dr) { cx += dr.dx; cy += dr.dy; }
@@ -2237,7 +2237,7 @@
     else if (A.line && A.line.length > 1) { g.strokeStyle = '#868e96'; g.lineWidth = 1.2 * d; g.beginPath(); A.line.forEach((q, k) => { const P = at(q); if (k) g.lineTo(P[0], P[1]); else g.moveTo(P[0], P[1]); }); g.stroke(); }
     g.save(); g.translate(cx, cy); g.rotate(rot);
     if (sel || dr) { g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 5 * d; g.strokeRect(-w / 2, -h / 2, w, h); }
-    if (!pl || dr || drwPhMoved(id)) { // ((Drawing preview) over the plan: the plan draws its picture where it prints it; here only its frame, unless it moved)
+    if (!pl || dr || drwPhMoved(id)) { // ((beta 7.9, Drawing preview) over the plan: the plan draws its picture where it prints it; here only its frame, unless it moved)
       g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(-w / 2, -h / 2, w, h);
       const th = pl && w >= 20 * d && h >= 20 * d ? drwThumb(it) : null; // (its picture, from the phone, once it is read)
       if (th) g.drawImage(th, -w / 2, -h / 2, w, h);
@@ -2274,7 +2274,7 @@
     S.meta = S.meta || {}; S.meta[proj] = { ...m0, phPin: { ...(m0.phPin || {}), [id]: off } }; persist();
     drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null } } }; // (where it was let go, until the plan's own comes: its line, the others moved aside; the one kept stays as it was made)
     LOG.info('draw.photo.pin', { n: Object.keys(S.meta[proj].phPin).length });
-    drwPlanUi(); drwPhTap(id); drwPhSoon(250); // ((Drawing preview) the chip of the photos placed by hand at once)
+    drwPlanUi(); drwPhTap(id); drwPhSoon(250); // ((beta 7.9, Drawing preview) the chip of the photos placed by hand at once)
   }
   /** Back to automatic: the photo placed by hand goes back where the plan puts it. */
   function drwPhAuto(id) {
@@ -2284,7 +2284,7 @@
     if (drw.ph && drw.ph.at[id]) drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...drw.ph.at[id], how: 'auto' } } }; // (where it is until the plan's place comes)
     drwPlanUi(); drwPhTap(id); drwPhSoon(0);
   }
-  /* (Drawing preview) The plan on the Drawing as its PDF prints it (the owner, beta 7.8: "I want the drawing to be the preview of pdf export
+  /* (beta 7.9, Drawing preview) The plan on the Drawing as its PDF prints it (the owner, beta 7.8: "I want the drawing to be the preview of pdf export
      plan that is editable and can be rearranged… a button to regenerate the plan preview"). With the company template on the phone (the
      template plan chosen), the preview (drwPhRun, in its worker) is the plan the export makes, and its model space drawn by the PDF's own
      drawing code (dxfpdf.js, modelList: the same lines, colours, line weights, line types, texts, symbols, cable labels with their arrows,
@@ -2480,7 +2480,7 @@
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
     g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
     if (drwBase() !== 'off') { drawUnderlay(g); underlaySoon(); } // v2.36: the map under the drawing
-    if (drwPlanOn()) { drwPlanDraw(g, d, cv, v); return; } // (Drawing preview) the plan as its PDF prints it
+    if (drwPlanOn()) { drwPlanDraw(g, d, cv, v); return; } // (beta 7.9, Drawing preview) the plan as its PDF prints it
     // grid every 10 / 50 / 100 m, by zoom
     const step = [5, 10, 20, 50, 100, 200, 500, 1000].find((m) => m * v.sc > 60 * d) || 1000;
     g.strokeStyle = 'rgba(28,63,148,0.08)'; g.lineWidth = 1;
@@ -2817,7 +2817,7 @@
         if (e.type === 'pointerup' && moved >= 8 && G) drwPhDrop(D.id, G.dx, G.dy); else if (e.type === 'pointerup' && moved < 8) drwPhTap(D.id); else drawDrawing(); return; }
       if (moved < 8 && e.type === 'pointerup' && !drwEd) { // a tap: the nearest point (beta 6.7: in Edit route, Route's tap)
         const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
-        let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(drwAt(it)), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; }); // ((Drawing preview) where the plan draws it, while the plan is shown)
+        let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(drwAt(it)), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; }); // ((beta 7.9, Drawing preview) where the plan draws it, while the plan is shown)
         if (jnPick && jnPick.surf === 'drawing') { if (best) jnPickTap(best.it.p.id); return; } // beta 6.9: a pull-off's or cross-over's pole
         drw.sel = best ? best.it.p.id : null; drw.selPh = null; const info = $('drawInfo');
         drw.selRun = null; if (!best) { let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((L) => { for (let k = 1; k < L.length; k++) { const a = L[k - 1], b = L[k], vx = b[0] - a[0], vy = b[1] - a[1], t = Math.max(0, Math.min(1, ((tx - a[0]) * vx + (ty - a[1]) * vy) / (vx * vx + vy * vy || 1))), dd = Math.hypot(a[0] + vx * t - tx, a[1] + vy * t - ty); if (dd < 16 * d() && (!bc || dd < bc.dd)) bc = { n, dd }; } }));
@@ -2945,7 +2945,7 @@
   function renderDrawLegend() {
     const pts = drw ? drw.items : [], has = (f) => pts.some(f), rows = [];
     const sv = (inner) => `<svg viewBox="0 0 22 16" aria-hidden="true">${inner}</svg>`, tag = (t, c) => sv(`<rect x="1" y="3" width="20" height="10" rx="1.5" fill="${c}"/><text x="11" y="10.6" text-anchor="middle" font-size="6.5" font-weight="800" fill="#fff" font-family="system-ui,sans-serif">${t}</text>`);
-    if (drwPlanOn()) { // (Drawing preview) the plan as its PDF prints it: its own symbols (its LEGENDS sheet), its sheets, the photos
+    if (drwPlanOn()) { // (beta 7.9, Drawing preview) the plan as its PDF prints it: its own symbols (its LEGENDS sheet), its sheets, the photos
       rows.push([sv('<path d="M2 12 8 5l4 4 3-3 5 6" fill="none" stroke="#1b1b1b" stroke-width="1.4"/><circle cx="8" cy="5" r="1.8" fill="#fff" stroke="#e03131" stroke-width="1.2"/>'), 'The plan as its PDF prints it: its lines, symbols and texts (its LEGENDS sheet says what each one is)']);
       rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><rect x="11" y="3" width="8.5" height="5" fill="#ae3ec9"/>'), 'A sheet of the plan (GEO) and its name, as the plan writes it']);
       if (drw.ph && Object.keys(drw.ph.at || {}).length) rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#1c7ed6" stroke-width="1.5"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#74c0fc"/>'), 'A photo where the plan puts it: drag it to place it by hand (blue: placed by hand)']);
@@ -5565,9 +5565,9 @@
   }
   /** ＋ Tower · OLT · ODC on the Drawing: which, then a tap where it stands; its record opens for its name (as the map's ＋ pin).
       beta 6.8: and a proposed pole (no photo: "it will only be plotted during plan drawing"); tapped on a cable's span, it is offered
-      onto that cable once its record is saved (ppOnCable). (Add Pin): ＋ Add Pin, the map's list (pinAsk). */
+      onto that cable once its record is saved (ppOnCable). (beta 7.9, Add Pin): ＋ Add Pin, the map's list (pinAsk). */
   async function drwSiteAsk() {
-    const x = await pinAsk('draw'); if (!x || !drwEd) return; drwSiteArm = { el: x.el, kind: x.k, pin: x }; // (beta 6.9: + a pull-off or cross-over; (Add Pin): every kind)
+    const x = await pinAsk('draw'); if (!x || !drwEd) return; drwSiteArm = { el: x.el, kind: x.k, pin: x }; // (beta 6.9: + a pull-off or cross-over; (beta 7.9, Add Pin): every kind)
     const w = x.n.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase()); // (tower, closure, dummy NAP box, LCP, ODC…)
     rtHint(x.el === 'Pole' ? 'Tap the Drawing where the pole goes (on a cable: on its line). Esc: cancel' : JN[x.el] ? `Tap the cable at the corner where the ${JN[x.el].name} goes. Esc: cancel` : x.el === 'NAP' || x.el === 'Closure' ? `Tap the pole the ${w} goes on (Esc: cancel)` : `Tap the Drawing where the ${w} ${x.el === 'Site' || x.el === 'ODC' ? 'stands' : 'goes'} (Esc: cancel)`);
   }
@@ -5714,7 +5714,7 @@
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
         h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
-        if (drwEd && !rtPairs) { h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add Pin: pick what it is (as the map's Add Pin), then tap the Drawing where it goes">＋ Add Pin</button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over; (Add Pin): the map's list)
+        if (drwEd && !rtPairs) { h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add Pin: pick what it is (as the map's Add Pin), then tap the Drawing where it goes">＋ Add Pin</button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over; (beta 7.9, Add Pin): the map's list)
       }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
@@ -7403,7 +7403,7 @@
     let msg = '';
     // v2.19: in PAT, cleanup and FAT an empty ID (or only the prefix) is fine: the record is saved as D-0001…
     if (ed.acc && (!id || DREF_RE.test(id) || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(id))) msg = '';
-    else if (ed.noPP && kind === 'Pole' && (!id || new RegExp(`^(${prefixAlt()})-?$`).test(id))) msg = ''; // (Add Pin) a pole added by hand with no ID yet: the generic number at Save
+    else if (ed.noPP && kind === 'Pole' && (!id || new RegExp(`^(${prefixAlt()})-?$`).test(id))) msg = ''; // (beta 7.9, Add Pin) a pole added by hand with no ID yet: the generic number at Save
     else if (id && kind === 'Pole' && poleIdXRe().test(id)) msg = 'X = a character the camera could not read. Type it if you can see it on the tag, or keep the X.';
     // v2.18: the ID after the prefix may mix letters and digits (CC-0123A); only one with no digit at all is flagged
     else if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id) && !PP_RE.test(id) && !new RegExp(`^(${prefixAlt()})-(?=[A-Z0-9-]*[0-9])[A-Z0-9][A-Z0-9-]*$`).test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
@@ -7510,7 +7510,7 @@
       Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, details: JSON.parse(JSON.stringify(o.details || [])),
         marks: JSON.parse(JSON.stringify(mk)).map(normMark), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false,
         nap: !!o.nap, nap2: !!o.nap2, closure: !!o.closure || (UG_BOXES.has(o.element || 'Pole') && !!o.closureId), // v2.41: the NAP and the hybrid closure on the pole (v2.42: a second box; v2.42.17: the closure in a handhole, manhole or service box)
-        noPP: !!o.noPP && o.mode === 'new', pinKind: o.mode === 'new' ? o.pinKind || '' : '' }); // (Add Pin) its kind; a pole: no PP- number given
+        noPP: !!o.noPP && o.mode === 'new', pinKind: o.mode === 'new' ? o.pinKind || '' : '' }); // (beta 7.9, Add Pin) its kind; a pole: no PP- number given
       const onPoleRec = (o.element || 'Pole') === 'Pole';
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = onPoleRec ? '' : o.closureId || '';
       $('napId').value = onPoleRec ? o.napId || '' : ''; $('closureId').value = onPoleRec ? o.closureId || '' : ''; $('nap2Id').value = onPoleRec ? o.nap2Id || '' : '';
@@ -8261,7 +8261,7 @@
     if (ed.mode === 'new' && (!ed.idTouched || !id || (kindOf(id) && kindOf(id) !== el))) { $('poleId').value = suggestId(el, ed.type); ed.idTouched = false; }
     applyElement(); checkDup(); checkFormat(); applyPlan();
   });
-  /** (Add Pin) "New … on the map": the word for a pin placed by hand (a NAP pin by its kind: dummy NAP box, LCP). */
+  /** (beta 7.9, Add Pin) "New … on the map": the word for a pin placed by hand (a NAP pin by its kind: dummy NAP box, LCP). */
   function mapPinWord(el) {
     const nt = ((ed && ed.boq) || {}).napType || '';
     return ({ Pole: 'pole', Site: ed && ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', NAP: /dummy/i.test(nt) ? 'dummy NAP box' : /lcp/i.test(nt) ? 'LCP' : 'NAP', Closure: 'closure', Handhole: 'handhole', Manhole: 'manhole', 'Service box': 'service box', 'Pull-off': 'pull-off', 'Cross-over': 'cross-over' })[el] || el;
@@ -8271,7 +8271,7 @@
     if (cefHooks.pinRow) cefHooks.pinRow(); // v2.44: a site pin of an As-Plan: its CEF plan
     if (!ed.acc) { // survey point
       const isNew = ed.mode !== 'edit', nm = el === 'Pole' ? 'pole' : el;
-      $('editorTitle').textContent = ed.mapPin ? `New ${mapPinWord(el)} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : JN[el] ? JN[el].name : nm}`; // v2.36 (beta 6.9: + pull-off, cross-over; (Add Pin): every kind, and "pole", not "proposed pole")
+      $('editorTitle').textContent = ed.mapPin ? `New ${mapPinWord(el)} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : JN[el] ? JN[el].name : nm}`; // v2.36 (beta 6.9: + pull-off, cross-over; (beta 7.9, Add Pin): every kind, and "pole", not "proposed pole")
       $('siteKindBox').hidden = el !== 'Site'; $('siteKindSel').value = ed.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37
       $('idLabel').textContent = el === 'Site' ? 'SITE NAME / ID' : `${el.toUpperCase()} ID`;
       const sts = svStatuses(el); if (!sts.includes(ed.status)) ed.status = svDefaultStatus(el);
@@ -8288,7 +8288,7 @@
       // v2.41: what is on the pole: the NAP and the hybrid closure (the maintenance loop is in the sizes)
       $('poleAttach').hidden = el !== 'Pole'; $('atMloop').closest('.tchip').hidden = true; $('atNap').checked = !!ed.nap; $('atClosure').checked = !!ed.closure; noCloSync(); markToggles(); renderAttach();
       renderBoq();
-      $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : JN[el] ? `Drag the map to place the pin at the corner (on the cable: on its line)` : ed.mapPin && (el === 'NAP' || el === 'Closure') ? `Drag the map to place the pin at its pole: it stands on the nearest pole within 30 m` : ed.mapPin ? `Drag the map to place the pin where the ${mapPinWord(el)} ${ed.status === 'Existing' ? 'is' : 'goes'}` : `Drag the map to place the pin on the ${nm}`; // ((Add Pin) a NAP or closure pin: on its pole)
+      $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : JN[el] ? `Drag the map to place the pin at the corner (on the cable: on its line)` : ed.mapPin && (el === 'NAP' || el === 'Closure') ? `Drag the map to place the pin at its pole: it stands on the nearest pole within 30 m` : ed.mapPin ? `Drag the map to place the pin where the ${mapPinWord(el)} ${ed.status === 'Existing' ? 'is' : 'goes'}` : `Drag the map to place the pin on the ${nm}`; // ((beta 7.9, Add Pin) a NAP or closure pin: on its pole)
       jnBoxRender(); // beta 6.9: a pull-off's or cross-over's poles
       renderBoxInfo(); renderEdSym(); // v2.37: the legend symbol beside the photo, and on the pin
       idPadSync(); edRefreshSoon(); // v2.42.17
@@ -9401,7 +9401,7 @@
       if ((ed.removed || []).length) deletePhotosIfUnused(ed.removed.slice(), new Set()).catch(() => {}); // beta 3.5: the photos removed from the pin
       if (ed.mode === 'new' && !isNpt(poleId) && !genId && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
       if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type) && !['Proposed', 'New'].includes(ed.status)) S.lastType = ed.type; // v2.27: not the Globe type of a proposed / new pole
-      if (rec.status && !(ed.pinKind && !ed.stTouched)) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status }; // ((Add Pin): not the status a pin placed by hand started with: the camera's own stays)
+      if (rec.status && !(ed.pinKind && !ed.stTouched)) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status }; // ((beta 7.9, Add Pin): not the status a pin placed by hand started with: the camera's own stays)
       if (ed.newBlob) notePerf(Date.now() - t0);
       persist(); notePerson();
       LOG.info('save.done', { ms: Date.now() - t0 }); LOG.done('save.survey');
@@ -9432,7 +9432,7 @@
       a proposed pole keeps its PP- number (but one added with Add Pin: P-). The next free number in the project. */
   const GEN_PRE = { Pole: 'P', ODF: 'ODF', Site: 'SITE', ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB', 'Pull-off': 'PO', 'Cross-over': 'CO' }; // v2.42.4: + MH, SB (they got X-0001)
   function genSvId(el, status) {
-    if (el === 'Pole' && status === 'Proposed' && !(ed && ed.noPP)) return suggestId('Pole', ed && ed.type); // ((Add Pin): P-, as any pole saved without its ID)
+    if (el === 'Pole' && status === 'Proposed' && !(ed && ed.noPP)) return suggestId('Pole', ed && ed.type); // ((beta 7.9, Add Pin): P-, as any pole saved without its ID)
     if (JN[el]) return jnNextId(el, points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id))); // beta 6.9
     const pre = GEN_PRE[el] || 'X', re = new RegExp(`^${pre}-(\\d+)$`);
     const n = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id)).reduce((m, p) => { const x = re.exec(String(p.poleId || '').toUpperCase()); return x ? Math.max(m, +x[1]) : m; }, 0);
@@ -12212,7 +12212,7 @@
   }
   /** v2.42.28's Plan settings: Plan style, its cards (the old name kept for the tests and the tutorial's planset). */
   function openPlanSet() { openStyle(); }
-  /* (Plan style wide) the owner: "Allow the plan style to expand on browser mode giving users room for navigation and ease of view on the
+  /* (beta 7.9, Plan style wide) the owner: "Allow the plan style to expand on browser mode giving users room for navigation and ease of view on the
      settings. side bar on a laptop browser is very small". Beside the Drawing on a computer, Plan style and Export are wide (index.html:
      --sidew; Plan style's preview beside its cards); Narrower in their top bar gives the Drawing its room back (400 px, as before), Wider
      the room again: kept on this computer (S.sideNarrow). A phone, or either screen opened away from the Drawing, does not change. */
@@ -15372,7 +15372,7 @@
     $('askTitle').textContent = title; $('askText').textContent = text || '';
     const row = $('askBox').querySelector('.row'); row.innerHTML = '';
     const tiles = btns.some((b) => b.tile); row.classList.toggle('tiles', tiles); $('askBox').querySelector('.panel').classList.toggle('hasx', btns.some((b) => b.x)); // beta 4.6: big icon tiles (a caption under each), a quiet ✕
-    const pins = btns.some((b) => b.pin); row.classList.toggle('pins', pins); $('askBox').classList.toggle('pinask', pins); if (pins) $('askBox').querySelector('.panel').scrollTop = 0; // (Add Pin) the kinds of pin, in their groups (pinAsk)
+    const pins = btns.some((b) => b.pin); row.classList.toggle('pins', pins); $('askBox').classList.toggle('pinask', pins); if (pins) $('askBox').querySelector('.panel').scrollTop = 0; // (beta 7.9, Add Pin) the kinds of pin, in their groups (pinAsk)
     const stack = btns.length > 2 && !tiles && !pins; row.classList.toggle('stack', stack); // v2.19: three or more choices are listed one under another, Cancel last
     const list = stack ? btns.filter((b) => b.label !== 'Cancel').concat(btns.filter((b) => b.label === 'Cancel')) : btns;
     return new Promise((res) => {
@@ -15381,7 +15381,7 @@
         const el = document.createElement('button'); el.type = 'button'; el.className = `btn grow${b.primary ? ' primary' : ''}`; el.textContent = b.label;
         if (b.x) { el.className = 'btn askx'; el.textContent = '✕'; el.setAttribute('aria-label', b.label); el.title = b.label; } // (beta 4.6: Later as a quiet ✕ in the corner)
         else if (b.tile) { el.className = `btn tile${b.primary ? ' primary' : ''}`; el.textContent = b.caption || b.label; el.setAttribute('aria-label', b.label); el.title = b.label; if (b.sub) { const sm = document.createElement('small'); sm.textContent = b.sub; el.appendChild(sm); } } // (a second, smaller line)
-        else if (b.pin) { // (Add Pin) its symbol (the app's own SVG, symSvg), its name, a small line, NEW; in its group (b.group: the first of a group)
+        else if (b.pin) { // (beta 7.9, Add Pin) its symbol (the app's own SVG, symSvg), its name, a small line, NEW; in its group (b.group: the first of a group)
           el.className = 'btn ptile'; el.textContent = ''; el.dataset.kind = b.value; el.setAttribute('aria-label', b.label);
           const sy = document.createElement('span'); sy.className = 'psym'; sy.innerHTML = b.pin.svg; const nm = document.createElement('b'); nm.textContent = b.pin.name; const sm = document.createElement('small'); sm.textContent = b.pin.sub; el.append(sy, nm, sm);
           if (b.pin.isNew) { const nw = document.createElement('span'); nw.className = 'pnew'; nw.textContent = 'NEW'; nw.setAttribute('aria-hidden', 'true'); el.appendChild(nw); }
@@ -21430,8 +21430,8 @@
       frames: (drw.phHit || []).map((H) => ({ id: H.id, x: r.left + H.cx / d, y: r.top + H.cy / d, w: H.w / d, h: H.h / d, rot: H.rot })), xy: Object.fromEntries(drw.items.map((it) => [String(it.p.id), it.xy])) }; };
   window.__polecam.drwLL = (lat, lon) => { if (!drw || !drw.view) return null; const p = RT_DRW.pt([lat, lon]), r = $('drawCanvas').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
   window.__polecam.drwLook = (lat, lon, mpp, ox, oy) => { if (!drw || !drw.view) return; const d = window.devicePixelRatio || 1, cv = $('drawCanvas'), u = C.utmForward(lat, lon, drw.zone, lat < 0), sc = d / mpp; drw.view = { ...drw.view, sc, cx: u.E - ((ox == null ? cv.width / 2 / d : ox) * d - cv.width / 2) / sc, cy: u.N + ((oy == null ? cv.height / 2 / d : oy) * d - cv.height / 2) / sc }; drawDrawing(); };
-  window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(drwAt(it)), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; }; // ((Drawing preview) where the Drawing shows it: where the plan draws it, while the plan is shown)
-  /* (Drawing preview) for tests: the plan shown or not, being made, the previews made (n: this one's), its display list's counts, the GEO sheets
+  window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(drwAt(it)), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; }; // ((beta 7.9, Drawing preview) where the Drawing shows it: where the plan draws it, while the plan is shown)
+  /* (beta 7.9, Drawing preview) for tests: the plan shown or not, being made, the previews made (n: this one's), its display list's counts, the GEO sheets
      (report.grid.sheets) and the names drawn (in page pixels), what the last frame drew; px(E, N): a point in metres in page pixels;
      redraw(): the Drawing drawn again now (ms) */
   window.__polecam.drwPlan = () => { if (!drw) return null; const P = drw.ph && drw.ph.plan, r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1;

@@ -1,7 +1,7 @@
 /* G-eSAA v2.42.26: builds the plan DXF off the screen's thread with the same dxftpl.js, so the app keeps answering taps while the
    plan is made. The app sends { id, seed, job } and gets { id, ok, out } back (out: { text, report }), or { id, ok: false, err }.
    (beta 7.8, Drawing photos) only: 'report': out is { report } (the Drawing's preview of where the plan puts the photos needs no DXF).
-   (Drawing preview) only: 'plan': out is { report, plan }: plan, the plan's model space as its PDF prints it (dxfpdf.js's planList: the
+   (beta 7.9, Drawing preview) only: 'plan': out is { report, plan }: plan, the plan's model space as its PDF prints it (dxfpdf.js's planList: the
    same drawing code as the PDF), for the Drawing to draw; what is on or near its GEO sheets, their grid left out (the Drawing draws the
    sheets itself); its arrays sent, not copied. plan null (perr: why) when it cannot be made: the report still comes. */
 importScripts('dxftpl.js');

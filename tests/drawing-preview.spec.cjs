@@ -1,4 +1,4 @@
-/* (Drawing preview) the Drawing shows the plan exactly as the PDF export prints it (its model space), with the plan's sheet grid, Regenerate
+/* (beta 7.9, Drawing preview) the Drawing shows the plan exactly as the PDF export prints it (its model space), with the plan's sheet grid, Regenerate
    plan preview, and the photos dragged on top. Run: node --test tests/drawing-preview.spec.cjs (or python3 tests/run_all.py --only drawing-preview).
    - The PDF's own drawing code (dxfpdf.js, in Node): planList draws the plan's model space as the GEO sheets print it (the same draw() as
      toPdf, read back from its PDF operators): its lines, the red dashed cable, its texts (each text the GEO sheet's PDF prints is in it), a

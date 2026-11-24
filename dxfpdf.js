@@ -11,7 +11,7 @@
    weight 0.25 mm.
      GeDxfPdf.toPdf(dxfText, { images: { 'VICINITY_MAP.jpg': Uint8Array (JPEG), … }, title, deflate: async (bytes) => bytes })
      → Promise<Uint8Array> (the PDF), with .report = { sheets, pictures, missing }
-   (Drawing preview) GeDxfPdf.planList(dxfText, report) → the plan's model space as its GEO sheets print it, drawn by the same draw(), as a
+   (beta 7.9, Drawing preview) GeDxfPdf.planList(dxfText, report) → the plan's model space as its GEO sheets print it, drawn by the same draw(), as a
      display list in model metres for the Drawing screen (modelList); toPdf's output is the same as before, byte for byte. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./dxftpl.js'), require('./reports.js'));
@@ -146,7 +146,7 @@
       if (images.has(file)) return images.get(file);
       const src = o.images && (o.images[file] || o.images[file.toLowerCase()]); let im = null;
       if (src) { try { const bytes = src.bytes || src, info = R.jpegInfo(bytes); im = { idx: images.size, bytes, ...info }; } catch (e) { im = null; } }
-      else if (o.model) im = { idx: images.size, file }; // ((Drawing preview) its place only: the Drawing draws its picture there)
+      else if (o.model) im = { idx: images.size, file }; // ((beta 7.9, Drawing preview) its place only: the Drawing draws its picture there)
       if (!im) rep.missing.add(file);
       images.set(file, im); return im;
     };
@@ -386,7 +386,7 @@
       const k = Math.min(W / (win[2] - win[0]), H / (win[3] - win[1])), ox = (W - (win[2] - win[0]) * k) / 2, oy = (H - (win[3] - win[1]) * k) / 2;
       return { ents, W, H, k, PM: [k, 0, 0, k, ox - win[0] * k, oy - win[1] * k] };
     }
-    /* (Drawing preview) The plan's model space as its sheets print it, for the Drawing screen: draw() as the map viewport of the plan's
+    /* (beta 7.9, Drawing preview) The plan's model space as its sheets print it, for the Drawing screen: draw() as the map viewport of the plan's
        sheet (mo.sheet, else GEO) draws it, with its frozen layers and at its scale (the line weights, line types and texts as printed),
        from mo.origin (model units); what is outside mo.cull ([x0, y0, x1, y1]) and the entities of mo.skip (handles) left out. Its PDF
        operators, in pt from the origin; K: pt per model unit on that sheet. The pages (toPdf) are not made. */
@@ -464,7 +464,7 @@
     return out;
   }
 
-  /* (Drawing preview) The plan's model space as the plan's sheets print it, for a canvas (the Drawing screen): modelOps' PDF operators
+  /* (beta 7.9, Drawing preview) The plan's model space as the plan's sheets print it, for a canvas (the Drawing screen): modelOps' PDF operators
      read back as a PDF reader reads them, so what the canvas draws is what the PDF prints (the same lines, colours, line weights, line
      types, texts and symbols). o: { origin: [x, y], cull: [x0, y0, x1, y1], skip: [handle…], sheet } (model units). Returns null without
      a plan sheet, else { K: pt per model unit printed, sheet, origin, frozen, pts: Float32Array (x, y in model units from the origin),
@@ -479,7 +479,7 @@
     const r = layoutPages(text, { model: o || {} }); if (!r) return null;
     return { ...listOf(r.ops, r.K, r.files), K: r.K, sheet: r.sheet, origin: r.origin, frozen: r.frozen, ops: r.ops.length };
   }
-  /** (Drawing preview) The plan's model space for the Drawing, from the plan made (dxftpl.js: its text and report): what is on its GEO sheets
+  /** (beta 7.9, Drawing preview) The plan's model space for the Drawing, from the plan made (dxftpl.js: its text and report): what is on its GEO sheets
    *  and a quarter of a sheet round them, from the grid's origin, the grid's own lines and names left out (report.grid: the Drawing draws the
    *  sheets itself). As modelList; null without a grid. */
   function planList(text, report) {

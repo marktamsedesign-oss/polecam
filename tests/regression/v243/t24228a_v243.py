@@ -111,7 +111,7 @@ async def main():
         check('E1. Export on the Drawing: Export the plan, a panel at the right of the plan (the Drawing still open); the DXF card only: the project and template, the 4 drawings, the names in one line, the PDF switch, Export 4 drawings',
               rows4 == ['*:photo', 'ELEC:DLPC:num', 'PLDT:photo', 'PLDT:num'] and 'plan' in st['cls'] and 'side' in st['cls'] and st['body'] and st['title'] == 'Export' and st['w'] >= 720 and abs(st['left'] + st['w'] - 1440) <= 1 and st['formats'] == 'none'
               and len(st['files']) == 4 and st['files'][1].startswith('2 DLPC poles 44') and 'Number' in st['files'][1] and 'RTA_SYN' in st['sum'] and '✓ On your company' in st['sum'] and 'Juan' not in st['names'] and not st['edit']
-              and st['btn'] == 'Make 4 plan drawings' and st['drawing'] and st['cards'] == 1, st)  # (beta 6.7, UX step 3: Export plan; the button worded like the row) ((Plan style wide): the panel wide by default on a computer, 62 % of 1440; Narrower: 400 px)
+              and st['btn'] == 'Make 4 plan drawings' and st['drawing'] and st['cards'] == 1, st)  # (beta 6.7, UX step 3: Export plan; the button worded like the row) ((beta 7.9, Plan style wide): the panel wide by default on a computer, 62 % of 1440; Narrower: 400 px)
         await pg.click('#sigChange'); await pg.fill('#sigDesign', 'Juan Dela Cruz'); await W(pg, 200); await pg.click('#sigChange'); await W(pg, 200)
         sig = await pg.evaluate("[document.getElementById('sigLine').innerText, __polecam.S.sig.design]")
         await pg.keyboard.press('Escape'); await W(pg, 500)

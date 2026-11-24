@@ -104,14 +104,14 @@ const LINES = [
   ['6.9', '!pull-off · !pull off · !pulloff · pull-off pin · add pull-off', 'pulloff'],
   ['6.9', '!cross-over · !cross over · !crossover · cross-over pin · add cross-over', 'pulloff'],
   ['6.9', '!corner without pole · !extended messenger · corner with no pole · cable across houses · messenger', 'pulloff'],
-  // (Add Pin): one Add Pin on the map and the Drawing, a list of every kind of pin (the owner: "Just put "Add Pin" and then the user will select which pin it is")
+  // (beta 7.9, Add Pin): one Add Pin on the map and the Drawing, a list of every kind of pin (the owner: "Just put "Add Pin" and then the user will select which pin it is")
   ['Add Pin', '!add pin · !dummy nap box · !pin kinds · lcp pin · handhole pin · manhole pin · service box pin · closure pin · add handhole · add manhole · what is it', 'mappin'],
   ['Add Pin', '!add pin on the drawing · pin on the drawing', 'drawedit mappin'],
   // beta 7.6 / 2.45.8: Photos with their locations › Same stamp on the plan's photos (the geotag band on the plan's photos)
   ['7.6', '!same stamp on the plan\'s photos · !geotag stamp on the plan · plan photo stamp · caption band', 'fieldsettings planstyle'],
   // (beta 7.8, Drawing photos): the Drawing's photos where the plan puts them; drag one to place it by hand, Back to automatic
   ['Drawing photos', '!drag a photo · !back to automatic · photo placed by hand · move photo on the drawing', 'drawing'],
-  // (Drawing preview): the Drawing shows the plan as its PDF prints it, its sheet grid, Regenerate plan preview
+  // (beta 7.9, Drawing preview): the Drawing shows the plan as its PDF prints it, its sheet grid, Regenerate plan preview
   ['Drawing preview', '!regenerate plan preview · plan preview · sheet grid · drawing grid · pdf preview on the drawing', 'drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
