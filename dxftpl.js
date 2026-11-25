@@ -2179,7 +2179,7 @@
     };
     // v2.37: a NAP or a closure recorded as its own pin stands on its pole (the nearest pole of the route, within 30 m)
     for (const q of pts) {
-      if (q.el !== 'NAP' && q.el !== 'Closure') continue;
+      if ((q.el !== 'NAP' && q.el !== 'Closure') || q.handAt) continue; // ((beta 7.11, Drawing tools) one placed by hand: drawn where it was put)
       let best = null, bd = 30; for (const p of polesOnly) { if (!nb.has(p)) continue; const dd = Math.hypot(p.E - q.E, p.N - q.N); if (dd < bd) { bd = dd; best = p; } }
       if (!best) continue;
       if (q.el === 'NAP' && !best.nap && !best.napId) { best.nap = true; best.napId = q.poleId || ''; best.napType = best.napType || q.napType || ''; best.napOld = q.status === 'Existing'; q.onPole = best; }
@@ -2244,6 +2244,10 @@
     const W_LBL0 = (t) => (t === 'road' ? 0.2 : 1);
     const odcBlk = odcIso(); // v2.41: the ODC block (made when the plan has an ODC)
     if (pts.some((p) => p.el === 'ODC')) { addLayer(d, S, 'G-ESAA PROPOSED ODC', 1); addLayer(d, S, 'G-ESAA EXISTING ODC', 5); defineBlock(d, S, ODC_BLOCK, odcBlk.polys, odcBlk.texts); }
+    /** (beta 7.11, Drawing tools) a pole placed by hand (job.poleAt) is drawn exactly there: the block on its cable (a NAP, its two boxes, a closure) and the
+        cable's point there go out from it, need metres from its centre, instead of the pole stepping back from them */
+    const inlOut = (p, it, need) => { const nA = add2(p.dp, p.td, need), dv = [nA[0] - p.A[0], nA[1] - p.A[1]], mv = (q) => [q[0] + dv[0], q[1] + dv[1]];
+      p.A = nA; it.at = nA; for (const x of it.parts || []) x.at = mv(x.at); if (it.inner) it.inner = it.inner.map((seg) => seg.map(mv)); };
     const inlineOf = (p, b, layer, sc, faced, flip) => {
       const bb = blockBox(S, b, 0), bt = blockBoxT(S, b); if (!bb || !bt) return null;
       const w = bb[2] - bb[0], h = bb[3] - bb[1]; if (!sc) sc = NAP_W / ((bt[2] - bt[0]) || w || 1); // as wide as the NAP, its texts included
@@ -2271,7 +2275,7 @@
         // the pole symbol beside the NAP, not under it (v2.42.24: the closure's too, below)
         // v2.39.1: an arm keeps its usual length and ends at the NAP's side (it crossed the NAP); the pole stands that much further out
         const need = it.hh + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A);
-        if (cur < need) p.dp = add2(p.A, p.td, -need);
+        if (cur < need && p.handAt) inlOut(p, it, need); else if (cur < need) p.dp = add2(p.A, p.td, -need); // ((beta 7.11, Drawing tools) a pole placed by hand stays: its NAP, on the cable, goes out from it)
         if (p.arm) p.armLen = Math.max(0.8, dist2(p.dp, p.A) - p.rp - it.hh);
       } else if (p.el === 'ODC') { // v2.41: the ODC cabinet (the template has no ODC model): G-eSAA's block, an isometric view of the cabinet of the
         // photo marker, upright, on the cable (the cable meets its two sides)
@@ -2285,7 +2289,7 @@
         const R = cloR(p.A), rin = R * Math.cos(Math.PI / 5), old = !!p.closureOld, t = downAt(p);
         const it = { p, at: p.A, b: 'P-Joint', layer: lay('P-JOINT'), sc: R, rot: 0, ax: rotv([1, 0], readable(deg(t))), hl: old ? rin : Math.max(rin * 0.4, 0.9), hh: R, rin, radial: true, kind: 'clo', cid: p.closureId || 'CLOSURE', old };
         it.hlo = it.hl; it.hhi = it.hl; inl.set(p, it);
-        const need = R + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A); if (cur < need) p.dp = add2(p.A, p.td, -need); if (p.arm) p.armLen = Math.max(0.8, dist2(p.dp, p.A) - p.rp - R); // the pole beside it, as beside a NAP
+        const need = R + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A); if (cur < need && p.handAt) inlOut(p, it, need); else if (cur < need) p.dp = add2(p.A, p.td, -need); if (p.arm) p.armLen = Math.max(0.8, dist2(p.dp, p.A) - p.rp - R); // the pole beside it, as beside a NAP ((beta 7.11, Drawing tools) one placed by hand stays: the closure goes out from it)
       } else if (INLINE_EL.has(p.el)) {
         const key = p.el, k = BLK[key];
         const old = !isNew && S.blocks.has(k[3]), b = old ? k[3] : k[0]; if (!S.blocks.has(b)) continue;
