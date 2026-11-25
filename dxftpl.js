@@ -500,7 +500,7 @@
       return this.add(r);
     }
     mtext(layer, x, y, h, s, o) {
-      o = o || {}; const r = this.base('MTEXT', layer, o);
+      o = o || {}; const r = this.base('MTEXT', layer, o); if (this.d.look) s = lookCodes(this.d, s); // ((beta 7.15, Template look) its font codes the look's)
       r.push([100, 'AcDbMText'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(h)], [41, '0.0'], [71, I(o.att || 1)], [72, I(1)]);
       if (o.dir) r.push([11, F(o.dir[0])], [21, F(o.dir[1])], [31, '0.0']); // turned: its x axis
       const chunks = []; for (let i = 0; i < s.length; i += 250) chunks.push(s.slice(i, i + 250)); if (!chunks.length) chunks.push('');
@@ -512,7 +512,7 @@
     }
     solid(layer, p, o) { const r = this.base('SOLID', layer, o), q = p.length > 3 ? p[3] : p[2]; r.push([100, 'AcDbTrace'], [10, F(p[0][0])], [20, F(p[0][1])], [30, '0.0'], [11, F(p[1][0])], [21, F(p[1][1])], [31, '0.0'], [12, F(p[2][0])], [22, F(p[2][1])], [32, '0.0'], [13, F(q[0])], [23, F(q[1])], [33, '0.0']); return this.add(r); } // v2.42.24: a filled triangle (a leader's arrow)
     circle(layer, x, y, rad, o) { const r = this.base('CIRCLE', layer, o); r.push([100, 'AcDbCircle'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(rad)]); return this.add(r); }
-    style(s) { return s && this.S.styles.has(s) ? s : 'Standard'; }
+    style(s) { if (this.d.look && this.d.look.style) return lookFor(this.d, s); return s && this.S.styles.has(s) ? s : 'Standard'; } // ((beta 7.15, Template look) every text the plan writes in the look's style)
     /** An INSERT of a seed block, placed so the drawn symbol's centre is at (x, y), with attributes by tag. */
     insert(layer, name, x, y, o) {
       o = o || {}; const blk = this.S.blocks.get(name); if (!blk) return null;
@@ -1253,6 +1253,70 @@
       : /[0-9_]/.test(ch) ? 0.556 : /[ijl]/.test(ch) ? 0.278 : /[ft]/.test(ch) ? 0.333 : /[mw]/.test(ch) ? (ch === 'm' ? 0.889 : 0.778) : /[a-z]/.test(ch) ? (bold ? 0.611 : 0.556) : /[ .,]/.test(ch) ? 0.278 : 0.333);
     return [...String(str)].reduce((a, ch) => a + em(ch) * (bold && !/[A-Z]/.test(ch) ? 1.02 : !bold && /[A-Z]/.test(ch) ? 0.93 : 1), 0) * h / 0.716;
   }
+  /* ---------------- (beta 7.15, Template look) a client template's look (stage7 §3, §5): the plan drawn in the client's text style and size, line weights and
+     layers ----------------
+     The owner: "client requires a different template with a different text font style, drawing style size and thickness". The seed's XRECORD
+     'G-ESAA_LOOK' (an entry of its root dictionary; its group 1 strings joined: a JSON), written by the synthesizer (dxfsynth.js) when it made the seed
+     from the client's DXF; read here without the synthesizer (the worker runs dxftpl.js alone). A seed without it (the company's, the made-up ones) or
+     one that does not read: the plan as before, byte for byte. */
+  const LW_SNAP = [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211]; // (AutoCAD's line weights, 1/100 mm)
+  /** (beta 7.15, Template look) a STYLE record of the drawing by its name (any case), or null */
+  const styleRec = (d, n) => (typeof n === 'string' && n ? d.sec('TABLES').recs.find((r) => typ(r) === 'STYLE' && String(get(r, 2, '')).toUpperCase() === n.toUpperCase()) || null : null);
+  /** (beta 7.15, Template look) the look a seed carries, checked (d: its Doc, S: its structure): { name, style: its main text style's name (null: not in the
+      seed), bold: its bold one's (null: none), main / boldF: their fonts ({ style, file, shx, family, pf, flags, v: an app font's bold / italic files }),
+      scale (0.5–3, 1 none), lw: { cable, cableExisting, pole, symbol, leader, road } (snapped to AutoCAD's; a class not given: none), layers: { the plan's
+      layer: the client's } (the client's layers the seed has), sheet: { mm } (paper mm per unit) | null }; null without one */
+  function lookOf(d, S) {
+    const O = d.sec('OBJECTS'), root = O && O.recs.find((r) => typ(r) === 'DICTIONARY'); if (!root) return null;
+    let h = null; for (let i = 1; i < root.length - 1; i++) if (root[i][0] === 3 && root[i][1] === 'G-ESAA_LOOK' && (root[i + 1][0] === 350 || root[i + 1][0] === 360)) { h = root[i + 1][1]; break; }
+    const x = h ? d.byHandle.get(h) : null; if (!x || typ(x) !== 'XRECORD') return null;
+    let v = null; try { v = JSON.parse(all(x, 1).join('')); } catch (e) { return null; } if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+    const n = (q) => (q != null && q !== '' && typeof q !== 'boolean' && Number.isFinite(+q) ? +q : null), tx = v.text && typeof v.text === 'object' ? v.text : {}, sm = styleRec(d, tx.style), sb = styleRec(d, tx.bold);
+    const fontOf = (r) => { if (!r) return null; const f = styleFont(r), app = APP_FONTS.find((a) => a.file === fontBase(f.file)); return { style: String(get(r, 2)), file: f.file, shx: f.shx, bold: f.bold, family: f.shx ? null : f.family || (app && app.family) || null, pf: f.flags != null && (f.flags & 0xff) ? f.flags & 0xff : app && app.pf ? app.pf : 34, flags: f.flags, v: app ? app.v : null }; };
+    const lw = {}; if (v.lw && typeof v.lw === 'object') for (const k of ['cable', 'cableExisting', 'pole', 'symbol', 'leader', 'road']) { const w = n(v.lw[k]); if (w != null && w >= 0 && w <= 211) lw[k] = LW_SNAP.reduce((a, b) => (Math.abs(b - w) < Math.abs(a - w) ? b : a), 0); }
+    const layers = {}; if (v.layers && typeof v.layers === 'object' && !Array.isArray(v.layers)) for (const [k, c] of Object.entries(v.layers)) if (typeof c === 'string' && c && c !== k && S.layers.has(c)) layers[k] = c;
+    const sh = v.sheet && typeof v.sheet === 'object' ? v.sheet : null, mm = sh ? n(sh.mm) : null, sc = n(tx.scale);
+    return { name: String(v.name || ''), style: sm ? String(get(sm, 2)) : null, bold: sm && sb ? String(get(sb, 2)) : null, main: fontOf(sm), boldF: sm ? fontOf(sb) : null, scale: sc != null && sc > 0 ? Math.max(0.5, Math.min(3, sc)) : 1, lw, layers, sheet: mm > 0 ? { mm } : null };
+  }
+  /** (beta 7.15, Template look) whether a style name is one of the look's and how: { b, i } (its bold style, its main or bold one's ' B' / ' I' / ' BI'); null: not the look's */
+  function lookBI(d, nm) {
+    const L = d.look; if (!L || !L.style || !nm) return null;
+    for (const [base, b0] of [[L.style, false], ...(L.bold ? [[L.bold, true]] : [])]) { if (nm === base) return { b: b0, i: false }; const m = nm.startsWith(`${base} `) ? /^(B|I|BI)$/.exec(nm.slice(base.length + 1)) : null; if (m) return { b: b0 || m[1].includes('B'), i: m[1].includes('I') }; }
+    return null;
+  }
+  /** (beta 7.15, Template look) the look's text style for a text bold b, italic i: its bold style for a bold one when it has one; else (a TrueType font) a bold
+      or italic style of its main font made once (the font's bold / italic file when the app knows it, its flags; as 7.11's Arial ones); an SHX font cannot be
+      either: its style as it is. Its name. */
+  function lookStyle(d, b, i) {
+    const L = d.look; if (!L || !L.style) return null;
+    const useB = !!(b && L.bold), F0 = useB ? L.boldF : L.main, base = useB ? L.bold : L.style, bb = !!b && !useB, ii = !!i;
+    if (!F0 || F0.shx || (!bb && !ii)) return base;
+    const name = `${base} ${bb ? 'B' : ''}${ii ? 'I' : ''}`; if (styleRec(d, name)) return name;
+    const wb = !!b, file = F0.v ? F0.v[wb && ii ? 2 : wb ? 0 : 1] : F0.file, fl = ((F0.flags != null ? F0.flags : F0.pf) & ~0x3000000) + (wb ? 0x2000000 : 0) + (ii ? 0x1000000 : 0);
+    return addTextStyle(d, { styles: new Set() }, name, file, F0.family || null, fl, base) || base;
+  }
+  /** (beta 7.15, Template look) the look's style for a style the plan asks for (s: 'arial', 'G-ESAA BOLD', a block's attribute's style…): bold / italic as that
+      style is (the plan's bold ones by name, else its font's flags or file) */
+  function lookFor(d, s) {
+    const r = styleRec(d, s), f = r ? styleFont(r) : null, lb = lookBI(d, s);
+    return lookStyle(d, (lb && lb.b) || /^G-ESAA (BOLD|ARIAL BI?)$/.test(s || '') || !!(f && f.bold), (lb && lb.i) || /^G-ESAA ARIAL B?I$/.test(s || '') || !!(f && f.italic));
+  }
+  /** (beta 7.15, Template look) the MTEXT font code of the look for a part bold b, italic i: \F<file>; (an SHX font), \f<Family>|b…|i…|c0|p…; (a TrueType one;
+      its bold style's font for a bold part when it has one); '' a TrueType font of no known family (the part left to the MTEXT's style); null: no look */
+  function lookCode(d, b, i) {
+    const L = d.look; if (!L || !L.style || !L.main) return null;
+    const F0 = b && L.bold && L.boldF ? L.boldF : L.main; if (F0.shx) return `\\F${F0.file};`; if (!F0.family) return '';
+    return `\\f${F0.family}|b${b ? 1 : 0}|i${i ? 1 : 0}|c0|p${F0.pf};`;
+  }
+  /** (beta 7.15, Template look) an MTEXT font code's bold and italic: \f…|b1|i1; a \F<file>; code bold when its file is the look's bold font's */
+  const codeBI = (d, c) => { if (/^\\f/.test(c)) return { b: /\|b1/.test(c), i: /\|i1/.test(c) }; const L = d && d.look, f = /^\\F([^;|]*)/.exec(c); return { b: !!(L && L.boldF && L.boldF.file && f && f[1].trim().toLowerCase() === L.boldF.file.toLowerCase()), i: false }; };
+  /** (beta 7.15, Template look) an MTEXT's text with its font codes rewritten to the look's (each part's bold and italic kept as its code had them) */
+  function lookCodes(d, raw) {
+    if (!d.look || !d.look.style || String(raw).indexOf('\\') < 0) return raw;
+    const T = mtTokens(String(raw)); let ch = false;
+    for (const t of T) { if (t.k !== 'c' || !/^\\[fF]/.test(t.s)) continue; const bi = codeBI(d, t.s), c = lookCode(d, bi.b, bi.i); if (c == null || c === t.s) continue; t.s = c; ch = true; }
+    return ch ? T.map((t) => t.s).join('') : raw;
+  }
   /** (beta 7.14, Text format) where a line breaks to wrap it (its letters L: [{ v (as it reads), s (an MTEXT's: as written) }]; w(a, z): the width of letters a
       to z): the spaces it breaks at where it is wider than W, filled greedily (a word wider than W stays whole); none where it fits */
   const breaksOf = (L, W, w) => { const out = []; let st = 0, last = -1; for (let k = 0; k <= L.length; k++) { if (k < L.length && !(L[k].v === ' ' && (L[k].s == null || L[k].s === ' '))) continue; if (last >= st && w(st, k) > W) { out.push(last); st = last + 1; } if (k < L.length) last = k; } return out; };
@@ -1386,7 +1450,7 @@
     const ents = [];
     (solids || []).forEach(({ pts: q, c }) => { const r = head('SOLID', c); r.push([100, 'AcDbTrace']); [[10, 20, 0], [11, 21, 1], [12, 22, 3], [13, 23, 2]].forEach(([gx, gy, k]) => r.push([gx, F(q[k][0])], [gy, F(q[k][1])], [gx + 20, '0.0'])); ents.push(r); }); // v2.42.2: filled (a quad: its corners in turn), first so the lines and text sit on top
     polys.forEach(({ pts, closed, w, c }) => { const r = head('LWPOLYLINE', c); r.push([100, 'AcDbPolyline'], [90, I(pts.length)], [70, I(closed ? 1 : 0)], [43, F(w || 0)]); pts.forEach(([x, y]) => r.push([10, F(x)], [20, F(y)])); ents.push(r); });
-    (texts || []).forEach(({ x, y, h, s: str, rot, obl, style, c }) => { const r = head('TEXT', c); r.push([100, 'AcDbText'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(h)], [1, str], [50, F(rot || 0)], [51, F(obl || 0)], [7, style && S.styles.has(style) ? style : 'Standard'], [72, I(1)], [11, F(x)], [21, F(y)], [31, '0.0'], [100, 'AcDbText'], [73, I(2)]); ents.push(r); });
+    (texts || []).forEach(({ x, y, h, s: str, rot, obl, style, c }) => { const r = head('TEXT', c); r.push([100, 'AcDbText'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(h)], [1, str], [50, F(rot || 0)], [51, F(obl || 0)], [7, d.look && d.look.style ? lookFor(d, style) : style && S.styles.has(style) ? style : 'Standard'], [72, I(1)], [11, F(x)], [21, F(y)], [31, '0.0'], [100, 'AcDbText'], [73, I(2)]); ents.push(r); });
     B.push([[0, 'BLOCK'], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbBlockBegin'], [2, name], [70, I(0)], [10, '0.0'], [20, '0.0'], [30, '0.0'], [3, name], [1, '']], ...ents,
       [[0, 'ENDBLK'], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbBlockEnd']]);
     d.index(); Object.assign(S, structure(d));
@@ -1921,6 +1985,23 @@
    * report.fonts [{ name, file, kind: 'ttf' | 'shx', from: 'template' | 'app', family? }]: the template's text styles (one per font file; its G-ESAA styles
    *   and shape files left out), then the app's (APP_FONTS) whose file it has not got. report.movable[i].fmt (every item with can.text): { align, font,
    *   spacing, wrap, underline, bold, italic } as drawn (those asked, else as its first text is; spacing 1, wrap 0 when not asked).
+   *
+   * (beta 7.15, Template look; the scratchpad's stage7-contract.md §3, §5) a client template's seed carries its look: the XRECORD 'G-ESAA_LOOK' of its root
+   * dictionary (its group 1 strings joined: a JSON, written by dxfsynth.js), read by lookOf. Without one (the company's seed, the made-up ones), or one that
+   * does not read, or one naming nothing the seed has: the DXF as beta 7.14's, byte for byte. With it:
+   * text.style (bold: text.bold): every text the plan writes (TEXT, an attribute of its blocks, MTEXT, notes, its own blocks' and tables' texts) in that
+   *   style, a bold one in its bold style (none: the main font's bold made once for a TrueType font, G-ESAA TEXT B…; an SHX font cannot be bold), an
+   *   MTEXT's font codes the look's (\F<file>; an SHX font, \f<Family>|b…|i…|c0|p…; a TrueType one; a part's bold as it was); an item's own font (beta 7.14)
+   *   still its own. text.scale (0.5–3): every item's texts that size (as an h of its own, times its style's: after placement, a label from its middle,
+   *   a symbol's texts where they stand, a Tidy block's number with its block); the sheets' own texts, the grid's, the tables' as they are.
+   * lw (1/100 mm): cable (the new cables' lines), cableExisting (the existing ones'), road (the roads' edges and paths), pole (a pole's symbol), symbol (a
+   *   site's, a NAP's, a closure's, a loop's, a guying's, a grounding's, an arm's, a messenger arm, an HDD), leader (the open lines from a label, a number,
+   *   a photo or a note to what it names); a class not given: as before. An INSERT gets the weight on itself (its block's ByBlock lines show it).
+   * layers { the plan's layer: the client's }: every record the plan wrote (model and paper space) on the client's layer, at the end of the build; the
+   *   vicinity map's, the key map's names', the grid's corner names' and the RTA legend's layers kept (the sheets turn them on and off); a viewport that
+   *   froze a plan layer freezes its client layer too. report.lookLayers: the layers moved.
+   * sheet.mm (paper mm per unit): a GEO, KEYMAP or VICINITY MAP sheet's SCALE from its own square viewport: 1 : view height / (its height × mm / 1000)
+   *   (GEO 1:1,100, Tidy's finer grid 1:1,100 / n; the others to the hundred).
    */
   /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
       every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
@@ -1981,6 +2062,8 @@
     const oldBlocks = purgeOld(d);
     let S = structure(d);
     const FONTS = fontsOf(d); // ((beta 7.14, Text format) the template's fonts (as cleaned) and the app's, before the plan adds styles of its own)
+    const LOOK = seedText.indexOf('G-ESAA_LOOK') >= 0 ? lookOf(d, S) : null; if (LOOK) d.look = LOOK; // ((beta 7.15, Template look) a client template's look: the Out writers and the end of the build follow it)
+    const LKW = (k) => (LOOK && LOOK.lw[k] != null ? LOOK.lw[k] : null), seedH = LOOK ? new Set(d.byHandle.keys()) : null; // (its line weight for a class; the seed's own records, for its layers below)
     if (!S.layouts.some((L) => L.name === 'GEO')) throw new Error('This is not the G-eSAA drawing template: it has no GEO sheet');
     if (!/@@\w+@@/.test(seedText)) throw new Error('This drawing template has no @@ fields: load the prepared seed (G-eSAA_seed…dxf), not the original template');
     const cell0 = job.cell || 440, viewH0 = job.viewH || cell0, pts = job.pts || [], spans = job.spans || [], runs = job.runs || [];
@@ -2266,9 +2349,10 @@
     const keepAt = (x, y) => { const i = ci(x), j = cj(y); for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { if (!used.has(key(i + a, j + b))) continue; const x0 = gox + (i + a) * cell, y0 = goy + (j + b) * cell; if (x >= x0 - RM && x <= x0 + cell + RM && y >= y0 - RM && y <= y0 + cell + RM) return true; } return false; };
     const rbox = [gox + Math.min(...cells.map((c) => c.i)) * cell - RM, goy + Math.min(...cells.map((c) => c.j)) * cell - RM, gox + (Math.max(...cells.map((c) => c.i)) + 1) * cell + RM, goy + (Math.max(...cells.map((c) => c.j)) + 1) * cell + RM];
     const R = layoutRoads(job.roads || [], rbox, keepAt);
-    R.edges.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l.pts, { closed: l.closed }));
-    R.paths.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l, { color: 8 }));
-    R.bridges.forEach((l) => o.lwpoly(lay('BRIDGE', 'ROAD PAVEMENT'), l, { color: 5 }));
+    const rdW = LKW('road') != null ? { lwt: LKW('road') } : {}; // ((beta 7.15, Template look) the client's road weight)
+    R.edges.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l.pts, { closed: l.closed, ...rdW }));
+    R.paths.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l, { color: 8, ...rdW }));
+    R.bridges.forEach((l) => o.lwpoly(lay('BRIDGE', 'ROAD PAVEMENT'), l, { color: 5, ...rdW }));
     const nRoads = R.roads.length;
     if (nRoads) kmBox.forEach((b) => o.text(lay('BASEMAP'), b[0] + 5, b[1] - 12, 4, `ROADS: (c) OPENSTREETMAP CONTRIBUTORS (ODbL)${job.roadsNote ? ` · ${String(job.roadsNote).toUpperCase()}` : ''}`, { style: 'arial' }));
 
@@ -2276,7 +2360,7 @@
     const spots = new Spots(), byId = new Map(pts.map((p) => [String(p.id), p])), nb = new Map();
     // v2.41: the user's style for the numbers, the IDs of the points on the cable and the vicinity map (the app's Drawing style)
     const NS = { ...NUM_STYLE, ...(job.numStyle || {}) }, IDS = { ...ID_STYLE, ...(job.idStyle || {}) }, VS = { ...VIC_STYLE, ...(job.vicStyle || {}) };
-    const idStyle = IDS.bold ? addBoldStyle(d, S, 'G-ESAA BOLD') || 'arial' : 'arial';
+    const idStyle = IDS.bold ? (LOOK && LOOK.style ? 'G-ESAA BOLD' : addBoldStyle(d, S, 'G-ESAA BOLD') || 'arial') : 'arial'; // ((beta 7.15, Template look) with a look: its bold, by that name (no Arial bold style made))
     const idText = (ly, x, y, h, txt, rr, col) => o.text(ly, x, y, h, txt, { rot: rr, ha: 1, va: 2, style: idStyle, color: col != null ? col : IDS.color || null }); // an ID, bold or not, in its colour (a pin's own colour first)
     spans.forEach((s) => [[s.ia, s.ib], [s.ib, s.ia]].forEach(([x, y]) => { const P = byId.get(String(x)), Q = byId.get(String(y)); if (P && Q && P !== Q) (nb.get(P) || nb.set(P, []).get(P)).push(Q); }));
     const symOf = (p) => (p.status === 'Proposed' || p.status === 'New' ? POLE_SYM.prop : p.telco ? POLE_SYM.tel : POLE_SYM.elec);
@@ -2575,9 +2659,10 @@
       if (cur.length) pieces.push(cur);
       return { P, pieces: pieces.filter((l) => l.length > 1) };
     };
-    const cabStyle = (cable, existing, cores) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0, lwt: cabLw(cable, existing, cores) }; };
+    const cabLwL = (cable, existing, cores) => { const w = LKW(existing ? 'cableExisting' : 'cable'); return w != null ? w : cabLw(cable, existing, cores); }; // ((beta 7.15, Template look) the client's cable weights, else as before)
+    const cabStyle = (cable, existing, cores) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0, lwt: cabLwL(cable, existing, cores) }; };
     const CABR = []; // ((beta 7.12, Drawing edit) the cable's lines as drawn: each span's cable an element of its own (cableline, DT))
-    const drawCable = (line0, cs, bent) => { const line = bent ? line0 : bendLine(line0); CABR.push(o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt || CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true })); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
+    const drawCable = (line0, cs, bent) => { const line = bent ? line0 : bendLine(line0); CABR.push(o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt != null ? cs.lwt : CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true })); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
     for (const ch of chains) {
       const r = piecesOf(ch); if (!r) continue;
       // v2.32: aerial cable as a broken line (DASHED at linetype scale 7, 9 when existing, as the template's own sample drawing),
@@ -2676,7 +2761,7 @@
       more.forEach((cab, i) => { // v2.42.20: a fiber in its lane (moreOff, beside the first fiber's line), an existing cable blue
         const st = CABLE_STYLE[cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.moreOff ? s.moreOff[i] : i + 1), ex = !!(s.moreEx && s.moreEx[i]);
         const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1: following the road too)
-        CABR.push(o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(cab, ex), color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true })); spots.line(line, 1.0);
+        CABR.push(o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLwL(cab, ex), color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true })); spots.line(line, 1.0);
       });
     }
     // v2.42.20: an existing cable put on the plan (a fiber marked existing) where no new cable runs: blue, dashed, in its lane
@@ -2687,7 +2772,7 @@
       if (dist2(a, b) <= r0 + r1 + 1) continue;
       const st = CABLE_STYLE[s.cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.off || 0);
       const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1)
-      if (!FIB.length) { CABR.push(o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true })); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
+      if (!FIB.length) { CABR.push(o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLwL(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true })); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
       if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
     }
     const rOf = (p) => (p.el === 'Pole' ? p.rp : inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : p.el === 'Site' ? 8 : 4); // (a point's reach round its centre as drawn)
@@ -2924,7 +3009,7 @@
             owning(p.arm2 && arm2Id ? arm2Id : armId, 'arm', p, null, () => o.text(S.layers.has(ly) ? ly : lay(p.arm.layer), c.q[0], c.q[1], h, txt, { rot: c.rr, ha: 1, va: 2, style: 'arial', color: 5 })); spots.add(c.boxes, 'telco'); nExArm++; }
         }
         if (p.telcoArm && !(p.arm && p.arm.ex) && !p.arm2) { // (beta 6.7: an existing extension / alley arm: its model, above) v2.42.1: the telco arm (from above): from the pole's face to the cable, the clamp where the cable passes; TELCO ARM beside it (v2.42.2: design H1, along the pole and the arm)
-          if (!taDef) { addLayer(d, S, 'G-ESAA TELCO ARM', 7); const bs = addBoldStyle(d, S, 'G-ESAA BOLD'); [false, true].forEach((f) => { const B = telcoArmTop(f, bs); defineBlock(d, S, TA_BLOCK + (f ? ' R' : ''), B.polys, B.texts, B.solids); }); taDef = true; }
+          if (!taDef) { addLayer(d, S, 'G-ESAA TELCO ARM', 7); const bs = LOOK && LOOK.style ? 'G-ESAA BOLD' : addBoldStyle(d, S, 'G-ESAA BOLD'); [false, true].forEach((f) => { const B = telcoArmTop(f, bs); defineBlock(d, S, TA_BLOCK + (f ? ' R' : ''), B.polys, B.texts, B.solids); }); taDef = true; }
           const side = rotv(p.td, 90), off = p.arm ? 1.2 : 0, face = add2(add2(p.dp, p.td, p.rp), side, off); // beside a new arm when the pole has one too
           const hhN = inl.has(p) ? inl.get(p).hh : 0, L = Math.max(1.5, dist2(face, add2(p.A, side, off)) - hhN), sc = L / taBlk.clampX, rot = deg(p.td);
           const up = Math.abs(((readable(rot) - rot) % 360 + 360) % 360) < 1; // TELCO reads the right way up
@@ -4816,20 +4901,25 @@
          bold / italic, an MTEXT's own font codes); color: the whole item in that AutoCAD colour (its blocks drawn in it: a copy of each); lead false: no
          line or arrow from it to what it names. With none of them the plan is as before, byte for byte. */
       const STK = job.styleKind && typeof job.styleKind === 'object' ? job.styleKind : null, STI = job.style && typeof job.style === 'object' ? job.style : null, LDS = job.leaders && typeof job.leaders === 'object' ? job.leaders : null;
-      const stOf = (id, kind) => { const a = STK && STK[kind] && typeof STK[kind] === 'object' ? STK[kind] : null, b = STI && STI[id] && typeof STI[id] === 'object' ? STI[id] : null; if (!a && !b) return null; const o3 = { ...(a || {}), ...(b || {}) }, f = (v, lo, hi) => (v != null && v !== '' && Number.isFinite(+v) && +v > 0 ? Math.max(lo, Math.min(hi, +v)) : null);
+      const LKS = LOOK && Math.abs(LOOK.scale - 1) > 1e-9 ? LOOK.scale : null; // ((beta 7.15, Template look) the client's text size: every item's texts that much larger or smaller, as its own h (times it), after placement)
+      const stOf = (id, kind) => { const a = STK && STK[kind] && typeof STK[kind] === 'object' ? STK[kind] : null, b = STI && STI[id] && typeof STI[id] === 'object' ? STI[id] : null; if (!a && !b) return LKS ? { h: LKS, scale: null, bold: null, italic: null, color: null, lead: null, callout: null, lw: null } : null; const o3 = { ...(a || {}), ...(b || {}) }, f = (v, lo, hi) => (v != null && v !== '' && Number.isFinite(+v) && +v > 0 ? Math.max(lo, Math.min(hi, +v)) : null);
         const st = { h: f(o3.h, 0.2, 5), scale: f(o3.scale, 0.2, 5), bold: typeof o3.bold === 'boolean' ? o3.bold : null, italic: typeof o3.italic === 'boolean' ? o3.italic : null, color: Number.isInteger(+o3.color) && +o3.color >= 1 && +o3.color <= 255 ? +o3.color : null, lead: typeof o3.lead === 'boolean' ? o3.lead : null, callout: o3.callout === 'bubble' || o3.callout === 'arrow' ? o3.callout : null, lw: f(o3.lw, 1, 211) /* ((beta 7.12) a line's weight, 1/100 mm) */ };
+        if (LKS) st.h = (st.h || 1) * LKS;
         return Object.values(st).some((v) => v != null) ? st : null; };
       const recOfH = new Map(o.model.map((r) => [r[1][1], r])), TXTK = new Set(['span', 'loop', 'road', 'sitename', 'sitedetails', 'closurelabel', 'details', 'number', 'cable', 'note']); // ((beta 7.12, Drawing edit) a text note grows from its middle as a label)
       const isTxtR = (r) => typ(r) === 'TEXT' || typ(r) === 'MTEXT' || (typ(r) === 'ATTRIB' && !(parseInt(get(r, 70, '0'), 10) & 1));
       /** an MTEXT's text, written again (its 250-letter pieces) */
       const setMt = (r, s2) => { const k = r.findIndex((q, i) => i > 0 && (q[0] === 3 || q[0] === 1)); for (let i = r.length - 1; i > 0; i--) if (r[i][0] === 3 || r[i][0] === 1) r.splice(i, 1); const ch = []; for (let i = 0; i < s2.length; i += 250) ch.push(s2.slice(i, i + 250)); if (!ch.length) ch.push(''); r.splice(k > 0 ? k : r.length, 0, ...ch.slice(0, -1).map((c) => [3, c]), [1, ch[ch.length - 1]]); };
       const mtOf = (r) => all(r, 3).join('') + (get(r, 1) || '');
-      const boldSt = (nm) => /^G-ESAA (BOLD|ARIAL BI?)$/.test(nm || ''), italSt = (nm) => /^G-ESAA ARIAL B?I$/.test(nm || '');
+      const boldSt = (nm) => /^G-ESAA (BOLD|ARIAL BI?)$/.test(nm || '') || !!(LOOK && (lookBI(d, nm) || {}).b), italSt = (nm) => /^G-ESAA ARIAL B?I$/.test(nm || '') || !!(LOOK && (lookBI(d, nm) || {}).i); // ((beta 7.15, Template look) and the look's)
       /** the item's texts bold / italic as asked (null: as they are) */
       const fontOn = (recs, b, i, fnt) => { if (b == null && i == null) return; for (const r of recs) { if (!isTxtR(r) || (fnt && typ(r) !== 'MTEXT')) continue; // ((beta 7.14, Text format) fnt: a font of the user's, a TEXT's style made with it, bold and italic, below)
+        if (typ(r) === 'MTEXT' && LOOK && LOOK.style) { const T = mtTokens(mtOf(r)), isF = (q) => q.k === 'c' && /^\\[fF]/.test(q.s), L0 = lookBI(d, get(r, 7)) || { b: false, i: false }; let ch = false; // ((beta 7.15, Template look) the look's font codes: a part's bold / italic as asked)
+          for (const q of T) { if (!isF(q)) continue; const bi = codeBI(d, q.s), c = lookCode(d, b == null ? bi.b : b, i == null ? bi.i : i); if (c != null && c !== q.s) { q.s = c; ch = true; } }
+          let t = T.map((q) => q.s).join(''); if (!T.some(isF)) { const c = lookCode(d, b == null ? L0.b : b, i == null ? L0.i : i); if (c) { t = `{${c}${t}}`; ch = true; } } if (ch) setMt(r, t); continue; }
         if (typ(r) === 'MTEXT') { let t = mtOf(r); if (/\\f[^;]*;/i.test(t)) t = t.replace(/\\f([^;|]*)((?:\|[^;|]*)*);/gi, (m0, nm, fl) => `\\f${nm}${fl.replace(/\|b[01]/, b == null ? (x) => x : `|b${b ? 1 : 0}`).replace(/\|i[01]/, i == null ? (x) => x : `|i${i ? 1 : 0}`)}${/\|b[01]/.test(fl) || b == null ? '' : `|b${b ? 1 : 0}`}${/\|i[01]/.test(fl) || i == null ? '' : `|i${i ? 1 : 0}`};`); else t = `{\\fArial|b${b ? 1 : 0}|i${i ? 1 : 0}|c0|p34;${t}}`; setMt(r, t); continue; }
         const k = r.findIndex((q, j) => j > 0 && q[0] === 7), cur = k > 0 ? r[k][1] : 'Standard', nb = b == null ? boldSt(cur) : b, ni = i == null ? italSt(cur) : i; if (nb === boldSt(cur) && ni === italSt(cur)) continue;
-        const nm = addFontStyle(d, S, nb, ni); if (nm && k > 0) r[k][1] = nm; } };
+        const nm = LOOK && LOOK.style ? lookStyle(d, nb, ni) : addFontStyle(d, S, nb, ni); if (nm && k > 0) r[k][1] = nm; } }; // ((beta 7.15, Template look) the look's bold / italic)
       /** the whole item in an AutoCAD colour: each record's own colour (a block: a copy of it in that colour; an MTEXT: its own colour codes out); its dark shadows (250) kept */
       const colorOn = (recs, c) => { for (const r of recs) { const t = typ(r); if (t === 'SEQEND' || t === 'IMAGE' || get(r, 62) === I(250)) continue;
         for (let i = r.length - 1; i > 0; i--) if (r[i][0] === 420) r.splice(i, 1);
@@ -4893,8 +4983,8 @@
       const stLook = (nm) => { const k = String(nm == null ? 'Standard' : nm).toUpperCase(), r = d.sec('TABLES').recs.find((x) => typ(x) === 'STYLE' && String(get(x, 2, '')).toUpperCase() === k); return r ? styleFont(r) : { file: '', family: '', flags: null, shx: false, bold: false, italic: false }; };
       /** whether a text is bold and italic now: an MTEXT by its first font code (an SHX's \F: neither), else (a TEXT, an attribute, an MTEXT without one) by its style */
       const biOf = (r) => {
-        if (typ(r) === 'MTEXT') { const c0 = mtTokens(textOf(r)).find((t) => t.k === 'c' && /^\\[fF]/.test(t.s)); if (c0) return /^\\F/.test(c0.s) ? { b: false, i: false } : { b: /\|b1/.test(c0.s), i: /\|i1/.test(c0.s) }; }
-        const nm = get(r, 7), L = stLook(nm); return L.shx ? { b: false, i: false } : { b: boldSt(nm) || L.bold, i: italSt(nm) || L.italic };
+        if (typ(r) === 'MTEXT') { const c0 = mtTokens(textOf(r)).find((t) => t.k === 'c' && /^\\[fF]/.test(t.s)); if (c0) return codeBI(d, c0.s); } // ((beta 7.15, Template look) a \F code of the look's bold font: bold)
+        const nm = get(r, 7), L = stLook(nm), lb = LOOK && lookBI(d, nm); if (lb) return { b: lb.b, i: lb.i }; return L.shx ? { b: false, i: false } : { b: boldSt(nm) || L.bold, i: italSt(nm) || L.italic }; // ((beta 7.15, Template look) its bold style bold, an SHX one too)
       };
       /** a TEXT's or an attribute's horizontal alignment set to ha (0 left, 1 centre, 2 right: 72, its alignment point 11 at that end of it, as wide as the
           plan measures it; its vertical alignment kept, 'Middle' (72 = 4) as 0 / 1 / 2 and 73 / 74 = 2), then moved t; an aligned or fitted one (72 = 3, 5)
@@ -5027,7 +5117,7 @@
         E.box = boxOf(E); if (E.kind === 'closurelabel' && E.at && !E.bub) cloArrow(E); // (a closure's arrow from its label as laid out now)
       }
       for (const m of MV) {
-        const st = stOf(m.id, m.kind); if (!st) continue;
+        const st0 = stOf(m.id, m.kind), st = st0 && m.block && LKS && st0.h ? { ...st0, h: st0.h / LKS } : st0; if (!st) continue; // ((beta 7.15, Template look) a Tidy block's number: the look's size with its block, below, not twice)
         const recs = m.handles.map((h) => recOfH.get(h)).filter(Boolean);
         if (st.h && m.kind !== 'photo' && Math.abs(st.h - 1) > 1e-9) { const c0 = [m.box.cx, m.box.cy]; scaleRecs(recs, ld7, c0, st.h, st.h); m.box = { ...m.box, w: m.box.w * st.h, h: m.box.h * st.h }; m.styled = true;
           for (const w of m.kind === 'details' ? m.with || [] : []) { const n2 = MV.find((x) => x.id === w && x.kind === 'number'); if (!n2) continue; scaleRecs(n2.handles.map((h) => recOfH.get(h)).filter(Boolean), ld7, c0, st.h, st.h); n2.box = { ...n2.box, cx: c0[0] + (n2.box.cx - c0[0]) * st.h, cy: c0[1] + (n2.box.cy - c0[1]) * st.h, w: n2.box.w * st.h, h: n2.box.h * st.h }; } } // (a Tidy block's number in it, as large)
@@ -5063,7 +5153,7 @@
         const raw = textOf(r), T = mtTokens(raw), L0 = stLook(get(r, 7)), isF = (t) => t.k === 'c' && /^\\[fF]/.test(t.s);
         if (f.kind === 'ttf' && !f.family) { const bi = biOf(r), st2 = fontStyle(f, bi.b, bi.i); if (st2) setFirst(r, 7, st2); const raw2 = T.filter((t) => !isF(t)).map((t) => t.s).join(''); if (raw2 !== raw) mtPut(r, raw2); return; } // (a template's TrueType font of no known family: its style, its own codes out)
         const code = (b, i) => (f.kind === 'shx' ? `\\F${f.file};` : `\\f${f.family}|b${b ? 1 : 0}|i${i ? 1 : 0}|c0|p${f.pf || 34};`);
-        for (const t of T) if (isF(t)) t.s = code(/^\\f/.test(t.s) && /\|b1/.test(t.s), /^\\f/.test(t.s) && /\|i1/.test(t.s));
+        for (const t of T) if (isF(t)) { const bi = codeBI(d, t.s); t.s = code(bi.b, bi.i); } // ((beta 7.15, Template look) a \F code of the look's bold font: bold)
         const k0 = T.findIndex((t) => !(t.k === 'c' && t.s === '{')), covers = k0 >= 0 && isF(T[k0]) && (k0 === 0 || closeOf(T, k0 - 1) === T.length - 1);
         const raw2 = covers ? T.map((t) => t.s).join('') : `{${code(!L0.shx && L0.bold, !L0.shx && L0.italic)}${T.map((t) => t.s).join('')}}`; if (raw2 !== raw) mtPut(r, raw2);
       };
@@ -5136,6 +5226,18 @@
           for (const r of [...gone]) { if (typ(r) !== 'ATTRIB' && typ(r) !== 'SEQEND') continue; const ins = o.model.find((x) => typ(x) === 'INSERT' && x[1][1] === owner(r)); if (ins && !gone.has(ins)) { gone.delete(r); if (typ(r) === 'ATTRIB') { const f = r.findIndex((q, i) => i > 0 && q[0] === 70); if (f > 0) r[f][1] = I((parseInt(r[f][1], 10) || 0) | 1); } } } // (its block stays: hidden in it)
           o.model = o.model.filter((r) => !gone.has(r)); for (const m of MV) m.handles = m.handles.filter((h) => !gone.has(recOfH.get(h))); for (const E of EL) { E.recs = E.recs.filter((r) => !gone.has(r)); if (E.lines) E.lines = E.lines.filter((r) => !gone.has(r)); }
         }
+      }
+      /* (beta 7.15, Template look) the client's line weights by class (look.lw, 1/100 mm; cables and roads where they are drawn): pole, a pole's symbol (pole:,
+         a pull-off's, a cross-over's; its block's INSERT: AutoCAD gives the INSERT's weight to its block's ByBlock lines); symbol, the other symbols (a site, a
+         NAP, a closure, a loop's symbol, a guying, a grounding, an arm, a messenger arm, an HDD); leader, the thin lines from a label, a number, a photo or a
+         note to what it names (open lines: not an arrow's head, a bubble's circle or its pointer). A class the look does not give: as before. */
+      if (LOOK && (LKW('pole') != null || LKW('symbol') != null || LKW('leader') != null)) {
+        const lwOn = (r, w) => { if (w == null || !r) return; if (!setFirst(r, 370, I(w))) { const l8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(l8 > 0 ? l8 + 1 : r.length, 0, [370, I(w)]); } };
+        const isLine = (r) => ['LWPOLYLINE', 'LINE', 'CIRCLE', 'ARC', 'INSERT', 'POLYLINE', 'ELLIPSE', 'SPLINE'].includes(typ(r)), isOpen = (r) => typ(r) === 'LINE' || (typ(r) === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1));
+        const SYMW = new Set(['site', 'nap', 'closure', 'loopsym', 'guy', 'ground', 'arm', 'messenger']), wl = LKW('leader');
+        for (const E of EL) { const w = E.kind === 'pole' ? LKW('pole') : SYMW.has(E.kind) ? LKW('symbol') : null; for (const r of E.recs) { if (LEAD.has(r)) { if (wl != null && isOpen(r)) lwOn(r, wl); } else if (w != null && isLine(r)) lwOn(r, w); } }
+        if (wl != null) for (const m of MV) for (const h of m.handles) { const r = recOfH.get(h); if (r && isOpen(r)) lwOn(r, wl); }
+        if (LKW('symbol') != null) for (const r of o.model) if (typ(r) === 'INSERT' && /^(PROPOSED|EXISTING) HDD$/.test(String(get(r, 8, '')))) lwOn(r, LKW('symbol'));
       }
       /* (beta 7.10, Plan kept) as a photo placed by hand: a label, number, pole's details or (beta 7.11) other element placed by hand, its box (turned with it)
          and its line or arrow; across a sheet's edge, the sheets it prints cut on (cut, report.movable); in a cell no sheet prints: that sheet added (build) */
@@ -5309,10 +5411,16 @@
     const paging = S.brByName.get('PAGING');
     const idx = (nm, di, dj) => { const k = geoNames(N).indexOf(nm); if (k < 0) return '';
       const c = geoCells[k], kk = key(c.i + di, c.j + dj); return sheetOf.has(kk) ? cellName(c.i + di, c.j + dj) : ''; };
+    /* (beta 7.15, Template look) with a client template's sheet (look.sheet: its paper's mm per unit), a sheet's scale from its own map viewport: 1 : its view's
+       height in metres over its height on paper (GEO: 1:1,100, Tidy's finer grid 1:1,100 / n; the key map's and the vicinity map's to the hundred), not the
+       company template's 400 units; none (another sheet, no viewport): as before */
+    const lookScale = (sh) => { if (!LOOK || !LOOK.sheet) return null; const L = S.layouts.find((x) => x.name === sh), vp = L ? bigVp(L) : null, ph = vp ? num(vp, 41, 0) : 0, mh = vp ? num(vp, 45, 0) : 0; if (!(ph > 0 && mh > 0)) return null;
+      const geo = geoNames(N).includes(sh); if (!geo && !kmNames.includes(sh) && !vicNames.includes(sh)) return null; const den = mh / (ph * LOOK.sheet.mm / 1000);
+      return `1 : ${(geo ? Math.round(den) : Math.round(den / 100) * 100).toLocaleString('en-US')} METERS`; };
     const auto = {
       SHEET_NO: (sh) => { const k = geoNames(N).indexOf(sh); return k >= 0 ? `${k + 1} OF ${N}` : '1 OF 1'; },
       DATE: () => dateText(job.date || new Date()),
-      SCALE: (sh) => (geoNames(N).includes(sh) ? `1 : ${(NU > 1 ? Math.round(viewH / 400 * 1000) : viewH / 400 * 1000).toLocaleString('en-US')} METERS` : kmNames.includes(sh) ? `1 : ${(Math.round(kmH[kmNames.indexOf(sh)] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : vicNames.includes(sh) ? `1 : ${(Math.round(vics[vicNames.indexOf(sh)].area[2] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : ''),
+      SCALE: (sh) => lookScale(sh) || (geoNames(N).includes(sh) ? `1 : ${(NU > 1 ? Math.round(viewH / 400 * 1000) : viewH / 400 * 1000).toLocaleString('en-US')} METERS` : kmNames.includes(sh) ? `1 : ${(Math.round(kmH[kmNames.indexOf(sh)] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : vicNames.includes(sh) ? `1 : ${(Math.round(vics[vicNames.indexOf(sh)].area[2] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : ''),
       IDX_TL: (sh) => idx(sh, -1, 1), IDX_T: (sh) => idx(sh, 0, 1), IDX_TR: (sh) => idx(sh, 1, 1), IDX_L: (sh) => idx(sh, -1, 0), IDX_C: (sh) => idx(sh, 0, 0), IDX_R: (sh) => idx(sh, 1, 0), IDX_BL: (sh) => idx(sh, -1, -1), IDX_B: (sh) => idx(sh, 0, -1), IDX_BR: (sh) => idx(sh, 1, -1),
       TOC_GEO: () => String(N), TOC_LEGEND: () => String(sheetNames.filter((n) => /^LEGENDS?( \(\d+\))?$/.test(n)).length), TOC_TOTAL: () => String(sheetNames.filter((n) => n !== 'Model').length),
     };
@@ -5724,6 +5832,17 @@
          in model metres; ents: the handles of the grid's lines and names in model space (the Drawing draws the sheets itself). The DXF the same. */
       sheets: geoCells.map((c, k) => ({ sheet: geoNames(N)[k], name: cellName(c.i, c.j), box: [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell], ...(c.x ? { forPhoto: true } : {}) })), ents: gridEnts }; // ((beta 7.10, Plan kept) forPhoto: a sheet for a photo, see build)
     if (xCells.length) rep.notes.push(`GEO sheets added so that every photo and pole drawn prints (no route there, a photo, a label placed by hand${NOTES.length ? ', a note of yours' : ''} or a pole beside its road): ${xCells.map((c) => cellName(c.i, c.j)).join(', ')}`); // ((beta 7.12, Drawing edit) a note's sheet too)
+    /* (beta 7.15, Template look) the plan's entities on the client's layers (look.layers: { the plan's layer: the client's }): every record the plan wrote (not
+       the seed's own), model and paper space, attributes too. The layers the sheets turn on and off by themselves (the vicinity map's, the key map's names,
+       the grid's corner names, the RTA legend's) keep the plan's own; a viewport that froze a plan layer freezes the client's layer it went to as well. */
+    if (LOOK && Object.keys(LOOK.layers).length) {
+      const KEEPL = new Set([VLAY, VMAP, KMLAY, 'GRIDNO', 'GRIDNO.', 'G-ESAA RTA LEGEND']), MAPL = new Map(Object.entries(LOOK.layers).filter(([k]) => !KEEPL.has(k))), moved = new Map();
+      for (const sec of ['ENTITIES', 'BLOCKS']) for (const r of d.sec(sec).recs) { const h = r[1] && r[1][0] === 5 ? r[1][1] : null; if (!h || seedH.has(h)) continue; const k8 = r.findIndex((q, i) => i > 0 && q[0] === 8); if (k8 < 0) continue; const to = MAPL.get(r[k8][1]); if (!to) continue; moved.set(r[k8][1], to); r[k8][1] = to; }
+      if (moved.size) { S = structure(d); const lh = (n) => (S.layers.has(n) ? get(S.layers.get(n), 5) : null);
+        for (const sec of ['ENTITIES', 'BLOCKS']) for (const vp of d.sec(sec).recs) { if (typ(vp) !== 'VIEWPORT') continue; const fz = new Set([...all(vp, 331), ...all(vp, 341)]), add = [];
+          for (const [from, to] of moved) { const hf = lh(from), ht = lh(to); if (hf && ht && fz.has(hf) && !fz.has(ht) && !add.includes(ht)) add.push(ht); } vpFreeze(vp, add); }
+        rep.lookLayers = Object.fromEntries(moved); }
+    }
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };
     S = structure(d); centerCache.clear();
