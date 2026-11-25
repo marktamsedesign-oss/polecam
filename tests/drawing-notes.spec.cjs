@@ -312,7 +312,7 @@ test('Text and Photo: a note where the plan is tapped, in the preview and the ex
   const im = handlesOf(e1, `note:${p1.id}`).map((h) => D1.ents.get(h)).filter((x) => x && x.type === 'IMAGE'); assert.equal(im.length, 1, 'the photo note: an IMAGE');
   assert.equal(D1.defs.get(im[0].def), `NOTE_${p1.id}.jpg`, 'its file');
   const z = e1.zip.get(`NOTE_${p1.id}.jpg`); assert.ok(z && z[0] === 0xff && z[1] === 0xd8, 'the ZIP: NOTE_<id>.jpg, a JPEG');
-  assert.ok(e1.pdf && e1.pdf.images.includes(`NOTE_${p1.id}.jpg`) && !e1.pdf.missing.some((x) => /NOTE_/.test(x)), `the PDF has its picture: ${JSON.stringify(e1.pdf)}`); assert.equal(e1.pdf.pictures, e0.pdf.pictures + 1, 'one picture more');
+  assert.ok(e1.pdf && e1.pdf.images.includes(`NOTE_${p1.id}.jpg`) && !e1.pdf.missing.some((x) => /NOTE_/.test(x)), `the PDF has its picture: ${JSON.stringify(e1.pdf)}`); assert.ok(e1.pdf.pictures > e0.pdf.pictures, `the PDF draws it (${e0.pdf.pictures} pictures drawn before, ${e1.pdf.pictures} now: on each sheet that shows it)`);
   assert.ok(e1.list && e1.list.images.includes(`NOTE_${p1.id}.jpg`) && e1.list.texts.some((t) => /DEMO NOTE ONE EDITED/.test(t)), 'the PDF\'s drawing code draws both');
   // deleted, and back with Undo
   await drawing(page); await shown(page); await select(page, `note:${p1.id}`); const T = await icoOf(page); assert.ok(T.tb.some((t) => t.a === 'del' && !t.hidden), 'Delete for a note'); assert.ok(!T.tb.some((t) => t.a === 'auto' && !t.hidden), 'no Automatic for a note');
