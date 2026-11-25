@@ -4409,7 +4409,7 @@
       }
       for (const E of EL) {
         const st = stOf(E.id, E.kind); if (!st) continue; const k = E.kind;
-        if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const body = bodyOf(E), P = outl(body), c = ATTK.has(k) ? P.reduce((b2, q) => (!b2 || dist2(q, E.about) < dist2(b2, E.about) ? q : b2), null) || E.about : [E.box.cx, E.box.cy]; scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); }
+        if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const ins = (k === 'guy' || k === 'ground') && E.recs.find((r) => typ(r) === 'INSERT'), da = ins ? num(ins, 50, 0) : E.a, c = ATTK.has(k) ? add2(E.about, [Math.cos(da * Math.PI / 180), Math.sin(da * Math.PI / 180)], (E.p && E.p.rp) || 0) : [E.box.cx, E.box.cy]; /* (a guy's or grounding's block is drawn along its way) */ scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); } // (a guy, grounding, arm: from where it meets its pole, its symbol's edge that way)
         if (st.h && Math.abs(st.h - 1) > 1e-9) { if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
         fontOn(E.recs, st.bold, st.italic);
         if (st.color) colorOn(E.recs, st.color);
