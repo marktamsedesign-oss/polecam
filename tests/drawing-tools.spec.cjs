@@ -69,8 +69,9 @@ const POLES = []; for (let i = 0; i < 8; i++) POLES.push([`s${i + 1}`, `CC-${900
  *  a 10-pin alley arm already on the pole (s8) */
 const ON = { s2: { closure: true, closureId: 'CL-9001', boq: { owner: 'Electric', clamp: '8-10', clo: '24C', cloSt: 'New' } }, s3: { boq: { owner: 'Electric', clamp: '8-10', guy: 'Down guy', ground: 'Yes' } }, s4: { status: 'Existing' },
   s5: { boq: { owner: 'Electric', clamp: '8-10', arm: 'Extension arm 26"' } }, s6: { nap: true, napId: 'NAP-9001', boq: { owner: 'Electric', clamp: '8-10', napType: 'NAP 1x8', napSt: 'New' } }, s8: { details: [{ item: '10-pin alley arm', qty: 1 }] } };
-const RECS = POLES.map(([id, poleId, lat, lon], i) => ({ id, project: NAME, element: 'Pole', poleId, poleType: 'Concrete', status: 'Proposed', lat, lon, accuracy: 4.2, created: `2026-11-01T08:0${i}:00.000Z`, updated: T0, takenAt: T0, by: USER.name, boq: { owner: 'Electric', clamp: '8-10' }, ...(ON[id] || {}) }));
-const LINKS = POLES.slice(1).map((p, i) => [POLES[i][0], p[0], 'F12']);
+const RECS = POLES.map(([id, poleId, lat, lon], i) => ({ id, project: NAME, element: 'Pole', poleId, poleType: 'Concrete', status: 'Proposed', lat, lon, accuracy: 4.2, created: `2026-11-01T08:0${i}:00.000Z`, updated: T0, takenAt: T0, by: USER.name, boq: { owner: 'Electric', clamp: '8-10' }, ...(ON[id] || {}) }))
+  .concat([{ id: 't1', project: NAME, element: 'Site', siteKind: 'Tower', poleId: 'DEMO SITE MIN9001', status: 'Existing', lat: LA0, lon: LO0 - 1.2 * DD, accuracy: 4.2, created: '2026-11-01T08:09:00.000Z', updated: T0, takenAt: T0, by: USER.name, boq: {} }]); // (a made-up existing tower at the cable's start: no CEF plan asked for)
+const LINKS = [['t1', 's1', 'F12'], ...POLES.slice(1).map((p, i) => [POLES[i][0], p[0], 'F12'])];
 const PO = []; for (let i = 0; i < 3; i++) PO.push([`o${i + 1}`, `CC-${9201 + i}`, 7.1230, 125.6200 + i * DD]);
 const RECS_O = PO.map(([id, poleId, lat, lon], i) => ({ ...RECS[0], ...{ closure: undefined }, id, project: OTHER, poleId, lat, lon, created: `2026-11-01T09:0${i}:00.000Z`, boq: { owner: 'Electric', clamp: '8-10' } }));
 const way = (id, name, hw, pts) => ({ type: 'way', id, tags: { highway: hw, name }, geometry: pts.map(([lat, lon]) => ({ lat, lon })) });
@@ -117,7 +118,7 @@ async function hook(page) {
   await page.evaluate(async (KEYS) => {
     if (!window.GeDxfTpl) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'dxftpl.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
     const T = window.GeDxfTpl, real = T.build; T.__w = true; window.__exp = []; // (__w: the export's plan made on the page, where this sees it)
-    T.build = function (seed, job) { const out = real.call(this, seed, job); window.__exp.push({ job: JSON.parse(JSON.stringify(Object.fromEntries(KEYS.filter((k) => k in job).map((k) => [k, job[k]])))), pts: JSON.parse(JSON.stringify(job.pts.map((p) => ({ id: p.id, status: p.status, closureOld: p.closureOld, E: p.E, N: p.N })))), phPin: JSON.parse(JSON.stringify(job.phPin || {})), cabPin: JSON.parse(JSON.stringify(job.cabPin || {})), movable: JSON.parse(JSON.stringify(out.report.movable)), drawnAt: JSON.parse(JSON.stringify(out.report.drawnAt || {})), text: out.text }); return out; };
+    T.build = function (seed, job) { const out = real.call(this, seed, job); window.__exp.push({ job: JSON.parse(JSON.stringify(Object.fromEntries(KEYS.filter((k) => k in job).map((k) => [k, job[k]])))), pts: JSON.parse(JSON.stringify(job.pts.map((p) => ({ id: p.id, status: p.status, closureOld: p.closureOld, E: p.E, N: p.N, ...('cloSize' in p ? { cloSize: p.cloSize } : {}) })))), phPin: JSON.parse(JSON.stringify(job.phPin || {})), cabPin: JSON.parse(JSON.stringify(job.cabPin || {})), movable: JSON.parse(JSON.stringify(out.report.movable)), drawnAt: JSON.parse(JSON.stringify(out.report.drawnAt || {})), text: out.text }); return out; };
   }, TOOL_JOB);
 }
 const closeAll = async (page) => { for (let i = 0; i < 8; i++) { if (!(await page.evaluate(() => document.querySelectorAll('section.sheet:not([hidden])').length))) return; await page.goBack(); await page.waitForTimeout(500); } };
@@ -167,7 +168,7 @@ async function see(page, id) {
 async function select(page, id, pt) {
   const m = await see(page, id); const [x, y] = pt ? await page.evaluate((q) => window.__polecam.drwPt(q), pt) : [m.x, m.y];
   for (let k = 1; k <= 6; k++) { await tap(page, x, y); await page.waitForTimeout(220); const s = (await mvOf(page)).sels; if (s.length === 1 && s[0] === id) return k; }
-  throw new Error(`${id} not selected at ${x}, ${y}: ${JSON.stringify((await mvOf(page)).sels)}`);
+  throw new Error(`${id} not selected at ${x}, ${y}: ${JSON.stringify((await mvOf(page)).sels)}; under it: ${JSON.stringify(await page.evaluate(([X, Y]) => window.__polecam.drwCands(X, Y), [x, y]))}; it: ${JSON.stringify(await itemOf(page, id))}; tb: ${JSON.stringify((await tbOf(page)).rect)}; at: ${await page.evaluate(([X, Y]) => { const e = document.elementFromPoint(X, Y); return e ? `${e.tagName}#${e.id}.${e.className}` : 'none'; }, [x, y])} ask: ${await page.evaluate(() => `${document.getElementById('askTitle').textContent} | ${[...document.querySelectorAll('#askBox .row button')].map((b) => b.textContent).join(' / ')}`)}`);
 }
 const tbClick = (page, a, v) => page.evaluate(([a0, v0]) => { const g = document.querySelector(`#drawTb [data-a="${a0}"]`); const b = v0 != null ? g.querySelector(`button[data-v="${v0}"]`) : g; if (!b || b.hidden || b.closest('[hidden]')) throw new Error(`${a0} ${v0 || ''}: not on the toolbar`); b.click(); }, [a, v == null ? null : String(v)]);
 const shown1 = (T, a) => { const t = T.tools.find((x) => x.a === a); return !!t && !t.hidden; };
@@ -187,10 +188,11 @@ test('a phone: a tap selects an item of any kind (tapped again on the same spot:
   const { ctx, page, errors } = await open();
   await drawing(page); await shown(page, (x) => x.count && x.count.pictures === 8);
   let mv = await mvOf(page); const kinds = new Set(mv.items.map((m) => m.kind));
-  for (const k of ['photo', 'number', 'details', 'cable', 'pole', 'closure', 'closurelabel', 'guy', 'ground', 'span', 'nap', 'loop']) assert.ok(kinds.has(k), `${k} on the plan: ${[...kinds]}`);
+  for (const k of ['photo', 'number', 'details', 'cable', 'pole', 'site', 'sitedetails', 'closure', 'closurelabel', 'guy', 'ground', 'arm', 'span', 'nap', 'loop', 'landmark', 'road']) assert.ok(kinds.has(k), `${k} on the plan: ${[...kinds]}`);
   assert.equal((await tbOf(page)).hidden, true, 'nothing selected: no toolbar');
   // each kind: selected (the toolbar with its tools), its outline
-  const want = { number: 'num:s3', details: 'lbl:s3', closurelabel: 'clolbl:s2', span: mv.items.find((m) => m.kind === 'span' && m.id.includes('s3') && m.id.includes('s4')).id, cable: mv.items.find((m) => m.kind === 'cable').id };
+  const first = (k) => mv.items.find((m) => m.kind === k).id;
+  const want = { number: 'num:s3', details: 'lbl:s3', closurelabel: 'clolbl:s2', closure: 'clo:s2', nap: 'nap:s6', span: mv.items.find((m) => m.kind === 'span' && m.id.includes('s3') && m.id.includes('s4')).id, cable: first('cable'), loop: first('loop'), sitedetails: first('sitedetails'), landmark: first('landmark'), road: first('road') };
   for (const [k, id] of Object.entries(want)) {
     const n = await select(page, id), T = await tbOf(page), f = await full(page, id);
     assert.equal(T.hidden, false, `${k}: the toolbar`); assert.ok(n <= 4, `${k}: ${n} taps`);
@@ -331,6 +333,11 @@ test('a pole dragged: poleAt (the record\'s GPS stays), shown where let go, the 
   // Back to automatic
   await drawing(page); await shown(page); await select(page, 'pole:s7', 's7'); await tbClick(page, 'auto'); await page.waitForTimeout(200);
   assert.deepEqual((await kept(page)).poleAt, {}, 'back');
+  // a tower: its model moved (its pin, from its point as drawn), its point stays where it is surveyed
+  await select(page, 'site:t1', 't1'); const t0 = await full(page, 'site:t1'), m0 = await itemOf(page, 'site:t1'), n1 = (await pl(page)).n;
+  await drag(page, m0.x, m0.y, 0, 45); const Kt = await kept(page); assert.ok(!Kt.poleAt.t1, 'not its point'); assert.ok(Kt.mvPin['site:t1'] && Kt.mvPin['site:t1'].at, `its model's pin: ${JSON.stringify(Kt.mvPin)}`);
+  near(Kt.mvPin['site:t1'].at[1], t0.box[1] - 45 / sc - t0.anchor[1], 0.15, 'its model where let go (N)');
+  await again(page, n1); const t1 = await full(page, 'site:t1'); assert.equal(t1.how, 'by hand'); near(t1.box[1], t0.anchor[1] + Kt.mvPin['site:t1'].at[1], 0.3, 'drawn there');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -364,12 +371,15 @@ test('Plan style: Lines to the pole off and Closure labels Bubble reach the job;
   assert.match(await page.evaluate(() => document.querySelector('#stPole .secsum').textContent), /no lines to the pole from the photos and pole details/);
   await closeAll(page); await drawing(page); await shown(page, (x) => x.n > n0);
   const e = await exportPlan(page); assert.deepEqual(e.job.leaders, { photo: false, details: false, number: true }); assert.equal(e.job.cloStyle, 'bubble');
+  assert.equal(e.pts.find((p) => p.id === 's2').cloSize, '24C', 'the closure\'s size from its record'); assert.ok(e.pts.filter((p) => 'cloSize' in p).length === 1, 'only the closure');
+  assert.ok(e.text.includes('PROPOSE 24C') && e.text.includes('HYBRID CLOSURE'), 'the bubble says it');
   // back to the defaults: none in the job; one closure in a bubble from the toolbar
   await drawing(page); await shown(page); await page.click('#drawSetBtn'); await page.waitForTimeout(700); await page.evaluate(() => { document.getElementById('stPole').open = true; document.getElementById('stCab').open = true; });
   await page.click('#stLead [data-k="photo"]'); await page.click('#stLead [data-k="details"]'); await page.click('#stCloStyle [data-v="arrow"]'); await page.waitForTimeout(200);
   await drawing(page); await shown(page); await select(page, 'clolbl:s2'); await tbClick(page, 'callout', 'bubble'); await page.waitForTimeout(150);
   assert.deepEqual((await kept(page)).mvStyle['clolbl:s2'], { callout: 'bubble' });
   const e2 = await exportPlan(page); assert.ok(!('leaders' in e2.job) && !('cloStyle' in e2.job), 'the defaults: as 7.10'); assert.deepEqual(e2.job.style['clolbl:s2'], { callout: 'bubble' });
+  assert.equal(e2.pts.find((p) => p.id === 's2').cloSize, '24C', 'its bubble says its size too');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -397,7 +407,7 @@ test('kept with the project (another project, a reload), left out of what the te
   await page.click('#drawPhAll'); await page.waitForTimeout(300); assert.match(await page.evaluate(() => document.getElementById('askTitle').textContent), /^Back to automatic: 4 items\?$/);
   await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
   const K2 = await kept(page); for (const k of Object.keys(K2)) assert.deepEqual(K2[k], {}, `${k}: none left`);
-  const e2 = await exportPlan(page); for (const k of TOOL_JOB) assert.ok(!(k in e2.job), `no ${k}`); assert.ok(e2.text === e0.text, 'the same DXF as before any change, byte for byte');
+  const e2 = await exportPlan(page); for (const k of TOOL_JOB) assert.ok(!(k in e2.job), `no ${k}`); assert.ok(!e2.pts.some((p) => 'cloSize' in p), 'no bubble: no closure size in the job'); assert.ok(e2.text === e0.text, 'the same DXF as before any change, byte for byte');
   assert.deepEqual(errors, []);
   await ctx.close();
 });

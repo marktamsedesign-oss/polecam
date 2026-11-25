@@ -13635,6 +13635,10 @@
     const numPin = { ...(m.numPin || {}) }, lblPin = { ...(m.lblPin || {}) }, cabPin = { ...(m.cabPin || {}) }; // ((beta 7.10, Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
     const gridKeep = pinsAny(m) ? planGridOf(m) : null; // ((beta 7.10, Plan kept) the plan edited on the Drawing keeps its grid: its sheets and their names; (beta 7.10, Drawing labels) a photo, label, number or pole's details placed by hand)
     const tools = toolJob(m, PS); // ((beta 7.11, Drawing tools) the items turned, styled, their arrow's tip, the poles moved on the Drawing, Lines to the pole, Closure labels: only those set)
+    // ((beta 7.11, Drawing tools) a closure's bubble (Plan style › Closure labels: Bubble, or one closure's) says its size as its record has it: PROPOSE 72C (the largest of
+    // several); the plan's own guess (its largest cable) without one. Only with a bubble: the job is otherwise as before)
+    if (tools.cloStyle === 'bubble' || Object.values(tools.style || {}).some((x) => x && x.callout === 'bubble') || ((tools.styleKind || {}).closurelabel || {}).callout === 'bubble')
+      pts.forEach((p, i) => { if (!(p.closure || p.closureId || elemOf(p) === 'Closure' || boxClo(p)) || !rows[i] || String(rows[i].id) !== String(p.id)) return; const c = String((p.boq || {}).clo || '').split('+').map((x) => x.trim().toUpperCase()).filter((x) => /^\d+C$/.test(x)).sort((x, y) => parseInt(y, 10) - parseInt(x, 10))[0]; if (c) rows[i].cloSize = c; });
     // (what follows waits for the phone: the roads, the photos, the vicinity pictures, the logo)
     let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)'; const keptAt = [];
     if ($('dxfRoads').checked) {
