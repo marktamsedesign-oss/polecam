@@ -287,6 +287,7 @@ svg.dpi{width:23px;height:23px;flex:none;fill:none;stroke:currentColor;stroke-wi
 .drwicopop{position:absolute;z-index:9;left:8px;top:8px;display:flex;flex-direction:column;gap:6px;padding:8px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.2);max-width:calc(100% - 16px)}
 .drwicopop[hidden]{display:none}.drwicopop b{font:700 calc(12px * var(--fs)) var(--sans);color:var(--muted);padding:0 2px}.drwicopop .tiles{display:flex;flex-wrap:wrap;gap:4px}
 .drwicopop button{min-width:72px;border-color:var(--line)}.drwicopop .hint{margin:0;max-width:300px}
+.drwicopop .hidl{display:flex;flex-direction:column;gap:4px;max-height:40vh;overflow:auto}.drwicopop .hidr{display:flex;align-items:center;gap:8px;justify-content:space-between;font-size:calc(13px * var(--fs))}.drwicopop .hidr button{min-height:40px;min-width:60px;flex-direction:row;gap:5px}.drwicopop .hidr .dpi{width:18px;height:18px}
 @media (max-width:699px){.drwicopop{top:auto;bottom:8px}}
 #drawWrap.adding #drawCanvas{cursor:crosshair}
 /* (beta 7.12, Drawing edit) the text editor: a plan item's text (one line per line) or a note's */
@@ -1642,6 +1643,7 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
        undo, bin, ok, more, cam, img, pen, turn, copy are the editor's; the others are drawn the same way for the tools it has not. -->
   <symbol id="ce-ptr" viewBox="0 0 20 20"><path d="M5 3l10 6.5-4.3 1.1 2.4 4.9-1.9.9-2.4-4.9L5 15z"/></symbol>
   <symbol id="ce-undo" viewBox="0 0 20 20"><path d="M4.5 8h7.5a4 4 0 0 1 0 8H8M4.5 8l3-3M4.5 8l3 3"/></symbol>
+  <symbol id="ce-eyeoff" viewBox="0 0 20 20"><path d="M1.5 10S5 4 10 4s8.5 6 8.5 6-3.5 6-8.5 6S1.5 10 1.5 10zM10 12.6a2.6 2.6 0 100-5.2 2.6 2.6 0 000 5.2zM3 17L17 3"/></symbol>
   <symbol id="ce-redo" viewBox="0 0 20 20"><path d="M15.5 8H8a4 4 0 0 0 0 8h4M15.5 8l-3-3M15.5 8l-3 3"/></symbol>
   <symbol id="ce-bin" viewBox="0 0 20 20"><path d="M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6M8.7 9v4.5M11.3 9v4.5"/></symbol>
   <symbol id="ce-ok" viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"/></symbol>

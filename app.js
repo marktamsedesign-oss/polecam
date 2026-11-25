@@ -2189,7 +2189,7 @@
       planAt: rep.photoAt, fileId: Object.fromEntries([...Object.entries(job.photos || {}).map(([id, x]) => [x.file, id]), ...(job.notes || []).filter((n) => n.photo && n.photo.file).map((n) => [n.photo.file, `note:${n.id}`])]), /* ((beta 7.12, Drawing edit) and each photo note's) */ lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (beta 7.10, Plan kept) the labels and split it was made with)
       mv: Array.isArray(rep.movable) ? rep.movable : null, mvIdx: new Map((rep.movable || []).map((m, i) => [m.id, i])), // ((beta 7.10, Drawing labels) the items the Drawing may move, and each one's place in that list)
       ptsAt: Object.fromEntries((job.pts || []).filter((q) => Number.isFinite(+q.E) && Number.isFinite(+q.N)).map((q) => [String(q.id), [+q.E, +q.N]])), // ((beta 7.12, Drawing edit) each point's record place it was made with: a point moved since is drawn moved as much)
-      tools: JSON.parse(JSON.stringify({ pins: job.pins || null, style: job.style || null, styleKind: job.styleKind || null, poleAt: job.poleAt || null, text: job.text || null, notes: job.notes || null, order: job.order || null })) }; // ((beta 7.11, Drawing tools) what it was made with: what changed since is drawn so until the next one comes; (beta 7.12, Drawing edit) its texts, notes, draw order)
+      tools: JSON.parse(JSON.stringify({ pins: job.pins || null, style: job.style || null, styleKind: job.styleKind || null, poleAt: job.poleAt || null, text: job.text || null, notes: job.notes || null, order: job.order || null, hide: job.hide || null })) }; // ((beta 7.11, Drawing tools) what it was made with: what changed since is drawn so until the next one comes; (beta 7.12, Drawing edit) its texts, notes, draw order)
     for (const [k, v] of drwPhMem) if (k !== proj && v.plan) drwPhMem.set(k, { ...v, plan: null, sig: '' }); // (one project's plan kept at a time: another one opened makes its own again)
     drwPhMem.set(proj, ph); planGridKeep(proj, ph.grid, ph.lab, ph.split); /* ((beta 7.10, Plan kept) photos placed by hand and no grid kept yet, e.g. placed before: this one's) */ LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length, force: !!force, ...(plan ? { plan: { ...plan.count, ms: res.plan.ms } } : {}) }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker; plan: its display list, made in ms after the plan)
     if (!drw || drw.project !== proj || $('drawing').hidden) return;
@@ -2592,7 +2592,7 @@
      stays), mvOrder [{ id, op }] (the draw order: job.order, a later To front / To back of an item drops its earlier ones), notes [{ id, kind: 'text' | 'photo', at,
      rot, lines, h, bold, italic, color, photo: { pid (the photo store's), px, py }, size }] (the texts and photos the user adds: job.notes, each photo's bytes in the
      photo store as the plan's photos are, NOTE_<id>.jpg in the export). Undo takes each change back; all back to automatic leaves the notes (the user's own). */
-  const TOOL_KEYS = ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'mvText', 'mvOrder', 'notes'], MV_KEYS = [...PIN_KEYS, ...TOOL_KEYS];
+  const TOOL_KEYS = ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'mvText', 'mvOrder', 'notes', 'mvHide'], MV_KEYS = [...PIN_KEYS, ...TOOL_KEYS]; // ((beta 7.12, Drawing edit) mvHide { [id]: true }: the items left off the plan (job.hide))
   /** Something placed by hand in a project (pmeta() m): a photo, a label, a number or a pole's details ((beta 7.10, Plan kept): the grid is kept while there is) ((beta 7.11, Drawing tools) or an item turned or styled, a pole moved). */
   const pinsAny = (m) => MV_KEYS.some((k) => !!(m && m[k] && Object.keys(m[k]).length));
   /** The items of the plan shown that the Drawing may move (report.movable), or none. */
@@ -2627,6 +2627,7 @@
     if (m && m.mvText && Object.keys(m.mvText).length) o.text = cp(m.mvText); // ((beta 7.12, Drawing edit) the texts edited, the notes added, the draw order: only those set)
     const N = notesOf(m); if (N.length) o.notes = N.map(noteJob);
     if (m && Array.isArray(m.mvOrder) && m.mvOrder.length) o.order = cp(m.mvOrder);
+    if (m && m.mvHide && Object.keys(m.mvHide).length) o.hide = Object.keys(m.mvHide); // ((beta 7.12, Drawing edit) the items deleted from the plan only)
     return o;
   }
   /** (beta 7.12, Drawing edit) A project's notes (pmeta() m): the texts and photos added on its plan. */
@@ -2660,8 +2661,9 @@
     for (const pid of Object.keys(m.poleAt || {})) { const k = ptNoun(pid); seen.add(`${k}:${pid}`); r.more[k] = (r.more[k] || 0) + 1; }
     for (const id of [...Object.keys(m.mvPin || {}), ...Object.keys(m.mvStyle || {}), ...(m.mvOrder || []).map((o) => o && o.id).filter(Boolean)]) { if (seen.has(id)) continue; seen.add(id); const k = mvKindOf(id); if (F[k]) r[F[k]]++; else r.more[k] = (r.more[k] || 0) + 1; } // ((beta 7.12, Drawing edit) + drawn over or under others)
     for (const id of Object.keys(m.mvText || {})) { if (seen.has(id)) continue; seen.add(id); r.more.text = (r.more.text || 0) + 1; } // ((beta 7.12, Drawing edit) a text edited: "1 text changed by hand"; its item placed too: counted once)
+    for (const id of Object.keys(m.mvHide || {})) { if (seen.has(id)) continue; seen.add(id); const k = mvKindOf(id); r.more[k] = (r.more[k] || 0) + 1; } // ((beta 7.12) an item left off the plan)
     r.kind = r.kinds.length; r.n = r.ph + r.num + r.lbl + r.cab + Object.values(r.more).reduce((a, b) => a + b, 0) + r.kind;
-    r.chg = !!(Object.keys(m.mvStyle || {}).length || r.kind || Object.keys(m.mvText || {}).length || (m.mvOrder || []).length || Object.values(m.mvPin || {}).some((t) => t && (t.rot != null || t.tip != null))); return r; }; // (chg: styled, turned, an arrow's tip ((beta 7.12) its text, its draw order): "changed by hand"; only placed: 7.10's words. The notes are not counted: they are the user's own, not the plan's put elsewhere)
+    r.chg = !!(Object.keys(m.mvStyle || {}).length || r.kind || Object.keys(m.mvText || {}).length || (m.mvOrder || []).length || Object.keys(m.mvHide || {}).length || Object.values(m.mvPin || {}).some((t) => t && (t.rot != null || t.tip != null))); return r; }; // (chg: styled, turned, an arrow's tip ((beta 7.12) its text, its draw order): "changed by hand"; only placed: 7.10's words. The notes are not counted: they are the user's own, not the plan's put elsewhere)
   /** They in words: "2 photos", "1 cable label"; of several kinds "5 items" (long: "2 photos, 1 number and 2 cable labels"; (beta 7.11, Drawing tools) "1 pole", "the style of all cable labels"). */
   const drwPinsSay = (C, long) => { const L = [[C.ph, 'photo', 'photos'], [C.num, 'number', 'numbers'], [C.lbl, 'pole\'s details', 'poles\' details'], [C.cab, 'cable label', 'cable labels'], ...Object.entries(C.more || {}).map(([k, n]) => [n, ...(MV_NOUN[k] || ['item', 'items'])])].filter((x) => x[0]).map(([n, a, b]) => `${n} ${n === 1 ? a : b}`);
     const K = (C.kinds || []).map((k) => `the style of all ${(MV_NOUN[k] || ['item', 'items'])[1]}`);
@@ -2735,9 +2737,9 @@
     for (let k = (drw.phHit || []).length - 1; k >= 0; k--) { const H = drw.phHit[k], c = Math.cos(H.rot), sn = Math.sin(H.rot), dx = x - H.cx, dy = y - H.cy, u = dx * c + dy * sn, v = -dx * sn + dy * c; // (the photo frames drawn, with the plan or without it, as 7.10 found them)
       if (Math.abs(u) <= Math.max(H.w / 2 + 2 * d, 10 * d) && Math.abs(v) <= Math.max(H.h / 2 + 2 * d, 10 * d)) out.push({ photo: String(H.id), id: on && P && P.mvIdx && P.mvIdx.has(`ph:${H.id}`) ? `ph:${H.id}` : null }); }
     if (on) {
-      const M = drwMvs(), v = drw.view, sc = v.sc, E = v.cx + (x - cv.width / 2) / sc, N = v.cy - (y - cv.height / 2) / sc, mg = (e.pointerType === 'mouse' ? 5 : 9) * d / sc, hit = [];
+      const M = drwMvs(), v = drw.view, sc = v.sc, E = v.cx + (x - cv.width / 2) / sc, N = v.cy - (y - cv.height / 2) / sc, mg = (e.pointerType === 'mouse' ? 5 : 9) * d / sc, hit = [], hid = new Set(Object.keys(pmeta(drw.project).mvHide || {}));
       M.forEach((m, i) => {
-        if (m.kind === 'photo' || Math.min(m.box[2], m.box[3]) * sc < 3 * d || (pt && pt.id === m.id) || (isNote(m) && !noteNow(m))) return; // ((beta 7.12, Drawing edit) a note deleted since the plan shown was made: not there)
+        if (m.kind === 'photo' || Math.min(m.box[2], m.box[3]) * sc < 3 * d || (pt && pt.id === m.id) || (isNote(m) && !noteNow(m)) || hid.has(m.id)) return; // ((beta 7.12, Drawing edit) a note deleted since the plan shown was made, an item deleted from the plan: not there)
         const B = drwMvBox(m, i), a = B[4] * Math.PI / 180, dx = E - B[0], dy = N - B[1], u = dx * Math.cos(a) + dy * Math.sin(a), w = -dx * Math.sin(a) + dy * Math.cos(a);
         if (Math.abs(u) <= B[2] / 2 + mg && Math.abs(w) <= B[3] / 2 + mg) hit.push({ id: m.id, i, ar: B[2] * B[3] });
       });
@@ -2783,6 +2785,7 @@
     const zNow = drwOrderNow(M), zMade = drwOrderNow({ mvOrder: J.order || [] }); // ((beta 7.12, Drawing edit) each item's last draw order op, now and as the plan shown was made)
     P.mv.forEach((m, i) => {
       if (isNote(m)) { want.set(i, drwNoteLift(m, M)); return; } // ((beta 7.12, Drawing edit) a note: where, how turned and sized it is now, from the note itself; deleted: hidden)
+      if ((M.mvHide || {})[m.id] && !(J.hide || []).includes(m.id)) { want.set(i, { off: [0, 0], xf: { hide: true } }); return; } // ((beta 7.12) deleted from the plan since it was made: not drawn until the plan made without it comes)
       const z = zNow.get(m.id) !== zMade.get(m.id) ? (/^(front|forward)$/.test(zNow.get(m.id) || '') ? 1 : /^(back|backward)$/.test(zNow.get(m.id) || '') ? -1 : 0) : 0; // ((beta 7.12) over or under the rest until the plan made with it comes)
       if (m.kind === 'photo') { if (!want.has(i)) want.set(i, z ? { off: [0, 0], xf: { z } } : null); return; }
       const pin = drwPinOf(m, M), pid = pidOf(m); let off = null;
@@ -2859,7 +2862,7 @@
     return over || under ? ` · drawn ${[over ? `over ${over}` : '', under ? `under ${under}` : ''].filter(Boolean).join(' and ')} of what it touches` : '';
   }
   /** (beta 7.11, Drawing tools) An item changed by hand (placed, turned, styled, its pole moved). */
-  const drwHandOf = (m, M) => { const MM = M || pmeta(drw.project); if (isNote(m)) return false; return !!(drwPinOf(m, MM) || (MM.mvPin || {})[m.id] || (MM.mvStyle || {})[m.id] || (MM.mvText || {})[m.id] || (MM.mvOrder || []).some((o) => o && o.id === m.id) || ((m.kind === 'pole' || m.kind === 'site') && (MM.poleAt || {})[pidOf(m)])); }; // ((beta 7.12, Drawing edit) its text, its draw order; a note is the user's own: never "by hand", no Back to automatic)
+  const drwHandOf = (m, M) => { const MM = M || pmeta(drw.project); if (isNote(m)) return false; return !!(drwPinOf(m, MM) || (MM.mvPin || {})[m.id] || (MM.mvStyle || {})[m.id] || (MM.mvText || {})[m.id] || (MM.mvHide || {})[m.id] || (MM.mvOrder || []).some((o) => o && o.id === m.id) || ((m.kind === 'pole' || m.kind === 'site') && (MM.poleAt || {})[pidOf(m)])); }; // ((beta 7.12, Drawing edit) its text, its draw order; a note is the user's own: never "by hand", no Back to automatic)
   /** An item tapped: the information line says what it is, placed by hand with Back to automatic ((beta 7.11, Drawing tools) selected, with the toolbar;
    *  how 'add': Shift / Ctrl + click or Select more: added to the selection, or taken off it). */
   function drwMvTap(id, how) {
@@ -2921,7 +2924,7 @@
       if (isNote(m)) continue; // ((beta 7.12, Drawing edit) a note has no automatic place)
       const key = PIN_OF[m.kind]; if (key) drop(key, m.kind === 'cable' ? m.key : m.point);
       drop('mvPin', m.id); drop('mvStyle', m.id); if ((m.kind === 'pole' || m.kind === 'site') && pidOf(m) != null) drop('poleAt', pidOf(m));
-      drop('mvText', m.id); if ((nm.mvOrder || []).some((o) => o && o.id === m.id)) { nm.mvOrder = nm.mvOrder.filter((o) => !(o && o.id === m.id)); if (!nm.mvOrder.length) delete nm.mvOrder; n++; } // ((beta 7.12, Drawing edit) its own text back, drawn where the plan draws it)
+      drop('mvText', m.id); drop('mvHide', m.id); if ((nm.mvOrder || []).some((o) => o && o.id === m.id)) { nm.mvOrder = nm.mvOrder.filter((o) => !(o && o.id === m.id)); if (!nm.mvOrder.length) delete nm.mvOrder; n++; } // ((beta 7.12, Drawing edit) its own text back, drawn where the plan draws it)
       if (withKind) drop('mvKind', m.kind);
     }
     if (!n) return; drwUndoPush(L.length > 1 ? `${L.length} items back to automatic` : `${L[0].kind} back to automatic`);
@@ -3006,7 +3009,7 @@
   function drwMvDraw(g, d) {
     const M = drwMvs(); drw.hdl = []; if (!M.length || drw.labels === false) { if (!$('drawTb').hidden) drwTbRender(); return; } // (Labels off: the plan's texts are not drawn, nor these; (beta 7.11) nor the toolbar)
     const P = drw.ph, sc = drw.view.sc, out = (B, col, w, dash) => { const [cx, cy] = drwPx([B[0], B[1]]), a = -B[4] * Math.PI / 180; g.save(); g.translate(cx, cy); g.rotate(a); g.strokeStyle = col; g.lineWidth = w * d; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.strokeRect(-B[2] * sc / 2 - 2 * d, -B[3] * sc / 2 - 2 * d, B[2] * sc + 4 * d, B[3] * sc + 4 * d); g.restore(); };
-    const SL1 = new Set(drwSels()); M.forEach((m, i) => { if (!m.empty || SL1.has(m.id)) return; const B = drwMvBox(m, i), [cx, cy] = drwPx([B[0], B[1]]); if (Math.max(B[2], B[3]) * sc < 6 * d) return; g.save(); g.translate(cx, cy); g.rotate(-B[4] * Math.PI / 180); g.strokeStyle = 'rgba(134,142,150,.75)'; g.lineWidth = 1.2 * d; g.setLineDash([3 * d, 3 * d]); g.strokeRect(-B[2] * sc / 2, -B[3] * sc / 2, B[2] * sc, B[3] * sc); g.restore(); }); // ((beta 7.12, Drawing edit) an item whose texts were all left off: where it was, dashed, to take it again)
+    const SL1 = new Set(drwSels()), HD = pmeta(drw.project).mvHide || {}; M.forEach((m, i) => { if (!m.empty || SL1.has(m.id) || HD[m.id]) return; const B = drwMvBox(m, i), [cx, cy] = drwPx([B[0], B[1]]); if (Math.max(B[2], B[3]) * sc < 6 * d) return; g.save(); g.translate(cx, cy); g.rotate(-B[4] * Math.PI / 180); g.strokeStyle = 'rgba(134,142,150,.75)'; g.lineWidth = 1.2 * d; g.setLineDash([3 * d, 3 * d]); g.strokeRect(-B[2] * sc / 2, -B[3] * sc / 2, B[2] * sc, B[3] * sc); g.restore(); }); // ((beta 7.12, Drawing edit) an item whose texts were all left off: where it was, dashed, to take it again)
     M.forEach((m, i) => { if (m.kind !== 'photo' && drwMvCut(m, i)) { const B = drwMvBox(m, i), [cx, cy] = drwPx([B[0], B[1]]); g.save(); g.translate(cx, cy); g.rotate(-B[4] * Math.PI / 180); g.strokeStyle = '#f08c00'; g.lineWidth = 2.4 * d; g.setLineDash([5 * d, 3 * d]); g.strokeRect(-B[2] * sc / 2 - 3 * d, -B[3] * sc / 2 - 3 * d, B[2] * sc + 6 * d, B[3] * sc + 6 * d); g.restore(); } }); // ((beta 7.10, Plan kept) as a photo across a sheet's edge (drwPhFrame): orange, dashed)
     const SL = drwSels(); if (SL.length && $('drawTb').hidden) drwTbRender(); for (const id of SL) { const s = P.mvIdx.get(id); if (s != null && !(M[s].kind === 'photo' && SL.length === 1)) out(drwMvBox(M[s], s), 'rgba(255,212,59,.95)', 4); } // (a photo alone: its frame outlined, drwPhFrame)
     const D = drw.mvDrag; if (D && M[D.i]) { const B = drwMvBox(M[D.i], D.i), an = drwAnchorNow(M[D.i], pmeta(drw.project)), [ax, ay] = drwPx(an), [bx, by] = drwPx([B[0], B[1]]); g.save(); g.strokeStyle = 'rgba(28,126,214,.8)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.restore(); }
@@ -3235,7 +3238,8 @@
     const C = L.map(canOf), any = (f) => C.some((c) => !!c[f]), M = pmeta(drw.project), pl = plStyle();
     const vis = { 'h-': any('text'), 'h+': any('text'), bold: any('text'), italic: any('text'), color: any('color'), 'rot-': any('rotate'), 'rot+': any('rotate'), rot0: L.some((m) => canOf(m).rotate && drwRotOf(m, M) != null), 's-': any('scale'), 's+': any('scale'), status: L.some((m) => stOk(canOf(m).status)), callout: any('callout'), lead: any('lead') };
     // ((beta 7.12, Drawing edit) Edit text: one item with texts (or a text note); the draw order: anything; Delete: notes only (the plan's own items are not deleted); Automatic: not for notes)
-    Object.assign(vis, { text: L.length === 1 && canText(L[0]), front: true, forward: true, backward: true, back: true, del: L.every(isNote), auto: !L.every(isNote) });
+    Object.assign(vis, { text: L.length === 1 && canText(L[0]), front: true, forward: true, backward: true, back: true, del: L.every((m) => !!delOf(m)), auto: !L.every(isNote) }); // ((beta 7.12) Delete: as the plan says for each)
+    { const db = tb.querySelector('[data-a="del"]'), t = vis.del ? delSay(L) : 'Delete'; if (db.title !== t) { db.title = t; db.setAttribute('aria-label', t); } }
     vis.scope = vis['h-'] || vis.color || vis['s-'] || vis.callout || vis.lead; vis.sep1 = vis['h-'] || vis.color || vis.text; vis.sep2 = vis['rot-']; vis.sep3 = vis['s-']; vis.sep4 = vis.status || vis.callout || vis.lead; vis.sep5 = true;
     tb.querySelectorAll('[data-a]').forEach((b) => { const a = b.dataset.a; if (a in vis) b.hidden = !vis[a]; });
     const xb = tb.querySelector('[data-a="xtra"]'); xb.hidden = ![...tb.querySelectorAll('.lo')].some((b) => !b.hidden); tb.classList.toggle('xopen', !!drw.tbX); xb.setAttribute('aria-expanded', String(!!drw.tbX)); xb.setAttribute('aria-pressed', String(!!drw.tbX)); // ((beta 7.12) a phone: the tools used less under More)
@@ -3275,7 +3279,7 @@
     if (a === 'more') { drw.tbMore = !drw.tbMore; drwSelSay(); drwTbRender(); return; }
     if (a === 'xtra') { drw.tbX = !drw.tbX; drwTbRender(); return; } // ((beta 7.12, Drawing edit) a phone: the tools used less, shown or put away)
     if (a === 'text') { drwTxtEdit(L[0]); return; }
-    if (a === 'del') { drwNotesDel(L); return; }
+    if (a === 'del') { drwDelete(L); return; } // ((beta 7.12) each as the plan says: a note, a field of its record, the point, from the plan only)
     if (a === 'front' || a === 'forward' || a === 'backward' || a === 'back') { drwOrderSet(L, a); return; }
     if (a === 'scope') { drw.tbAll = v === 'kind'; drwSelSay(); drwTbRender(); return; }
     if (a === 'color') { drwTbPal($('drawTbPal').hidden); return; }
@@ -3380,6 +3384,65 @@
     const nm = { ...m0, notes: notesOf(m0).filter((x) => !ids.has(`note:${x.id}`)) }; if (Array.isArray(nm.mvOrder)) nm.mvOrder = nm.mvOrder.filter((o) => !(o && ids.has(o.id)));
     drwSelClear(); drwKeep(nm); toast(`${T.length > 1 ? `${T.length} notes` : 'Note'} deleted (↶ Undo brings ${T.length > 1 ? 'them' : 'it'} back)`, 3000);
   }
+  /* (beta 7.12, Drawing edit) Delete (the owner: "double check every plan element and ensure that it can be edit, delete or update(text, colors and etc) as user requires.
+     after edit or update or delete. the kmz and other related docs must be updated as well"): each item as the plan says (report.movable del): 'field', its record's
+     field set off as its record's form sets it off (the BOQ, the KMZ, the PMI and the plan follow); 'point', the point itself deleted as its record's Delete does (asked
+     first, naming it; its spans' cable stays joined); 'hide', left off the plan only (job.hide: More › Hidden lists them, Show or Back to automatic brings one back);
+     a note, the note. One step of Undo / Redo for all of it (the records and their photos and the route as they were). */
+  const FIELD_OFF = {
+    closure: (p) => { const b = { ...(p.boq || {}) }; delete b.clo; delete b.cloSt; delete b.cloAuto; return { ...p, closure: false, closureId: '', boq: b }; }, // (the survey form's Closure switch off: its size, status and ID with it)
+    nap: (p) => { const b = { ...(p.boq || {}) }; ['napType', 'napSz', 'napSt'].forEach((k) => delete b[k]); return { ...p, nap: false, napId: '', boq: b }; },
+    nap2: (p) => { const b = { ...(p.boq || {}) }; ['nap2Type', 'nap2Sz', 'nap2St'].forEach((k) => delete b[k]); return { ...p, nap2: false, nap2Id: '', boq: b }; }, // (as its Remove)
+    guy: (p) => { const b = { ...(p.boq || {}) }; delete b.guy; delete b.p2p; return { ...p, boq: b }; },
+    ground: (p) => ({ ...p, boq: { ...(p.boq || {}), ground: 'No' } }), // (No grounding)
+    mloop: (p) => { const b = { ...(p.boq || {}), mloop: 'No' }; delete b.mloopM; return { ...p, mloop: false, boq: b }; }, // (No loop: the app adds none there either)
+    arm: (p) => { const b = { ...(p.boq || {}) }; if (b.arm) { delete b.arm; return { ...p, boq: b }; } const k = armOn(p); if (k < 0) return p; const det = (p.details || []).slice(); det.splice(k, 1); return { ...p, details: det }; }, // (the new arm, else the arm on the pole)
+    telcoArm: (p) => { const b = { ...(p.boq || {}) }; delete b.telcoArm; return { ...p, boq: b }; },
+    riser: (p) => { const b = { ...(p.boq || {}) }; delete b.riser; return { ...p, boq: b }; },
+  };
+  const KIND_FIELD = { closure: 'closure', closurelabel: 'closure', nap: 'nap', guy: 'guy', ground: 'ground', loop: 'mloop', loopsym: 'mloop', arm: 'arm' };
+  /** A record's field off: as the table says, else a BOQ key taken off, a switch off or a text emptied. */
+  const fieldOffFn = (f) => (!f ? null : FIELD_OFF[f] || (/^boq\./.test(f) ? (p) => { const b = { ...(p.boq || {}) }; delete b[f.slice(4)]; return { ...p, boq: b }; } : (p) => ({ ...p, [f]: typeof p[f] === 'boolean' ? false : '' })));
+  /** How an item is deleted (null: it is not): its note; the plan's del ('field', 'point', 'hide'; its point and field, its kind's field when it names none). */
+  function delOf(m) {
+    if (isNote(m)) return noteNow(m) ? { how: 'note' } : null;
+    const d = m && m.del; if (!d) return null; const how = typeof d === 'string' ? d : d.how; if (!/^(field|point|hide)$/.test(how || '')) return null;
+    const point = d.point != null ? String(d.point) : pidOf(m), field = d.field || KIND_FIELD[m.kind] || null, rec = point != null ? points.find((p) => String(p.id) === String(point)) : null;
+    if (how === 'point' && !rec) return null; if (how === 'field' && !(rec && fieldOffFn(field))) return null;
+    return { how, point: point != null ? String(point) : null, field };
+  }
+  /** What Delete does to them, said (the toolbar's tip). */
+  const delSay = (L) => { const H = new Set(L.map((m) => (delOf(m) || {}).how)); return H.size !== 1 ? 'Delete: each as the plan says' : { note: 'Delete this note (↶ brings it back)', hide: 'Delete from the plan only (More › Hidden brings it back)', field: 'Delete: off in its record, as its form does (the BOQ and the KMZ follow; ↶ brings it back)', point: 'Delete the point: its record (asked first; ↶ brings it back)' }[[...H][0]]; };
+  async function drwDelete(L) {
+    if (!drw) return; const T = L.map((m) => ({ m, d: delOf(m) })).filter((x) => x.d); if (!T.length) return;
+    if (T.every((x) => x.d.how === 'note')) { drwNotesDel(T.map((x) => x.m)); return; }
+    const proj = drw.project, pts = [...new Set(T.filter((x) => x.d.how === 'point').map((x) => x.d.point))], nameOf = (pid) => { const p = points.find((q) => String(q.id) === pid); return p ? recName(p) || p.poleId || elemOf(p) : pid; };
+    for (const pid of new Set(T.filter((x) => x.d.how !== 'hide' && x.d.how !== 'note').map((x) => x.d.point))) { const lk = tmHooks.locked ? tmHooks.locked(pid, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    if (pts.length) { const nm1 = pts.map(nameOf); if (!(await ask(`Delete ${nm1.length === 1 ? nm1[0] : `${nm1.length} points`}?`, `${nm1.length === 1 ? 'Its record and its photos are' : `${nm1.join(', ')}: their records and photos are`} removed from this phone, as Delete in ${nm1.length === 1 ? 'its record' : 'their records'} does: the KMZ, the BOQ and the plan follow; a cable through ${nm1.length === 1 ? 'it' : 'them'} stays joined. ↶ Undo brings ${nm1.length === 1 ? 'it' : 'them'} back.`, [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }])) || !drw || drw.project !== proj) return; }
+    const ids = [...new Set(T.filter((x) => x.d.how === 'field' || x.d.how === 'point').map((x) => x.d.point))], before = ids.map((pid) => points.find((q) => String(q.id) === pid)).filter(Boolean).map((p) => JSON.parse(JSON.stringify(p))), ph = [];
+    for (const pid of pts) { const p = points.find((q) => String(q.id) === pid); if (p) for (const x of allPids(p)) { const st = await dbGet('photos', x).catch(() => null); if (st) ph.push(st); } }
+    const what = T.length === 1 ? { field: `${T[0].m.kind} off in its record`, point: 'point deleted', hide: `${T[0].m.kind} deleted from the plan`, note: 'note deleted' }[T[0].d.how] : `${T.length} items deleted`;
+    drwUndoPush(what, before.length ? before : null, { ph, route: pts.length ? routeSnap() : null }); LOG.info('draw.delete', { n: T.length, how: [...new Set(T.map((x) => x.d.how))] });
+    // the plan's own: left off, the notes
+    const m0 = pmeta(proj), nm = { ...m0 }, H = { ...(nm.mvHide || {}) }; for (const x of T) if (x.d.how === 'hide') H[x.m.id] = true; if (Object.keys(H).length) nm.mvHide = H;
+    const nid = new Set(T.filter((x) => x.d.how === 'note').map((x) => x.m.id)); if (nid.size) { nm.notes = notesOf(nm).filter((n) => !nid.has(`note:${n.id}`)); if (!nm.notes.length) delete nm.notes; }
+    S.meta = S.meta || {}; S.meta[proj] = nm; persist(); drwSelClear(true);
+    // the records: a field off (as its form), a point deleted (as its record's Delete)
+    const now = new Date().toISOString(), recs = new Map();
+    for (const x of T) { if (x.d.how !== 'field' || pts.includes(x.d.point)) continue; const cur = recs.get(x.d.point) || points.find((q) => String(q.id) === x.d.point); if (cur) recs.set(x.d.point, { ...fieldOffFn(x.d.field)(cur), updated: now, updatedBy: byLine() }); }
+    for (const pid of pts) {
+      const p = points.find((q) => String(q.id) === pid); if (!p) continue; await dbDel('points', p.id); await deletePhotosIfUnused(allPids(p), new Set([p.id])); points = points.filter((q) => q.id !== p.id);
+      if (links().some(([a, b]) => a === p.id || b === p.id) || fibers().some((f) => f.path.includes(p.id))) { const q = routeDrop(new Set([p.id]), links(), fibers()); setRoute(q.l, q.f); } // (as its record's Delete: off its spans and cables, a cable through it stays joined)
+      const mm = { ...(S.meta[proj] || {}) }; mm.gone = { ...(mm.gone || {}), [p.id]: now }; S.meta[proj] = mm; persist(); changedAfterApproval(proj, 'delete');
+    }
+    if (recs.size) await drwRecsPut([...recs.values()]); else if (pts.length) { try { renderPoles(); } catch (e) { /* not ready */ } drwRecsShow(); } else { drwMvShowPins(); drwPlanUi(); drwTbRender(); drawDrawing(); drwPhSoon(250); }
+    toast(`${T.length === 1 ? 'Deleted' : `${T.length} items deleted`}${recs.size || pts.length ? ': the record, the KMZ, the BOQ and the plan follow' : ' from the plan'} (↶ Undo brings ${T.length === 1 ? 'it' : 'them'} back)`, 3500);
+  }
+  /** (beta 7.12, Drawing edit) Items left off the plan shown again (ids; none: all of them). */
+  function drwUnhide(ids) {
+    if (!drw) return; const m0 = pmeta(drw.project), H = { ...(m0.mvHide || {}) }, L = ids || Object.keys(H); if (!L.some((id) => H[id])) return;
+    drwUndoPush(L.length > 1 ? `${L.length} items shown again` : 'shown again'); for (const id of L) delete H[id]; LOG.info('draw.unhide', { n: L.length }); drwKeep({ ...m0, mvHide: H });
+  }
   /** (beta 7.12, Drawing edit) The photos of notes no project keeps any more (deleted, and no Undo step of this session left to bring them back), let go from the photo store. */
   let drwNotePrep = 0;
   async function drwNotesSweep() {
@@ -3419,7 +3482,9 @@
     if (!k || !drw) { if (!P.hidden) { P.hidden = true; P.textContent = ''; } return; }
     const tile = (a, icon, cap, label, o) => `<button type="button" data-a="${a}" aria-label="${label}" title="${label}"${o && o.pressed != null ? ` aria-pressed="${o.pressed}"` : ''}${o && o.dis ? ' disabled' : ''}><svg class="dpi" aria-hidden="true"><use href="#ce-${icon}"/></svg><span>${cap}</span></button>`;
     if (k === 'photo') P.innerHTML = `<b>Add a photo</b><div class="tiles">${tile('cam', 'cam', 'Camera', 'Take a photo with the camera')}${tile('gal', 'img', 'Gallery', 'Choose a photo from the gallery')}</div><p class="hint">Then tap the plan where it goes. It is printed on the plan, its PDF and the One PDF, as the poles' photos are.</p>`;
-    else { const C = drwPinsN(drw.project); P.innerHTML = `<b>More</b><div class="tiles">${tile('several', 'sel2', 'Several', 'Select several: each tap adds one or takes it off', { pressed: !!drw.tbMore })}${tile('phlines', 'lead', 'Photo lines', 'Lines from the photos to their poles: on or off (Plan style › Photos › Line to its pole)', { pressed: !!plStyle().lead.photo })}${tile('autoall', 'auto', 'All automatic', 'Everything back where and as the plan puts it (asked first; the notes stay)', { dis: !C.n })}</div>`; }
+    else if (k === 'hidden') { const H = Object.keys(pmeta(drw.project).mvHide || {}), nm = (id) => { const m = mvById(id); return m ? drwMvName(m) : ((MV_NOUN[mvKindOf(id)] || ['item'])[0]).replace(/^./, (c) => c.toUpperCase()); };
+      P.innerHTML = `<b>Deleted from the plan (${H.length})</b><div class="hidl">${H.map((id) => `<div class="hidr"><span>${hEsc(nm(id))}</span><button type="button" data-a="unhide" data-id="${hEsc(id)}" aria-label="Show ${hEsc(nm(id))} again" title="Show it on the plan again"><svg class="dpi" aria-hidden="true"><use href="#ce-undo"/></svg><span>Show</span></button></div>`).join('')}</div>${H.length > 1 ? `<div class="tiles">${tile('unhideall', 'undo', 'Show all', 'Every item deleted from the plan shown again')}</div>` : ''}<p class="hint">Deleted from the plan only: their records are as they were.</p>`; } // ((beta 7.12, Drawing edit) the items deleted from the plan only, each shown again)
+    else { const C = drwPinsN(drw.project), nh = Object.keys(pmeta(drw.project).mvHide || {}).length; P.innerHTML = `<b>More</b><div class="tiles">${tile('several', 'sel2', 'Several', 'Select several: each tap adds one or takes it off', { pressed: !!drw.tbMore })}${tile('phlines', 'lead', 'Photo lines', 'Lines from the photos to their poles: on or off (Plan style › Photos › Line to its pole)', { pressed: !!plStyle().lead.photo })}${tile('autoall', 'auto', 'All automatic', 'Everything back where and as the plan puts it (asked first; the notes stay)', { dis: !C.n })}${nh ? tile('hidden', 'eyeoff', `Hidden (${nh})`, `The items deleted from the plan only (${nh}): show them again`) : ''}</div>`; }
     P.hidden = false; drwIcoRender();
   }
   $('drawIcons').addEventListener('click', (e) => {
@@ -3434,7 +3499,9 @@
     if (a === 'cam' || a === 'gal') { drwIcoPop(null); if (drw.add) drwAddEnd(); const inp = $(a === 'cam' ? 'drawNoteCam' : 'drawNotePick'); inp.value = ''; inp.click(); return; } // (the click itself: the phone opens its camera or gallery only from a tap)
     if (a === 'several') { drw.tbMore = !drw.tbMore; drwIcoPop(null); if (drw.add) drwAddEnd(); if (drwSels().length) drwSelSay(); drwTbRender(); drwIcoRender(); return; }
     if (a === 'phlines') { drwPhLines(!plStyle().lead.photo); drwIcoPop('more'); return; }
-    if (a === 'autoall') { drwIcoPop(null); drwPhAutoAll(); }
+    if (a === 'autoall') { drwIcoPop(null); drwPhAutoAll(); return; }
+    if (a === 'hidden') { drwIcoPop('hidden'); return; } // ((beta 7.12, Drawing edit) the items deleted from the plan only)
+    if (a === 'unhide' || a === 'unhideall') { drwUnhide(a === 'unhide' ? [b.dataset.id] : null); const n = Object.keys(pmeta(drw.project).mvHide || {}).length; drwIcoPop(n ? 'hidden' : null); }
   });
   /** (beta 7.11, Drawing tools) A point tapped (7.10: its record said on the information line): its pole's (or site's) item selected too, with the toolbar (add: to the selection). */
   function drwPtTap(pid, itemId, add) {
@@ -11267,7 +11334,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.notes; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.notes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
