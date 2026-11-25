@@ -445,7 +445,10 @@
   }
   /* ---------------- copying a sheet (more GEO sheets than the template has) ---------------- */
   function cloneLayout(d, S, L, newName) {
-    const brec = S.br.get(L.brh), b = S.blocks.get(get(brec, 2));
+    const brec = S.br.get(L.brh), b0 = S.blocks.get(get(brec, 2));
+    // (beta 7.15, Client templates) the drawing's active sheet (*Paper_Space: its entities in ENTITIES, its block empty) copied with them: a client's
+    // template may have only its plan sheet and its key map, one of them the active one (a key map copied for a second place was left blank)
+    const b = get(brec, 2) === '*Paper_Space' ? { ...b0, ents: layoutEnts(d, S, L) } : b0;
     const src = [L.rec, brec, b.begin, ...b.ents, b.end], map = new Map();
     src.forEach((r) => { const h = get(r, 5); if (h) map.set(h, d.newHandle()); });
     const nums = [...S.brByName.keys()].map((n) => (/^\*Paper_Space(\d+)$/.exec(n) || [])[1]).filter(Boolean).map(Number);
