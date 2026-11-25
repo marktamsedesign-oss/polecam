@@ -177,7 +177,7 @@ test('planList: each item of the plan\'s display list says which item of report.
   const out = T.build(SEED_SQ, madeUpJob({ cabPin: { 'PROPOSED 12C FIG-8 AE|s6|s7': { at: [-20, 25], rot: 0 } } })), M = out.report.movable, L = PDF.planList(out.text, out.report);
   assert.equal(L.own.length, L.items.length / 4, 'one for each item');
   const n = new Map(); for (let k = 0; k < L.own.length; k++) if (L.own[k] >= 0) n.set(L.own[k], (n.get(L.own[k]) || 0) + 1);
-  M.forEach((m, i) => assert.ok(n.get(i) > 0, `${m.id}: drawn`));
+  M.forEach((m, i) => assert.ok(n.get(i) > 0 || !m.handles.length, `${m.id}: drawn`)); // ((beta 7.12) a span's cable drawn by its run's line (its lines): no entity of its own)
   const C = M.findIndex((m) => m.kind === 'cable'), kinds = []; for (let k = 0; k < L.own.length; k++) if (L.own[k] === C) kinds.push(L.items[4 * k]);
   assert.deepEqual(kinds.sort(), [0, 2, 3], 'the cable label: its line, its arrowhead (a fill) and its text');
   const ph = M.findIndex((m) => m.id === 'ph:s3'), pics = []; for (let k = 0; k < L.own.length; k++) if (L.own[k] === ph) pics.push(L.items[4 * k]);
