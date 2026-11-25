@@ -2352,7 +2352,7 @@
     S.meta = S.meta || {}; S.meta[proj] = { ...m0, planGrid: { geo: G.geo.slice(), n: G.n || 1, cell: G.cell, lab, split: +split || 0, at: new Date().toISOString() } }; persist();
     LOG.info('plan.grid.keep', { n: G.n || 1, sheets: (G.sheets || []).length }); return true;
   }
-  const PL_TILE = 120, PL_FONT = ['', 'bold ', 'italic ', 'italic bold '].map((w) => `${w}64px Helvetica, Arial, sans-serif`); // (texts drawn at 64 px, scaled: Helvetica as the PDF's, else the nearest)
+  const PL_TILE = 120, PL_FONT = ['Helvetica, Arial, sans-serif', '"Times New Roman", Times, serif', '"Courier New", Courier, monospace'].flatMap((fam) => ['', 'bold ', 'italic ', 'italic bold '].map((w) => `${w}64px ${fam}`)); // (texts drawn at 64 px, scaled: Helvetica as the PDF's, else the nearest; (beta 7.14, Text format) a text in Times (ff 1) or Courier (ff 2) in the nearest: PL_FONT[ff * 4 + f])
   /** (beta 7.10, Drawing labels) an item's subpaths (s0, ns of the display list's points P and subpaths SB) added to the Path2D p. */
   function drwPlanSub(p, P, SB, s0, ns) { for (let q = s0; q < s0 + ns; q++) { const f = SB[3 * q], c = SB[3 * q + 1]; if (c < 1) continue; p.moveTo(P[2 * f], P[2 * f + 1]); for (let m = 1; m < c; m++) p.lineTo(P[2 * (f + m)], P[2 * (f + m) + 1]); if (SB[3 * q + 2]) p.closePath(); } }
   /** (beta 7.10, Drawing labels) Item i of report.movable (a label, a number, pole details, a photo) drawn apart from the plan's tiles, moved by off ([E, N] metres;
@@ -2418,8 +2418,8 @@
     };
     /** a text as it prints (A: moved, turned, sized by; X: its colour and font as changed since, (beta 7.11, Drawing tools)) */
     const txt = (t, A, X) => {
-      const m = t.m; if (t.k == null) { g.font = PL_FONT[t.f] || PL_FONT[0]; const w = g.measureText(t.s).width / 64; t.k = w > 0 && t.w > 0 ? t.w / w : 1; } // (as wide as Helvetica prints it)
-      g.font = PL_FONT[X && X.font != null ? X.font : t.f] || PL_FONT[0]; const Mt = [m[0] * t.k / 64, m[1] * t.k / 64, -m[2] / 64, -m[3] / 64, m[4], m[5]];
+      const m = t.m, f4 = 4 * (t.ff || 0); if (t.k == null) { g.font = PL_FONT[f4 + t.f] || PL_FONT[0]; const w = g.measureText(t.s).width / 64; t.k = w > 0 && t.w > 0 ? t.w / w : 1; } // (as wide as Helvetica prints it)
+      g.font = PL_FONT[f4 + (X && X.font != null ? X.font : t.f)] || PL_FONT[0]; const Mt = [m[0] * t.k / 64, m[1] * t.k / 64, -m[2] / 64, -m[3] / 64, m[4], m[5]];
       setM(affMul(S0, A ? affMul(A, Mt) : Mt));
       g.fillStyle = (X && X.col) || t.c;
       if (zooming && Math.hypot(m[2], m[3]) * sc < 40 * d) { g.globalAlpha = 0.5; g.fillRect(0, -42, t.w * 64 / t.k, 34); g.globalAlpha = 1; nT++; return; } // (while zooming: a bar where it is)

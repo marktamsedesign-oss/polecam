@@ -661,6 +661,61 @@
     d.index(); S.styles.add(name);
     return name;
   }
+  /* (beta 7.14, Text format) the fonts the plan's texts may take (the owner: "Add also a font style selection"; report.fonts, job.style[id].font): the
+     template's own text styles first, one per font file, then the app's: four TrueType fonts every Windows computer has (with their bold and italic
+     files) and three of AutoCAD's own SHX fonts. pf: the TrueType font's pitch and family byte, as AutoCAD writes it (\f…|p34; and 1071's low byte). */
+  const APP_FONTS = [
+    { name: 'Arial', file: 'arial.ttf', family: 'Arial', pf: 34, v: ['arialbd.ttf', 'ariali.ttf', 'arialbi.ttf'] },
+    { name: 'Arial Narrow', file: 'arialn.ttf', family: 'Arial Narrow', pf: 34, v: ['arialnb.ttf', 'arialni.ttf', 'arialnbi.ttf'] },
+    { name: 'Times New Roman', file: 'times.ttf', family: 'Times New Roman', pf: 18, v: ['timesbd.ttf', 'timesi.ttf', 'timesbi.ttf'] },
+    { name: 'Courier New', file: 'cour.ttf', family: 'Courier New', pf: 49, v: ['courbd.ttf', 'couri.ttf', 'courbi.ttf'] },
+    { name: 'Romans', file: 'romans.shx' }, { name: 'Simplex', file: 'simplex.shx' }, { name: 'ISOCP', file: 'isocp.shx' },
+  ].map((f) => ({ ...f, kind: /\.shx$/i.test(f.file) ? 'shx' : 'ttf', from: 'app' }));
+  /** (beta 7.14, Text format) a font file as its regular one (arialbd.ttf → arial.ttf: the bold and italic files of the app's TrueType fonts), lower case */
+  const fontBase = (file) => { const f = String(file || '').trim().toLowerCase(); for (const a of APP_FONTS) if (a.v && a.v.includes(f)) return a.file; return f; };
+  /** (beta 7.14, Text format) a STYLE record's font: its file, its TrueType family and flags (the ACAD xdata: 1000, 1071), whether it is an SHX font (a .shx
+      file, or a file with no extension such as "txt", and no TrueType family: AutoCAD's stroke fonts), bold / italic (its flags, else its file's name) */
+  function styleFont(r) {
+    const file = String(get(r, 3, '') || '').trim(), k = r.findIndex((p) => p[0] === 1001 && String(p[1]).trim() === 'ACAD'); let family = '', flags = null;
+    if (k > 0) for (let i = k + 1; i < r.length && r[i][0] !== 1001; i++) { if (r[i][0] === 1000 && !family) family = String(r[i][1]).trim(); else if (r[i][0] === 1071) flags = parseInt(r[i][1], 10) || 0; }
+    const shx = !family && (/\.shx$/i.test(file) || (!!file && !/\.\w+$/.test(file))), win = /^(arialn|arial|times|cour|verdana|georgia|calibri|cambria|consola|segoeui|trebuc|tahoma)(bd|bi|b|i|it|z)\.ttf$/i.exec(file), sf = win ? win[2].toLowerCase() : '';
+    const bold = !shx && (!!(flags & 0x2000000) || /bold|black|heavy/i.test(`${file} ${family}`) || /^(bd|bi|b|z)$/.test(sf));
+    const italic = !shx && (!!(flags & 0x1000000) || /italic|oblique/i.test(`${file} ${family}`) || /^(bi|i|it|z)$/.test(sf));
+    return { file, family, flags, shx, bold, italic };
+  }
+  /** (beta 7.14, Text format) the fonts of a template (its STYLE table, after the cleanup) and the app's: [{ name, file, kind: 'ttf' | 'shx', from:
+      'template' | 'app', family (a TrueType font's, when known), style (a template font: its style's name), pf }]. A template's text styles in their
+      order, the first one of each font file (G-eSAA's own 'G-ESAA …' styles and shape files left out); then each of the app's whose file the template has
+      not got. */
+  function fontsOf(d) {
+    const out = [], seen = new Set();
+    for (const r of d.sec('TABLES').recs) {
+      if (typ(r) !== 'STYLE') continue; const name = String(get(r, 2, '') || ''); if (!name || /^G-ESAA /i.test(name) || (parseInt(get(r, 70, '0'), 10) & 1)) continue;
+      const f = styleFont(r), file = f.file || f.family, key = String(file).toLowerCase(); if (!file || seen.has(key)) continue; seen.add(key);
+      const app = APP_FONTS.find((a) => a.file === fontBase(file));
+      out.push({ name, file, kind: f.shx ? 'shx' : 'ttf', from: 'template', family: f.shx ? null : f.family || (app && app.family) || null, style: name, pf: f.shx ? null : f.flags != null && (f.flags & 0xff) ? f.flags & 0xff : app ? app.pf : 34 });
+    }
+    for (const a of APP_FONTS) if (!seen.has(a.file)) { seen.add(a.file); out.push({ ...a }); }
+    return out;
+  }
+  /** (beta 7.14, Text format) the font a job names (report.fonts' name, in any case; an app font's name with any template: the template's own style of
+      that file when it has one); null: none of them */
+  const fontFind = (FONTS, nm) => { const k = String(nm).trim().toLowerCase(); const f = FONTS.find((x) => x.name.toLowerCase() === k); if (f) return f; const a = APP_FONTS.find((x) => x.name.toLowerCase() === k); return a ? FONTS.find((x) => String(x.file).toLowerCase() === a.file) || null : null; };
+  /** (beta 7.14, Text format) a text style of the font file given (a TrueType one: its ACAD xdata, its family and flags: pitch and family + bold 0x2000000 +
+      italic 0x1000000; an SHX one: none), added to the STYLE table once: a copy of the template's style src (else its arial style, else its first) with
+      a handle of its own, the name, the file, flags 0 (not a shape, not vertical), no big font, no xdata but its own; its name, or null */
+  function addTextStyle(d, S, name, file, family, flags, src) {
+    if (S.styles.has(name)) return name;
+    const T = d.sec('TABLES').recs, tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'STYLE'), s0 = (src && T.find((r) => typ(r) === 'STYLE' && get(r, 2) === src)) || T.find((r) => typ(r) === 'STYLE' && /^arial$/i.test(get(r, 2) || '')) || T.find((r) => typ(r) === 'STYLE');
+    if (!tb || !s0) return null;
+    const h = d.newHandle(), r = stripGroups(s0).filter(([c]) => c < 1000).map(([c, v]) => [c, c === 5 ? h : c === 2 ? name : c === 3 ? file : c === 4 ? '' : c === 70 ? I(0) : v]);
+    if (!r.some(([c]) => c === 4)) { const k3 = r.findIndex(([c]) => c === 3); if (k3 > 0) r.splice(k3 + 1, 0, [4, '']); }
+    if (family) r.push([1001, 'ACAD'], [1000, family], [1071, I(flags)]);
+    const last = T.reduce((k, x, j) => (typ(x) === 'STYLE' ? j : k), -1); T.splice(last + 1, 0, r);
+    setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
+    d.index(); S.styles.add(name);
+    return name;
+  }
   /** v2.36: moves a model-space entity by (dx, dy): every point of it (a direction or a size stays); false for a kind not handled. */
   const SHIFT_PTS = { LINE: [10, 11], LWPOLYLINE: [10], CIRCLE: [10], ARC: [10], ELLIPSE: [10], POINT: [10], TEXT: [10, 11], ATTRIB: [10, 11], ATTDEF: [10, 11], MTEXT: [10], INSERT: [10], SOLID: [10, 11, 12, 13], TRACE: [10, 11, 12, 13], SEQEND: [] };
   function shiftRec(r, dx, dy) {
@@ -1198,6 +1253,12 @@
       : /[0-9_]/.test(ch) ? 0.556 : /[ijl]/.test(ch) ? 0.278 : /[ft]/.test(ch) ? 0.333 : /[mw]/.test(ch) ? (ch === 'm' ? 0.889 : 0.778) : /[a-z]/.test(ch) ? (bold ? 0.611 : 0.556) : /[ .,]/.test(ch) ? 0.278 : 0.333);
     return [...String(str)].reduce((a, ch) => a + em(ch) * (bold && !/[A-Z]/.test(ch) ? 1.02 : !bold && /[A-Z]/.test(ch) ? 0.93 : 1), 0) * h / 0.716;
   }
+  /** (beta 7.14, Text format) where a line breaks to wrap it (its letters L: [{ v (as it reads), s (an MTEXT's: as written) }]; w(a, z): the width of letters a
+      to z): the spaces it breaks at where it is wider than W, filled greedily (a word wider than W stays whole); none where it fits */
+  const breaksOf = (L, W, w) => { const out = []; let st = 0, last = -1; for (let k = 0; k <= L.length; k++) { if (k < L.length && !(L[k].v === ' ' && (L[k].s == null || L[k].s === ' '))) continue; if (last >= st && w(st, k) > W) { out.push(last); st = last + 1; } if (k < L.length) last = k; } return out; };
+  /** (beta 7.14, Text format) a line as the plan wraps it (job.style[id].wrap): its pieces where it is wider than W metres, its letters h high (bold) in
+      Arial's widths times wf (the plan's own measure), broken at its spaces (GeDxfTpl.wrapLine: the app may show the same lines) */
+  const wrapLine = (s, W, h, bold, wf) => { const C = [...String(s)], br = breaksOf(C.map((v) => ({ v })), W / (wf || 1), (a, z) => arialW(C.slice(a, z).join(''), h, bold)), P = []; let a = 0; for (const k of br) { P.push(C.slice(a, k).join('').replace(/\s+$/, '')); a = k + 1; } P.push(C.slice(a).join('').replace(/\s+$/, '')); return P; };
   /** The box of a one-line text: anchored at (x, y) by ha (0 left, 1 centre, 2 right) and va (0 base, 2 middle, 3 top). */
   function textBox(x, y, h, s, deg, ha, va) {
     const w = Math.max(1, String(s).length) * h * CHW, a = (deg || 0) * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux;
@@ -1504,7 +1565,7 @@
   const clampText = (p) => [p.clampType, p.clamp].filter(Boolean).join(' ');
   /* ---------------- (beta 7.11, Drawing tools) the plan's elements as records: their outline, moved, turned, sized ---------------- */
   /** (beta 7.11, Drawing tools) an MTEXT's text as it reads (its formatting codes out, \P a new line, %%d a degree sign) */
-  const mtPlain = (s) => String(s).replace(/\\P/g, '\n').replace(/\\[A-Za-z][^;\\{}]*;/g, '').replace(/[{}]/g, '').replace(/%%[dD]/g, '°');
+  const mtPlain = (s) => String(s).replace(/\\\\|\\[LlOoKk]/g, (m) => (m[1] === '\\' ? m : '')).replace(/\\P/g, '\n').replace(/\\[A-Za-z][^;\\{}]*;/g, '').replace(/[{}]/g, '').replace(/%%[dD]/g, '°'); // ((beta 7.14, Text format) an underline's \L … \l, an overline's, a strike's: not letters)
   /** (beta 7.11, Drawing tools) the outline of a model record as drawn, [[x, y], …]: a text's four corners (its alignment, its width in Arial), an INSERT its
       block's box (arcs too) as inserted, an IMAGE its frame, a circle 8 points round it; nothing for an attribute that is hidden, an empty text or an end of block. */
   function recOutline(S, r) {
@@ -1513,7 +1574,7 @@
     if (t === 'TEXT' || t === 'ATTRIB') {
       if (t === 'ATTRIB' && (parseInt(get(r, 70, '0'), 10) & 1)) return out;
       const s = String(get(r, 1, '')); if (!s.trim()) return out;
-      const h = num(r, 40, 0), w = arialW(s, h) * (num(r, 41, 1) || 1), ha = parseInt(get(r, 72, '0'), 10) || 0, va = parseInt(get(r, t === 'ATTRIB' ? 74 : 73, '0'), 10) || 0, al = ha || va;
+      const h = num(r, 40, 0), w = arialW(s.replace(/%%[uUoOkK]/g, ''), h) * (num(r, 41, 1) || 1), /* ((beta 7.14, Text format) %%u, an underline's switch: not a letter) */ ha = parseInt(get(r, 72, '0'), 10) || 0, va = parseInt(get(r, t === 'ATTRIB' ? 74 : 73, '0'), 10) || 0, al = ha || va;
       frame(num(r, al ? 11 : 10, 0), num(r, al ? 21 : 20, 0), num(r, 50, 0) * Math.PI / 180, ha === 1 || ha === 4 ? -w / 2 : ha === 2 ? -w : 0, va === 2 || ha === 4 ? -h / 2 : va === 3 ? -h : 0, w, h);
     } else if (t === 'MTEXT') {
       const h = num(r, 40, 0), L = mtPlain(all(r, 3).join('') + (get(r, 1) || '')).split('\n'), w = Math.max(0, ...L.map((x) => arialW(x, h))), H = h + (L.length - 1) * h * 5 / 3 * (num(r, 44, 1) || 1);
@@ -1628,7 +1689,8 @@
       if (kind === 'photo') { const ph = n.photo; if (!ph || typeof ph !== 'object' || !ph.file || !(+ph.px > 0 && +ph.py > 0)) continue; out.push({ ...base, photo: { file: String(ph.file), px: +ph.px, py: +ph.py }, size: +n.size > 0 ? +n.size : null }); }
       else {
         const L = (Array.isArray(n.lines) ? n.lines : n.text != null ? String(n.text).split('\n') : []).map((x) => (x == null ? '' : String(x))); if (!L.some((x) => x.trim())) continue;
-        out.push({ ...base, lines: L, h: n.h != null && n.h !== '' && Number.isFinite(+n.h) && +n.h > 0 ? Math.max(0.2, Math.min(5, +n.h)) : 1, bold: n.bold === true, italic: n.italic === true, color: Number.isInteger(+n.color) && +n.color >= 1 && +n.color <= 255 ? +n.color : null });
+        const fm = {}; for (const k of ['align', 'wrap', 'spacing', 'font', 'underline']) if (n[k] != null && n[k] !== '') fm[k] = n[k]; // ((beta 7.14, Text format) its own format, checked with the styles' (DT))
+        out.push({ ...base, lines: L, h: n.h != null && n.h !== '' && Number.isFinite(+n.h) && +n.h > 0 ? Math.max(0.2, Math.min(5, +n.h)) : 1, bold: n.bold === true, italic: n.italic === true, color: Number.isInteger(+n.color) && +n.color >= 1 && +n.color <= 255 ? +n.color : null, fmt: fm });
       }
       seen.add(String(n.id));
     }
@@ -1896,10 +1958,12 @@
     d.keepRaster = true; const clean0 = clean(d); d.keepRaster = false; // v2.42.8: the template repaired before it is filled (its picture settings kept for the photos)
     const oldBlocks = purgeOld(d);
     let S = structure(d);
+    const FONTS = fontsOf(d); // ((beta 7.14, Text format) the template's fonts (as cleaned) and the app's, before the plan adds styles of its own)
     if (!S.layouts.some((L) => L.name === 'GEO')) throw new Error('This is not the G-eSAA drawing template: it has no GEO sheet');
     if (!/@@\w+@@/.test(seedText)) throw new Error('This drawing template has no @@ fields: load the prepared seed (G-eSAA_seed…dxf), not the original template');
     const cell0 = job.cell || 440, viewH0 = job.viewH || cell0, pts = job.pts || [], spans = job.spans || [], runs = job.runs || [];
     const rep = { sheets: [], cells: [], blanks: [], counts: {}, notes: [] };
+    rep.fonts = FONTS.map((f) => ({ name: f.name, file: f.file, kind: f.kind, from: f.from, ...(f.family ? { family: f.family } : {}) })); // ((beta 7.14, Text format) what the text editor offers)
     /* beta 4.8: Tidy: the grid's cell, the template's or 1/2, 1/3, 1/4 of it (NU), the same for the whole plan: every GEO sheet shows one cell
        at NU times the template's scale, and the texts, symbols, numbers and photos drawn in metres are NU times smaller, so they print the
        same (the first line of a pole's block 1.8 mm high on the A3 PDF, the other lines 1.3 mm). job._grid: the one to use (see build);
@@ -4740,7 +4804,7 @@
       const mtOf = (r) => all(r, 3).join('') + (get(r, 1) || '');
       const boldSt = (nm) => /^G-ESAA (BOLD|ARIAL BI?)$/.test(nm || ''), italSt = (nm) => /^G-ESAA ARIAL B?I$/.test(nm || '');
       /** the item's texts bold / italic as asked (null: as they are) */
-      const fontOn = (recs, b, i) => { if (b == null && i == null) return; for (const r of recs) { if (!isTxtR(r)) continue;
+      const fontOn = (recs, b, i, fnt) => { if (b == null && i == null) return; for (const r of recs) { if (!isTxtR(r) || (fnt && typ(r) !== 'MTEXT')) continue; // ((beta 7.14, Text format) fnt: a font of the user's, a TEXT's style made with it, bold and italic, below)
         if (typ(r) === 'MTEXT') { let t = mtOf(r); if (/\\f[^;]*;/i.test(t)) t = t.replace(/\\f([^;|]*)((?:\|[^;|]*)*);/gi, (m0, nm, fl) => `\\f${nm}${fl.replace(/\|b[01]/, b == null ? (x) => x : `|b${b ? 1 : 0}`).replace(/\|i[01]/, i == null ? (x) => x : `|i${i ? 1 : 0}`)}${/\|b[01]/.test(fl) || b == null ? '' : `|b${b ? 1 : 0}`}${/\|i[01]/.test(fl) || i == null ? '' : `|i${i ? 1 : 0}`};`); else t = `{\\fArial|b${b ? 1 : 0}|i${i ? 1 : 0}|c0|p34;${t}}`; setMt(r, t); continue; }
         const k = r.findIndex((q, j) => j > 0 && q[0] === 7), cur = k > 0 ? r[k][1] : 'Standard', nb = b == null ? boldSt(cur) : b, ni = i == null ? italSt(cur) : i; if (nb === boldSt(cur) && ni === italSt(cur)) continue;
         const nm = addFontStyle(d, S, nb, ni); if (nm && k > 0) r[k][1] = nm; } };
@@ -4777,12 +4841,167 @@
         for (const E of CLI) { const sp = SPL.find((x) => x.key === E.key), c = clOf(sp); E.recs = c.own; E.lines = c.sh; }
         recOfH.clear(); for (const r of o.model) recOfH.set(r[1][1], r);
       }
+      /* (beta 7.14, Text format) the text editor's format (the owner: "add text editor (center line, left, or right , wrap text and so on) . Add also a
+         font style selection"): job.style[id] / job.styleKind[kind] (the item's own wins, field by field; a text note: its own fields between the two):
+         align ('left' | 'center' | 'right': its lines' left edges, middles or right edges in line, in the frame of its first text), wrap (metres on the
+         plan: a line wider than it broken at its spaces, measured as the plan measures its texts to place them, at the item's size after h; written as
+         its lines, not left to AutoCAD, so AutoCAD, the PDF and the Drawing show the same lines), spacing (0.5–3: the distances of its lines times it),
+         font (report.fonts) and underline. Its lines laid out here, before the styles' sizes, the middle of its texts' box kept where it was (a
+         closure's bubble: beside its pointer's tip, as the plan lays it out); its font and underline after the styles' bold and italic (below).
+         With none of them the plan is as before, byte for byte. */
+      const FMTK = ['align', 'wrap', 'spacing', 'font', 'underline'], FMTS = new Map(), HA_OF = { left: 0, center: 1, right: 2 };
+      /** an item's format: { align, wrap, spacing, font (its report.fonts entry), underline }, each null when not asked; null: none */
+      const fmtOf = (id, kind, nt) => {
+        const pick = (x) => { const v = {}; if (x && typeof x === 'object') for (const k of FMTK) if (x[k] != null && x[k] !== '') v[k] = x[k]; return v; };
+        const v = { ...pick(STK && STK[kind]), ...pick(nt && nt.fmt), ...pick(STI && STI[id]) }, n = (x) => ((typeof x === 'number' || (typeof x === 'string' && x.trim() !== '')) && Number.isFinite(+x) ? +x : null);
+        const f = { align: ['left', 'center', 'right'].includes(v.align) ? v.align : null, wrap: n(v.wrap) > 0 ? n(v.wrap) : null, spacing: n(v.spacing) > 0 ? Math.max(0.5, Math.min(3, n(v.spacing))) : null,
+          font: typeof v.font === 'string' && v.font.trim() ? fontFind(FONTS, v.font) : null, underline: typeof v.underline === 'boolean' ? v.underline : null };
+        return Object.values(f).some((x) => x != null) ? f : null;
+      };
+      /** a text style of the font f, bold b and italic i (an SHX font: neither): the template's own (one of its fonts, plain), 7.11's Arial styles (Arial), else made once */
+      const fontStyle = (f, b, i) => {
+        if (f.kind === 'shx') return f.from === 'template' ? f.style : addTextStyle(d, S, `G-ESAA ${f.name.toUpperCase()}`, f.file, null, 0, null);
+        if (!b && !i && f.from === 'template') return f.style;
+        if (fontBase(f.file) === 'arial.ttf') return addFontStyle(d, S, b, i); // (Arial: beta 7.11's 'G-ESAA ARIAL B' … or the template's arial)
+        const app = APP_FONTS.find((a) => a.file === fontBase(f.file)), file = (b || i) && app && app.v ? app.v[b && i ? 2 : b ? 0 : 1] : f.file;
+        return addTextStyle(d, S, `G-ESAA ${String(f.style || f.name).toUpperCase()}${b || i ? ' ' : ''}${b ? 'B' : ''}${i ? 'I' : ''}`, file, f.family || null, (f.pf || 34) + (b ? 0x2000000 : 0) + (i ? 0x1000000 : 0), f.style || null);
+      };
+      const fmtLays = (fm) => !!(fm && (fm.wrap || fm.align || (fm.spacing && Math.abs(fm.spacing - 1) > 1e-9))); // (its lines laid out again)
+      /** a text style's font now ({ file, family, flags, shx, bold, italic }, styleFont's) */
+      const stLook = (nm) => { const k = String(nm == null ? 'Standard' : nm).toUpperCase(), r = d.sec('TABLES').recs.find((x) => typ(x) === 'STYLE' && String(get(x, 2, '')).toUpperCase() === k); return r ? styleFont(r) : { file: '', family: '', flags: null, shx: false, bold: false, italic: false }; };
+      /** whether a text is bold and italic now: an MTEXT by its first font code (an SHX's \F: neither), else (a TEXT, an attribute, an MTEXT without one) by its style */
+      const biOf = (r) => {
+        if (typ(r) === 'MTEXT') { const c0 = mtTokens(textOf(r)).find((t) => t.k === 'c' && /^\\[fF]/.test(t.s)); if (c0) return /^\\F/.test(c0.s) ? { b: false, i: false } : { b: /\|b1/.test(c0.s), i: /\|i1/.test(c0.s) }; }
+        const nm = get(r, 7), L = stLook(nm); return L.shx ? { b: false, i: false } : { b: boldSt(nm) || L.bold, i: italSt(nm) || L.italic };
+      };
+      /** a TEXT's or an attribute's horizontal alignment set to ha (0 left, 1 centre, 2 right: 72, its alignment point 11 at that end of it, as wide as the
+          plan measures it; its vertical alignment kept, 'Middle' (72 = 4) as 0 / 1 / 2 and 73 / 74 = 2), then moved t; an aligned or fitted one (72 = 3, 5)
+          only moved */
+      const haSet = (r, ha2, t) => {
+        const ha0 = parseInt(get(r, 72, '0'), 10) || 0; if (ha0 === 3 || ha0 === 5) { if (Math.hypot(t[0], t[1]) > 1e-12) xformRec(r, { t }); return; }
+        const isA = typ(r) === 'ATTRIB', vc = isA ? 74 : 73, va0 = parseInt(get(r, vc, '0'), 10) || 0, al0 = ha0 || va0, va1 = ha0 === 4 ? 2 : va0;
+        const w = arialW(String(get(r, 1, '')).replace(/%%[uUoOkK]/g, ''), num(r, 40, 0)) * (num(r, 41, 1) || 1), b = num(r, 50, 0) * Math.PI / 180, off = (x) => (x === 1 || x === 4 ? w / 2 : x === 2 ? w : 0), k = off(ha2) - off(ha0);
+        const A0 = al0 ? [num(r, 11, 0), num(r, 21, 0)] : [num(r, 10, 0), num(r, 20, 0)], A1 = [A0[0] + Math.cos(b) * k + t[0], A0[1] + Math.sin(b) * k + t[1]];
+        if (ha2 === ha0 && va1 === va0 && Math.hypot(A1[0] - A0[0], A1[1] - A0[1]) < 1e-12) return;
+        setFirst(r, 10, F(A1[0])); setFirst(r, 20, F(A1[1]));
+        if (ha2 || va1) {
+          if (!setFirst(r, 72, I(ha2))) { const k7 = r.findIndex((q, i) => i > 0 && q[0] === 7); r.splice(k7 > 0 ? k7 + 1 : r.length, 0, [72, I(ha2)]); }
+          if (!setFirst(r, 11, F(A1[0]))) { const k2 = r.findIndex((q, i) => i > 0 && q[0] === 72); r.splice(k2 + 1, 0, [11, F(A1[0])], [21, F(A1[1])], [31, '0.0']); } else setFirst(r, 21, F(A1[1]));
+          if (va1 !== va0 && !setFirst(r, vc, I(va1))) { if (isA) { const k70 = r.findIndex((q, i) => i > 0 && q[0] === 70); r.splice(k70 > 0 ? k70 + 1 : r.length, 0, [74, I(va1)]); } else { const kz = r.map((q, i) => (q[0] === 100 && q[1] === 'AcDbText' ? i : -1)).filter((i) => i > 0).pop(); r.splice(kz > 0 ? kz + 1 : r.length, 0, [73, I(va1)]); } }
+        } else if (get(r, 72) != null) { setFirst(r, 72, I(0)); setFirst(r, 11, F(A1[0])); setFirst(r, 21, F(A1[1])); }
+      };
+      /** an MTEXT's lines aligned: its attachment's column ha (its row kept) and its own paragraph codes (\pxq…;), its insertion moved so that its box stays
+          where it was (as wide as the plan measures its longest line, or its width when wider), then t */
+      const mtCol = (r, ha2, t) => {
+        const att = parseInt(get(r, 71, '1'), 10) || 1, c0 = (att - 1) % 3, rw = Math.floor((att - 1) / 3), h = num(r, 40, 0), raw = textOf(r), w = Math.max(num(r, 41, 0), ...mtPlain(raw).split('\n').map((x) => arialW(x, h)));
+        const a = lnAng(r), k = (ha2 - c0) * w / 2, d0 = [Math.cos(a) * k + t[0], Math.sin(a) * k + t[1]], T = mtTokens(raw); let ch = false;
+        for (const x of T) if (x.k === 'c' && /^\\p/.test(x.s)) { const s2 = x.s.replace(/q[lcrjd](?=[;,])/, `q${'lcr'[ha2]}`); if (s2 !== x.s) { x.s = s2; ch = true; } }
+        if (ha2 !== c0) setFirst(r, 71, I(rw * 3 + ha2 + 1)); if (ch) mtPut(r, T.map((x) => x.s).join('')); if (Math.hypot(d0[0], d0[1]) > 1e-12) xformRec(r, { t: d0 });
+      };
+      /** an item's texts (recs, its records) laid out as fm asks: wrap (at the size hs times this, the styles' h after; b: bold, null each text's own),
+          spacing, align; the middle of its texts' box kept where it was (bub: a closure's bubble, laid out by the caller). { gone, add (textPut's: a wrapped
+          TEXT's other pieces, copies of it, after it), lines (its TEXT lines in order, a wrapped one's pieces after it: [{ r, sh }]), mv (how far its first
+          line went: a Tidy block's number with it), text0 (its lines before wrapping, when it wrapped) }; null without texts */
+      const fmtLay = (recs, fm, hs, b, bub) => {
+        const U = linesOf(recs); if (!U.length) return null;
+        const mainS = new Set(U.map((x) => x.r)), r0 = recs.find((r) => mainS.has(r)) || U[0].r, A = lnAng(r0), c = Math.cos(A), sn = Math.sin(A);
+        const fr = (q) => [q[0] * c + q[1] * sn, -q[0] * sn + q[1] * c], wv = (du, dv) => [du * c - dv * sn, du * sn + dv * c];
+        const RS = [...new Set(U.map((x) => x.r))], SH = new Map(U.filter((x) => x.k < 0).map((x) => [x.r, x.sh])), isMt = (r) => typ(r) === 'MTEXT';
+        const geo = (r) => { const P = recOutline(S, r).map(fr); if (!P.length) return null; const us = P.map((q) => q[0]), vs = P.map((q) => q[1]); return { u0: Math.min(...us), u1: Math.max(...us), v0: Math.min(...vs), v1: Math.max(...vs) }; };
+        const boxU = (rs) => { let g = null; for (const r of rs) { const q = geo(r); if (q) g = g ? { u0: Math.min(g.u0, q.u0), u1: Math.max(g.u1, q.u1), v0: Math.min(g.v0, q.v0), v1: Math.max(g.v1, q.v1) } : q; } return g; };
+        const move = (r, t) => { if (Math.hypot(t[0], t[1]) > 1e-12) xformRec(r, { t }); };
+        const G0 = new Map(RS.map((r) => [r, geo(r)])), B0 = boxU(RS), n0 = new Map(RS.map((r) => [r, isMt(r) ? mtLines(textOf(r)).length : 1])), text0 = U.map((x) => x.s);
+        // its rows, top to bottom (a text whose top is within 0.45 of its height of a row's first: in that row); each one's line pitch: an MTEXT's own,
+        // a TEXT's the distance to the next (else the one before) when alike, else 1.45 times its height (as job.text's more lines)
+        const rows = []; for (const r of RS.filter((x) => G0.get(x)).sort((x, y) => G0.get(y).v1 - G0.get(x).v1)) { const g = G0.get(r), h = num(r, 40, 0), R0 = rows[rows.length - 1]; if (R0 && Math.abs(R0.top - g.v1) <= 0.45 * Math.min(R0.h, h)) { R0.rs.push(r); R0.h = Math.min(R0.h, h); } else rows.push({ rs: [r], top: g.v1, h }); }
+        rows.forEach((R0, i) => { const r = R0.rs.find(isMt) || R0.rs[0], h = num(r, 40, 0); R0.n0 = Math.max(...R0.rs.map((x) => n0.get(x)));
+          if (isMt(r)) { R0.q = h * 5 / 3 * (num(r, 44, 1) || 1); return; }
+          const nb = rows[i + 1] || rows[i - 1], rb = nb && !nb.rs.some(isMt) ? nb.rs[0] : null, dd = rb ? Math.abs(nb.top - R0.top) : 0; R0.q = rb && Math.abs(num(rb, 40, 0) - h) <= 0.2 * h && dd > 0.5 * h && dd < 4 * h ? dd : 1.45 * h; });
+        // wrap: each line on its own (a TEXT's other pieces: copies of it, its shadow copied with each; an MTEXT: \P where it breaks, its codes kept)
+        const add = [], pieces = new Map(); let wrapped = false;
+        if (fm.wrap) {
+          const W = fm.wrap / (hs || 1);
+          for (const r of RS) {
+            const h = num(r, 40, 0), bb = b != null ? b : biOf(r).b;
+            if (!isMt(r)) {
+              const raw = String(get(r, 1, '')), ul = /^%%u/i.test(raw) ? raw.slice(0, 3) : '', P = wrapLine(txRead(raw), W, h, bb, num(r, 41, 1) || 1); if (P.length < 2) continue;
+              const sh = SH.get(r) || [], w0 = ul + txWrite(P[0]); setFirst(r, 1, w0); sh.forEach((q) => setFirst(q, 1, w0));
+              let after = r; pieces.set(r, P.slice(1).map((s2) => { const w = ul + txWrite(s2), cp = (q) => { const x = asText(q); setFirst(x, 1, w); return x; }, it = { r: cp(r), sh: sh.map(cp) }; add.push([after, [...it.sh, it.r]]); after = it.r; return it; }));
+              wrapped = true;
+            } else {
+              const T = mtTokens(textOf(r)); let row = [], ch = false;
+              const flush = () => { const L = row.filter((i) => T[i].k === 't').map((i) => ({ i, v: T[i].v, s: T[i].s })), wd = (a0, z) => arialW(L.slice(a0, z).map((x) => x.v).join(''), h, bb); if (wd(0, L.length) > W) for (const k of breaksOf(L, W, wd)) { T[L[k].i] = { k: 'n', s: '\\P' }; ch = true; } row = []; };
+              T.forEach((t, i) => { if (t.k === 'n') flush(); else row.push(i); }); flush();
+              if (ch) { mtPut(r, T.map((t) => t.s).join('')); wrapped = true; }
+            }
+          }
+        }
+        // spacing, and room for a wrapped line's pieces: each row's top from the one above it (the gap from that one's last line, times spacing)
+        const sp = fm.spacing || 1, nOf = (r) => (isMt(r) ? mtLines(textOf(r)).length : 1 + (pieces.get(r) || []).length);
+        if (!bub && rows.length && (Math.abs(sp - 1) > 1e-9 || wrapped)) {
+          let top1 = rows[0].top;
+          rows.forEach((R0, i) => {
+            const dv = top1 - R0.top, n1 = Math.max(...R0.rs.map(nOf));
+            for (const r of R0.rs) {
+              if (isMt(r)) { const h = num(r, 40, 0), q = h * 5 / 3 * (num(r, 44, 1) || 1), rw = Math.floor(((parseInt(get(r, 71, '1'), 10) || 1) - 1) / 3), H0 = h + (n0.get(r) - 1) * q, H1 = h + (nOf(r) - 1) * q * sp; move(r, wv(0, dv - rw / 2 * (H1 - H0))); if (Math.abs(sp - 1) > 1e-9 && !setFirst(r, 44, F((num(r, 44, 1) || 1) * sp))) r.push([44, F(sp)]); continue; }
+              move(r, wv(0, dv)); (SH.get(r) || []).forEach((q) => move(q, wv(0, dv)));
+              (pieces.get(r) || []).forEach((p, j) => { const t = wv(0, dv - (j + 1) * R0.q * sp); move(p.r, t); p.sh.forEach((q) => move(q, t)); });
+            }
+            const nx = rows[i + 1]; if (nx) top1 = top1 - (n1 - 1) * R0.q * sp - (R0.top - (R0.n0 - 1) * R0.q - nx.top) * sp;
+          });
+        }
+        // align: each line (a TEXT, each of its pieces; an MTEXT as one; texts side by side in a row together) with its left edge, middle or right edge in line
+        if (fm.align && !bub) {
+          const ha = HA_OF[fm.align], units = [];
+          for (const R0 of rows) {
+            if (R0.rs.length > 1) { const ms = R0.rs.flatMap((r) => [r, ...(pieces.get(r) || []).map((p) => p.r)]); units.push({ ms, all: R0.rs.flatMap((r) => [r, ...(SH.get(r) || []), ...(pieces.get(r) || []).flatMap((p) => [p.r, ...p.sh])]) }); continue; }
+            const r = R0.rs[0]; units.push({ r, sh: SH.get(r) || [] }); for (const p of pieces.get(r) || []) units.push({ r: p.r, sh: p.sh });
+          }
+          const gs = units.map((x) => boxU(x.ms || [x.r])), ok = gs.filter(Boolean);
+          if (ok.length) { const U0 = Math.min(...ok.map((g) => g.u0)), U1 = Math.max(...ok.map((g) => g.u1));
+            units.forEach((x, i) => { const g = gs[i]; if (!g) return; const du = ha === 0 ? U0 - g.u0 : ha === 2 ? U1 - g.u1 : (U0 + U1) / 2 - (g.u0 + g.u1) / 2, t = wv(du, 0);
+              if (x.all) { for (const r of x.all) move(r, t); return; }
+              if (isMt(x.r)) mtCol(x.r, ha, t); else { haSet(x.r, ha, t); x.sh.forEach((q) => haSet(q, ha, t)); } }); }
+        }
+        // the middle of its texts' box where it was
+        const allM = [...RS, ...[...pieces.values()].flat().map((p) => p.r)];
+        if (!bub) { const B1 = boxU(allM); if (B0 && B1) { const t = wv((B0.u0 + B0.u1) / 2 - (B1.u0 + B1.u1) / 2, (B0.v0 + B0.v1) / 2 - (B1.v0 + B1.v1) / 2); for (const r of RS) { move(r, t); (SH.get(r) || []).forEach((q) => move(q, t)); } for (const ps of pieces.values()) for (const p of ps) { move(p.r, t); p.sh.forEach((q) => move(q, t)); } } }
+        const f0 = rows.length ? rows[0].rs[0] : null, g0 = f0 && G0.get(f0), g1 = f0 && geo(f0), mv = g0 && g1 ? wv(g1.u0 - g0.u0, g1.v1 - g0.v1) : null;
+        const lines = []; for (const r of RS) { if (isMt(r)) continue; lines.push({ r, sh: SH.get(r) || [] }); for (const p of pieces.get(r) || []) lines.push(p); }
+        return { gone: new Set(), add, lines, mv, text0: wrapped ? text0 : null };
+      };
+      for (const m of MV) {
+        if (m.kind === 'photo' || !m.hadText) continue; const fm = fmtOf(m.id, m.kind); if (!fm) continue; FMTS.set(m.id, fm); if (!fmtLays(fm)) continue;
+        const recs = m.handles.map((h) => recOfH.get(h)).filter(Boolean), st = stOf(m.id, m.kind), B0 = { ...m.box, a: m.box.a || 0 }, b0 = tBox(tBody(recs, ld7), B0.a);
+        const R = fmtLay(recs, fm, st && st.h ? st.h : 1, st ? st.bold : null, false); if (!R) continue;
+        const nw = textPut(R); nw.forEach((r) => recOfH.set(r[1][1], r)); const now = [...recs, ...nw]; m.handles = now.map((r) => r[1][1]); if (R.text0) m.text0 = R.text0;
+        const b1 = tBox(tBody(now, ld7), B0.a); if (!b0 || !b1) continue;
+        m.box = { ...m.box, w: Math.max(0, m.box.w + b1.w - b0.w), h: Math.max(0, m.box.h + b1.h - b0.h) };
+        if ((m.kind === 'details' || m.kind === 'cable') && (Math.abs(b1.w - b0.w) > 1e-9 || Math.abs(b1.h - b0.h) > 1e-9)) for (const r of now) { if (typ(r) !== 'LWPOLYLINE' || !ld7(r)) continue; // (its line or arrow to what it names: its end at the label's edge, as with edited text)
+          const ks = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); if (ks.length < 2) continue; const P = ks.map((k) => [+r[k][1], +r[k + 1][1]]), dE = (q) => dist2(q, toEdge(B0, q)), j = dE(P[0]) <= dE(P[P.length - 1]) ? 0 : P.length - 1, q1 = reEdge(B0, { ...m.box, a: m.box.a || 0 }, P[j]), t = [q1[0] - P[j][0], q1[1] - P[j][1]];
+          ks.forEach((k, i) => { if (i === P.length - 1 - j) return; r[k][1] = F(P[i][0] + t[0]); r[k + 1][1] = F(P[i][1] + t[1]); }); if (m.line) m.line = r.map((q, i) => (q[0] === 10 ? [+q[1], +r[i + 1][1]] : null)).filter(Boolean); }
+        if (m.kind === 'details' && R.mv) for (const w of m.with || []) { const x = MV.find((y) => y.id === w && y.block && y.kind === 'number'); if (!x) continue; for (const h of x.handles) { const r = recOfH.get(h); if (r) xformRec(r, { t: R.mv }); } x.box = { ...x.box, cx: x.box.cx + R.mv[0], cy: x.box.cy + R.mv[1] }; } // (a Tidy block's number beside its first line)
+      }
+      for (const E of EL) {
+        if (!E.hadText || E.kind === 'cableline') continue; const fm = fmtOf(E.id, E.kind, E.nt); if (!fm) continue; FMTS.set(E.id, fm); if (!fmtLays(fm)) continue;
+        const st0 = stOf(E.id, E.kind), hs = ((st0 && st0.h) || 1) * (E.kind === 'note' && st0 && st0.scale ? st0.scale : 1);
+        const R = fmtLay(E.recs, fm, hs, st0 ? st0.bold : null, !!E.bub); if (!R) continue;
+        const nw = textPut(R); E.recs = [...E.recs, ...nw]; if (R.text0) E.text0 = R.text0;
+        if (E.bub) { // (a bubble's lines laid out as the plan lays them beside its pointer's tip: its lines as written now, spaced, aligned in its box)
+          const B = E.bub, L1 = R.lines, ls = BUB_LS * B.th * (fm.spacing || 1), so = B.th * 0.08, rd = (r) => txRead(get(r, 1, ''));
+          B.W = Math.max(0, ...L1.map((x) => arialW(rd(x.r), B.th))); B.H = B.th + Math.max(0, L1.length - 1) * ls; if (B.rep) B.rep.lines = L1.map((x) => rd(x.r));
+          const G = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H), x0 = G.ha === 2 ? G.xa - B.W : G.xa, ha = fm.align ? HA_OF[fm.align] : G.ha, xa = ha === 0 ? x0 : ha === 1 ? x0 + B.W / 2 : x0 + B.W;
+          const put = (r, x, y) => { setFirst(r, 72, I(ha)); for (const cc of [10, 11]) { setFirst(r, cc, F(x)); setFirst(r, cc + 10, F(y)); } };
+          L1.forEach((x, i) => { const y = G.y1 - i * ls; put(x.r, xa, y); x.sh.forEach((q) => put(q, xa + so, y - so)); });
+        }
+        E.box = boxOf(E); if (E.kind === 'closurelabel' && E.at && !E.bub) cloArrow(E); // (a closure's arrow from its label as laid out now)
+      }
       for (const m of MV) {
         const st = stOf(m.id, m.kind); if (!st) continue;
         const recs = m.handles.map((h) => recOfH.get(h)).filter(Boolean);
         if (st.h && m.kind !== 'photo' && Math.abs(st.h - 1) > 1e-9) { const c0 = [m.box.cx, m.box.cy]; scaleRecs(recs, ld7, c0, st.h, st.h); m.box = { ...m.box, w: m.box.w * st.h, h: m.box.h * st.h }; m.styled = true;
           for (const w of m.kind === 'details' ? m.with || [] : []) { const n2 = MV.find((x) => x.id === w && x.kind === 'number'); if (!n2) continue; scaleRecs(n2.handles.map((h) => recOfH.get(h)).filter(Boolean), ld7, c0, st.h, st.h); n2.box = { ...n2.box, cx: c0[0] + (n2.box.cx - c0[0]) * st.h, cy: c0[1] + (n2.box.cy - c0[1]) * st.h, w: n2.box.w * st.h, h: n2.box.h * st.h }; } } // (a Tidy block's number in it, as large)
-        if (m.kind !== 'photo') fontOn(recs, st.bold, st.italic);
+        if (m.kind !== 'photo') fontOn(recs, st.bold, st.italic, (FMTS.get(m.id) || {}).font);
         if (st.color && m.kind !== 'photo') colorOn(recs, st.color);
       }
       for (const E of EL) {
@@ -4794,12 +5013,38 @@
           for (const r of B.circles) { setFirst(r, 40, F(rb1)); const kk = r.findIndex((q, i) => i > 0 && q[0] === 48); if (kk > 0) r[kk][1] = F(+r[kk][1] * st.scale); }
           for (const r of E.recs) if (!LEAD.has(r)) xformRec(r, { t: [G1.xa - G0.xa, G1.y1 - G0.y1] }); B.rb = rb1; E.box = boxOf(E); if (B.rep) B.rep.r = +rb1.toFixed(2); } // (report.closureLabels.bubbles: as drawn)
         if (st.h && Math.abs(st.h - 1) > 1e-9) { if (E.bub) { const B = E.bub, G = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H); scaleRecs(E.recs, (r) => LEAD.has(r), G.pv, st.h, st.h); } /* (a bubble's lines grow away from its tip) */ else if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
-        fontOn(E.recs, st.bold, st.italic);
+        fontOn(E.recs, st.bold, st.italic, (FMTS.get(E.id) || {}).font);
         if (st.color) colorOn(E.recs, st.color);
         if (st.lw && k === 'messenger') for (const r of E.recs) { const w = lwSnap(st.lw); if (!setFirst(r, 370, I(w))) { const l8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(l8 + 1, 0, [370, I(w)]); } } // ((beta 7.12) a messenger arm's weight)
         E.box = boxOf(E); E.styled = true;
         if (k === 'closurelabel' && E.bub && (E.how === 'by hand' || st.h || st.scale)) bubTurn(E);
         else if (k === 'closurelabel' && E.at && (E.how === 'by hand' || st.h)) cloArrow(E);
+      }
+      /* (beta 7.14, Text format) each item's font (report.fonts; job.style[id].font) and underline, once its size, bold and italic are set: a TEXT's or an
+         attribute's style (the template's own for a font of the template, else one made once: 'G-ESAA <NAME>', bold / italic 'G-ESAA <NAME> B' …), an
+         MTEXT's font codes (\f<Family>|b…|i…|c0|p…; for a TrueType font, \F<file>; for an SHX one; a text not in one wrapped in one); an SHX font can be
+         neither bold nor italic in AutoCAD: they are left off. Underline: %%u before a TEXT's or an attribute's words (its shadow's too), \L … \l round an
+         MTEXT's; false takes them out. */
+      /** the index of the brace that closes the one at k (an MTEXT's tokens) */
+      const closeOf = (T, k) => { let dp = 0; for (let j = k; j < T.length; j++) { if (T[j].k !== 'c') continue; if (T[j].s === '{') dp++; else if (T[j].s === '}' && --dp === 0) return j; } return -1; };
+      /** a text in the font f (b, i: bold and italic as asked, null: as it is; an MTEXT's already in its codes) */
+      const fontSet = (r, f, b, i) => {
+        if (typ(r) !== 'MTEXT') { const cur = get(r, 7, 'Standard'), L0 = stLook(cur), st2 = fontStyle(f, f.kind !== 'shx' && (b != null ? b : boldSt(cur) || L0.bold), f.kind !== 'shx' && (i != null ? i : italSt(cur) || L0.italic)); if (st2 && st2 !== cur) setFirst(r, 7, st2); return; }
+        const raw = textOf(r), T = mtTokens(raw), L0 = stLook(get(r, 7)), isF = (t) => t.k === 'c' && /^\\[fF]/.test(t.s);
+        if (f.kind === 'ttf' && !f.family) { const bi = biOf(r), st2 = fontStyle(f, bi.b, bi.i); if (st2) setFirst(r, 7, st2); const raw2 = T.filter((t) => !isF(t)).map((t) => t.s).join(''); if (raw2 !== raw) mtPut(r, raw2); return; } // (a template's TrueType font of no known family: its style, its own codes out)
+        const code = (b, i) => (f.kind === 'shx' ? `\\F${f.file};` : `\\f${f.family}|b${b ? 1 : 0}|i${i ? 1 : 0}|c0|p${f.pf || 34};`);
+        for (const t of T) if (isF(t)) t.s = code(/^\\f/.test(t.s) && /\|b1/.test(t.s), /^\\f/.test(t.s) && /\|i1/.test(t.s));
+        const k0 = T.findIndex((t) => !(t.k === 'c' && t.s === '{')), covers = k0 >= 0 && isF(T[k0]) && (k0 === 0 || closeOf(T, k0 - 1) === T.length - 1);
+        const raw2 = covers ? T.map((t) => t.s).join('') : `{${code(!L0.shx && L0.bold, !L0.shx && L0.italic)}${T.map((t) => t.s).join('')}}`; if (raw2 !== raw) mtPut(r, raw2);
+      };
+      /** a text underlined (on) or not */
+      const ulSet = (r, on) => {
+        if (typ(r) === 'MTEXT') { const raw = textOf(r), T = mtTokens(raw), isL = (t) => t.k === 'c' && /^\\[Ll]$/.test(t.s), has = T.some((t) => t.k === 'c' && t.s === '\\L'); if (on === has && (on || !T.some(isL))) return; const raw2 = on ? `\\L${T.filter((t) => !isL(t)).map((t) => t.s).join('')}\\l` : T.filter((t) => !isL(t)).map((t) => t.s).join(''); if (raw2 !== raw) mtPut(r, raw2); return; }
+        const s = String(get(r, 1, '')), s2 = on ? `%%u${s.replace(/%%[uU]/g, '')}` : s.replace(/%%[uU]/g, ''); if (s2 !== s) setFirst(r, 1, s2);
+      };
+      for (const [id, fm] of FMTS) {
+        if (!fm.font && fm.underline == null) continue; const m = MV.find((x) => x.id === id), E = m ? null : EL.find((x) => x.id === id), recs = m ? m.handles.map((h) => recOfH.get(h)).filter(Boolean) : E ? E.recs : [], st = m ? stOf(m.id, m.kind) : E ? stOf(E.id, E.kind) : null;
+        for (const r of recs) { if (!isTxtR(r)) continue; if (fm.font) fontSet(r, fm.font, st ? st.bold : null, st ? st.italic : null); if (fm.underline != null) ulSet(r, fm.underline); }
       }
       for (const E of EL) {
         const pn = PINS.get(E.id); if (!pn || E.kind === 'cableline') continue; // ((beta 7.12) a span's cable is not moved)
@@ -4908,6 +5153,19 @@
           if (sr) { const sp = [String(sr.ia), String(sr.ib)]; if (x.kind === 'span' && /^\d+(?:\.\d+)?m$/.test(t)) return { span: sp, field: 'lenW', line: '{v}m' }; const k = (sr.runLbls || []).findIndex((v) => String(v).trim() === t); if (k >= 0) return { span: sp, field: 'runLbls', i: k }; }
           return null; });
       };
+      /** (beta 7.14, Text format) an item's format as drawn now (report.movable[i].fmt, what the text editor opens on): { align, font (its report.fonts
+          name), spacing, wrap, underline, bold, italic }: those asked (fm), else as its first text is (align: a TEXT's 72, 0 left, 1 / 4 center, 2 right; an
+          MTEXT's paragraph code, else its attachment's column; font: a TEXT's style's file, an MTEXT's first font code's family or file, else its style's;
+          spacing 1; wrap 0); underline, bold and italic as drawn (an SHX font: not bold, not italic) */
+      const fmtNow = (recs, fm) => {
+        const U = linesOf(recs), r = U.length ? U[0].r : null, o5 = { align: (fm && fm.align) || 'left', font: fm && fm.font ? fm.font.name : null, spacing: fm && fm.spacing ? fm.spacing : 1, wrap: fm && fm.wrap ? fm.wrap : 0, underline: !!(fm && fm.underline), bold: false, italic: false };
+        if (!r) return o5;
+        const T = typ(r) === 'MTEXT' ? mtTokens(textOf(r)) : null, byFile = (file) => { const k = String(file || '').toLowerCase(); const f = FONTS.find((x) => String(x.file).toLowerCase() === k) || FONTS.find((x) => fontBase(x.file) === fontBase(k)) || FONTS.find((x) => k && String(x.file).toLowerCase().replace(/\.shx$/, '') === k.replace(/\.shx$/, '')); return f ? f.name : null; };
+        if (!(fm && fm.align)) { if (T) { const pc = T.find((t) => t.k === 'c' && /^\\p/.test(t.s) && /q[lcr](?=[;,])/.test(t.s)), q = pc ? /q([lcr])(?=[;,])/.exec(pc.s)[1] : null; o5.align = q ? { l: 'left', c: 'center', r: 'right' }[q] : ['left', 'center', 'right'][((parseInt(get(r, 71, '1'), 10) || 1) - 1) % 3]; } else { const ha = parseInt(get(r, 72, '0'), 10) || 0; o5.align = ha === 1 || ha === 4 ? 'center' : ha === 2 ? 'right' : 'left'; } }
+        if (!(fm && fm.font)) { const c0 = T && T.find((t) => t.k === 'c' && /^\\[fF]/.test(t.s)), L = stLook(get(r, 7)), fam = c0 && /^\\f([^|;]*)/.exec(c0.s); o5.font = c0 && /^\\F/.test(c0.s) ? byFile(c0.s.slice(2, -1).split('|')[0]) || c0.s.slice(2, -1) : fam ? ((FONTS.find((x) => x.family && x.family.toLowerCase() === fam[1].trim().toLowerCase()) || {}).name || fam[1]) : byFile(L.file || L.family) || String(get(r, 7, 'Standard')); }
+        const bi = biOf(r); o5.bold = bi.b; o5.italic = bi.i; o5.underline = T ? T.some((t) => t.k === 'c' && t.s === '\\L') : /%%u/i.test(String(get(r, 1, '')));
+        return o5;
+      };
       const cutOf = (m, B) => { if (m.how !== 'by hand' || m.kind === 'photo') return null; const C = m.cells || [[ci(B.cx), cj(B.cy)]]; let cutOn = null; if (C.length > 1) { cutOn = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort(); cut.push(nm(m)); } if (C.some(([i, j]) => !used.has(key(i, j)))) off.push(nm(m)); return cutOn; }; // ((beta 7.10, Plan kept) as a photo's photoAt[id].cut; on no sheet: build adds the sheet, see its _offCells)
       const CAN0 = { photo: { move: true, rotate: true, scale: false, text: false, color: false, lead: true }, number: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, details: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, cable: { move: true, rotate: true, scale: false, text: true, color: true, lead: true } };
       const out = MV.map((m) => {
@@ -4918,7 +5176,7 @@
         if (m.kind === 'number' || m.number) o2.seq = m.seq != null ? String(m.seq) : null; if (m.kind === 'details') { o2.number = !!m.number; o2.with = m.with || []; } if (m.block) o2.block = true; if (cutOn) o2.cut = cutOn;
         o2.can = { ...CAN0[m.kind] }; if (m.p && m.p.el === 'Pole') o2.pole = String(m.p.id);
         if (m.kind === 'cable' && m.spanPts) { o2.spanPts = m.spanPts.map((q) => [q[0], q[1]]); if (m.tip) o2.tip = [m.tip[0], m.tip[1]]; }
-        if (o2.can.text) { o2.text = linesOf(m.handles.map((h) => recOfH.get(h)).filter(Boolean)).map((x) => x.s); o2.src = srcOf(m, o2.text); } if (m.empty) o2.empty = true; // ((beta 7.12, Drawing edit) its lines as they read, what the editor shows, and where each comes from; empty: nothing of it drawn)
+        if (o2.can.text) { const rs = m.handles.map((h) => recOfH.get(h)).filter(Boolean); o2.text = (!m.hidden && m.text0) || linesOf(rs).map((x) => x.s); o2.src = srcOf(m, o2.text); o2.fmt = fmtNow(rs, FMTS.get(m.id)); } if (m.empty) o2.empty = true; // ((beta 7.14, Text format) its lines as written before they were wrapped; its format as drawn) // ((beta 7.12, Drawing edit) its lines as they read, what the editor shows, and where each comes from; empty: nothing of it drawn)
         o2.del = { how: 'hide' }; if (m.hidden) o2.hidden = true; // ((beta 7.12) deleted: left off the plan only (job.hide))
         return o2;
       });
@@ -4933,7 +5191,7 @@
         o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k) || !!E.bub, /* (a bubble callout: its circle and pointer) */ text: !!E.hadText, color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) }; // ((beta 7.12) text: it had texts as the plan wrote it, so that those left off can come back)
         if (E.nt) o2.can = { move: true, rotate: true, scale: true, text: k === 'note', color: k === 'note', delete: true, ...(E.lead ? { lead: true } : {}) }; // ((beta 7.12, Drawing edit) a note of the user's: moved, turned, sized, edited, coloured, deleted by changing the note itself (or pins and styles))
         if (k === 'cableline' || k === 'messenger') o2.can = { move: false, rotate: false, scale: false, text: false, color: true, lw: true }; // ((beta 7.12) a line: its colour and weight only)
-        if (o2.can.text) { o2.text = linesOf(E.recs).map((x) => x.s); o2.src = srcOf(E, o2.text); } if (E.empty) o2.empty = true;
+        if (o2.can.text) { o2.text = (!E.hidden && E.text0) || linesOf(E.recs).map((x) => x.s); o2.src = srcOf(E, o2.text); o2.fmt = fmtNow(E.recs, FMTS.get(E.id)); } if (E.empty) o2.empty = true;
         { const d0 = delOf(E); if (d0) o2.del = d0; } if (E.hidden) o2.hidden = true; // ((beta 7.12, Drawing edit) how the app deletes it; left off by job.hide)
         const w = k === 'pole' && p ? (kidsOf.get(String(p.id)) || []).filter((id) => id !== E.id) : k === 'site' && p ? [`sitelbl:${p.id}`, `sitename:${p.id}`].filter((id) => EL.some((x) => x.id === id)) : null; if (w && w.length) o2.with = w;
         if (cutOn) o2.cut = cutOn;
@@ -5679,5 +5937,5 @@
       body: [X0, nbot, X1, top].map((v) => +v.toFixed(4)), frame: [X0, nfb, X1, ft].map((v) => +v.toFixed(4)), grown: +(-dy).toFixed(4), column: +XC.toFixed(4), views };
     return { recs, w0 };
   }
-  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.17' };
+  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, wrapLine, textWidth: arialW, APP_FONTS: APP_FONTS.map((f) => ({ name: f.name, file: f.file, kind: f.kind, from: f.from, ...(f.family ? { family: f.family } : {}) })), version: '2.42.17' }; // ((beta 7.14, Text format) wrapLine, textWidth: the plan's own wrap and measure; APP_FONTS: the app's fonts)
 }));
