@@ -27,8 +27,11 @@ const r3 = v => Math.round(v * 1000) / 1000;
 const num = (v, d) => { const n = parseFloat(v); return isFinite(n) ? n : d; };
 const HELV = [278,278,355,556,556,889,667,222,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,222,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
 const CAP = 0.718;
+/* beta 7.15 (CEF template): the client's text size factor (its template's look, text.scale) while the sheets are laid out on its sheet
+   (50_export.js, tplSheets): every text is drawn that much larger and measured so, so that a text fitted to its room still fits. 1 otherwise. */
+let TXK = 1;
 /* width of a text whose capital letters are h high */
-function textW(s, h) { let w = 0; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); w += (c >= 32 && c <= 126) ? HELV[c - 32] : 600; } return w / 1000 * h / CAP; }
+function textW(s, h) { let w = 0; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); w += (c >= 32 && c <= 126) ? HELV[c - 32] : 600; } return TXK === 1 ? w / 1000 * h / CAP : w / 1000 * h / CAP * TXK; }
 function wrap(s, n) { const out = []; for (const para of String(s).split('\n')) { let cur = ''; for (const w of para.split(' ')) { if (cur && (cur + ' ' + w).length > n) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; } out.push(cur); } return out; }
 
 /* ---------- layers: [DXF name, AutoCAD colour, dashed, screen colour variable, PDF rgb, line weight mm] ---------- */
@@ -1184,7 +1187,7 @@ Gfx.prototype.pl = function (pts, lay, close) { if (pts.length > 1) this.put({ k
 Gfx.prototype.ci = function (c, r, lay) { this.put({ k: 'ci', c, r, lay }); };
 Gfx.prototype.ar = function (c, r, a0, a1, lay) { this.put({ k: 'ar', c, r, a0, a1, lay }); };
 /* m: text lying on a face of the model. [ux, uy, vx, vy]: where one metre along the line of text, and one metre up from it, land on the drawing. */
-Gfx.prototype.tx = function (p, s, h, lay, al, a, b, m) { const t = { k: 'tx', p, s: String(s).replace(/\u00A0/g, ' '), h, lay, al: al || 'l', a: a || 0, b: !!b }; if (m) t.m = m; this.put(t); };
+Gfx.prototype.tx = function (p, s, h, lay, al, a, b, m) { const t = { k: 'tx', p, s: String(s).replace(/\u00A0/g, ' '), h: TXK === 1 ? h : h * TXK, lay, al: al || 'l', a: a || 0, b: !!b }; if (m) t.m = m; this.put(t); };      /* (beta 7.15, CEF template: TXK) */
 Gfx.prototype.fl = function (pts, lay) { this.put({ k: 'fl', pts, lay }); };
 /* the name of the block of every item and line of a plan: its kind and its number among that kind (ODC_2, RPOLE_1, TRENCH_1). GSEQ: one number for each drawing made,
    so that the same item on two drawings of one sheet is two blocks. */
