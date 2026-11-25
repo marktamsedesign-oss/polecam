@@ -3359,17 +3359,17 @@
   }
   /** Edit text saved: its record's lines into the record, the rest kept for the plan (job.text). */
   async function drwTextSave(m, L) {
-    const own = drwTextOf(m), had = (pmeta(drw.project).mvText || {})[m.id], recs = new Map(), errs = []; let plan = false;
+    const own = drwTextOf(m), had = (pmeta(drw.project).mvText || {})[m.id], recs = new Map(), errs = [], L2 = L.slice(); let plan = false;
     L.forEach((t, k) => {
       if (t === own[k]) return; const x = srcOf(m, k), v = x && t !== (had ? had[k] : own[k]) ? srcVal(x, t) : null; if (v == null) { plan = true; return; } // (not a record's, or not in its form: the plan's only)
-      const cur = recs.get(x.point) || x.rec, r = x.R.put(cur, v); if (!r) plan = true; else if (r.err) errs.push(r.err); else if (JSON.stringify(r) !== JSON.stringify(cur)) recs.set(x.point, r); // (the record says it already, as its form writes it: the plan writes it so)
+      const cur = recs.get(x.point) || x.rec, r = x.R.put(cur, v); if (!r) plan = true; else if (r.err) errs.push(r.err); else if (JSON.stringify(r) !== JSON.stringify(cur)) recs.set(x.point, r); else L2[k] = own[k]; // (the record says it already, as its form writes it: the plan writes it so)
     });
     if (L.length !== own.length) plan = true; if (errs.length) { toast(`Not saved: ${errs[0]}`, 5000); return; }
-    if (!recs.size) { drwTextSet(m, L); return; }
+    if (!recs.size) { drwTextSet(m, JSON.stringify(L2) === JSON.stringify(own) && had ? null : L2); return; }
     const proj = drw.project, m0 = pmeta(proj), T = { ...(m0.mvText || {}) }, now = new Date().toISOString(), before = [...recs.keys()].map((pid) => JSON.parse(JSON.stringify(points.find((p) => String(p.id) === pid))));
     for (const b of before) { const lk = tmHooks.locked ? tmHooks.locked(b.id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
     const dup = [...recs.values()].filter((r) => r.poleId && r.poleId !== (before.find((b) => b.id === r.id) || {}).poleId && points.some((q) => q.project === r.project && q.id !== r.id && String(q.poleId || '').toUpperCase() === r.poleId)).map((r) => r.poleId); // (as its form warns: the ID already used in this project)
-    drwUndoPush('text written into its record', before); if (plan) T[m.id] = L.slice(); else delete T[m.id]; S.meta = S.meta || {}; S.meta[proj] = { ...m0, mvText: T }; if (!Object.keys(T).length) delete S.meta[proj].mvText; persist();
+    drwUndoPush('text written into its record', before); if (plan) T[m.id] = L2.slice(); else delete T[m.id]; S.meta = S.meta || {}; S.meta[proj] = { ...m0, mvText: T }; if (!Object.keys(T).length) delete S.meta[proj].mvText; persist();
     LOG.info('draw.text.rec', { kind: m.kind, recs: recs.size, plan });
     if (await drwRecsPut([...recs.values()].map((r) => ({ ...r, updated: now, updatedBy: byLine() })))) toast(`${recs.size === 1 ? `${recName([...recs.values()][0]) || 'Its record'}` : `${recs.size} records`}: written, the KMZ, the BOQ and the plan follow (↶ undoes)${dup.length ? `. ${dup[0]} is already used in this project.` : ''}`, dup.length ? 6000 : 3500);
   }
