@@ -974,7 +974,8 @@
     if (others.some((L) => isActive(S, L))) makeActive(d, kept.find((n) => n !== planName) || planName);
     for (const L of T.structure(d).layouts.filter((x) => x.name !== 'Model' && !names.has(x.name))) removeLayout(d, T.structure(d), L);
     const taken = (n) => T.structure(d).layouts.some((L) => L.name.toUpperCase() === n.toUpperCase());
-    for (const n of keep) if (/^(GEO( \(\d+\))?|KEYMAP( \(\d+\))?)$/i.test(n)) { let k = 1; while (taken(`${n} (CLIENT${k > 1 ? ` ${k}` : ''})`)) k++; renameLayout(d, sheetByName(d, n), `${n} (CLIENT${k > 1 ? ` ${k}` : ''})`); }
+    // (a kept sheet of a name the builder fills or moves the tables of as the company's: renamed, so the client's sheet stays as the client made it)
+    for (const n of keep) if (/^(GEO( \(\d+\))?|KEYMAP( \(\d+\))?|LEGENDS?( \(\d+\))?|PMI|ROW AREA COVERAGE)$/i.test(n)) { let k = 1; while (taken(`${n} (CLIENT${k > 1 ? ` ${k}` : ''})`)) k++; renameLayout(d, sheetByName(d, n), `${n} (CLIENT${k > 1 ? ` ${k}` : ''})`); }
     if (planName !== 'GEO') { if (taken('GEO')) renameLayout(d, sheetByName(d, 'GEO'), 'GEO (CLIENT)'); renameLayout(d, sheetByName(d, planName), 'GEO'); }
     if (kmName) { if (kmName !== 'KEYMAP') { if (taken('KEYMAP')) renameLayout(d, sheetByName(d, 'KEYMAP'), 'KEYMAP (CLIENT)'); renameLayout(d, sheetByName(d, kmName), 'KEYMAP'); } }
     else { if (taken('KEYMAP')) renameLayout(d, sheetByName(d, 'KEYMAP'), 'KEYMAP (CLIENT)'); cloneSheet(d, 'GEO', 'KEYMAP'); }
@@ -1134,9 +1135,16 @@
       and pt per paper unit, to place them (sheetWindow()). */
   function paint(ctx, page, w, h, o) {
     o = o || {};
-    const k = Math.min(w / page.w, h / page.h), ox = (w - page.w * k) / 2, oy = (h - page.h * k) / 2;
-    ctx.save(); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
-    ctx.setTransform(k, 0, 0, -k, ox, oy + page.h * k); // (PDF: y up)
+    // the sheet's paper (its window, o.win) as dxfpdf.js fits it to its page; o.zoom: a part of it only (e.g. the title block), in paper units
+    const W = o.win, pk = W ? Math.min(page.w / (W[2] - W[0]), page.h / (W[3] - W[1])) : 0, pox = W ? (page.w - (W[2] - W[0]) * pk) / 2 : 0, poy = W ? (page.h - (W[3] - W[1]) * pk) / 2 : 0;
+    const toPt = (x, y) => [pox + (x - W[0]) * pk, poy + (y - W[1]) * pk];
+    let vb = [0, 0, page.w, page.h];
+    if (o.zoom && W) { const a = toPt(o.zoom[0], o.zoom[1]), b = toPt(o.zoom[2], o.zoom[3]); vb = [Math.max(0, Math.min(a[0], b[0])), Math.max(0, Math.min(a[1], b[1])), Math.min(page.w, Math.max(a[0], b[0])), Math.min(page.h, Math.max(a[1], b[1]))]; if (!(vb[2] - vb[0] > 1 && vb[3] - vb[1] > 1)) vb = [0, 0, page.w, page.h]; }
+    const k = Math.min(w / (vb[2] - vb[0]), h / (vb[3] - vb[1])), ox = (w - (vb[2] - vb[0]) * k) / 2 - vb[0] * k, oy = (h - (vb[3] - vb[1]) * k) / 2;
+    const cx = (x) => ox + x * k, cy = (y) => oy + (vb[3] - y) * k; // (page pt to canvas px)
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+    ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
+    ctx.setTransform(k, 0, 0, -k, ox, oy + vb[3] * k); // (PDF: y up)
     const st = [], g0 = () => ({ S: '#000', F: '#000', w: 1, d: null }); let g = g0(), path = null, tm = null, font = 'Helvetica', clipNext = false;
     const rgb = (a) => `rgb(${a.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(',')})`;
     for (const op of page.ops) {
@@ -1172,14 +1180,14 @@
       }
     }
     ctx.restore();
-    if (o.marks && o.win) { // the fields found, numbered
-      const W = o.win, kx = (page.w * k) / (W[2] - W[0]), ky = (page.h * k) / (W[3] - W[1]), kk = Math.min(kx, ky), px = ox + ((page.w * k) - (W[2] - W[0]) * kk) / 2, py = oy + ((page.h * k) - (W[3] - W[1]) * kk) / 2;
-      const X = (x) => px + (x - W[0]) * kk, Y = (y) => py + (W[3] - y) * kk;
+    if (o.marks && W) { // the fields found, numbered
+      ctx.save();
       for (const mk of o.marks) {
-        const b = mk.box, x0 = X(b[0]), y0 = Y(b[3]), x1 = X(b[2]), y1 = Y(b[1]);
+        const a = toPt(mk.box[0], mk.box[3]), b = toPt(mk.box[2], mk.box[1]), x0 = cx(a[0]), y0 = cy(a[1]), x1 = cx(b[0]), y1 = cy(b[1]);
         ctx.strokeStyle = mk.color || '#d32f2f'; ctx.lineWidth = mk.on ? 3 : 1.5; ctx.strokeRect(x0 - 2, y0 - 2, x1 - x0 + 4, y1 - y0 + 4);
         if (mk.n != null) { ctx.fillStyle = mk.color || '#d32f2f'; ctx.font = 'bold 11px sans-serif'; const t = String(mk.n); ctx.fillRect(x0 - 2, y0 - 15, ctx.measureText(t).width + 6, 13); ctx.fillStyle = '#fff'; ctx.fillText(t, x0 + 1, y0 - 4); }
       }
+      ctx.restore();
     }
   }
   /** A path kept as its parts (the canvas's Path2D is not in every WebView), drawn when stroked, filled or clipped. */
