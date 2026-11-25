@@ -365,13 +365,16 @@ test('Plan style › Photos › Line to its pole off (the same as Lines to the p
     await drawing(page, 0.5); let P = await shown(page, (x) => x.count && x.count.pictures === 8);
     const lines = (at) => Object.keys(PIN).filter((k) => at[k] && at[k].line); let ph = await page.evaluate(() => window.__polecam.drwPh());
     assert.deepEqual(lines(ph.at), Object.keys(PIN), `${how}: the photos placed far away have their line`);
+    /** The photos whose drawing on the Drawing (the display list) has a line going out of their frame. */
+    const drawnOut = async () => { const out = []; for (const m of (await mvOf(page)).items.filter((x) => x.kind === 'photo')) { const o = await page.evaluate((id) => window.__polecam.drwOwn(id), m.id), [cx, cy, w, h] = m.box, r = Math.hypot(w, h) / 2 + 0.5; if (o && o.lines.some((L) => L.some((q) => Math.hypot(q[0] - cx, q[1] - cy) > r))) out.push(m.id); } return out.sort(); };
+    const out0 = await drawnOut(); assert.ok(Object.keys(PIN).every((k) => out0.includes(`ph:${k}`)), `${how}: the Drawing draws their lines (and those of the photos moved aside for them): ${out0}`);
     // Plan style › Photos › Line to its pole: Off; Lines to the pole › Photos says the same
     let n0 = P.n; await page.click('#drawSetBtn'); await page.waitForTimeout(700); await page.evaluate(() => { document.getElementById('stPh').open = true; }); await page.waitForTimeout(200);
     await page.click('#stPhLead [data-v="0"]'); await page.waitForTimeout(200);
     assert.equal(await page.evaluate(() => window.__polecam.style.pl().lead.photo), false); assert.equal(await page.evaluate(() => document.querySelector('#stLead [data-k="photo"]').getAttribute('aria-pressed')), 'false', 'Lines to the pole › Photos: off too');
     assert.match(await page.evaluate(() => document.querySelector('#stPh .secsum').textContent), /no line to the pole/);
     await closeAll(page); await drawing(page, 0.5); P = await again(page, n0); ph = await page.evaluate(() => window.__polecam.drwPh());
-    assert.deepEqual(lines(ph.at), [], `${how}: no line on the Drawing (report.photoAt)`);
+    assert.deepEqual(lines(ph.at), [], `${how}: no line on the Drawing (report.photoAt)`); assert.deepEqual(await drawnOut(), [], `${how}: none drawn on the Drawing (its display list)`);
     const e = await exportPlan(page); assert.equal(e.job.leaders.photo, false);
     assert.deepEqual(Object.keys(e.photoAt).filter((k) => e.photoAt[k].line), [], `${how}: none in the export's report`);
     const D = dxfOf(e.text), out = [];

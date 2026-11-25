@@ -2240,7 +2240,7 @@
   function drwPhHint() {
     if (!drw || drw.hint0 == null) return;
     const pl = drwPlanOn(), G = pl && drw.ph.grid ? drw.ph.grid.sheets : [], n = drw.ph ? Object.keys(drw.ph.at || {}).length : 0; // ((beta 7.9, Drawing preview) the plan shown: what it is; its photos: drag them)
-    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.${drwMvs().some((m) => m.kind !== 'photo') ? ` Drag a cable label, a pole number or a pole's details to place it by hand; ↶ undoes. Select anything to style, turn, order or edit its text (double-tap it); Text and Photo add your own.` : ''}` : drw.hint0)
+    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.${drwMvs().some((m) => m.kind !== 'photo') ? ` Drag a cable label, a pole number or a pole's details to place it by hand; ↶ undoes. Select anything for its tools (double-tap a text to edit it); Text and Photo add your own.` : ''}` : drw.hint0)
       + (n ? ' Photos sit where the plan puts them: drag one to place it by hand.' : '');
   }
   /** The plan's place of this point's photo (report.photoAt), for the drawing shown; null: none (no preview yet, or the plan has none). */
@@ -22493,6 +22493,12 @@
   window.__polecam.drwTxt = () => ({ open: !$('drawTxtBox').hidden, title: $('drawTxtTitle').textContent, sub: $('drawTxtSub').textContent, text: $('drawTxtArea').value, auto: !$('drawTxtAuto').hidden, saveOff: !!$('drawTxtYes').disabled, ok: $('drawTxtYes').textContent });
   window.__polecam.drwNotes = () => ({ notes: drw ? JSON.parse(JSON.stringify(notesOf(pmeta(drw.project)))) : [], pend: drw ? (drw.notePend || []).slice() : [], made: drw && drw.ph && drw.ph.tools ? JSON.parse(JSON.stringify(drw.ph.tools.notes || null)) : null });
   window.__polecam.drwNotesSweep = () => drwNotesSweep();
+  /* (beta 7.12, Drawing edit) for tests: what the plan shown draws of an item (its own items of the display list): its lines (each subpath's points in metres), how many texts and pictures */
+  window.__polecam.drwOwn = (id) => { const P = drw && drw.ph, PL = P && P.plan, i = P && P.mvIdx ? P.mvIdx.get(id) : null; if (!PL || i == null || !PL.byOwn || !PL.byOwn.has(i)) return null;
+    const { items: IT, subs: SB, pts: Pp } = PL.raw, o = PL.origin, out = { lines: [], texts: 0, images: 0 };
+    for (const k of PL.byOwn.get(i)) { const kind = IT[4 * k]; if (kind === 3) { out.texts++; continue; } if (kind === 4) { out.images++; continue; } if (kind !== 0) continue;
+      for (let q = IT[4 * k + 2]; q < IT[4 * k + 2] + IT[4 * k + 3]; q++) { const f = SB[3 * q], c = SB[3 * q + 1], L = []; for (let j = 0; j < c; j++) L.push([Pp[2 * (f + j)] + o[0], Pp[2 * (f + j) + 1] + o[1]]); out.lines.push(L); } }
+    return out; };
   window.__polecam.drwMvItem = (id) => { const m = drw && mvById(id); if (!m) return null; const i = mvIx(id), PL = drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; return JSON.parse(JSON.stringify({ ...m, handles: m.handles.length, canNow: canOf(m), lifted: L ? { off: L.off, xf: L.xf } : null, boxNow: drwMvBox(m, i) })); };
   window.__polecam.drwJobTools = () => (drw && drw.ph ? JSON.parse(JSON.stringify(drw.ph.tools || null)) : null);
   window.__polecam.drwCands = (x, y, mouse) => (drw ? drwCands({ clientX: x, clientY: y, pointerType: mouse ? 'mouse' : 'touch' }).map((c) => ({ ...c })) : null); // ((beta 7.11, Drawing tools) tests: what a tap there goes through)
