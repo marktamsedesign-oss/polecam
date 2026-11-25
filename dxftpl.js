@@ -1655,7 +1655,8 @@
       if (!v || typeof v !== 'object') continue;
       const at = Array.isArray(v.at) && v.at.length >= 2 && Number.isFinite(+v.at[0]) && Number.isFinite(+v.at[1]) ? [+v.at[0], +v.at[1]] : null;
       const rot = v.rot != null && v.rot !== '' && Number.isFinite(+v.rot) ? +v.rot : null, tip = v.tip != null && v.tip !== '' && Number.isFinite(+v.tip) ? Math.max(0, Math.min(1, +v.tip)) : null;
-      if (at || rot != null || tip != null) out.set(String(id), { at, rot, tip });
+      const along = v.along != null && v.along !== '' && Number.isFinite(+v.along) ? +v.along : null; // ((beta 7.12, Drawing edit) a closure's or a loop's place on its cable)
+      if (at || rot != null || tip != null || along != null) out.set(String(id), { at, rot, tip, ...(along != null ? { along } : {}) });
     }
     return out;
   }
@@ -3054,7 +3055,7 @@
       const c0 = add2(Q0, side, lh / 2), rot = deg(side) + 90, TB = crowdAt(p) ? textBoxA : textBox; // (2.44.12: a crowded pole: its texts as wide as drawn)
       // the loop's straight line (the cable) laid on the cable, its circle hanging on the road side
       const le = lineEnds(S, 'loopp'), mid = le ? [(le[0][0] + le[1][0]) / 2, (le[0][1] + le[1][1]) / 2] : [0, 0], mo = rotv([mid[0] * sc, mid[1] * sc], rot);
-      o.insert(lay('PROPOSED LOOP'), 'loopp', Q0[0] - mo[0], Q0[1] - mo[1], { scale: sc, rot }); const lbx = spots.add(Spots.box(c0[0], c0[1], lw, lh, deg(dir)));
+      owning(`loopsym:${p.id}`, 'loopsym', p, { on: Q0, mid: c0 }, () => o.insert(lay('PROPOSED LOOP'), 'loopp', Q0[0] - mo[0], Q0[1] - mo[1], { scale: sc, rot })); const lbx = spots.add(Spots.box(c0[0], c0[1], lw, lh, deg(dir))); // ((beta 7.12, Drawing edit) its symbol an element of its own: on, where it sits on the cable; mid, its middle (its length's text names it))
       const mL = Array.isArray(p.mloopL) && p.mloopL.length > 1 ? p.mloopL : null; // v2.42.20: a loop for each fiber there: 10m LOOP x2, or 15m+10m LOOP
       if (TIDY) { // beta 4.8: Tidy: its length a level label beside it, placed with the pole labels (end of step 8)
         const mR2 = mL && Array.isArray(p.mloopR) && p.mloopR.length === mL.length ? p.mloopR : null;
@@ -4456,7 +4457,7 @@
       const isTxt = (r) => typ(r) === 'TEXT' || typ(r) === 'MTEXT' || visAtt(r);
       const angOf = (r) => (typ(r) === 'MTEXT' ? (r.some((q, i) => i > 0 && q[0] === 11) ? deg([num(r, 11, 1), num(r, 21, 0)]) : num(r, 50, 0)) : num(r, 50, 0));
       const norm = (a) => { let x = ((a % 360) + 360) % 360; if (x > 180) x -= 360; return Math.abs(x) < 1e-9 ? 0 : +x.toFixed(9); };
-      const ATTK = new Set(['guy', 'ground', 'arm']), SYMK = new Set(['pole', 'site', 'nap', 'closure']), SCALEK = new Set(['pole', 'site', 'nap', 'closure', 'guy', 'ground', 'arm', 'landmark', 'notephoto']); // ((beta 7.12, Drawing edit) a photo note sized as a symbol)
+      const ATTK = new Set(['guy', 'ground', 'arm']), SYMK = new Set(['pole', 'site', 'nap', 'closure', 'loopsym']), SCALEK = new Set(['pole', 'site', 'nap', 'closure', 'guy', 'ground', 'arm', 'landmark', 'notephoto', 'loopsym']); // ((beta 7.12, Drawing edit) a photo note, a loop's symbol sized as symbols)
       const bodyOf = (E) => E.recs.filter((r) => !LEAD.has(r)), outl = (recs) => recs.flatMap((r) => recOutline(S, r));
       const onPoleOf = (p) => (p && p.el === 'Pole' ? p : null);
       const boxOf = (E) => { const P = outl(bodyOf(E).length ? bodyOf(E) : E.recs); if (ATTK.has(E.kind)) { const B0 = ptsBox(P, 0); E.a = B0 ? norm(deg([B0.cx - E.about[0], B0.cy - E.about[1]])) : 0; } return ptsBox(P, E.a) || { cx: E.anchor[0], cy: E.anchor[1], w: 0, h: 0, a: E.a }; };
@@ -4466,7 +4467,7 @@
           : k === 'span' ? geoOf(E.sp[0], E.sp[1]).m : (k === 'loop' || k === 'landmark' || k === 'road') && E.at ? E.at : k === 'closurelabel' && E.at ? E.at : p && p.dp ? p.dp : p ? [p.E, p.N] : [0, 0];
         E.anchor = [E.anchor[0], E.anchor[1]];
         if (ATTK.has(k)) E.about = [p.dp[0], p.dp[1]];
-        if (k === 'guy' || k === 'ground' || k === 'arm' || k === 'loop' || ((k === 'nap' || k === 'closure' || k === 'closurelabel') && pl)) E.pole = String(pl.id);
+        if (k === 'guy' || k === 'ground' || k === 'arm' || k === 'loop' || k === 'loopsym' || ((k === 'nap' || k === 'closure' || k === 'closurelabel') && pl)) E.pole = String(pl.id);
         if (!E.status && p && (k === 'pole' || k === 'site') && (p.el === 'Pole' || p.el === 'Site' || p.el === 'ODC' || p.el === 'ODF' || INLINE_EL.has(p.el) || JNW[p.el])) E.status = { now: p.status === 'Proposed' || p.status === 'New' ? 'proposed' : 'existing', field: 'status' };
         if (!E.status && p && (k === 'nap' || k === 'closure' || k === 'closurelabel') && !pl) E.status = { now: p.status === 'Proposed' || p.status === 'New' ? 'proposed' : 'existing', field: 'status' };
         if (k === 'closurelabel' && !E.status && pl) E.status = { now: pl.closureOld ? 'existing' : 'proposed', field: 'closureOld' };
@@ -4626,6 +4627,48 @@
           else { const g2 = new Set(E.recs.filter((r) => !BUBC.has(r))); o.model = o.model.filter((r) => !g2.has(r)); E.recs = E.recs.filter((r) => !g2.has(r)); E.empty = !E.recs.length; E.at = null; } // (its texts all left off and nothing else of it: its line or arrow, a bubble's pointer go too (its circle stays); its box kept)
         }
       }
+      /* (beta 7.12, Drawing edit) a closure and a loop's symbol sit on the cable (the owner: "Closure and loop does not follow cable orientation. Cable is
+         where that loop and closure should snap in to"): each one's path, the cable through its pole as drawn (its spans on both sides as they run,
+         from the side toward the homing), and its place on it, along (signed metres from the pole). Moved (job.pins[id].along; a pin's at: the nearest
+         point of the path), it slides along the path, turned as the cable turns there; what names it goes with it (a closure's label: its arrow, its
+         bubble's circle; a loop's length), and where a closure sat on the cable at its pole the cable is joined again there. */
+      const SNAPK = new Set(['closure', 'loopsym']);
+      const cablePath = (p) => {
+        if (!p || !p.A) return null; const Q = (nb.get(p) || []).filter((q) => q.A && dist2(q.A, p.A) > 0.01); if (!Q.length) return null;
+        const seg = (a, b) => (FOLLOW && spanPath.get(`${a.id}|${b.id}`)) || [a.A, b.A], hp = hd(p), up = Q.filter((q) => hd(q) <= hp).sort((a, b) => hd(a) - hd(b))[0] || null;
+        const dn = Q.filter((q) => q !== up).sort((a, b) => { if (!up) return hd(a) - hd(b); const u = unit(p.A, up.A), da = unit(p.A, a.A), db = unit(p.A, b.A); return (da[0] * u[0] + da[1] * u[1]) - (db[0] * u[0] + db[1] * u[1]); })[0] || null; // (on through it: the straightest way on)
+        const P = up ? seg(up, p).map((q) => [q[0], q[1]]) : [[p.A[0], p.A[1]]]; const s0i = P.length - 1; if (dn) P.push(...seg(p, dn).slice(1).map((q) => [q[0], q[1]]));
+        const cum = [0]; for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + dist2(P[i - 1], P[i])); return cum[cum.length - 1] > 0.01 ? { P, cum, sP: cum[s0i] } : null;
+      };
+      /** a path's point nearest q: { s (metres along it), q } */
+      const pathNear = (G, q) => { let b = null; for (let i = 1; i < G.P.length; i++) { const a = G.P[i - 1], e = G.P[i], dx = e[0] - a[0], dy = e[1] - a[1], L2 = dx * dx + dy * dy; if (L2 < 1e-12) continue; const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / L2)), x = [a[0] + t * dx, a[1] + t * dy], dd = dist2(x, q); if (!b || dd < b.d - 1e-9) b = { d: dd, s: G.cum[i - 1] + t * Math.sqrt(L2), q: x }; } return b; };
+      /** the point s metres along a path and its way there (at a corner: halfway between its two ways) */
+      const pathAt = (G, s0) => { const n = G.P.length, s = Math.max(0, Math.min(G.cum[n - 1], s0)); let i = 1; while (i < n - 1 && G.cum[i] < s - 1e-9) i++;
+        const a = G.P[i - 1], e = G.P[i], L = G.cum[i] - G.cum[i - 1] || 1e-9, t = (s - G.cum[i - 1]) / L, q = [a[0] + (e[0] - a[0]) * t, a[1] + (e[1] - a[1]) * t]; let u = unit(a, e);
+        const at0 = Math.abs(s - G.cum[i - 1]) < 1e-6 && i > 1 ? unit(G.P[i - 2], a) : Math.abs(s - G.cum[i]) < 1e-6 && i < n - 1 ? unit(e, G.P[i + 1]) : null; if (at0) { const v = [u[0] + at0[0], u[1] + at0[1]], L2 = Math.hypot(v[0], v[1]); if (L2 > 1e-9) u = [v[0] / L2, v[1] / L2]; }
+        return { s, q, u }; };
+      /** a symbol's point on the cable as drawn: a loop's where its line sits on the cable; a closure's middle (its block's point, its outline's middle) */
+      const onOf = (E) => { if (E.on) return E.on; const ins = E.recs.find((r) => typ(r) === 'INSERT'); if (ins) return [num(ins, 10, 0), num(ins, 20, 0)]; const pl = E.recs.find((r) => typ(r) === 'LWPOLYLINE' && (parseInt(get(r, 70, '0'), 10) & 1)); if (pl) { const X = all(pl, 10).map(Number), Y = all(pl, 20).map(Number); return [X.reduce((t, x) => t + x, 0) / X.length, Y.reduce((t, y) => t + y, 0) / Y.length]; } return [E.box.cx, E.box.cy]; };
+      /** a cable broken round a closure on it at its pole joined again there (the lines that ended at its side carried on to its middle's way) */
+      const joinCable = (it, mine) => { const at = it.at;
+        for (const r of o.model) { if (typ(r) !== 'LWPOLYLINE' || mine.has(r) || (parseInt(get(r, 70, '0'), 10) & 1)) continue; const ks = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); if (ks.length < 2) continue;
+          for (const [j, j2] of [[0, 1], [ks.length - 1, ks.length - 2]]) { const e = [+r[ks[j]][1], +r[ks[j] + 1][1]], pv = [+r[ks[j2]][1], +r[ks[j2] + 1][1]]; if (Math.abs(dist2(e, at) - it.hl) > 1e-3 || dist2(pv, e) < 1e-6) continue;
+            const d = unit(pv, e), k = (at[0] - e[0]) * d[0] + (at[1] - e[1]) * d[1]; if (k <= 0) continue; r[ks[j]][1] = F(e[0] + d[0] * k); r[ks[j] + 1][1] = F(e[1] + d[1] * k); } } };
+      for (const E of EL) {
+        if (!SNAPK.has(E.kind) || !E.p) continue; const pl = onPoleOf(E.p) || E.p, G = cablePath(pl); if (!G) continue;
+        const on = onOf(E), n0 = pathNear(G, on); E.path = G; E.along = n0.s - G.sP;
+        const pn = PINS.get(E.id); if (!pn || (pn.along == null && !pn.at)) continue;
+        const s1 = pn.along != null ? G.sP + pn.along : pathNear(G, [E.anchor[0] + pn.at[0], E.anchor[1] + pn.at[1]]).s, A0 = pathAt(G, n0.s), A1 = pathAt(G, s1);
+        const a1 = E.kind === 'closure' ? readable(deg(A1.u)) : deg(A1.u) + (Math.abs(norm(E.a - deg(A0.u))) < 90 ? 0 : 180), da = norm(a1 - E.a), t = [A1.q[0] - on[0], A1.q[1] - on[1]]; // (a closure turned along the cable there, as the plan turns one; a loop's line on it, its circle on the same side)
+        xformEl(E, { c: on, a: da, t }); E.a = norm(E.a + da); E.box = boxOf(E); E.how = 'by hand'; E.along = A1.s - G.sP; E.on = A1.q; E.slid = true;
+        const it = inl.get(pl); if (E.kind === 'closure' && it && it.radial && it.kind === 'clo' && dist2(it.at, on) < 0.05 && dist2(A1.q, on) > 1e-6) joinCable(it, new Set(E.recs));
+        const mv = (q) => { const v = rotv([q[0] - on[0], q[1] - on[1]], da); return [A1.q[0] + v[0], A1.q[1] + v[1]]; }; // (a point moved as the symbol: turned about where it sat, on to where it goes)
+        const F2 = EL.find((x) => x.id === (E.kind === 'closure' ? `clolbl:${E.p.id}` : `loop:${E.p.id}`)); if (!F2) continue; // (its label, its loop's length: with it)
+        const m0 = E.kind === 'closure' ? on : E.mid || on, m1 = E.kind === 'closure' ? A1.q : mv(m0), d = [m1[0] - m0[0], m1[1] - m0[1]], hand = PINS.has(F2.id) && PINS.get(F2.id).at; // (as far as the closure's middle, the loop's middle went)
+        if (F2.bub) { for (const r of F2.bub.circles) xformRec(r, { t: d }); F2.bub.at = [F2.bub.at[0] + d[0], F2.bub.at[1] + d[1]]; if (F2.bub.rep) F2.bub.rep.at = F2.bub.at.map((x) => +x.toFixed(2)); }
+        if (!hand) { for (const r of F2.recs) if (!(F2.bub && F2.bub.circles.includes(r))) xformRec(r, { t: d }); F2.box = boxOf(F2); } // (placed by the plan: as far from it as before; by hand: its pin from where it now is, below)
+        if (F2.at) F2.at = [F2.at[0] + d[0], F2.at[1] + d[1]]; F2.anchor = [F2.anchor[0] + d[0], F2.anchor[1] + d[1]];
+      }
       /* (beta 7.11, Drawing tools) styles (job.style { id: {…} }, job.styleKind { kind: {…} }: the item's own wins, field by field) and the lines to what an
          item names (Plan style › job.leaders { photo, details, number }, an item's own lead). h: its texts' size (a label, a number, a span's length…, the
          whole of it from its middle; a symbol's texts each where it is); scale: a symbol's size (pole, site, NAP, closure, guy, grounding, arm, landmark
@@ -4670,7 +4713,7 @@
       }
       for (const E of EL) {
         const st0 = stOf(E.id, E.kind), st = st0 && E.kind === 'note' && st0.scale ? { ...st0, h: (st0.h || 1) * st0.scale, scale: null } : st0; if (!st) continue; const k = E.kind; // ((beta 7.12, Drawing edit) a text note's size: its height)
-        if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const ins = (k === 'guy' || k === 'ground') && E.recs.find((r) => typ(r) === 'INSERT'), da = ins ? num(ins, 50, 0) : E.a, c = ATTK.has(k) ? add2(E.about, [Math.cos(da * Math.PI / 180), Math.sin(da * Math.PI / 180)], (E.p && E.p.rp) || 0) : [E.box.cx, E.box.cy]; /* (a guy's or grounding's block is drawn along its way) */ scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); } // (a guy, grounding, arm: from where it meets its pole, its symbol's edge that way)
+        if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const ins = (k === 'guy' || k === 'ground') && E.recs.find((r) => typ(r) === 'INSERT'), da = ins ? num(ins, 50, 0) : E.a, c = ATTK.has(k) ? add2(E.about, [Math.cos(da * Math.PI / 180), Math.sin(da * Math.PI / 180)], (E.p && E.p.rp) || 0) : k === 'loopsym' && E.on ? onOf(E) : [E.box.cx, E.box.cy]; /* (a guy's or grounding's block is drawn along its way) ((beta 7.12) a loop's symbol from where it sits on the cable) */ scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); } // (a guy, grounding, arm: from where it meets its pole, its symbol's edge that way)
         if (E.bub && st.scale && Math.abs(st.scale - 1) > 1e-9) { // (a bubble callout's size: its circle and pointer; its lines, where the plan put them, follow its tip)
           const B = E.bub, rb1 = B.rb * st.scale, G0 = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H), G1 = bubGeo(B.at, rb1, B.th, B.v, B.W, B.H);
           for (const r of B.circles) { setFirst(r, 40, F(rb1)); const kk = r.findIndex((q, i) => i > 0 && q[0] === 48); if (kk > 0) r[kk][1] = F(+r[kk][1] * st.scale); }
@@ -4684,7 +4727,7 @@
       }
       for (const E of EL) {
         const pn = PINS.get(E.id); if (!pn) continue;
-        const k = E.kind, rot = pn.rot != null ? norm(pn.rot - E.a) : 0, mv = pn.at && !ATTK.has(k) && k !== 'pole' && k !== 'site', c0 = ATTK.has(k) ? E.about : [E.box.cx, E.box.cy];
+        const k = E.kind, rot = pn.rot != null ? norm(pn.rot - E.a) : 0, mv = pn.at && !ATTK.has(k) && k !== 'pole' && k !== 'site' && !(SNAPK.has(k) && E.path), c0 = ATTK.has(k) ? E.about : k === 'loopsym' && E.on ? E.on : [E.box.cx, E.box.cy]; // ((beta 7.12) a closure or loop on its cable: its at taken above, along it)
         if (!rot && !mv) continue;
         const t = mv ? [E.anchor[0] + pn.at[0] - E.box.cx, E.anchor[1] + pn.at[1] - E.box.cy] : [0, 0];
         xformEl(E, { c: c0, a: rot, t }); E.a = norm(E.a + rot); E.box = boxOf(E); E.how = 'by hand';
@@ -4752,6 +4795,7 @@
         const o2 = { id: E.id, kind: k, box: [B.cx, B.cy, B.w, B.h, B.a || 0], anchor: E.anchor, how: E.how, handles: E.recs.map((r) => r[1][1]) };
         if (p) Object.assign(o2, { point: String(p.id), name: String(p.poleId || p.id) }); else o2.name = nm(E);
         if (E.pole) o2.pole = E.pole; if (k === 'span') o2.span = E.key.split('|');
+        if (E.path) { o2.path = E.path.P.map((q) => [q[0], q[1]]); o2.along = E.along; } // ((beta 7.12, Drawing edit) a closure's or a loop's cable through its pole as drawn, and its place on it)
         o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k) || !!E.bub, /* (a bubble callout: its circle and pointer) */ text: !!E.hadText, color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) }; // ((beta 7.12) text: it had texts as the plan wrote it, so that those left off can come back)
         if (E.nt) o2.can = { move: true, rotate: true, scale: true, text: k === 'note', color: k === 'note', delete: true, ...(E.lead ? { lead: true } : {}) }; // ((beta 7.12, Drawing edit) a note of the user's: moved, turned, sized, edited, coloured, deleted by changing the note itself (or pins and styles))
         if (o2.can.text) o2.text = linesOf(E.recs).map((x) => x.s); if (E.empty) o2.empty = true;
