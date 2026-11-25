@@ -15,6 +15,9 @@
      and the same checks here (handles, pointers, owners, the attributes, the layouts and their dictionary, the pictures).
    - The PDF (dxfpdf.js): a page for each sheet, on the template's paper (A3 landscape), with the fields as filled.
    - A template without its look (the CEF's own fonts and weights on the client's sheet); one the CEF cannot be printed on: why.
+   - The sheet's own viewport told from the drawing area as AutoCAD writes a sheet not open (its number 0), or added when there is none.
+   - With the synthesizer (dxfsynth.js) beside it: the CEF seeds it makes of its made-up clients (tests/fixtures/client-{a,b,c}-made-up.dxf: A1,
+     A3 with a narrow drawing area, a sheet in inches), each page on the client's sheet at its scale (skipped without them).
    - Without a template: the CEF's DXF (with its layout tabs, and of the older kind), its PDF, its sheets and KML exactly as beta 7.13
      made them (SHA-256 of beta 7.13's output, the engine of 933ad3b on the same made-up plans).
    Every name, number and place is made up. */
@@ -237,6 +240,26 @@ test('the sheet\'s own viewport: as AutoCAD writes a sheet that was not open (it
       assert.ok(page && area && num(page, 40) > 420 && Math.abs(num(area, 45) - 239 * k) < 1e-6, `${tn}, ${s.name}: the sheet's own viewport first, the drawing area aimed at its page`); });
     const pdf = await PDF.toPdf(r.text, { images: {} }), str = Buffer.from(pdf).toString('latin1');
     assert.equal(pdf.report.sheets.length, 6); assert.ok(str.includes('(TOP VIEW) Tj') && str.includes('(CEF TABLE) Tj'), `${tn}: the drawing area printed`);
+  }
+});
+
+/* the synthesizer's own CEF seeds (dxfsynth.js, its made-up clients' templates: tests/fixtures/client-{a,b,c}-made-up.dxf; skipped where they
+   are not): A1 in millimetres, A3 with a narrow drawing area, and a sheet in inches */
+const SYNTH = fs.existsSync(path.join(root, 'dxfsynth.js')) && ['a', 'b', 'c'].every((c) => fs.existsSync(path.join(__dirname, 'fixtures', `client-${c}-made-up.dxf`)));
+test('on the synthesizer\'s CEF seeds of its made-up clients: every page on the client\'s sheet, its fields filled, at its scale, AutoCAD\'s rules, printed', { skip: !SYNTH && 'needs dxfsynth.js and its made-up clients (tests/fixtures/client-a-made-up.dxf …)' }, async () => {
+  const G = require('../dxfsynth.js');
+  for (const c of ['a', 'b', 'c']) {
+    const src = fs.readFileSync(path.join(__dirname, 'fixtures', `client-${c}-made-up.dxf`), 'utf8'), dg = G.digest(src, `client-${c}-made-up.dxf`), made = G.make(src, G.proposal(dg), dg);
+    assert.ok(made && made.cef, `client ${c}: a CEF seed`);
+    const r = onTpl(made.cef, SK.named), R = read(r.text), N = r.sheets.length, mm = ((G.lookOf(made.cef) || {}).sheet || {}).mm;
+    assert.equal(r.sd.u, mm, `client ${c}: its paper unit (${mm} mm)`);
+    assert.deepEqual(R.sheets.map((s) => s.name), ['COVER PAGE', 'CONTENTS', 'LEGEND', 'ISOMETRIC', 'TOP VIEW', 'DETAILS'], `client ${c}`);
+    assert.deepEqual(rules(r.text), [], `client ${c}`);
+    const cp = checkPlan(r.text); if (cp) for (const k of ['file', 'handles', 'tables', 'attributes', 'entities', 'objects', 'texts']) assert.equal(cp[k], 'OK', `client ${c}: check_plan.py ${k}\n${cp.text}`);
+    R.sheets.forEach((s, i) => { if (r.sd.has.includes('SHEET_NO')) assert.ok(s.texts.some((t) => t.includes(`${i + 1} OF ${N}`)), `client ${c}, ${s.name}: ${i + 1} OF ${N}`); });
+    const top = r.sheets.find((q) => q.name === 'TOP VIEW'), area = R.sheets[4].vps.slice(1).sort((a, b) => num(b, 40) * num(b, 41) - num(a, 40) * num(a, 41))[0];
+    assert.ok(Math.abs(num(area, 41) * mm / num(area, 45) - 1000 / top.N) < 1e-6, `client ${c}: the top view at 1:${top.N} on the client's paper`);
+    const pdf = await PDF.toPdf(r.text, { images: {} }); assert.equal(pdf.report.sheets.length, N, `client ${c}: a page for each sheet`);
   }
 });
 
