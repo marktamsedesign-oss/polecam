@@ -4365,27 +4365,6 @@
         const e = near(tp); if (dist2(e, tp) <= gap) return;
         const u = unit(tp, e), prev = o.own; o.own = null; const r = o.lwpoly(lay(E.kind === 'span' ? 'Distance Data' : 'PROPOSED LOOP'), [add2(tp, u, 0.3), add2(e, u, -0.3)], { color: 8 }); o.own = prev; LEAD.add(r); E.recs.push(r);
       };
-      for (const E of EL) {
-        const pn = PINS.get(E.id); if (!pn) continue;
-        const k = E.kind, rot = pn.rot != null ? norm(pn.rot - E.a) : 0, mv = pn.at && !ATTK.has(k) && k !== 'pole' && k !== 'site', c0 = ATTK.has(k) ? E.about : [E.box.cx, E.box.cy];
-        if (!rot && !mv) continue;
-        const t = mv ? [E.anchor[0] + pn.at[0] - E.box.cx, E.anchor[1] + pn.at[1] - E.box.cy] : [0, 0];
-        xformEl(E, { c: c0, a: rot, t }); E.a = norm(E.a + rot); E.box = boxOf(E); E.how = 'by hand';
-        if (k === 'closurelabel' && E.bub) bubTurn(E);
-        else if (k === 'closurelabel' && E.at) cloArrow(E);
-        else if (mv && k === 'span') { const g = geoOf(E.sp[0], E.sp[1]); thinTo(E, [g.a, g.b], Math.max(2.5, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1))); }
-        else if (mv && k === 'loop' && E.at) thinTo(E, E.at, Math.max(3, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1)));
-      }
-      /* beta 7.10's items turned by hand (pins' rot) where their pin has no place (at) for 7.10's own (their details and cable labels take rot there), and
-         photos and numbers: about their middle; their lines to their point stay (an open line, an arrow's head) */
-      for (const m of MV) {
-        const pn = PINS.get(m.id); if (!pn || pn.rot == null || ((m.kind === 'details' || m.kind === 'cable') && pn.at)) continue;
-        const rot = norm(pn.rot - (m.box.a || 0)); if (!rot) continue;
-        const hs = new Set(m.handles), c0 = [m.box.cx, m.box.cy];
-        for (const r of o.model) { if (!hs.has(r[1][1])) continue; const ty = typ(r); if (ty === 'SOLID' || (ty === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1))) continue; xformRec(r, { c: c0, a: rot }); }
-        m.box = { ...m.box, a: norm((m.box.a || 0) + rot) }; m.how = 'by hand';
-        if (m.kind === 'photo' && m.p && rep.photoAt[String(m.p.id)]) Object.assign(rep.photoAt[String(m.p.id)], { rot: m.box.a, how: 'by hand' }); // (the Drawing's photo turned with it)
-      }
       /* (beta 7.11, Drawing tools) styles (job.style { id: {…} }, job.styleKind { kind: {…} }: the item's own wins, field by field) and the lines to what an
          item names (Plan style › job.leaders { photo, details, number }, an item's own lead). h: its texts' size (a label, a number, a span's length…, the
          whole of it from its middle; a symbol's texts each where it is); scale: a symbol's size (pole, site, NAP, closure, guy, grounding, arm, landmark
@@ -4421,10 +4400,8 @@
       const ld7 = (r) => typ(r) === 'SOLID' || (typ(r) === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1)); // (7.10's items: their open lines and arrowheads go to what they name)
       const LEADK = { photo: 'photo', details: 'details', number: 'number' };
       for (const m of MV) {
-        const st = stOf(m.id, m.kind), lp = LDS && LEADK[m.kind] && LDS[LEADK[m.kind]] === false; if (!st && !lp) continue;
+        const st = stOf(m.id, m.kind); if (!st) continue;
         const recs = m.handles.map((h) => recOfH.get(h)).filter(Boolean);
-        if ((st && st.lead === false) || (lp && !(st && st.lead === true))) recs.forEach((r) => { if (ld7(r)) drop.add(r); });
-        if (!st) continue;
         if (st.h && m.kind !== 'photo' && Math.abs(st.h - 1) > 1e-9) { const c0 = [m.box.cx, m.box.cy]; scaleRecs(recs, ld7, c0, st.h, st.h); m.box = { ...m.box, w: m.box.w * st.h, h: m.box.h * st.h }; m.styled = true;
           for (const w of m.kind === 'details' ? m.with || [] : []) { const n2 = MV.find((x) => x.id === w && x.kind === 'number'); if (!n2) continue; scaleRecs(n2.handles.map((h) => recOfH.get(h)).filter(Boolean), ld7, c0, st.h, st.h); n2.box = { ...n2.box, cx: c0[0] + (n2.box.cx - c0[0]) * st.h, cy: c0[1] + (n2.box.cy - c0[1]) * st.h, w: n2.box.w * st.h, h: n2.box.h * st.h }; } } // (a Tidy block's number in it, as large)
         if (m.kind !== 'photo') fontOn(recs, st.bold, st.italic);
@@ -4432,7 +4409,6 @@
       }
       for (const E of EL) {
         const st = stOf(E.id, E.kind); if (!st) continue; const k = E.kind;
-        if (st.lead === false && (k === 'span' || k === 'loop' || k === 'closurelabel')) E.recs.forEach((r) => { if (LEAD.has(r) && !BUBC.has(r)) drop.add(r); }); // (a bubble keeps its circle: its pointer goes)
         if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const body = bodyOf(E), P = outl(body), c = ATTK.has(k) ? P.reduce((b2, q) => (!b2 || dist2(q, E.about) < dist2(b2, E.about) ? q : b2), null) || E.about : [E.box.cx, E.box.cy]; scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); }
         if (st.h && Math.abs(st.h - 1) > 1e-9) { if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
         fontOn(E.recs, st.bold, st.italic);
@@ -4441,6 +4417,30 @@
         if (k === 'closurelabel' && E.bub && (E.how === 'by hand' || st.h)) bubTurn(E);
         else if (k === 'closurelabel' && E.at && (E.how === 'by hand' || st.h)) cloArrow(E);
       }
+      for (const E of EL) {
+        const pn = PINS.get(E.id); if (!pn) continue;
+        const k = E.kind, rot = pn.rot != null ? norm(pn.rot - E.a) : 0, mv = pn.at && !ATTK.has(k) && k !== 'pole' && k !== 'site', c0 = ATTK.has(k) ? E.about : [E.box.cx, E.box.cy];
+        if (!rot && !mv) continue;
+        const t = mv ? [E.anchor[0] + pn.at[0] - E.box.cx, E.anchor[1] + pn.at[1] - E.box.cy] : [0, 0];
+        xformEl(E, { c: c0, a: rot, t }); E.a = norm(E.a + rot); E.box = boxOf(E); E.how = 'by hand';
+        if (k === 'closurelabel' && E.bub) bubTurn(E);
+        else if (k === 'closurelabel' && E.at) cloArrow(E);
+        else if (mv && k === 'span') { const g = geoOf(E.sp[0], E.sp[1]); thinTo(E, [g.a, g.b], Math.max(2.5, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1))); }
+        else if (mv && k === 'loop' && E.at) thinTo(E, E.at, Math.max(3, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1)));
+      }
+      /* beta 7.10's items turned by hand (pins' rot) where their pin has no place (at) for 7.10's own (their details and cable labels take rot there), and
+         photos and numbers: about their middle; their lines to their point stay (an open line, an arrow's head) */
+      for (const m of MV) {
+        const pn = PINS.get(m.id); if (!pn || pn.rot == null || ((m.kind === 'details' || m.kind === 'cable') && pn.at)) continue;
+        const rot = norm(pn.rot - (m.box.a || 0)); if (!rot) continue;
+        const hs = new Set(m.handles), c0 = [m.box.cx, m.box.cy];
+        for (const r of o.model) { if (!hs.has(r[1][1])) continue; const ty = typ(r); if (ty === 'SOLID' || (ty === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1))) continue; xformRec(r, { c: c0, a: rot }); }
+        m.box = { ...m.box, a: norm((m.box.a || 0) + rot) }; m.how = 'by hand';
+        if (m.kind === 'photo' && m.p && rep.photoAt[String(m.p.id)]) Object.assign(rep.photoAt[String(m.p.id)], { rot: m.box.a, how: 'by hand' }); // (the Drawing's photo turned with it)
+      }
+      /* the lines and arrows to what an item names left off (lead false; Plan style's job.leaders), after every item is where it goes */
+      for (const m of MV) { const st = stOf(m.id, m.kind), lp = LDS && LEADK[m.kind] && LDS[LEADK[m.kind]] === false; if ((st && st.lead === false) || (lp && !(st && st.lead === true))) { m.handles.forEach((h) => { const r = recOfH.get(h); if (r && ld7(r)) drop.add(r); }); if (m.kind === 'photo' && m.p && rep.photoAt[String(m.p.id)]) rep.photoAt[String(m.p.id)].line = null; } } // (a photo's line in photoAt too)
+      for (const E of EL) { const st = stOf(E.id, E.kind), k = E.kind; if (st && st.lead === false && (k === 'span' || k === 'loop' || k === 'closurelabel')) E.recs.forEach((r) => { if (LEAD.has(r) && !BUBC.has(r)) drop.add(r); }); } // (a bubble keeps its circle: its pointer goes)
       if (drop.size) { o.model = o.model.filter((r) => !drop.has(r)); for (const m of MV) m.handles = m.handles.filter((h) => !drop.has(recOfH.get(h))); for (const E of EL) E.recs = E.recs.filter((r) => !drop.has(r)); for (const m of MV) if (m.line && m.handles.every((h) => !ld7(recOfH.get(h)))) m.line = null; }
       /* (beta 7.10, Plan kept) as a photo placed by hand: a label, number, pole's details or (beta 7.11) other element placed by hand, its box (turned with it)
          and its line or arrow; across a sheet's edge, the sheets it prints cut on (cut, report.movable); in a cell no sheet prints: that sheet added (build) */
