@@ -5079,7 +5079,7 @@
       /** (beta 7.14, Text format) an item's format as drawn now (report.movable[i].fmt, what the text editor opens on): { align, font (its report.fonts
           name), spacing, wrap, underline, bold, italic }: those asked (fm), else as its first text is (align: a TEXT's 72, 0 left, 1 / 4 center, 2 right; an
           MTEXT's paragraph code, else its attachment's column; font: a TEXT's style's file, an MTEXT's first font code's family or file, else its style's;
-          spacing 1; wrap 0); underline, bold and italic as drawn (an SHX font: not bold, not italic) */
+          spacing 1; wrap 0); underline, bold and italic as drawn (an SHX font: not bold, not italic); height: its first line's, metres (nothing drawn: none) */
       const fmtNow = (recs, fm) => {
         const U = linesOf(recs), r = U.length ? U[0].r : null, o5 = { align: (fm && fm.align) || 'left', font: fm && fm.font ? fm.font.name : FONTS.length ? FONTS[0].name : null, /* (nothing of it drawn: the template's first font) */ spacing: fm && fm.spacing ? fm.spacing : 1, wrap: fm && fm.wrap ? fm.wrap : 0, underline: !!(fm && fm.underline), bold: false, italic: false };
         if (!r) return o5;
@@ -5087,6 +5087,7 @@
         if (!(fm && fm.align)) { if (T) { const pc = T.find((t) => t.k === 'c' && /^\\p/.test(t.s) && /q[lcr](?=[;,])/.test(t.s)), q = pc ? /q([lcr])(?=[;,])/.exec(pc.s)[1] : null; o5.align = q ? { l: 'left', c: 'center', r: 'right' }[q] : ['left', 'center', 'right'][((parseInt(get(r, 71, '1'), 10) || 1) - 1) % 3]; } else { const ha = parseInt(get(r, 72, '0'), 10) || 0; o5.align = ha === 1 || ha === 4 ? 'center' : ha === 2 ? 'right' : 'left'; } }
         if (!(fm && fm.font)) { const c0 = T && T.find((t) => t.k === 'c' && /^\\[fF]/.test(t.s)), L = stLook(get(r, 7)), fam = c0 && /^\\f([^|;]*)/.exec(c0.s); o5.font = c0 && /^\\F/.test(c0.s) ? byFile(c0.s.slice(2, -1).split('|')[0]) || c0.s.slice(2, -1) : fam ? ((FONTS.find((x) => x.family && x.family.toLowerCase() === fam[1].trim().toLowerCase()) || {}).name || fam[1]) : byFile(L.file || L.family) || String(get(r, 7, 'Standard')); }
         const bi = biOf(r); o5.bold = bi.b; o5.italic = bi.i; o5.underline = T ? T.some((t) => t.k === 'c' && t.s === '\\L') : /%%u/i.test(String(get(r, 1, '')));
+        o5.height = +num(r, 40, 0).toFixed(4); // (its first line's height on the plan, metres: what a wrap width is measured against, GeDxfTpl.wrapLine)
         return o5;
       };
       for (const m of MV) if (m.kind !== 'photo') m.fmt0 = fmtNow(m.handles.map((h) => recOfH.get(h)).filter(Boolean), FMTS.get(m.id)); // (as drawn now, kept for the report: hiding an item takes its texts off)

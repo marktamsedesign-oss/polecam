@@ -76,13 +76,14 @@ test('report.fonts: the template\'s text styles, one per font file, then the app
   const app = F.filter((f) => f.from === 'app'); assert.deepEqual(app.map((f) => f.name), ['Arial', 'Arial Narrow', 'Times New Roman', 'Courier New', 'Romans', 'Simplex', 'ISOCP']);
   assert.deepEqual(app.map((f) => f.kind), ['ttf', 'ttf', 'ttf', 'ttf', 'shx', 'shx', 'shx']); assert.ok(F.indexOf(app[0]) > F.findIndex((f) => f.name === 'LiberationMono'), 'the template\'s first');
   assert.deepEqual(T.APP_FONTS.map((f) => f.name), app.map((f) => f.name));
-  for (const m of M) { if (!m.can || !m.can.text) { assert.equal(m.fmt, undefined, `${m.id}: no fmt`); continue; } assert.deepEqual(Object.keys(m.fmt).sort(), ['align', 'bold', 'font', 'italic', 'spacing', 'underline', 'wrap'], m.id); assert.equal(m.fmt.spacing, 1); assert.equal(m.fmt.wrap, 0); assert.equal(m.fmt.underline, false); assert.ok(F.some((f) => f.name === m.fmt.font), `${m.id}: its font ${m.fmt.font} listed`); }
+  for (const m of M) { if (!m.can || !m.can.text) { assert.equal(m.fmt, undefined, `${m.id}: no fmt`); continue; } assert.deepEqual(Object.keys(m.fmt).sort(), ['align', 'bold', 'font', 'height', 'italic', 'spacing', 'underline', 'wrap'], m.id); assert.ok(m.fmt.height > 0 || m.empty || m.hidden, `${m.id}: its first line's height`); assert.equal(m.fmt.spacing, 1); assert.equal(m.fmt.wrap, 0); assert.equal(m.fmt.underline, false); assert.ok(F.some((f) => f.name === m.fmt.font), `${m.id}: its font ${m.fmt.font} listed`); }
   const E = entsOf(r.text);
   for (const id of ['lbl:s1', 'lbl:s3', 'lbl:s5', 'lbl:s8']) { const t = textsOf(r, id).find((e) => e.type === 'TEXT'), ha = +(g1(t, 72) || 0); assert.equal(by(M, id).fmt.align, ha === 2 ? 'right' : ha === 1 ? 'center' : 'left', `${id}: as its first line`); }
   assert.ok(['left', 'right'].every((a) => M.some((m) => m.kind === 'details' && m.fmt.align === a)), 'a label beside its pole on the right left-aligned, on the left right-aligned');
   assert.equal(by(M, 'span:s1|s2').fmt.align, 'center'); assert.equal(by(M, 'note:n1').fmt.align, 'center'); assert.equal(by(M, 'span:s1|s2').fmt.font, 'Standard', 'a TEXT in the template\'s Standard');
   assert.equal(by(M, 'note:n2').fmt.bold, true, 'a bold note'); assert.equal(by(M, 'note:n1').fmt.bold, false); assert.equal(by(M, 'sitelbl:t1').fmt.font, 'Standard');
   assert.equal(by(M, 'note:n2').fmt.font, 'Arial', 'an MTEXT\'s \\fArial code: the app\'s Arial (the template has no arial.ttf)');
+  near(by(T.build(SEED_BL, fullJob({ style: { 'note:n1': { h: 2 } } })).report.movable, 'note:n1').fmt.height, 2 * by(M, 'note:n1').fmt.height, 1e-3, 'height: as drawn, with h');
   for (const id of ['clolbl:s2', 'clolbl:s8']) { const t = textsOf(r, id).find((e) => e.type === 'TEXT'); assert.equal(by(M, id).fmt.align, +g1(t, 72) === 2 ? 'right' : 'left', `${id}: a bubble's lines`); }
   assert.ok(E.size > 0);
   // a template with arial.ttf and romans.shx: its own styles listed, the app's of those files not; the app's names find them
