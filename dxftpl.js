@@ -1801,8 +1801,10 @@
    *   shadow, an attribute emptied and hidden, an MTEXT's last lines). A blank line ('', spaces): a TEXT's or an attribute's left off (the others stay
    *   where they are), an MTEXT's kept empty. [] none; nothing of it left but its line or arrow: that goes too (a bubble keeps its circle). An MTEXT's
    *   first line stays where it was as lines come and go. Placed by the plan: its lines where they were (its box follows); one of beta 7.10's kinds
-   *   placed by hand (pin at): its box's middle stays where it was put; the other kinds: their pin takes the edited box (its middle at anchor + at). °, Ø, ±
-   *   written as %%d, %%c, %%p (an MTEXT's backslashes and braces escaped). report.closureLabels.bubbles[].lines: as written.
+   *   placed by hand (pin at): its box's middle stays where it was put (a Tidy block's number and photo with it); the other kinds: their pin takes the
+   *   edited box (its middle at anchor + at). A pole's details' line and a cable label's arrow keep their end at the edited edge; a closure label's
+   *   arrow is drawn again; a bubble's lines are laid out again beside its pointer's tip as the plan lays them. °, Ø, ± written as %%d, %%c, %%p (an
+   *   MTEXT's backslashes and braces escaped). report.closureLabels.bubbles[].lines: as written. An item with nothing drawn makes no sheet.
    * job.notes [{ id, kind: 'text' | 'photo', at: [E, N], rot, lines (or text, split at new lines), h, bold, italic, color, photo: { file, px, py }, size,
    *   lead: [E, N] }] (notesOf): drawn at the end, over the plan's own items (the last entities of the model space, before job.order), others not moved;
    *   layer G-ESAA NOTES (colour 7; frozen on the vicinity maps). A text: an MTEXT, its middle at `at` (attachment 5), style arial, turned rot, as high as
