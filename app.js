@@ -3323,8 +3323,35 @@
   function drwTxtEdit(m) {
     if (!m || !drw || !canText(m)) return;
     if (isNote(m)) { const n = noteNow(m); if (!n) return; drwTxtOpen({ title: 'Edit the note', sub: 'One line per line, as it goes on the plan (the DXF, its PDF and the One PDF).', lines: n.lines || [], need: true, onSave: (L) => drwNoteSet(m, { lines: L }, 'note edited') }); return; }
-    const had = (pmeta(drw.project).mvText || {})[m.id];
-    drwTxtOpen({ title: `Edit text · ${drwMvName(m)}`, sub: `As it goes on the plan (the DXF, its PDF and the One PDF), one line per line; ${had ? 'changed by hand: Automatic puts the plan\'s own text back' : 'the plan\'s own text now'}. The record stays as it is.`, lines: had || drwTextOf(m), auto: !!had, onSave: (L) => drwTextSet(m, L), onAuto: () => drwTextSet(m, null) });
+    const had = (pmeta(drw.project).mvText || {})[m.id], own = drwTextOf(m), S0 = own.map((_, k) => srcOf(m, k)), recL = S0.map((x, k) => (x ? `${k + 1} (${SRC_NAME[x.field] || x.field})` : '')).filter(Boolean); // ((beta 7.12) the lines from its record)
+    drwTxtOpen({ title: `Edit text · ${drwMvName(m)}`, sub: `As it goes on the plan (the DXF, its PDF and the One PDF), one line per line; ${had ? 'changed by hand: Automatic puts the plan\'s own text back' : 'the plan\'s own text now'}. ${recL.length ? `Line${recL.length > 1 ? 's' : ''} ${andList(recL)} ${recL.length > 1 ? 'are' : 'is'} from its record: changed, ${recL.length > 1 ? 'they are' : 'it is'} written into the record (the KMZ, the BOQ and every export follow); the others change the plan only.` : 'The record stays as it is.'}`, lines: had || own, auto: !!had, onSave: (L) => drwTextSave(m, L), onAuto: () => drwTextSet(m, null) });
+  }
+  /* (beta 7.12, Drawing edit) The owner: "after edit or update or delete. the kmz and other related docs must be updated as well": an item's text lines that show a field of
+     a record (report.movable src: per line, its field, or { field, point }) are written into that record when changed, as its form writes it (updated by this user;
+     a latitude or longitude only a number in range, a few metres at most from where it was: a typing slip is refused), so the KMZ, the BOQ and every export show them;
+     the other lines stay the plan's (job.text). One step of Undo / Redo. */
+  const SRC_NAME = { poleId: 'its ID', napId: 'its NAP ID', nap2Id: 'its second NAP ID', closureId: 'its closure ID', lat: 'its latitude', lon: 'its longitude', siteName: 'its name', 'boq.clamp': 'its clamp size', 'boq.owner': 'its owner' };
+  /** The record field line k of an item's text shows (report src), with its record; null: the plan's own words. */
+  function srcOf(m, k) { const x = Array.isArray(m && m.src) ? m.src[k] : null; if (!x) return null; const f = typeof x === 'string' ? x : x.field, pt = typeof x === 'object' && x.point != null ? String(x.point) : pidOf(m); if (!f || pt == null) return null; const rec = points.find((p) => String(p.id) === String(pt)); return rec ? { field: String(f), point: String(pt), rec } : null; }
+  /** A record with field f written as typed (t), or an error to say. */
+  function srcPut(rec, f, t) {
+    const v = String(t).trim();
+    if (f === 'lat' || f === 'lon') { const n = parseFloat(v.replace(/[°\s]|%%d/gi, '')); if (!Number.isFinite(n) || Math.abs(n) > (f === 'lat' ? 90 : 180)) return { err: `${v}: not a ${f === 'lat' ? 'latitude' : 'longitude'}` }; const q = { ...rec, [f]: n }; if (haversine(rec, q) > 50) return { err: `${v}: ${Math.round(haversine(rec, q))} m from where it is (move it on the plan instead)` }; return { rec: { ...q, adjusted: true } }; }
+    if (!v) return { err: `${SRC_NAME[f] || f}: empty` };
+    if (/^boq\./.test(f)) return { rec: { ...rec, boq: { ...(rec.boq || {}), [f.slice(4)]: v.slice(0, 40) } } };
+    return { rec: { ...rec, [f]: v.slice(0, 60) } };
+  }
+  /** Edit text saved: its record's lines into the record, the rest kept for the plan (job.text). */
+  async function drwTextSave(m, L) {
+    const own = drwTextOf(m), had = (pmeta(drw.project).mvText || {})[m.id], recs = new Map(), errs = []; let plan = false;
+    L.forEach((t, k) => { const x = srcOf(m, k); if (x && t !== (had ? had[k] : own[k]) && t !== own[k]) { const cur = recs.get(x.point) || x.rec, r = srcPut(cur, x.field, t); if (r.err) errs.push(r.err); else recs.set(x.point, r.rec); } else if (t !== own[k]) plan = true; });
+    if (L.length !== own.length) plan = true; if (errs.length) { toast(`Not saved: ${errs[0]}`, 5000); return; }
+    if (!recs.size) { drwTextSet(m, L); return; }
+    const proj = drw.project, m0 = pmeta(proj), T = { ...(m0.mvText || {}) }, now = new Date().toISOString(), before = [...recs.keys()].map((pid) => JSON.parse(JSON.stringify(points.find((p) => String(p.id) === pid))));
+    { const lk = tmHooks.locked ? tmHooks.locked(before[0].id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    drwUndoPush('text written into its record', before); if (plan) T[m.id] = L.slice(); else delete T[m.id]; S.meta = S.meta || {}; S.meta[proj] = { ...m0, mvText: T }; if (!Object.keys(T).length) delete S.meta[proj].mvText; persist();
+    LOG.info('draw.text.rec', { kind: m.kind, recs: recs.size, plan });
+    if (await drwRecsPut([...recs.values()].map((r) => ({ ...r, updated: now, updatedBy: byLine() })))) toast(`${recs.size === 1 ? `${recName([...recs.values()][0]) || 'Its record'}` : `${recs.size} records`}: written, the KMZ, the BOQ and the plan follow (↶ undoes)`, 3500);
   }
   /** An item's text kept as edited (L: its lines; [] its texts left off) or, null, the plan's own again. */
   function drwTextSet(m, L) {
