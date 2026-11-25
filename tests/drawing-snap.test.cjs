@@ -81,3 +81,45 @@ test('a closure and a loop on the cable: their path and place; slid along it (al
     const r2 = T.build(SEED_BL, snapJob({ ...v, pins: { 'clo:s2': { at: [-8, 15] } } })), m2 = by(r2.report.movable, 'clo:s2'), c2 = cloAt(entsOf(r2.text), m2); assert.ok(onPath(m2.path, c2).d < 1e-4, 'snapped onto its cable'); near(m2.along, -8, 0.05, 'the nearest point: 8 m back along its straight cable');
   }
 });
+
+/** the route with every kind of thing the plan can draw: clamp tags with a callout, a pull-off and a cross-over with their messenger arms (with and
+ *  without the FOC), the cable's name along its run (no cable labels) */
+function fullJob(over) {
+  const j = snapJob({ clampStyle: { place: 'callout' }, cabLabels: false, ...over }), E0 = 787300, N0 = 786100, ll = (E, N) => ({ lat: 7.1 + (N - N0) / 110574, lon: 125.6 + (E - E0) / 110400 });
+  j.pts.push({ id: 'j1', poleId: 'PO-1', el: 'Pull-off', status: 'Proposed', E: E0 + 90, N: N0 - 40, att: ['s3', 's4'], ...ll(E0 + 90, N0 - 40) });
+  j.spans.push({ ia: 'j1', ib: 's3', a: [E0 + 90, N0 - 40], b: [E0 + 72, N0], len: 44, lenW: 44, cable: 'F12', runLbls: ['PROPOSED 12C FIG-8 AE'] });
+  j.pts.push({ id: 'x1', poleId: 'CO-1', el: 'Cross-over', status: 'Proposed', E: E0 + 150, N: N0 + 40, att: ['s5', 's6'], ...ll(E0 + 150, N0 + 40) });
+  return j;
+}
+/** the model space's entities no item has (in its handles or, a span's cable, its lines), but the grid's: [type | layer | text] */
+function leftover(out) {
+  const E = [...entsOf(out.text).values()], own = new Set(out.report.movable.flatMap((m) => [...m.handles, ...(m.lines || [])])), grid = new Set(out.report.grid.ents || []), ow = new Map();
+  for (const e of E) { const o2 = (g1(e, 330) || '').trim(); ow.set(o2, (ow.get(o2) || 0) + 1); } const modelH = [...ow.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  return E.filter((e) => !own.has(e.h) && !grid.has(e.h) && (g1(e, 330) || '').trim() === modelH && (g1(e, 67) || '0').trim() !== '1').map((e) => `${e.type}|${e.layer}|${e.text || ''}`);
+}
+
+test('every element of the plan selectable: the loop\'s symbol, clamp tags, messenger arms and their EXTENDED MESSENGER, the cable\'s name, each span\'s cable; nothing left but roads and the vicinity map', () => {
+  for (const v of [{}, { labels: 'tidy' }]) {
+    const r = T.build(SEED_BL, fullJob(v)), M = r.report.movable, E = entsOf(r.text), kinds = new Set(M.map((m) => m.kind));
+    for (const k of ['loopsym', 'messenger', 'msgtext', 'cablename', 'cableline', ...(v.labels ? [] : ['clamp'])]) assert.ok(kinds.has(k), `${JSON.stringify(v)}: a ${k}`);
+    for (const id of ['loopsym:s2', 'msg:j1:s3', 'msg:j1:s4', 'msgtext:j1:s4', 'cableline:s1|s2', 'cableline:j1|s3', ...(v.labels ? [] : ['clamp:s3'])]) assert.ok(by(M, id), `${JSON.stringify(v)}: ${id}`);
+    assert.ok(M.some((m) => /^cabname:.+#1$/.test(m.id)), 'the cable\'s name along its run');
+    const seen = new Map(); for (const m of M) for (const h of m.handles) { assert.ok(!seen.has(h), `${h}: ${m.id} and ${seen.get(h)}`); seen.set(h, m.id); } // (each entity one item's only)
+    for (const sp of r.report.movable.filter((m) => m.kind === 'cableline')) { assert.ok(sp.handles.length + sp.lines.length > 0, `${sp.id}: drawn`); assert.deepEqual(sp.can, { move: false, rotate: false, scale: false, text: false, color: true, lw: true }); assert.ok(sp.path.length >= 2); }
+    assert.equal(M.filter((m) => m.kind === 'cableline').length, fullJob(v).spans.length, 'one for each span');
+    if (!v.labels) { const c = by(M, 'clamp:s3'), es = c.handles.map((h) => E.get(h)); assert.ok(es.some((e) => e.type === 'TEXT' && e.text === '8-10') && es.filter((e) => e.type === 'LWPOLYLINE').length === 2, 'the tag: its text, box and callout line'); assert.equal(c.pole, 's3'); assert.ok(by(M, 'pole:s3').with.includes('clamp:s3')); }
+    assert.equal(E.get(by(M, 'msgtext:j1:s4').handles[0]).text, 'EXTENDED MESSENGER');
+    // what no item has: the roads (and their source's line), the vicinity map's own
+    const left = leftover(r).filter((x) => !/^(LWPOLYLINE\|(0|ROAD PAVEMENT)\||TEXT\|0\|ROADS: )/.test(x) && !/VICINITY/.test(x)); assert.deepEqual(left, [], `${JSON.stringify(v)}: owned by no item`);
+  }
+  // a span's cable in its own colour and line weight: its run's line cut at its poles, the rest as it was
+  for (const v of [{}, { labels: 'tidy' }]) {
+    const r0 = T.build(SEED_BL, fullJob(v)), r = T.build(SEED_BL, fullJob({ ...v, style: { 'cableline:s4|s5': { color: 3, lw: 100 } }, styleKind: { messenger: { color: 4, lw: 35 } } })), M = r.report.movable, E = entsOf(r.text);
+    const m0 = by(r0.report.movable, 'cableline:s4|s5'), m = by(M, 'cableline:s4|s5'); assert.ok(m0.lines.length > 0 && !m0.handles.length, 'drawn with its run'); assert.equal(m.handles.length, 1, 'now its own line');
+    const e = E.get(m.handles[0]); assert.equal(+g1(e, 62), 3); assert.equal(+g1(e, 370), 100); const X = gAll(e, 10).map(Number), Y = gAll(e, 20).map(Number);
+    const A = r.report.drawnAt.s4, B = r.report.drawnAt.s5; assert.ok(Math.abs(X[0] - X[X.length - 1]) > 20 && Math.abs(X[0] - X[X.length - 1]) < 40, 'from pole to pole'); assert.ok(Math.min(...X) >= Math.min(A[0], B[0]) - 6 && Math.max(...X) <= Math.max(A[0], B[0]) + 6);
+    const len = (out) => [...entsOf(out.text).values()].filter((x) => x.type === 'LWPOLYLINE' && g1(x, 6) === 'DASHED').reduce((t, x) => { const P = gAll(x, 10).map(Number), Q = gAll(x, 20).map(Number); let s = 0; for (let i = 1; i < P.length; i++) s += Math.hypot(P[i] - P[i - 1], Q[i] - Q[i - 1]); return t + s; }, 0);
+    near(len(r), len(r0), 1e-3, 'the cable as long as before'); const t1 = by(M, 'cableline:s3|s4'); assert.ok([...t1.handles, ...t1.lines].every((h) => +g1(E.get(h), 62) !== 3), 'the rest of its run as it was');
+    for (const id of ['msg:j1:s3', 'msg:x1:s5']) { const x = E.get(by(M, id).handles[0]); assert.equal(+g1(x, 62), 4); assert.equal(+g1(x, 370), 35); }
+  }
+});

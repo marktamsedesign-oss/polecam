@@ -243,12 +243,12 @@ test('draw order: front, back, forward, backward move an item\'s entities; z; th
     // z: each item's place in the draw order (0 first), the order of their first entities
     const zs = M0.filter((m) => m.z != null).map((m) => m.z).sort((a, b) => a - b); assert.deepEqual(zs, [...Array(zs.length).keys()], 'z: 0, 1, 2 …');
     const byZ = M0.filter((m) => m.z != null).sort((a, b) => a.z - b.z); for (let i = 1; i < byZ.length; i++) assert.ok(P0(byZ[i].id)[0] > P0(byZ[i - 1].id)[0], `z follows the entities' order: ${byZ[i - 1].id}, ${byZ[i].id}`);
-    assert.equal(by(M0, 'note:n1').z, n - 1, 'a note: drawn last');
+    assert.equal(by(M0, 'note:n1').z, zs.length - 1, 'a note: drawn last');
     const run = (order) => { const r = T.build(SEED_BL, richJob({ ...v, notes, order })); const all = [...entsOf(r.text).values()]; all.forEach((e, i) => { if (e.type === 'ATTRIB' || e.type === 'SEQEND') assert.ok(['INSERT', 'ATTRIB'].includes(all[i - 1].type), `${JSON.stringify(order)}: ${e.type} after its INSERT`); }); return r; };
     // back: first (under everything), its z 0; front: last
     const rb = run([{ id: 'note:n1', op: 'back' }]); assert.equal(by(rb.report.movable, 'note:n1').z, 0); const first = [...entsOf(rb.text).values()].findIndex((e) => g1(e, 330) === g1(entsOf(rb.text).get(by(rb.report.movable, 'note:n1').handles[0]), 330));
     assert.equal(posOf(rb)('note:n1')[0], first, 'its entities the first of the model space');
-    const rf = run([{ id: 'pole:s2', op: 'front' }]), Mf = rf.report.movable; assert.equal(by(Mf, 'pole:s2').z, Mf.length - 1, 'front: drawn last'); assert.ok(posOf(rf)('pole:s2')[0] > posOf(rf)('note:n1')[1], 'over the note');
+    const rf = run([{ id: 'pole:s2', op: 'front' }]), Mf = rf.report.movable; assert.equal(by(Mf, 'pole:s2').z, Mf.filter((m) => m.z != null).length - 1, 'front: drawn last'); assert.ok(posOf(rf)('pole:s2')[0] > posOf(rf)('note:n1')[1], 'over the note');
     // backward: just under the previous item drawn before it whose box overlaps; forward: just over the next one
     const nb = by(M0, 'note:n1'), prev = M0.filter((m) => m !== nb && m.z != null && m.z < nb.z && hit(m.box, nb.box)).sort((a, b) => b.z - a.z)[0];
     const rw = run([{ id: 'note:n1', op: 'backward' }]), Pw = posOf(rw); assert.equal(Pw('note:n1')[1] + 1, Pw(prev.id)[0], `backward: just under ${prev.id}`); assert.equal(by(rw.report.movable, 'note:n1').z + 1, by(rw.report.movable, prev.id).z);
