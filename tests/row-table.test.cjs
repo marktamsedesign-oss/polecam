@@ -9,8 +9,9 @@
      barangay, the body's height shared evenly; the lines across the body only where the rows are (the city column only between cities),
      as the template's (layer, colour, line weight); the frame, the column line and the TOTAL row where the template has them; each text in
      its row, no taller than the template's, a city in the middle of its cell; past what fits readably (texts not under 45 % of the
-     template's), the last row says "+n MORE". A template whose table is not drawn as expected: filled in its own rows, no city written
-     twice, and the notes say so. Its PDF (dxfpdf.js) prints each name once.
+     template's), the last row says "+n MORE". A template drawn otherwise (texts anchored otherwise, row lines past the frame, the column
+     line in two pieces, lines with no colour of their own): drawn to fit as well. A template whose table is not drawn as expected: filled
+     in its own rows, no city written twice, and the notes say so. Its PDF (dxfpdf.js) prints each name once, a long one on one line.
    Every name and place here is made up. */
 'use strict';
 const { test } = require('node:test');
