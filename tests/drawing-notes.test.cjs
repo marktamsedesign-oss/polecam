@@ -263,6 +263,19 @@ test('draw order: front, back, forward, backward move an item\'s entities; z; th
       assert.deepEqual(dl, zo, 'the display list in the draw order');
     }
   }
+  // a template with a SORTENTSTABLE for its model space (AutoCAD draws by its sort handles): the plan's entities given sort handles in the new order
+  { const R = SEED_BL.split(/\r?\n/), nl = SEED_BL.includes('\r\n') ? '\r\n' : '\n'; let i = 0;
+    for (; i < R.length - 1; i += 2) if (R[i].trim() === '0' && R[i + 1].trim() === 'BLOCK_RECORD') { let j = i + 2, isM = false; for (; R[j].trim() !== '0'; j += 2) if (R[j].trim() === '2' && R[j + 1].trim() === '*Model_Space') isM = true; if (isM) break; }
+    const h = R.findIndex((x, k) => k > i && x.trim() === '5'), br = R[h + 1].trim(); R.splice(h + 2, 0, '102', '{ACAD_XDICTIONARY', '360', '9F1', '102', '}');
+    const o0 = R.findIndex((x, k) => x.trim() === 'OBJECTS' && R[k - 1].trim() === '2'); let e = o0; while (!(R[e].trim() === 'ENDSEC' && R[e - 1].trim() === '0')) e++;
+    R.splice(e - 1, 0, '0', 'DICTIONARY', '5', '9F1', '330', br, '100', 'AcDbDictionary', '280', '0', '281', '1', '3', 'ACAD_SORTENTS', '360', '9F2', '0', 'SORTENTSTABLE', '5', '9F2', '102', '{ACAD_REACTORS', '330', '9F1', '102', '}', '330', '9F1', '100', 'AcDbSortentsTable', '330', br);
+    const hs = R.findIndex((x) => x.trim() === '$HANDSEED'); R[hs + 2] = '9F3'; const seedS = R.join(nl);
+    const r = T.build(seedS, richJob({ notes, order: [{ id: 'note:n1', op: 'back' }, { id: 'pole:s2', op: 'front' }] })), X = r.text.split(/\r?\n/), k = X.findIndex((x, j) => x.trim() === 'SORTENTSTABLE' && X[j - 1].trim() === '0'), sh = new Map();
+    for (let j = k + 1; j < X.length - 3 && X[j].trim() !== '0'; j += 2) if (X[j].trim() === '331' && X[j + 2].trim() === '5') sh.set(X[j + 1].trim(), X[j + 3].trim());
+    assert.ok(r.report.sortents && sh.size > 0, 'sort handles written');
+    const model = [...entsOf(r.text).values()].filter((x) => !['ATTRIB', 'SEQEND'].includes(x.type) && (g1(x, 330) || '').trim() === br && (g1(x, 67) || '0').trim() !== '1');
+    assert.deepEqual(model.slice().sort((a, b) => parseInt(sh.get(a.h) || a.h, 16) - parseInt(sh.get(b.h) || b.h, 16)).map((x) => x.h), model.map((x) => x.h), 'AutoCAD\'s order (by sort handle) the entities\' order');
+    assert.ok(T.build(seedS, richJob({ notes })).report.sortents == null, 'no order: the table as it was'); }
 });
 
 test('byte for byte: without job.text, job.notes and job.order (or them empty), the DXF as beta 7.11 made it (with 7.11\'s own fields too)', () => {

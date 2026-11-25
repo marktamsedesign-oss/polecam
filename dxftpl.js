@@ -4526,7 +4526,7 @@
       const SHD = I(250), JT = job.text && typeof job.text === 'object' && !Array.isArray(job.text) ? job.text : null, hRec = new Map(o.model.map((r) => [r[1][1], r]));
       const isLn = (r) => (typ(r) === 'TEXT' && String(get(r, 1, '')) !== '') || (typ(r) === 'MTEXT' && textOf(r) !== '') || visAtt(r);
       const lnAng = (r) => (typ(r) === 'MTEXT' ? (r.some((q, i) => i > 0 && q[0] === 11) ? Math.atan2(num(r, 21, 0), num(r, 11, 1)) : num(r, 50, 0) * Math.PI / 180) : num(r, 50, 0) * Math.PI / 180);
-      /** an item's texts as lines, in reading order: [{ r, k (an MTEXT's line; -1: a text, an attribute), s (as it reads), u, v (in the frame of its first text), h, sh (its shadows) }] */
+      /** an item's texts as lines, in reading order: [{ r, k (an MTEXT's line; -1: a text, an attribute), s (as it reads), v (its middle, up the frame of its first text), h, sh (its shadows) }] */
       const linesOf = (recs) => {
         const main = [], dark = [], shad = new Map(); for (const r of recs) if (isLn(r)) (typ(r) !== 'MTEXT' && get(r, 62) === SHD ? dark : main).push(r);
         for (const s of dark) { const h = num(s, 40, 0), m = main.find((r) => typ(r) !== 'MTEXT' && get(r, 62) !== SHD && get(r, 1) === get(s, 1) && Math.abs(num(r, 40, 0) - h) < 1e-6 && Math.hypot(num(r, 10, 0) - num(s, 10, 0), num(r, 20, 0) - num(s, 20, 0)) < 0.3 * h + 1e-9); if (m) (shad.get(m) || shad.set(m, []).get(m)).push(s); else main.push(s); }
@@ -4714,12 +4714,12 @@
          and its line or arrow; across a sheet's edge, the sheets it prints cut on (cut, report.movable); in a cell no sheet prints: that sheet added (build) */
       const { off: offM, offAt, frameCells } = OFFC, lineCells = (L, lk) => { if (L) for (let s2 = 0; s2 + 1 < L.length; s2++) { const u = L[s2], v = L[s2 + 1], n = Math.max(1, Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]))); for (let k = 0; k <= n; k++) offAt(ci(u[0] + (v[0] - u[0]) * k / n), cj(u[1] + (v[1] - u[1]) * k / n), lk); } };
       for (const m of MV) {
-        if (m.how !== 'by hand' || m.kind === 'photo') continue;
+        if (m.how !== 'by hand' || m.kind === 'photo' || m.empty) continue; // ((beta 7.12) nothing of it drawn: no sheet for it)
         const lk = (m.p && locOfPt.get(m.p)) || (m.kind === 'cable' && byId.get(String(m.span[0])) ? locOfPt.get(byId.get(String(m.span[0]))) || 0 : 0), C = frameCells({ x: m.box.cx, y: m.box.cy, w: m.box.w, h: m.box.h, rot: m.box.a });
         C.forEach(([i, j]) => offAt(i, j, lk)); m.cells = C; lineCells(m.line, lk);
       }
       for (const E of EL) {
-        if (E.how !== 'by hand') continue;
+        if (E.how !== 'by hand' || E.empty) continue;
         const lk = E.lk != null ? E.lk : (E.p && locOfPt.get(E.p)) || (E.sp ? locOfPt.get(E.sp[0]) || 0 : 0), C = frameCells({ x: E.box.cx, y: E.box.cy, w: E.box.w, h: E.box.h, rot: E.box.a }); // ((beta 7.12, Drawing edit) a note: the place of the point nearest it)
         C.forEach(([i, j]) => offAt(i, j, lk)); E.cells = C; for (const r of E.recs) if (LEAD.has(r) && typ(r) === 'LWPOLYLINE') { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); lineCells(X.map((x, i) => [x, Y[i]]), lk); }
       }
