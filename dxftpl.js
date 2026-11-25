@@ -4609,17 +4609,18 @@
     if (!eq(M[0].y1, top, ty) || !eq(M[1].y0, bot, ty) || !eq(M[0].y0, M[1].y1, ty)) return 'its city / municipality cells are not beside the barangay rows';
     const mLeft = eq(M[0].x1, B[0].x0, tx); if (!mLeft && !eq(B[0].x1, M[0].x0, tx)) return 'its two columns are not side by side';
     const mx0 = M[0].x0, mx1 = M[0].x1, bx0 = B[0].x0, bx1 = B[0].x1, X0 = Math.min(mx0, bx0), X1 = Math.max(mx1, bx1), XC = mLeft ? bx0 : mx0;
-    // its lines: those across the body taken out (a part of one past the table's sides kept), the frame and the column line kept
-    const inner = [X0 + tx, bot + ty, X1 - tx, top - ty], area = [X0 - tx, bot - ty, X1 + tx, top + ty];
+    // its lines: those across the body taken out (with a short overshoot past the table's sides; a long part past them kept), the frame
+    // and the column line kept
+    const inner = [X0 + tx, bot + ty, X1 - tx, top - ty], area = [X0 - tx, bot - ty, X1 + tx, top + ty], far = Math.max(tx, 0.1 * (X1 - X0));
     const kindOf = (a, b, bulge) => { // 'h': across the body; 'v': upright; 'o': elsewhere; 'x': slanted (or an arc) through the body
       if (bulge) { const L = Math.hypot(b[0] - a[0], b[1] - a[1]), s = Math.abs(bulge) * L / 2; return Math.min(a[0], b[0]) - s < inner[2] && Math.max(a[0], b[0]) + s > inner[0] && Math.min(a[1], b[1]) - s < inner[3] && Math.max(a[1], b[1]) + s > inner[1] ? 'x' : 'o'; }
       if (Math.abs(b[1] - a[1]) < 0.01) return a[1] > inner[1] && a[1] < inner[3] && Math.min(a[0], b[0]) < inner[2] && Math.max(a[0], b[0]) > inner[0] ? 'h' : 'o';
       if (Math.abs(b[0] - a[0]) < 0.01) return 'v';
       return clipLine([a, b], inner).length ? 'x' : 'o';
     };
-    const outside = (a, b) => { // the parts of a line across the body past the table's sides, in its direction
+    const outside = (a, b) => { // the parts of a line across the body far past the table's sides, in its direction
       const lo = Math.min(a[0], b[0]), hi = Math.max(a[0], b[0]), y = a[1], P = [];
-      if (lo < X0 - tx) P.push([lo, Math.min(hi, X0)]); if (hi > X1 + tx) P.push([Math.max(lo, X1), hi]);
+      if (lo < X0 - far) P.push([lo, Math.min(hi, X0)]); if (hi > X1 + far) P.push([Math.max(lo, X1), hi]);
       return (b[0] >= a[0] ? P : P.reverse().map(([p, q]) => [q, p])).map(([p, q]) => [p, y, q, y]);
     };
     const boxOf = (r) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 1; i < r.length; i++) { const c = r[i][0]; if (c === 10 || c === 11) { const v = +r[i][1]; if (v < x0) x0 = v; if (v > x1) x1 = v; } else if (c === 20 || c === 21) { const v = +r[i][1]; if (v < y0) y0 = v; if (v > y1) y1 = v; } } return [x0, y0, x1, y1]; };
