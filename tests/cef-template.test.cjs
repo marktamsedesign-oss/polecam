@@ -66,10 +66,10 @@ const DIMS = { 'photos/photo_01.jpg': [16, 12], 'photos/photo_02.jpg': [16, 12],
 /** The CEF plan sk on a template (text): { text (the DXF), sheets (each page's name, scale and title block), sd (the template as read) }. The
     sheets are laid out once for a plan and a drawing area, size factor and fields (the engine takes seconds): the two made-up templates share them. */
 function onTpl(text, sk, o) {
-  o = o || {}; E.ARG = { text, sk: JSON.parse(JSON.stringify(sk)), key: JSON.stringify([sk, o.opt || {}]), look: o.look === undefined ? null : o.look, opt: o.opt || {}, foot: FOOT, dims: o.dims || DIMS };
+  o = o || {}; E.ARG = { text, sk: JSON.parse(JSON.stringify(sk)), key: JSON.stringify([sk, o.opt || {}]), look: o.look === undefined ? null : o.look, opt: o.opt || {}, foot: FOOT, dims: o.dims || DIMS, logos: o.logos || null };
   return JSON.parse(vm.runInContext(`JSON.stringify((() => { const A = ARG, sd = CefTpl.seed(A.text, T, A.look, { name: 'DEMO CLIENT A3', foot: A.foot }), info = { W: sd.W, H: sd.H, u: sd.u, txk: sd.txk, style: sd.style, bold: sd.bold, has: [...sd.has].sort() };
-    const C = globalThis.CACHE || (globalThis.CACHE = {}), key = A.key + JSON.stringify([sd.W, sd.H, sd.txk, sd.has.has('EXPORTED_BY')]), sheets = C[key] || (C[key] = tplSheets(A.sk, sd, A.opt)), text = CefTpl.write(sheets, sd, T, { dims: A.dims, fields: tb => cefFields(A.sk, tb, { foot: A.foot }) });
-    return { text, sd: info, sheets: sheets.map(s => ({ name: s.name, N: s.N, s: s.s, tb: s.prims.tb, images: s.images.map(i => i.file) })), last: CefTpl.write.last }; })())`, E));      /* (as plain data of this context's) */
+    const C = globalThis.CACHE || (globalThis.CACHE = {}), key = A.key + JSON.stringify([sd.W, sd.H, sd.txk, sd.has.has('EXPORTED_BY'), sd.DA, sd.TA, sd.kit, sd.sym, !!sd.cover]), sheets = C[key] || (C[key] = tplSheets(A.sk, sd, A.opt)), text = CefTpl.write(sheets, sd, T, { dims: A.dims, logos: A.logos, fields: tb => cefFields(A.sk, tb, { foot: A.foot }) });
+    return { text, sd: info, sheets: sheets.map(s => ({ name: s.name, N: s.N, s: s.s, tb: s.prims.tb, images: s.images.map(i => i.file), texts: s.prims.filter(p => p.k === 'tx').map(p => [p.s, +p.p[0].toFixed(2), +p.p[1].toFixed(2), +p.h.toFixed(3), p.kd || '']) })), last: CefTpl.write.last }; })())`, E));      /* (as plain data of this context's) */
 }
 
 /* ---- the DXF read back ---- */
@@ -262,6 +262,96 @@ test('on the synthesizer\'s CEF seeds of its made-up clients: every page on the 
     assert.ok(Math.abs(num(area, 41) * mm / num(area, 45) - 1000 / top.N) < 1e-6, `client ${c}: the top view at 1:${top.N} on the client's paper`);
     const pdf = await PDF.toPdf(r.text, { images: {} }); assert.equal(pdf.report.sheets.length, N, `client ${c}: a page for each sheet`);
   }
+});
+
+/* ---- (beta 7.15, CEF template kit) the generic CEF template, vendor/cef/cef-template-generic.dxf (tools/cef-template), and its style kit ---- */
+const GENERIC = fs.readFileSync(path.join(root, 'vendor', 'cef', 'cef-template-generic.dxf'), 'utf8');
+const KITX = JSON.parse(vm.runInContext('JSON.stringify({ kit: CEF_KIT, layers: LAYERS })', E));
+const TODAY_FIELDS = ['APPROVED_BY', 'CHECKED_BY', 'COMPANY_NAME', 'COORDINATES', 'DATE', 'DWG_NO', 'EXPORTED_BY', 'ISSUE_NO', 'LINK', 'PLAN_KIND', 'PREPARED_BY', 'SCALE', 'SERIAL', 'SHEET_NO', 'SHEET_TITLE', 'SITE_ID', 'SITE_NAME'];
+/** a copy of the generic template changed as a drafter would in AutoCAD: f(doc, structure) */
+function edited(f) { const d = new T.Doc(GENERIC), S = T.structure(d); f(d, S); return d.text(); }
+const setCode = (r, c, v) => { const k = r.findIndex((p, i) => i > 0 && p[0] === c); if (k > 0) r[k][1] = v; else r.push([c, v]); };
+
+test('the generic CEF template: sheets CEF, CEF COVER and STYLE KEY; today\'s frame with a field for every value; the two viewports, the logo boxes; the style kit at today\'s look; AutoCAD\'s rules', () => {
+  const d = new T.Doc(GENERIC), S = T.structure(d), sheet = (nm) => S.layouts.find((L) => L.name === nm), recs = (L) => (get(S.br.get(L.brh), 2) === '*Paper_Space' ? S.E.filter((e) => String(get(e, 67, '0')).trim() === '1') : S.blocks.get(get(S.br.get(L.brh), 2)).ents);
+  assert.deepEqual(S.layouts.filter((L) => L.name !== 'Model').map((L) => L.name), ['CEF', 'CEF COVER', 'STYLE KEY']);
+  assert.equal(get(S.br.get(sheet('CEF').brh), 2), '*Paper_Space', 'CEF: the sheet the drawing opens on');
+  const fieldsOf = (L) => [...new Set(recs(L).filter((e) => ['TEXT', 'MTEXT'].includes(typ(e))).flatMap((e) => [...textOf(e).matchAll(/@@(\w+)@@/g)].map((m) => m[1])))].sort();
+  assert.deepEqual(fieldsOf(sheet('CEF')), TODAY_FIELDS, 'every value of today\'s frame is a field');
+  assert.deepEqual(fieldsOf(sheet('CEF COVER')), ['COMPANY_NAME', 'COORDINATES', 'EXPORTED_BY', 'LINK', 'PLAN_KIND', 'SERIAL', 'SITE_ID', 'SITE_NAME']);
+  const key = recs(sheet('STYLE KEY')).filter((e) => typ(e) === 'TEXT').map(textOf);
+  for (const f of TODAY_FIELDS.concat(['LOCATION', 'PROJECT_TYPE', 'CLIENT'])) assert.ok(key.includes(`@@${f}@@`), `STYLE KEY: @@${f}@@ and what fills it`);
+  for (const [nm] of KITX.kit.text) assert.ok(key.includes(nm), `STYLE KEY: ${nm}`);
+  for (const L of Object.values(KITX.layers)) assert.ok(key.includes(L[0]), `STYLE KEY: layer ${L[0]}`);
+  // the drawing area and the tables, as on today's sheet: the left frame, and the strip above the title block
+  const vp = (layer) => recs(sheet('CEF')).find((e) => typ(e) === 'VIEWPORT' && get(e, 8) === layer), box = (v) => [num(v, 10) - num(v, 40) / 2, num(v, 20) - num(v, 41) / 2, num(v, 10) + num(v, 40) / 2, num(v, 20) + num(v, 41) / 2];
+  assert.deepEqual(box(vp('CEF-VP-DRAWING')), [8, 8, 316, 289]); assert.deepEqual(box(vp('CEF-VP-TABLES')), [320, 149, 412, 289]);
+  for (const nm of ['CEF', 'CEF COVER']) assert.deepEqual(recs(sheet(nm)).filter((e) => typ(e) === 'LWPOLYLINE' && /^CEF-LOGO-/.test(get(e, 8))).map((e) => get(e, 8)).sort(), ['CEF-LOGO-CLIENT', 'CEF-LOGO-VENDOR'], `${nm}: the logo boxes`);
+  for (const nm of ['CEF-VP-DRAWING', 'CEF-VP-TABLES', 'CEF-LOGO-CLIENT', 'CEF-LOGO-VENDOR']) assert.equal(String(get(S.T.find((r) => typ(r) === 'LAYER' && get(r, 2) === nm), 290)).trim(), '0', `${nm} does not print`);
+  // the frame and title block lines exactly where sheetFrame draws them
+  const want = JSON.parse(vm.runInContext(`JSON.stringify((() => { const G = new Gfx(); sheetFrame(blank(), G, { view: '', sheet: 'X', scale: '', n: 1, N: 1, images: [] }); return G.p.filter(p => p.k === 'pl').map(p => p.pts.map(q => q.map(v => +v.toFixed(3))).join(';')).sort(); })())`, E));
+  const got = recs(sheet('CEF')).filter((e) => get(e, 8) === 'CEF-FRAME' && ['LINE', 'LWPOLYLINE'].includes(typ(e))).map((e) => (typ(e) === 'LINE' ? [[num(e, 10), num(e, 20)], [num(e, 11), num(e, 21)]] : all(e, 10).map((x, i) => [+x, +all(e, 20)[i]])).map((q) => q.map((v) => +v.toFixed(3))).join(';')).sort();
+  assert.deepEqual(got, want, 'the frame and title block lines as sheetFrame draws them');
+  // the kit: a style for each kind (annotative, today's size), the CEF's layers at today's look, its dashes, its north arrow
+  for (const [nm, font, bold, h] of KITX.kit.text) {
+    const r = S.T.find((x) => typ(x) === 'STYLE' && get(x, 2) === nm); assert.ok(r, `style ${nm}`);
+    assert.equal(num(r, 40), h, `${nm}: ${h} mm`); assert.equal(get(r, 3), font, `${nm}: ${font}`);
+    const k = r.findIndex((p) => p[0] === 1001 && p[1] === 'AcadAnnotative'); assert.ok(k > 0 && r.slice(k).filter((p) => p[0] === 1070).map((p) => +p[1]).join() === '1,1', `${nm}: annotative`);
+  }
+  const LW = [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211], near = (mm) => LW.reduce((a, b) => (Math.abs(b - mm * 100) < Math.abs(a - mm * 100) ? b : a));
+  for (const L of Object.values(KITX.layers)) {
+    const r = S.T.find((x) => typ(x) === 'LAYER' && get(x, 2) === L[0]); assert.ok(r, `layer ${L[0]}`);
+    assert.deepEqual([+get(r, 62), +get(r, 370), get(r, 6)], [L[1], near(L[5]), L[2] ? 'CEF-DASHED' : 'Continuous'], `${L[0]}: today's colour, weight and line`);
+    if (L[1] !== 7) assert.equal(+get(r, 420), (Math.round(L[4][0] * 255) << 16) + (Math.round(L[4][1] * 255) << 8) + Math.round(L[4][2] * 255), `${L[0]}: the PDF's colour`);
+  }
+  assert.ok(S.ltypes.has('CEF-DASHED') && S.blocks.has('CEF NORTH ARROW'));
+  assert.deepEqual(rules(GENERIC).filter((p) => !/field left/.test(p)), [], 'AutoCAD\'s rules (its fields are meant to be there)');
+  const py = spawnSync('python3', ['-I', path.join(root, 'tools', 'dxf-seed', 'check_dxf.py'), path.join(root, 'vendor', 'cef', 'cef-template-generic.dxf')], { encoding: 'utf8' });
+  if (!py.error) assert.match(py.stdout, /new problems: 0/, py.stdout);
+  const a = audit(GENERIC); if (a != null) assert.match(a, /^0 0 0/, `ezdxf: ${a}`);
+});
+
+test('the CEF on the generic template: its pages laid out as today\'s (the tables in the tables\' viewport), the cover from CEF COVER, the template\'s north arrow, the app\'s logos in the logo boxes', () => {
+  const r = onTpl(GENERIC, SK.named, { logos: { client: { file: 'logos/client_logo.png', px: 400, py: 160 }, vendor: { file: 'logos/vendor_logo.png', px: 400, py: 160 } } }), R = read(r.text);
+  assert.deepEqual(R.sheets.map((s) => s.name), ['COVER PAGE', 'CONTENTS', 'LEGEND', 'ISOMETRIC', 'TOP VIEW', 'DETAILS']);
+  assert.deepEqual(rules(r.text), []);
+  // the pages' texts where today's generic sheets have them (the same place and size): today's minus its frame and title block
+  const today = JSON.parse(vm.runInContext(`JSON.stringify((() => { const X = ARG.sk; return buildSheets(X, {}).map(s => s.prims.filter(p => p.k === 'tx').map(p => [p.s, +p.p[0].toFixed(2), +p.p[1].toFixed(2), +p.h.toFixed(3)])); })())`, E));
+  r.sheets.forEach((s, i) => { if (s.name === 'COVER') { assert.equal(s.texts.length, 0, 'the cover: CEF COVER\'s own'); return; }
+    const T0 = new Set(today[i].map((t) => JSON.stringify(t))), off = s.texts.filter((t) => t[0] !== FOOT && !T0.has(JSON.stringify(t.slice(0, 4))));
+    assert.deepEqual(off, [], `${s.name}: every text where today's sheet has it`); });
+  const iso = r.sheets.find((s) => s.name === 'ISOMETRIC'); assert.ok(iso.texts.some((t) => t[0] === 'CEF TABLE' && t[1] > 320 && t[2] > 149), 'the CEF TABLE in the strip above the title block, as today');
+  // the cover: sheet CEF COVER, filled; the template's north arrow on the drawings; the logos in their boxes, the company's name not under its logo
+  const cov = R.sheets[0]; assert.ok(cov.texts.some((t) => t.includes('DEMO PROJECT')) && cov.texts.some((t) => t.includes('MIN0000 - SAMPLE SITE')) && cov.layers.includes('CEF-LOGO-CLIENT'), cov.texts.join(' | '));
+  assert.ok(!R.sheets.some((s) => s.texts.some((t) => t.includes('DEMO CONTRACTOR') && !t.startsWith('EXPORTED BY'))), 'the company\'s name left out where its logo goes');
+  const noLogo = read(onTpl(GENERIC, SK.named).text); assert.ok(noLogo.sheets.every((s) => s.texts.some((t) => t === 'DEMO CONTRACTOR')), 'no logo of the company: its name in its box, as today');
+  for (const s of R.sheets) { const im = s.ents.filter((e) => typ(e) === 'IMAGE'); assert.equal(im.length, 2, `${s.name}: the client's and the company's logos`); }
+  assert.equal(R.model.filter((e) => typ(e) === 'INSERT' && get(e, 2) === 'CEF NORTH ARROW').length, 2, 'the north arrow of the isometric and the top view: the template\'s block');
+  const tables = R.sheets[3].vps.find((v) => get(v, 8) === 'CEF-VP-TABLES'), kI = 1 / r.sheets[3].s;
+  assert.ok(Math.abs(num(tables, 45) - 140 * kI) < 1e-6 && Math.abs(num(tables, 22) - 219 * kI) < 1e-6, 'the tables\' viewport looks at the strip of its page');
+});
+
+test('a kit changed in the template changes what the CEF writes: a style\'s font, height and width, a layer\'s weight, the north arrow', () => {
+  const text = edited((d, S) => {
+    const st = (nm) => S.T.find((r) => typ(r) === 'STYLE' && get(r, 2) === nm), ly = (nm) => S.T.find((r) => typ(r) === 'LAYER' && get(r, 2) === nm);
+    setCode(st('CEF BODY'), 40, '3.0'); setCode(st('CEF BODY'), 3, 'romans.shx');      /* the notes 3 mm in ROMANS */
+    setCode(st('CEF VIEW TITLE'), 41, '0.8');      /* the views' titles narrower */
+    setCode(st('CEF LABEL'), 40, '0.0');      /* the names on the drawings: the app's own size */
+    setCode(ly('P-UG_FOC'), 370, '   100'); setCode(ly('CEF-FRAME'), 62, '     3');
+    const b = S.blocks.get('CEF NORTH ARROW'), B = d.sec('BLOCKS').recs; B.splice(B.indexOf(b.end), 0, [[0, 'CIRCLE'], [5, d.newHandle()], [330, get(S.brByName.get('CEF NORTH ARROW'), 5)], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbCircle'], [10, '0.0'], [20, '4.0'], [30, '0.0'], [40, '6.0']]);
+  });
+  const r = onTpl(text, SK.named), base = onTpl(GENERIC, SK.named), R = read(r.text), byKind = (q, kd) => q.sheets.flatMap((s) => s.texts.filter((t) => t[4] === kd));
+  const body = byKind(r, 'CEF BODY'), body0 = byKind(base, 'CEF BODY');
+  const top0 = Math.max(...body0.map((t) => t[3])), top1 = Math.max(...body.map((t) => t[3]));
+  assert.ok(body.length > 10 && Math.abs(top0 - 2.3) < 1e-6 && Math.abs(top1 - 3) < 1e-6, `the notes: ${top0} mm today, ${top1} mm in the changed style`);
+  assert.ok(body.length >= body0.length && body.filter((t) => Math.abs(t[3] - 3) < 1e-6).length >= body0.filter((t) => Math.abs(t[3] - 2.3) < 1e-6).length, 'every 2.3 mm note 3 mm high (wrapped again for it: as many lines or more)');
+  const tx = R.model.filter((e) => typ(e) === 'TEXT'), bodyT = tx.filter((e) => get(e, 7) === 'CEF BODY');
+  assert.ok(bodyT.length > 10, 'the notes written in CEF BODY'); assert.equal(get(new T.Doc(r.text).sec('TABLES').recs.find((x) => typ(x) === 'STYLE' && get(x, 2) === 'CEF BODY'), 3), 'romans.shx');
+  assert.ok(tx.filter((e) => get(e, 7) === 'CEF VIEW TITLE').every((e) => Math.abs(num(e, 41) - 0.8) < 1e-9), 'the views\' titles at the style\'s width');
+  assert.deepEqual(byKind(r, 'CEF LABEL').map((t) => t[3]), byKind(base, 'CEF LABEL').map((t) => t[3]), 'height 0: the names at the app\'s own size');
+  assert.equal(+get(R.layer('P-UG_FOC'), 370), 100); assert.equal(+get(R.layer('CEF-FRAME'), 62), 3);
+  assert.ok(R.S.blocks.get('CEF NORTH ARROW').ents.some((e) => typ(e) === 'CIRCLE'), 'the drafter\'s north arrow');
+  assert.deepEqual(rules(r.text), []);
 });
 
 test('without a template: the CEF\'s DXF (with its layout tabs, and of the older kind), its PDF, sheets and KML as beta 7.13 made them, byte for byte', async () => {

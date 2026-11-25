@@ -172,6 +172,7 @@ for lay in (cef, cov, key):     # (each sheet's own viewport on layer 0, as Auto
         if vp.dxf.id == 1: vp.dxf.layer = '0'
     lay.dxf_layout.dxf.plot_window_x1, lay.dxf_layout.dxf.plot_window_y1 = 0, 0
     lay.dxf_layout.dxf.plot_window_x2, lay.dxf_layout.dxf.plot_window_y2 = W, H
+for i, lay in enumerate((cef, cov, key)): lay.dxf_layout.dxf.taborder = i + 1     # (the tabs in this order)
 doc.layouts.set_active_layout('CEF')
 doc.saveas(out)
 print('cleanup:', subprocess.run(['node', os.path.join(HERE, 'clean.cjs'), out], check=True, capture_output=True, text=True).stdout.strip())

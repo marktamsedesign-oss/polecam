@@ -85,7 +85,7 @@ async function picDims(X) {
 }
 async function dxfText(X, tp) {      /* (beta 7.15, CEF template) tp: the project's CEF template (tplNow): the DXF on it, unless the DXF of beta 4.2 is asked for (it has no layouts) */
   const d = dxfSet();
-  if (tp && !d.old) { const r = tplTry(() => tplDxf(X, tp, { details: d.det, photos: d.ph })); if (r) { const dims = await picDims(X), t = tplTry(() => CefTpl.write(r.sheets, r.sd, tp.T, { dims, fields: r.fields })); if (t) { TPLON.dxf = true; return t; } } }
+  if (tp && !d.old) { const r = tplTry(() => tplDxf(X, tp, { details: d.det, photos: d.ph })); if (r) { const dims = await picDims(X), t = tplTry(() => CefTpl.write(r.sheets, r.sd, tp.T, { dims, fields: r.fields, logos: tplLogos() })); if (t) { TPLON.dxf = true; return t; } } }
   return sheetsDXF(dxfSheets(X), d.old ? { old: true } : { dims: await picDims(X) }); }
 /* ---------- (beta 7.15, CEF template) the CEF plan on the project's CEF template ----------
    The owner: "dxf for asplan and cef must be based from a template dxf … By changing the template dxf, the app can now accomodate plan creation
@@ -112,14 +112,17 @@ function tplDxf(X, tp, opt) { const sd = tp.sd || CefTpl.seed(tp.text, tp.T, tp.
 async function tplPdf(X, tp) {
   if (!HOST || !HOST.cefPdf) return null; const r = tplTry(() => tplDxf(X, tp, {})); if (!r) return null;
   try {
-    const text = CefTpl.write(r.sheets, r.sd, tp.T, { dims: await picDims(X), fields: r.fields }), AI = allImg(), images = {};
+    const text = CefTpl.write(r.sheets, r.sd, tp.T, { dims: await picDims(X), fields: r.fields, logos: tplLogos() }), AI = allImg(), images = {};
     for (const sh of r.sheets) for (const im of sh.images) { const src = AI[im.id]; if (src) images[im.file.replace(/^.*\//, '')] = b64bytes(src); }
+    for (const k in LOGO) if (LOGO[k] && LOGO[k].src) images[k + '_logo.png'] = b64bytes(LOGO[k].src);      /* (beta 7.15, CEF template kit) the logos in the template's logo boxes */
     const pdf = await HOST.cefPdf(text, { images, title: 'CEF plan ' + (X.site.name || '') + (X.site.id ? ' ' + X.site.id : '') });
     if (!pdf || !pdf.length) return null; TPLON.pdf = true; return { pdf: new Uint8Array(pdf), sheets: r.sheets };      /* (the app's bytes copied into this page's own) */
   } catch (e) { TPLX = String((e && e.message) || e).slice(0, 160); return null; }
 }
+/* (beta 7.15, CEF template kit) the app's logos (as the ZIP has them, logos/…) for the template's logo boxes (CEF-LOGO-CLIENT, CEF-LOGO-VENDOR) */
+const tplLogos = () => { const o = {}; for (const k in LOGO) if (LOGO[k] && LOGO[k].w > 0 && LOGO[k].h > 0) o[k] = { file: 'logos/' + k + '_logo.png', px: LOGO[k].w, py: LOGO[k].h }; return o; };
 /* the README says the sheets are on the client's template */
-const tplReadme = (t, tp) => (tp ? t.replace('\r\nFILES\r\n', '\r\nTEMPLATE\r\n  The sheets are on the client\'s CEF template' + (tp.name ? ' ' + tp.name : '') + ': its frame and title block (filled for each sheet), its text style and its line weights. The DXF is a copy of the template with a layout for each sheet.\r\n\r\nFILES\r\n').replace(' (an A3 page that shows that sheet)', ' (the template\'s sheet, showing that page)').replace('Sheet scales at A3:', 'Sheet scales on the template\'s sheet:') : t);
+const tplReadme = (t, tp) => (tp ? t.replace('\r\nFILES\r\n', '\r\nTEMPLATE\r\n  The sheets are on the client\'s CEF template' + (tp.name ? ' ' + tp.name : '') + ': its frame and title block (filled for each sheet), its text styles, layers and symbols. The DXF is a copy of the template with a layout for each sheet.\r\n\r\nFILES\r\n').replace(' (an A3 page that shows that sheet)', ' (the template\'s sheet, showing that page)').replace('Sheet scales at A3:', 'Sheet scales on the template\'s sheet:') : t);
 /* what the note says of the template, for the files of an export (kind: pdf, dxf or zip) */
 function tplSaid(tp, kind) {
   if (!tp) return TPLX ? ' The client\'s template could not be used (' + TPLX + '): the sheets are on the app\'s own frame.' : '';

@@ -94,20 +94,20 @@ function sheetFrame(S, G, o) {
   if (S.sample) G.tx([AREA.x0, AREA.y1 - 3.4], 'SAMPLE DATA - NOT A REAL SITE', 2.6, 'tp', 'l', 0, true);
 }
 function drawTable(G, x, yTop, cols, rows, title, o) {
-  o = o || {}; const W = cols.reduce((s, c) => s + c.w, 0), rh = o.rh || 6, hh = o.hh || 7, th = o.th || 2; let y = yTop; const ys = [y];
-  if (title) { kd('CEF TABLE HEAD', () => G.tx([x + W / 2, y - hh / 2 - th * 0.6], title, th * 1.2, 'tx', 'c', 0, true)); y -= hh; ys.push(y); }      /* (beta 7.15, CEF template kit: kd, each text's kind) */
-  const yCols = y, line = (cells, bold, h) => { let cx = x; cells.forEach((s, i) => { const c = cols[i], al = bold ? 'c' : (c.al || 'l'), px = al === 'c' ? cx + c.w / 2 : al === 'r' ? cx + c.w - 1.5 : cx + 1.5; if (s !== '' && s != null) kd(bold ? 'CEF TABLE HEAD' : 'CEF TABLE', () => fitTx(G, [px, y - h / 2 - th * 0.475], String(s), bold ? Math.max(Math.min(th, 1.8), th * 0.95) : th, c.w - (th < 1.9 ? 1.6 : 2.4), 'tx', al, bold)); cx += c.w; }); y -= h; ys.push(y); };
+  o = o || {}; const W = cols.reduce((s, c) => s + c.w, 0), KT = TPL ? tplK('CEF TABLE') : 1, KH = TPL ? tplK('CEF TABLE HEAD') : 1, rh = (o.rh || 6) * KT, hh = (o.hh || 7) * KH, th = o.th || 2; let y = yTop; const ys = [y];      /* (beta 7.15, CEF template kit: KT, KH: on a template the rows as high as its styles' texts need; 1 otherwise) */
+  if (title) { kd('CEF TABLE HEAD', () => G.tx([x + W / 2, y - hh / 2 - th * KH * 0.6], title, th * 1.2, 'tx', 'c', 0, true)); y -= hh; ys.push(y); }      /* (beta 7.15, CEF template kit: kd, each text's kind) */
+  const yCols = y, line = (cells, bold, h) => { let cx = x; const K = bold ? KH : KT; cells.forEach((s, i) => { const c = cols[i], al = bold ? 'c' : (c.al || 'l'), px = al === 'c' ? cx + c.w / 2 : al === 'r' ? cx + c.w - 1.5 : cx + 1.5; if (s !== '' && s != null) kd(bold ? 'CEF TABLE HEAD' : 'CEF TABLE', () => fitTx(G, [px, y - h / 2 - th * K * 0.475], String(s), bold ? Math.max(Math.min(th, 1.8), th * 0.95) : th, c.w - (th < 1.9 ? 1.6 : 2.4), 'tx', al, bold)); cx += c.w; }); y -= h; ys.push(y); };
   line(cols.map(c => c.t), true, hh); for (const r of rows) line(r, false, rh);
   for (const yy of ys) G.pl([[x, yy], [x + W, yy]], 'fr');
   G.pl([[x, yTop], [x, y]], 'fr'); G.pl([[x + W, yTop], [x + W, y]], 'fr');
   let cx = x; cols.forEach((c, i) => { if (i) G.pl([[cx, yCols], [cx, y]], 'fr'); cx += c.w; });
   return y;
 }
-function para(G, x, y, lines, h, maxW, lay, bold) { const n = Math.max(8, Math.floor(maxW / (h * 0.93))); for (const ln of lines) for (const w of wrap(ln, n)) { y -= h * 1.65; kd(bold ? 'CEF REMARK' : 'CEF BODY', () => fitTx(G, [x, y], w, h, maxW, lay, 'l', bold)); } return y; }
-function heading(G, x, y, s, w, h) { h = h || 2.3; kd('CEF HEADING', () => G.tx([x, y - h * 1.3], s, h, 'tx', 'l', 0, true)); G.pl([[x, y - h * 1.9], [x + (w || 116), y - h * 1.9]], 'fr'); return y - h * 2.2; }
+function para(G, x, y, lines, h, maxW, lay, bold) { const kind = bold ? 'CEF REMARK' : 'CEF BODY', KH = TPL ? tplK(kind) : 1, KW = TPL ? tplW(kind) : 1, n = Math.max(8, Math.floor(maxW / (h * KH * KW * 0.93))); for (const ln of lines) for (const w of wrap(ln, n)) { y -= h * KH * 1.65; kd(kind, () => fitTx(G, [x, y], w, h, maxW, lay, 'l', bold)); } return y; }      /* (beta 7.15, CEF template kit: KH, KW: on a template wrapped and spaced for its style's text) */
+function heading(G, x, y, s, w, h) { h = h || 2.3; const hk = TPL ? h * tplK('CEF HEADING') : h; kd('CEF HEADING', () => G.tx([x, y - hk * 1.3], s, h, 'tx', 'l', 0, true)); G.pl([[x, y - hk * 1.9], [x + (w || 116), y - hk * 1.9]], 'fr'); return y - hk * 2.2; }      /* (beta 7.15, CEF template kit: hk, its style's height on a template) */
 function legend(G, x, y, S, w, h) {
-  h = h || 1.9; y = heading(G, x, y, 'LEGEND', w, h * 1.2);
-  for (const [lay, s] of [['bl', 'FENCE / BUILDING LINE'], ['tw', 'TOWER'], ['eq', 'EXISTING EQUIPMENT'], ['ld', 'CABLE LADDER'], ['pp', 'PROPOSED ITEM'], ['ae', 'FOC AE (AERIAL)'], ['ug', 'FOC UG (UNDERGROUND, LADDER)'], ['fh', 'FOC BEHIND SOMETHING'], ['hp', 'BELOW GROUND (CONDUIT, PIT, ELBOW), WHERE ITS DEPTH IS DRAWN'], ['ln', 'LENGTH OF A LEG OF THE CABLE']].concat(S && S.els.some(e => e.t === 'cabin' && e.inside && (e.inside.els || []).some(q => q.t === 'rack' || q.t === 'odf')) ? [['nd', (k => k.c && k.t ? 'INSIDE A CABIN OR TELCO ROOM (RACK, ODF)' : k.t ? 'INSIDE A TELCO ROOM (RACK, ODF)' : 'INSIDE A CABIN (RACK, ODF)')({ c: S.els.some(e => e.t === 'cabin' && !e.tr && e.inside), t: S.els.some(e => e.t === 'cabin' && e.tr && e.inside) })]] : [], [['ph', 'PHOTO POSITION AND DIRECTION'], ['lot', 'PART DETAIL: ITS FRAME AND WHERE IT IS ON THE VIEW']])) { y -= h * 2.4; G.pl([[x + 1, y + h * 0.45], [x + 15, y + h * 0.45]], lay); if (lay === 'ln') G.tx([x + 8, y + h * 0.9], '10.0m', h * 0.9, 'ln', 'c'); if (TPL) kd('CEF BODY', () => fitTx(G, [x + 19, y], s, h, w - 19, 'tx', 'l')); else G.tx([x + 19, y], s, h, 'tx'); }      /* (beta 7.15, CEF template: on a client's sheet its text size may be larger: each line kept to its column) */
+  h = h || 1.9; y = heading(G, x, y, 'LEGEND', w, h * 1.2); const hs = TPL ? h * tplK('CEF BODY') : h;      /* (beta 7.15, CEF template kit: hs, the lines' spacing for its style's text on a template) */
+  for (const [lay, s] of [['bl', 'FENCE / BUILDING LINE'], ['tw', 'TOWER'], ['eq', 'EXISTING EQUIPMENT'], ['ld', 'CABLE LADDER'], ['pp', 'PROPOSED ITEM'], ['ae', 'FOC AE (AERIAL)'], ['ug', 'FOC UG (UNDERGROUND, LADDER)'], ['fh', 'FOC BEHIND SOMETHING'], ['hp', 'BELOW GROUND (CONDUIT, PIT, ELBOW), WHERE ITS DEPTH IS DRAWN'], ['ln', 'LENGTH OF A LEG OF THE CABLE']].concat(S && S.els.some(e => e.t === 'cabin' && e.inside && (e.inside.els || []).some(q => q.t === 'rack' || q.t === 'odf')) ? [['nd', (k => k.c && k.t ? 'INSIDE A CABIN OR TELCO ROOM (RACK, ODF)' : k.t ? 'INSIDE A TELCO ROOM (RACK, ODF)' : 'INSIDE A CABIN (RACK, ODF)')({ c: S.els.some(e => e.t === 'cabin' && !e.tr && e.inside), t: S.els.some(e => e.t === 'cabin' && e.tr && e.inside) })]] : [], [['ph', 'PHOTO POSITION AND DIRECTION'], ['lot', 'PART DETAIL: ITS FRAME AND WHERE IT IS ON THE VIEW']])) { y -= hs * 2.4; G.pl([[x + 1, y + h * 0.45], [x + 15, y + h * 0.45]], lay); if (lay === 'ln') G.tx([x + 8, y + h * 0.9], '10.0m', h * 0.9, 'ln', 'c'); if (TPL) kd('CEF BODY', () => fitTx(G, [x + 19, y], s, h, w - 19, 'tx', 'l')); else G.tx([x + 19, y], s, h, 'tx'); }      /* (beta 7.15, CEF template: on a client's sheet its text size may be larger: each line kept to its column) */
   return y;
 }
 /* The detail drawings of a plan, laid out in pages. Each one has its title and its place on the page: x from the left, y from the top, w and h, all as parts of the drawing area.
@@ -705,11 +705,11 @@ function tplKind(lay, b) { return TKIND || (lay === 'dm' || lay === 'ln' ? 'CEF 
 function tplK(kind) { const t = TPL && TPL.kit && TPL.kit[kind]; return t && t.mm > 0 && KIT_H[kind] ? t.mm / KIT_H[kind] : 1; }
 function tplW(kind) { const t = TPL && TPL.kit && TPL.kit[kind]; return t && t.wf > 0 ? t.wf : 1; }
 /* the template's north arrow (its block CEF NORTH ARROW, drawn pointing up in printed mm for names 2.4 mm high): put where the CEF's goes,
-   turned to north, at the drawing's size; an outline of the CEF's own keeps its room on the drawing (it is not drawn) */
-function tplNorth(G, base, n, th) {
-  const d = Math.hypot(n[0], n[1]) || 1, ux = n[0] / d, uy = n[1] / d, len = 3.2 * th, top = len + 1.5 * th;
-  G.put({ k: 'sym', name: 'CEF NORTH ARROW', p: base, h: th, a: Math.atan2(uy, ux) / D2R - 90, s: '', lay: 'tx', al: 'l', b: false });
-  G.pl([[base[0] - uy * 0.6 * th, base[1] + ux * 0.6 * th], [base[0] + ux * top + uy * 0.6 * th, base[1] + uy * top - ux * 0.6 * th]], 'kit');
+   turned to north, at the drawing's size; the CEF's own (drawn from 'at' on) kept on no layer: it keeps its room on the drawing, as today,
+   and is not written */
+function tplNorth(G, at, base, n, th) {
+  for (let i = at; i < G.p.length; i++) G.p[i] = Object.assign({}, G.p[i], { lay: 'kit' });
+  G.put({ k: 'sym', name: 'CEF NORTH ARROW', p: base, h: th, a: Math.atan2(n[1], n[0]) / D2R - 90, s: '', lay: 'tx', al: 'l', b: false });
 }
 /* the layout of the sheets on a template, in the millimetres of its paper (its sheet's own coordinates): the drawing in its drawing area; the
    tables beside it in its tables' viewport (CEF-VP-TABLES) when it has one, as on the app's own sheet, else in a strip at the drawing area's
@@ -752,7 +752,7 @@ function tplFit(out, sd) {
     if (own) { sh.prims = []; sh.images = []; }
     else if (sh.name === 'COVER' || sh.name === 'CONTENTS' || sh.name === 'LEGEND') {
       const b = primBox(sh.prims.concat(sh.images.map(im => ({ k: 'pl', pts: [[im.x, im.y], [im.x + im.w, im.y + im.h]] })))), bw = b[2] - b[0], bh = b[3] - b[1];
-      if (sh.name === 'COVER' || b[0] < x0 + m || b[1] < y0 + m || b[2] > x1 - m || b[3] > y1 - m) {
+      if (sh.name === 'COVER' || b[0] < x0 || b[1] < y0 || b[2] > x1 || b[3] > y1) {
         const f = Math.min(1, (x1 - x0 - 2 * m) / bw, (y1 - y0 - 2 * m) / bh), dx = (x0 + x1) / 2 - (b[0] + b[2]) / 2 * f, dy = (y0 + y1) / 2 - (b[1] + b[3]) / 2 * f;
         sh.prims = xfPrims(sh.prims, f, 0, dx, dy); sh.images = sh.images.map(im => Object.assign({}, im, { x: dx + im.x * f, y: dy + im.y * f, w: im.w * f, h: im.h * f }));
       }

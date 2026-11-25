@@ -27,6 +27,7 @@ const T = require('../dxftpl.js');
 
 const root = path.resolve(__dirname, '..');
 const SEED = fs.readFileSync(path.join(__dirname, 'fixtures', 'cef-seed-made-up.dxf'), 'utf8');
+const GENERIC = fs.readFileSync(path.join(root, 'vendor', 'cef', 'cef-template-generic.dxf'), 'utf8');      /* (beta 7.15, CEF template kit) tools/cef-template's */
 const PDFTOTEXT = !spawnSync('pdftotext', ['-v']).error;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gesaa-ceftpl-'));
 let server, browser, base;
@@ -107,7 +108,7 @@ function sheetsOf(text) {
   const d = new T.Doc(text), S = T.structure(d), get = (r, c) => { const p = r.find((x, i) => i > 0 && x[0] === c); return p ? p[1] : undefined; };
   const L = S.layouts.filter((q) => q.name !== 'Model').sort((a, b) => +get(a.rec, 71) - +get(b.rec, 71));
   return L.map((q) => { const br = S.br.get(q.brh), bn = get(br, 2), ents = bn === '*Paper_Space' ? S.E.filter((e) => String(get(e, 67) || '0').trim() === '1') : S.blocks.get(bn).ents;
-    return { name: q.name, layers: ents.map((e) => get(e, 8)), texts: ents.filter((e) => ['TEXT', 'MTEXT', 'ATTRIB'].includes(e[0][1])).map((e) => String(get(e, 1) || '')) }; });
+    return { name: q.name, layers: ents.map((e) => get(e, 8)), texts: ents.filter((e) => ['TEXT', 'MTEXT', 'ATTRIB'].includes(e[0][1])).map((e) => String(get(e, 1) || '')), images: ents.filter((e) => e[0][1] === 'IMAGE').length }; });
 }
 
 test('the editor\'s files on the project\'s CEF template: the DXF a sheet for each page on the client\'s sheet, its fields filled; the PDF every page so', { skip: !PDFTOTEXT && 'needs pdftotext and pdfinfo (poppler)' }, async () => {
@@ -132,6 +133,23 @@ test('the editor\'s files on the project\'s CEF template: the DXF a sheet for ea
   assert.ok(!P.text.some((t) => /GENERIC FRAME/.test(t)), 'not the app\'s generic frame');
   { const f = path.join(TMP, 'pics.pdf'); fs.writeFileSync(f, b64(pick(F, /_CEF\.pdf$/))); const L = String(execFileSync('pdfimages', ['-list', f])).split('\n').slice(2).filter((x) => x.trim()).map((x) => x.trim().split(/\s+/));
     assert.ok(L.some((x) => x[0] === '1' && x[2] === 'image') && L.some((x) => x[0] === '7' && x[2] === 'image' && x[3] === '320' && x[4] === '240'), `the cover's logo and the photo are printed: ${L.map((x) => x.slice(0, 5).join(' ')).join(' | ')}`); }
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('(beta 7.15, CEF template kit) the editor\'s files on the generic CEF template: every page on its sheet, the cover its CEF COVER, the app\'s logo in its logo box, the tables beside the drawing; the PDF printed so', { skip: !PDFTOTEXT && 'needs pdftotext and pdfinfo (poppler)' }, async () => {
+  const { ctx, page, errors } = await open(), fr = await cef(page, true);
+  await setTpl(page, { name: 'G-eSAA generic CEF template', text: GENERIC, look: null });
+  const F = await files(fr), dxf = pick(F, /_CEF_sheets\.dxf$/), sh = sheetsOf(dxf);
+  assert.equal(F.tpl, 'G-eSAA generic CEF template'); assert.equal(F.err, '');
+  assert.deepEqual(sh.map((s) => s.name), ['COVER PAGE', 'CONTENTS', 'LEGEND', 'ISOMETRIC', 'TOP VIEW']);
+  assert.ok(sh[0].texts.some((t) => t.includes('CABLE ENTRANCE FACILITY')) && sh[0].texts.some((t) => t.includes(PROJ)), 'the cover: CEF COVER, filled');
+  sh.forEach((s) => { assert.equal(s.images, 1, `${s.name}: the client's logo in its box`); assert.ok(s.texts.some((t) => t === 'DEMO CONTRACTOR'), `${s.name}: no company logo: its name in its box`); });
+  assert.ok(sh.slice(1).every((s, i) => s.texts.some((t) => t.includes(`${i + 2} OF 5`))), 'the sheets\' numbers');
+  const P = pdfPages(b64(pick(F, /_CEF\.pdf$/)));
+  assert.equal(P.n, 7); assert.ok(P.text[3].includes('CEF TABLE') && P.text[3].includes('ISOMETRIC DETAIL') && P.text[0].includes('CABLE ENTRANCE FACILITY'));
+  { const f = path.join(TMP, 'generic.pdf'); fs.writeFileSync(f, b64(pick(F, /_CEF\.pdf$/))); const L = String(execFileSync('pdfimages', ['-list', f])).split('\n').slice(2).filter((x) => x.trim()).map((x) => x.trim().split(/\s+/));
+    for (let p = 1; p <= 7; p++) assert.ok(L.some((x) => x[0] === String(p)), `PDF page ${p}: the client's logo printed`); }
   assert.deepEqual(errors, []);
   await ctx.close();
 });

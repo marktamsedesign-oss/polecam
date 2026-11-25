@@ -1833,10 +1833,10 @@ function buildTop(S, o) {
   return { prims: G.p, th, G, far, labs: LB.out, leads: LB.leads, skipped, pics };
 }
 function northArrow(G, base, n, th) {
-  if (typeof TPL !== 'undefined' && TPL && TPL.sym && TPL.sym['CEF NORTH ARROW']) return tplNorth(G, base, n, th);      /* (beta 7.15, CEF template kit) the template's own north arrow */
-  const len = 3.2 * th, d = Math.hypot(n[0], n[1]) || 1, ux = n[0] / d, uy = n[1] / d, tip = [base[0] + ux * len, base[1] + uy * len], s = 0.9 * th;
+  const at = G.p.length, len = 3.2 * th, d = Math.hypot(n[0], n[1]) || 1, ux = n[0] / d, uy = n[1] / d, tip = [base[0] + ux * len, base[1] + uy * len], s = 0.9 * th;
   G.pl([base, tip], 'tx'); G.fl([tip, [tip[0] - ux * s - uy * s * 0.38, tip[1] - uy * s + ux * s * 0.38], [tip[0] - ux * s + uy * s * 0.38, tip[1] - uy * s - ux * s * 0.38]], 'tx');
   G.tx([tip[0] + ux * 0.9 * th, tip[1] + uy * 0.9 * th - 0.45 * th], 'N', th, 'tx', 'c', 0, 1);
+  if (typeof TPL !== 'undefined' && TPL && TPL.sym && TPL.sym['CEF NORTH ARROW']) tplNorth(G, at, base, n, th);      /* (beta 7.15, CEF template kit) the template's own north arrow in its place */
 }
 
 /* ---------- drawn runs: outlines, what the fiber follows, what counts as new trench ---------- */
