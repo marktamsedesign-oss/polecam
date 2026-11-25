@@ -7,7 +7,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths-ignore: ['**.md', 'maps/**', '.github/workflows/deploy-site.yml', '.github/workflows/build-map-packs.yml']
+    # Not the app (so no new APK): the docs, map pack lists, the tests, the developer tools in tools/, .gitignore, and the other
+    # workflows (the website, the tests, the other channel's APK)
+    paths-ignore: ['**.md', 'maps/**', 'tests/**', 'tools/**', '.gitignore', '.github/workflows/deploy-site.yml', '.github/workflows/build-map-packs.yml', '.github/workflows/tests.yml', '.github/workflows/build-apk-beta.yml']
 
 permissions:
   contents: write

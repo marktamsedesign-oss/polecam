@@ -133,7 +133,7 @@ async def main():
         await pg.click('#rbUndo'); await W(pg, 300); l4 = nm(await pg.evaluate("__polecam.S.meta.PLAN_29.links"))
         await pg.click('#rbDone'); await W(pg, 600)
         check('route builder: CABLE choice (AE Figure 8 72C · AE, Light cable 12C · AE, UG 144C air-blown · UG, not set); each new span takes the chosen cable',
-              [v for v, _ in c0['opts']] == ['L12', 'F12', 'F24', 'F48', 'F72', 'F144', 'U144', 'U288', ''] and c0['v'] == 'L12' and nm(l1) == [['CC-0001', 'CC-0002', 'F72'], ['CC-0002', 'CC-0003', 'L12'], ['CC-0003', 'CC-0004', 'U144']], (c0, nm(l1)))
+              [v for v, _ in c0['opts']] == ['L12', 'F12', 'F24', 'F48', 'F72', 'F144', 'CA12', 'CA24', 'CA48', 'CA72', 'CA144', 'U144', 'U288', 'CU12', 'CU24', 'CU48', 'CU72', 'CU144', ''] and c0['v'] == 'L12' and nm(l1) == [['CC-0001', 'CC-0002', 'F72'], ['CC-0002', 'CC-0003', 'L12'], ['CC-0003', 'CC-0004', 'U144']], (c0, nm(l1)))
         check('route builder: the bar sums each cable (Fig-8 72C, Light 12C, UG 144C); spans drawn in the cable colours, UG dotted',
               all(s in stats for s in ('Fig-8 72C 60 m', 'Light 12C 60 m', 'UG 144C 60 m')) and ['#7f48e8', None] in strokes and ['#1c7ed6', None] in strokes and ['#2f9e44', '2 7'] in strokes, (stats, strokes[:8]))
         check('route builder: tapping a linked pair with another cable chosen changes that span (toast), Undo restores; “Set on all spans” sets every span, Undo restores',

@@ -24,7 +24,7 @@ NEWER_ASKS_JS = """document.addEventListener('DOMContentLoaded', () => { const b
     else if (/^\\d+ poles? on no cable$/.test(t)) b = [...box.querySelectorAll('button')].find((x) => /^Export (it|them) as (it is|they are), on no cable$/.test(x.getAttribute('aria-label') || ''));
     if (b) b.click(); }).observe(box, { attributes: true, attributeFilter: ['hidden'] });
   const pv = document.getElementById('photoView'), ed = document.getElementById('editor'); if (!pv || !ed) return;
-  new MutationObserver(() => { if (!pv.hidden && !ed.hidden) { const x = document.getElementById('pvClose'); if (x) x.click(); } }).observe(pv, { attributes: true, attributeFilter: ['hidden'] }); });"""
+  new MutationObserver(() => { if (!pv.hidden && !ed.hidden && !window.__keepPhotoView) { const x = document.getElementById('pvClose'); if (x) x.click(); } }).observe(pv, { attributes: true, attributeFilter: ['hidden'] }); });"""
 NO_SAVECHECK_JS += '\n' + NEWER_ASKS_JS
 ADM_OPEN_JS = """document.addEventListener('DOMContentLoaded', () => { const f = () => document.querySelectorAll('#admin .group.shut').forEach(g => g.classList.remove('shut'));
   new MutationObserver(f).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['class'] }); f(); });"""  # v2.28: older tests see every admin section open

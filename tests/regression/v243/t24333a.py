@@ -17,7 +17,7 @@ async def main():
             ca, A, ea = await new_ctx(p, OUT + '/ud_juan'); await setup(A, 'Juan Dela Cruz', JUAN)
             cb, B, eb = await new_ctx(p, OUT + '/ud_pedro'); await setup(B, 'Pedro Santos', PEDRO)
             await open_team(A); await confirm_email(A, JUAN); await role(A, 'Coordinator')
-            await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
+            await open_mbx(A); await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
             await open_team(B); await confirm_email(B, PEDRO); await role(B, 'Field Partner')
             await B.locator('#tmCoList .tmrow', has_text='Juan Dela Cruz').locator('[data-join]').click(); await idle(B)
             await open_team(A); await A.locator('#tmMemList [data-accept]').first.click(); await idle(A); await W(A, 300)
@@ -28,9 +28,10 @@ async def main():
             await A.click('#npAssign .chip:has-text("Pedro Santos")'); await A.click('#npCreate'); await idle(A, 40000); await W(A, 500)
             await projects(B); await dl(B, ms=40000); await W(B, 400)
             await mbx(B, 'seed', PROJ, 3, {}); await send_sheet(B); await send_go(B, 40000); await W(B, 300)
-            await projects(A); await dl(A, ms=40000); await W(A, 400)
+            # (beta 7.8: since the 12 Nov 2026 upload (beta 3.4) Sync brings an update into a project on the phone and merges it by itself)
+            tA, _ = await sync_now(A); await A.click('#projectBtn'); await W(A, 400)
             await A.click('#curTeam [data-ct="accept"]'); await answer(A, 'Accept'); await idle(A, 30000); await W(A, 400)
-            check('C0 Juan merged update 1 (3 poles) and accepted', len(await mbx(A, 'recs', PROJ)) == 3 and 'Accepted on' in await txt(A, '#curTeam'), await txt(A, '#curTeam'))
+            check('C0 Juan merged update 1 (3 poles; his Sync brings it in) and accepted', len(await mbx(A, 'recs', PROJ)) == 3 and f'brought in: update 1 of “{PROJ}” from Pedro' in tA and 'Accepted on' in await txt(A, '#curTeam'), (tA, await txt(A, '#curTeam')))
             # ---------- a late update: Pedro has not opened the acceptance yet, adds a pole and sends
             await close_sheets(B); await mbx(B, 'seed', PROJ, 1, {}); await B.click('#projectBtn'); await W(B, 300); await send_sheet(B); sg = await send_go(B, 40000); await W(B, 300)
             check('L0 Pedro (before he sees the acceptance) sends update 2', 'Sent to Juan' in sg['line'], {k: v for k, v in sg.items() if k != 'seen'})
@@ -45,9 +46,10 @@ async def main():
             check('L3 Cancel: the update is still in the mailbox (his inbox and the mailbox folder)', len(ib1) == 1 and 'Update 2 from Pedro Santos' in ib1[0] and sorted(e2e('/drive')) == files0, (ia, ib1))
             await A.locator('#mbxIn [data-mbxopen]').first.click(); await answer(A, 'Merge anyway'); await idle(A, 40000); await W(A, 600)
             check('L4 Merge anyway: the 4th pole merges', len(await mbx(A, 'recs', PROJ)) == 4, len(await mbx(A, 'recs', PROJ)))
-            # ---------- Pedro opens the acceptance: his task is view only
-            await projects(B); await open_in(B); await W(B, 400); ctB = await txt(B, '#curTeam')
-            check('V0 Pedro\'s task: accepted by Juan', 'Accepted by Juan Dela Cruz' in ctB, ctB)
+            # ---------- Pedro gets the acceptance: his task is view only (beta 7.8: since the 12 Nov 2026 upload (beta 3.4) his Sync brings
+            # the acceptance in by itself, where it waited in the Team mailbox with Open)
+            tb, _ = await sync_now(B); await B.click('#projectBtn'); await W(B, 400); ctB = await txt(B, '#curTeam')
+            check('V0 Pedro\'s task: accepted by Juan (his Sync brings the acceptance in: Juan accepted “DEMO SITE ACCEPTED”)', 'Accepted by Juan Dela Cruz' in ctB and f'brought in: Juan accepted “{PROJ}”' in tb, (tb, ctB))
             await close_sheets(B)
             r0 = [r for r in await mbx(B, 'recs', PROJ)][0]
             rid = await B.evaluate("(pid) => (__polecam.points.find((x) => x.poleId === pid) || {}).id", r0['poleId'])

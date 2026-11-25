@@ -46,8 +46,8 @@ async def main():
         check('A1. the Route bar: ＋ New cable, Cables · 0, Done; no fiber chips', bar == {'nw': True, 'cab': 'Cables · 0', 'done': True, 'chips': 0}, bar)
         await pg.click('#rtNewCab'); await W(pg, 500)
         sh = await pg.evaluate("() => { const e = document.getElementById('rtPop'); return { open: !e.hidden, lbl: (e.querySelector('.lbl') || {}).textContent || '', groups: [...e.querySelectorAll('.lbl2')].map((x) => x.textContent), types: [...e.querySelectorAll('[data-ncab]')].map((x) => x.dataset.ncab), how: [...e.querySelectorAll('input[name=rtHow]')].map((x) => x.value), start: !!e.querySelector('#rtSheetStart') }; }")
-        check('A2. ＋ New cable: the sheet, RUN 1; its type first, by family (Light cable, Figure 8, UG air-blown: 8 types); Draw or Follow the capture order; Start',
-              sh['open'] and 'NEW CABLE · RUN 1' in sh['lbl'] and sh['groups'] == ['Light cable', 'Figure 8', 'UG air-blown'] and sh['types'] == ['L12', 'F12', 'F24', 'F48', 'F72', 'F144', 'U144', 'U288'] and sh['how'] == ['draw', 'cap'] and sh['start'], sh)
+        check('A2. ＋ New cable: the sheet, RUN 1; its type first, by family (Light cable, Figure 8, Conventional · AE, UG air-blown, Conventional · UG: 18 types; 2.44.6 added the conventional FOC); Draw or Follow the capture order; Start',
+              sh['open'] and 'NEW CABLE · RUN 1' in sh['lbl'] and sh['groups'] == ['Light cable', 'Figure 8', 'Conventional · AE', 'UG air-blown', 'Conventional · UG'] and sh['types'] == ['L12', 'F12', 'F24', 'F48', 'F72', 'F144', 'CA12', 'CA24', 'CA48', 'CA72', 'CA144', 'U144', 'U288', 'CU12', 'CU24', 'CU48', 'CU72', 'CU144'] and sh['how'] == ['draw', 'cap'] and sh['start'], sh)
         await pg.screenshot(path=OUT + '/1_sheet.png')
         await pg.click('#rtPop [data-ncab="F24"]'); await W(pg, 250); await pg.click('#rtSheetStart'); await W(pg, 500)
         f0 = await F(); pen = await pg.evaluate("() => !!document.querySelector('#rtBar [data-rt=mode][data-v=draw][aria-pressed=true]')")

@@ -740,6 +740,7 @@
     if (JN[element]) return jnNextId(element, recs); // beta 6.9: PO-0001, CO-0001 (the next in the project)
     const latest = (list) => list.reduce((m, p) => (p.created > m.created ? p : m));
     if ((!element || element === 'Pole') && ed && !ed.acc && ed.status === 'Proposed') {
+      if (ed.noPP) return ''; // (beta 7.9, Add Pin) a pole added with Add Pin: no PP- number given (an ID typed, or the generic number at Save)
       const n = recs.filter((p) => PP_RE.test(p.poleId || '')).reduce((m, p) => Math.max(m, +PP_RE.exec(p.poleId)[1]), 0);
       return `PP-${String(n + 1).padStart(4, '0')}`;
     }
@@ -902,6 +903,7 @@
   }));
   function onSheetClosed(id) {
     if (id === 'drawing' && drwEd) drwEditSet(false); // beta 6.7: Back from the Drawing ends its Edit route
+    if (id === 'drawing') { drwPhStop(); drwThumbsFree(); } // (beta 7.8, Drawing photos) where the plan puts the photos: no longer worked out ((beta 7.9, Drawing preview) the photos' pictures let go)
     if (id === 'drawing' && jnPick && jnPick.surf === 'drawing') jnPickEnd(); // beta 6.9: its poles were being tapped there
     if (id === 'editor' && drwEd) drwEdSoon(); // beta 6.7: a tower placed on the Drawing: its record saved (or not)
     if (id === 'editor') { document.body.classList.remove('edopen'); if (typeof ppxRefresh === 'function') ppxRefresh(); } // beta 4.1
@@ -977,10 +979,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.45.8';
+  const APP_VER = '2.45.15';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '7.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '7.13'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1476,9 +1478,9 @@
   }
   const rpDate = (h) => (h && h.date) || '';
   /** Roads and named places for the plan from the road packs covering the area, or null when no road pack covers it. */
-  async function roadsFromRoadPacks(bb, nb) {
+  async function roadsFromRoadPacks(bb, nb, quiet) { // ((beta 7.8, Drawing photos) quiet: no busy screen, for the Drawing's preview)
     const packs = roadPacksFor(bb); if (!packs.length) return null;
-    busy(`Reading the roads from ${packs.map((p) => p.name).join(', ')}…`);
+    if (!quiet) busy(`Reading the roads from ${packs.map((p) => p.name).join(', ')}…`);
     const chunks = [], used = [];
     for (const p of packs) {
       const h = await roadPackHead(p.id); if (!h) continue;
@@ -1772,26 +1774,71 @@
   $('drawBtn').addEventListener('click', () => { if (!S.project) { openProjects(); return; } if (drawOn()) { openDrawing(); if (splHooks.remind) splHooks.remind(); } else openFind(); }); // (beta 4.6: the plans still to make, once)
   /* v2.36: a pin placed on the map by hand (no photo needed): v2.37 a tower or OLT site, or an ODC, with
      its name and colour. It is a survey record like the others: the route links it, the exports and the plan drawing have it
-     (drawn exactly where it is placed). A photo can be added later (open the pin → Add photo). */
+     (drawn exactly where it is placed). A photo can be added later (open the pin → Add photo).
+     beta 6.8 (the owner): and a proposed pole, "since some did not take a picture during survey, it will only be plotted during plan
+     drawing"; beta 6.9 (the owner): and a pull-off (3 poles) or a cross-over (4 poles) at a corner with no pole.
+     (beta 7.9, Add Pin) the owner: "add pin: remove proposed pole name. Just put "Add Pin" and then the user will select which pin it is, either
+     new Pole, HH, SB, MH and so on"; "NAP dummy box it should be.. allow other pin to add soon like LCP etc. may be this button can be
+     add on the drawing side"; "MAP add Pin is not found". Add Pin, in words on the map (and ＋ Add Pin on the Drawing's route bar),
+     asks which kind, in the approved demo's groups, each with the symbol the plan draws for it (symSvg); NEW marks a kind the map had
+     no pin for (it was recorded with the camera only), until one is picked on this phone. Each kind is a record the app already has:
+     a pole (as before: Proposed in an As-Plan, New in an As-Built, a Globe pole, put on a cable's span it is offered onto that cable,
+     ppOnCable; but no PP- number given: an ID typed, or the generic P- number at Save), a pull-off or cross-over (beta 6.9, jnPlaced),
+     a closure pin (CL-) and a NAP pin of the kind Dummy NAP or LCP 1x4 (NAP-): they stand on their pole, the nearest pole of the
+     route within 30 m, as the Drawing, the plan, the loops and the route check take NAP and closure pins; a handhole, manhole or
+     service box (UG_BOXES); a tower or OLT site, an ODC. The closure, NAP and box kinds start Proposed (an As-Built: New; an Audit:
+     Existing). Not in the list: a hybrid closure (the app's closure is the hybrid closure: one kind in the plan, the BOQ and the PMI),
+     a riser (on its pole's record, AE to UG, or found from the cables: no pin of its own), and in an Audit a dummy NAP box or an LCP
+     (their kind is a size, and an Audit keeps no sizes). */
+  const PIN_KINDS = [
+    ['Poles and corners', [{ k: 'pole', n: 'Pole', sub: 'new', el: 'Pole', pole: true }, { k: 'po', n: 'Pull-off', sub: '3 poles', el: 'Pull-off', pole: true },
+      { k: 'co', n: 'Cross-over', sub: '4 poles', el: 'Cross-over', pole: true }]],
+    ['On the cable', [{ k: 'cl', n: 'Hybrid closure', sub: 'CL · on its pole', el: 'Closure', nw: true } /* (the owner: one kind of closure, the hybrid closure, named so) */, { k: 'dnap', n: 'Dummy NAP box', sub: 'DN · on its pole', el: 'NAP', boq: { napType: 'Dummy NAP' }, nw: true, size: true },
+      { k: 'lcp', n: 'LCP', sub: '1:4 · on its pole', el: 'NAP', boq: { napType: 'LCP 1x4' }, nw: true, size: true }]],
+    ['Boxes underground', [{ k: 'hh', n: 'Handhole', sub: 'HH', el: 'Handhole', nw: true }, { k: 'mh', n: 'Manhole', sub: 'MH', el: 'Manhole', nw: true },
+      { k: 'sb', n: 'Service box', sub: 'SB', el: 'Service box', nw: true }]],
+    ['Sites', [{ k: 'tower', n: 'Tower', sub: 'site', el: 'Site', site: 'Tower' }, { k: 'odc', n: 'ODC', sub: 'cabinet', el: 'ODC' }, { k: 'olt', n: 'OLT', sub: 'site', el: 'Site', site: 'OLT' }]],
+  ];
+  const PIN_BY = new Map(PIN_KINDS.flatMap(([, L]) => L).map((x) => [x.k, x]));
+  /** (beta 7.9, Add Pin) the status a pin of kind x starts with ('' : the survey has none, or its usual one, svDefaultStatus): a pole, pull-off or
+      cross-over as before (ppStatus); a tower, OLT or ODC its usual one (Existing is set for the homing site); the others proposed. */
+  function pinStatus(x) {
+    if (x.el === 'Pole' || JN[x.el]) return ppStatus();
+    if (x.el === 'Site' || x.el === 'ODC') return '';
+    const L = svStatuses(x.el); return L.includes('Proposed') ? 'Proposed' : L.includes('New') ? 'New' : L[0] || '';
+  }
+  /** (beta 7.9, Add Pin) the record a pin of kind x opens with (openEditor), less where it is: a pole is a Globe pole (GT, as beta 6.8's) with no
+      PP- number given (noPP); a NAP pin its kind (a size: napType). */
+  function pinOpts(x) {
+    const st = pinStatus(x);
+    return { mode: 'new', element: x.el, siteKind: x.site || '', ...(st ? { status: st } : {}), ...(x.el === 'Pole' ? { type: globeType(), noPP: true } : {}), ...(x.boq ? { boq: { ...x.boq } } : {}), pinKind: x.k };
+  }
+  /** (beta 7.9, Add Pin) "Add Pin: what is it?": the kinds this survey can have (a pole, pull-off or cross-over where poles have a status; a dummy
+      NAP box or LCP where sizes are kept), each with its symbol as it will start; where: 'map' (drag the map) or 'draw' (tap the
+      Drawing). The kind picked (PIN_KINDS), or null. */
+  async function pinAsk(where) {
+    const pp = ppStatus(), sz = boqOn(), seen = S.pinSeen || {}, btns = [];
+    PIN_KINDS.forEach(([g, L]) => { let first = true; L.forEach((x) => {
+      if ((x.pole && !pp) || (x.size && !sz)) return;
+      const st = pinStatus(x) || (svStatuses(x.el).length ? svDefaultStatus(x.el) : ''), sy = symOfRec(x.el, st, x.site, x.boq, globeType());
+      btns.push({ label: `${x.n} (${x.sub})`, value: x.k, group: first ? g : '', pin: { svg: symSvg(sy.kind, sy.isNew, 40), name: x.n, sub: x.sub, isNew: !!x.nw && !seen[x.k] } }); first = false; }); });
+    btns.push({ label: 'Cancel', value: '' });
+    const k = await ask('Add Pin: what is it?', where === 'draw' ? 'Pick one, then tap the Drawing where it goes. Its record opens for its name; no photo needed.' : 'Pick one, then drag the map so the pin is where it goes. Its record opens for its name; no photo needed.', btns);
+    const x = PIN_BY.get(k) || null;
+    if (x && x.nw && !seen[x.k]) { S.pinSeen = { ...seen, [x.k]: 1 }; persist(); } // (its NEW goes once it was picked on this phone)
+    return x;
+  }
   $('pinAddBtn').addEventListener('click', async () => {
     if (!S.project) { openProjects(); return; }
     if (isAcc()) return;
     { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // beta 3.3 (QA-09): an accepted task
-    // v2.37: only the models: a tower or an OLT site, or an ODC (poles, ODFs and handholes are recorded from the camera)
-    // beta 6.8 (the owner): and a proposed pole, "since some did not take a picture during survey, it will only be plotted during plan drawing"
-    // beta 6.9 (the owner): and a pull-off (3 poles) or a cross-over (4 poles) at a corner with no pole
-    const pp = ppStatus(), k = await ask('Add a pin on the map', `${pp ? `${pp === 'New' ? 'New pole' : 'Proposed pole'}, pull-off, cross-over, tower` : 'Tower'}, OLT or ODC? Then drag the map to place it${pp ? ' (a pole on a cable: on its line; a pull-off or cross-over at the corner with no pole)' : ''}, type its name and pick its colour. A photo is optional${pp ? ': a proposed pole needs none' : ''}. For the homing site or ODC (where the route starts or ends), set Existing.`, [
-      ...(pp ? [{ label: pp === 'New' ? 'New pole' : 'Proposed pole', value: 'Pole' }, { label: 'Pull-off (3 poles)', value: 'Pull-off' }, { label: 'Cross-over (4 poles)', value: 'Cross-over' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
-    if (!k) return;
-    const c = map.getCenter(), el = k === 'Pole' || JN[k] ? k : k === 'ODC' ? 'ODC' : 'Site';
-    LOG.info('pin.add', { el, k });
-    await openEditor({ mode: 'new', element: el, siteKind: el === 'Site' ? k : '', ...(el === 'Pole' ? ppRec() : JN[el] ? { status: ppStatus() } : {}), lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: el === 'Pole' || JN[el] ? 'Placed on the map · no photo needed' : 'Placed on the map · photo optional' });
+    const x = await pinAsk('map'); if (!x) return;
+    const c = map.getCenter();
+    LOG.info('pin.add', { el: x.el, k: x.k });
+    await openEditor({ ...pinOpts(x), lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: x.el === 'Pole' || JN[x.el] ? 'Placed on the map · no photo needed' : 'Placed on the map · photo optional' });
   });
   /** beta 6.8: the status of a pole placed by hand (no photo): Proposed in an As-Plan, New in an As-Built; '' where a survey has none (Audit). */
   const ppStatus = () => { const L = svStatuses('Pole'); return L.includes('Proposed') ? 'Proposed' : L.includes('New') ? 'New' : ''; };
-  /** beta 6.8: what a proposed pole placed by hand starts with, as one from the camera: Proposed (or New), a Globe pole (GT; its owner
-      Globe, ownerNameOf), its PP- number suggested in the record (editable). */
-  const ppRec = () => ({ status: ppStatus(), type: globeType() });
   /** beta 6.8: a proposed pole just placed by hand (the map's ＋ pin or the Drawing's ＋): on a span of a proposed cable (within tol
       metres of its line, between its ends), the question to put it on that cable, splitting the span at it (as a cable grabbed onto a
       pole: rtAttach); with ↶ in Route. */
@@ -2070,16 +2117,20 @@
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
     drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), ia: String(h.a), ib: String(h.b), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     drw.blocks = drwBlocks(items, R, U); // v2.42.24: the dummy NAPs and closures on the cable
+    $('drawTb').hidden = true; $('drawTbPal').hidden = true; $('drawWrap').classList.remove('tbtop'); // ((beta 7.11, Drawing tools) nothing selected on it yet: no toolbar)
+    { const M = drwPhMem.get(S.project); drw.ph = M && M.row === rowIdx() && dxfMode() === 'tpl' ? M : null; drw.selPh = null; drw.phHit = []; drw.plWant = !!drw.ph; drwPlanUi(); } // (beta 7.8, Drawing photos) where the plan put the photos last time, until the preview comes (drwPhRun) ((beta 7.10, Plan kept) its roads: those kept with the project, planRoadsOf)
     { const byI = new Map(items.map((it) => [String(it.p.id), it])); // beta 6.9: each pull-off and cross-over, its poles on the Drawing
       drw.jns = items.filter((it) => JN[it.el]).map((it) => ({ it, att: jnAtt(it.p).map((q) => byI.get(String(q.id))).filter(Boolean) })); }
     drw.pts = pts; drwXHid(); // beta 6.2: the points as exported (clamps); the hidden ones' chip
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
+    drw.hint0 = $('drawHint').textContent; drwPhHint(); // (beta 7.8, Drawing photos) + a line about dragging them, once the plan's places are there
     $('drawHint').hidden = !!S.drawHintOff; $('drawInfoBtn').setAttribute('aria-pressed', String(!S.drawHintOff));
     $('drawInfo').hidden = true; $('drawLabels').setAttribute('aria-pressed', 'true'); $('drawMapMenu').hidden = true;
     $('drawLegend').open = S.drawLegendOpen != null ? S.drawLegendOpen !== false : window.innerWidth > 700; // folded on a phone until opened
     renderDrawMap(); setWhat(deskOn() && S.drwWhatDesk !== false, false); renderDrawBar(); renderDrawLegend(); // v2.42.28: What to export
     if (!again) plNoticeShow(); // beta 6.7 (UX step 4): once, on a phone that had Plan settings and Drawing style: "now one screen: Plan style"
+    if (!again) setTimeout(() => { drwNotesSweep(); }, 4000); // ((beta 7.12, Drawing edit) the photos of notes no longer kept: let go)
     if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: the CEF plans of the tower sites
     if (splHooks.drawSync) splHooks.drawSync(); // beta 4.6: the splicing details
     try { renderCredit(); } catch (e) { /* not ready */ } // v2.42.7: the balance at the upper right
@@ -2089,10 +2140,1543 @@
   /** v2.41: the numbers of the plan in the preview: the same order as the DXF (along the route from the homing). */
   function drawSeqSoon() {
     if (!drw) return;
+    drwPhSoon(); // (beta 7.8, Drawing photos) where the plan puts the photos, anew (the drawing, its points or the plan style changed)
     const go = () => { if (!drw) return; const pts = drw.items.map((it) => it.p), MS = dxfMarkSel(pts);
       const NUM = xNow(() => poleNums(projPoints(), routeModel())), on = new Set(MS.ids.map(String)); // v2.42.18: the pole numbers (the same in the DXF and the CSV; beta 6.2: as the export numbers them, without the hidden poles)
       drw.seq = new Map([...NUM.entries()].filter(([id]) => on.has(String(id))).map(([id, n]) => [String(id), n])); drawDrawing(); };
     if (window.GeDxfTpl && window.GeDxfTpl.markOrder) go(); else loadScript('dxftpl.js').then(go).catch((e) => LOG.warn('draw.seq', errInfo(e)));
+  }
+  /* (beta 7.8, Drawing photos) The photos where the plan puts them: with the company template on the phone, the Drawing makes the plan of the
+     drawing it shows (planJob, as Export › Plan drawing makes it, quietly: (beta 7.10, Plan kept) the roads kept with the project, no photo files) in a worker of
+     its own, and draws each photo's frame where report.photoAt says, at its size, with its line to its pole when the plan has one: from
+     the pole as the Drawing shows it (the plan draws the pole beside its road, dp; the photo keeps its place from it). Made again when the
+     Drawing opens, when its drawing, points or plan style change, and after a photo is moved; a newer one, an export or Back stops the one
+     being made. Outside Edit route a frame dragged moves its photo: kept as pmeta().phPin[id] (its centre from dp, metres), which the
+     export's job carries (GeDxfTpl.build puts it there first: the labels and the other photos keep off it). A photo tapped: the information
+     line says whether it was placed by hand, with Back to automatic. Without a template, the Drawing as before. (Kept on this phone: the
+     team does not get them yet.) */
+  let drwPhT = 0, drwPhGen = 0, phWorker = null, phWorkerEnd = null, phBuild = null, seedSigC = null; // (phBuild: the plan being made, its signature)
+  const drwPhMem = new Map(), phDimC = new Map(); // (each project's last preview; each photo's size)
+  const strHash = (s) => { let h = 2166136261, k = 5381; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h = Math.imul(h ^ c, 16777619); k = (Math.imul(k, 33) + c) | 0; } return `${s.length}:${(h >>> 0).toString(36)}:${(k >>> 0).toString(36)}`; };
+  function drwPhSoon(ms) { clearTimeout(drwPhT); drwPhT = setTimeout(() => { drwPhGo(false); }, ms == null ? 300 : ms); }
+  /** (beta 7.9, Drawing preview) The preview made now (force: again, even when nothing changed: Regenerate plan preview). */
+  function drwPhGo(force) { return drwPhRun(force).catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) { drw.phBusy = false; drwPlanUi(); } }); }
+  /** The preview being made stops (an export, Back). */
+  function drwPhStop() { clearTimeout(drwPhT); drwPhGen++; drwPhForce = false; if (drw) drw.phBusy = false; phStopBuild(); }
+  function phStopBuild() { phBuild = null; if (phWorkerEnd) { const f = phWorkerEnd; phWorkerEnd = null; try { phWorker.terminate(); } catch (e) { /* gone */ } phWorker = null; f(); } }
+  async function drwPhRun(force0) {
+    if (!drw || $('drawing').hidden) return;
+    const force = !!force0 || drwPhForce; // ((beta 7.9, Drawing preview) Regenerate plan preview: made again even when a newer call comes first)
+    if (typeof Worker === 'undefined' || dxfMode() !== 'tpl') { drwPlanNone(); return; } // (the Simple drawing: the Drawing as before)
+    const gen = ++drwPhGen, proj = drw.project, row = rowIdx(), tA = Date.now(), live = () => gen === drwPhGen && !!drw && drw.project === proj && !$('drawing').hidden;
+    if (!window.GeDxfTpl) await loadScript('dxftpl.js');
+    const seed = await seedText(); if (!live()) return;
+    if (!seed || !seedOk(seed)) { drwPlanNone(); return; } // (no template on the phone: the Drawing as before)
+    if (!drw.plWant) { drw.plWant = true; drwPlanUi(); } // ((beta 7.9, Drawing preview) a plan to preview: Regenerate plan preview on the Drawing)
+    const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live() || !st) return; // (the records as an export sees them)
+    // ((beta 7.9, Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
+    const sk = `${seed.length}|${(S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once)
+    const job = J.jobOf(st), sig = strHash(`${seedSigC.h}|${JSON.stringify({ ...job, date: 0 })}`), M = drwPhMem.get(proj);
+    if (!force && M && M.sig === sig && M.row === row && M.plan) { if (phBuild) phStopBuild(); drw.ph = M; drw.phBusy = false; drwPlanShow(); return; } // (nothing changed: as made last time)
+    if (!force && phBuild && phBuild.sig === sig) return; // (this very plan is being made: it is shown when it comes)
+    phStopBuild(); const me = { sig }; phBuild = me; drw.phBusy = true; drwPhForce = false; drwPlanUi(); // (another one being made stops: the newest is the one shown)
+    const t0 = Date.now(), res = await planPreview(seed, job); if (phBuild !== me) return; phBuild = null;
+    const rep = res && res.report;
+    if (!rep || !rep.photoAt) { if (drw && drw.project === proj) { drw.phBusy = false; drwPlanUi(); } return; } // (the plan could not be made, or by a builder that does not say where its photos went: the photos stay as they are)
+    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before)
+    if (res.perr) LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) });
+    const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
+      planAt: rep.photoAt, fileId: Object.fromEntries([...Object.entries(job.photos || {}).map(([id, x]) => [x.file, id]), ...(job.notes || []).filter((n) => n.photo && n.photo.file).map((n) => [n.photo.file, `note:${n.id}`])]), /* ((beta 7.12, Drawing edit) and each photo note's) */ lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (beta 7.10, Plan kept) the labels and split it was made with)
+      mv: Array.isArray(rep.movable) ? rep.movable : null, mvIdx: new Map((rep.movable || []).map((m, i) => [m.id, i])), // ((beta 7.10, Drawing labels) the items the Drawing may move, and each one's place in that list)
+      ptsAt: Object.fromEntries((job.pts || []).filter((q) => Number.isFinite(+q.E) && Number.isFinite(+q.N)).map((q) => [String(q.id), [+q.E, +q.N]])), // ((beta 7.12, Drawing edit) each point's record place it was made with: a point moved since is drawn moved as much)
+      tools: JSON.parse(JSON.stringify({ pins: job.pins || null, style: job.style || null, styleKind: job.styleKind || null, poleAt: job.poleAt || null, text: job.text || null, notes: job.notes || null, order: job.order || null, hide: job.hide || null })) }; // ((beta 7.11, Drawing tools) what it was made with: what changed since is drawn so until the next one comes; (beta 7.12, Drawing edit) its texts, notes, draw order)
+    for (const [k, v] of drwPhMem) if (k !== proj && v.plan) drwPhMem.set(k, { ...v, plan: null, sig: '' }); // (one project's plan kept at a time: another one opened makes its own again)
+    drwPhMem.set(proj, ph); planGridKeep(proj, ph.grid, ph.lab, ph.split); /* ((beta 7.10, Plan kept) photos placed by hand and no grid kept yet, e.g. placed before: this one's) */ LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length, force: !!force, ...(plan ? { plan: { ...plan.count, ms: res.plan.ms } } : {}) }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker; plan: its display list, made in ms after the plan)
+    if (!drw || drw.project !== proj || $('drawing').hidden) return;
+    if (drw.mvDrag || drw.hDrag || drw.phDrag) { drw.phNext = { ph, force }; drw.phBusy = false; drwPlanUi(); return; } // ((beta 7.11, Drawing tools) something held: shown once it is let go (the item held is in the plan shown))
+    drw.ph = ph; drw.phBusy = false; drwPlanShow(force);
+  }
+  /** (beta 7.11, Drawing tools) A preview that came while something was held: shown now (let go). */
+  function drwPhNextShow() { const N = drw && drw.phNext; if (!N || drw.mvDrag || drw.hDrag || drw.phDrag) return; drw.phNext = null; if (drw.ph && drw.ph.n > N.ph.n) return; drw.ph = N.ph; drwPlanShow(N.force); }
+  /** The plan made for the preview in a worker of its own (an export never waits for it): its report and ((beta 7.9, Drawing preview) dxf-worker.js
+   *  only: 'plan') its model space as the PDF prints it, { report, plan }, sent back; null when it fails. */
+  function planPreview(seed, job) {
+    return new Promise((res) => {
+      let w = null; try { w = phWorker || (phWorker = new Worker('dxf-worker.js')); } catch (e) { w = null; }
+      if (!w) { res(null); return; }
+      const id = `ph-${Date.now()}-${Math.random()}`, off = () => { w.removeEventListener('message', on); w.removeEventListener('error', bad); phWorkerEnd = null; };
+      const on = (ev) => { const r = ev.data || {}; if (r.id !== id) return; off(); if (!r.ok) LOG.warn('draw.photos.plan', { msg: String(r.err || '').slice(0, 160) }); res(r.ok && r.out && r.out.report ? r.out : null); };
+      const bad = (ev) => { off(); try { w.terminate(); } catch (x) { /* gone */ } phWorker = null; LOG.warn('draw.photos.worker', { msg: String((ev && ev.message) || ev).slice(0, 160) }); res(null); };
+      w.addEventListener('message', on); w.addEventListener('error', bad); phWorkerEnd = () => { off(); res(null); };
+      try { w.postMessage({ id, seed, job, only: 'plan' }); } catch (e) { off(); res(null); }
+    });
+  }
+  /** A photo's size as the plan export makes it (pdfJpeg: 800 px on its long side), from its stored file's header (nothing decoded); null without one. */
+  async function phDims(pid) {
+    const ph = await dbGet('photos', pid).catch(() => null), b0 = ph && ph.clean; if (!(b0 instanceof Blob) || !b0.size) return null;
+    const k = `${pid}|${b0.size}`; if (phDimC.has(k)) return phDimC.get(k);
+    let wh = null;
+    for (const n of [131072, b0.size]) { try { const b = new Uint8Array(await b0.slice(0, n).arrayBuffer()); if (b[0] === 0xff && b[1] === 0xd8) { wh = window.PoleReports.jpegInfo(b); if (wh && jpegTurned(b)) wh = { w: wh.h, h: wh.w }; } } catch (e) { wh = null; } if (wh || n >= b0.size) break; } // ((beta 7.10, Plan kept) turned a quarter by its EXIF orientation: as the export's decode shows it)
+    if (!wh) { try { const im = await loadImage(b0); wh = dims(im); if (im.close) im.close(); } catch (e) { wh = null; } } // (not a JPEG the header reader knows: decoded)
+    const sc = wh && wh.w > 0 && wh.h > 0 ? Math.min(1, 800 / Math.max(wh.w, wh.h)) : 0, out = sc ? { w: Math.round(wh.w * sc), h: Math.round(wh.h * sc) } : null;
+    if (phDimC.size > 5000) phDimC.clear(); phDimC.set(k, out); return out;
+  }
+  /** (beta 7.10, Plan kept) A JPEG whose EXIF orientation turns it a quarter (5 to 8): the phone's decoder (imageOrientation from-image, as the export's
+   *  pdfJpeg reads it) shows it with its width and height swapped, so the preview's photo size swaps them too. b: its first bytes. */
+  function jpegTurned(b) {
+    let i = 2;
+    while (i + 9 < b.length && b[i] === 0xff) {
+      const mk = b[i + 1], len = (b[i + 2] << 8) | b[i + 3]; if (mk === 0xda || mk === 0xd9 || len < 2) break;
+      if (mk === 0xe1 && b[i + 4] === 0x45 && b[i + 5] === 0x78 && b[i + 6] === 0x69 && b[i + 7] === 0x66) { // APP1 Exif: its TIFF header, IFD0, the orientation (0x0112)
+        const t = i + 10, le = b[t] === 0x49, u16 = (o) => (le ? b[o] | (b[o + 1] << 8) : (b[o] << 8) | b[o + 1]), u32 = (o) => (le ? (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16)) + b[o + 3] * 16777216 : b[o] * 16777216 + ((b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]));
+        const ifd = t + u32(t + 4); if (ifd + 2 > b.length) return false;
+        for (let k = 0, n = u16(ifd); k < n; k++) { const e = ifd + 2 + k * 12; if (e + 10 > b.length) break; if (u16(e) === 0x0112) { const v = u16(e + 8); return v >= 5 && v <= 8; } }
+        return false;
+      }
+      i += 2 + len;
+    }
+    return false;
+  }
+  /** The Drawing's hint, with a line about the photos once the plan's places are there. */
+  function drwPhHint() {
+    if (!drw || drw.hint0 == null) return;
+    const pl = drwPlanOn(), G = pl && drw.ph.grid ? drw.ph.grid.sheets : [], n = drw.ph ? Object.keys(drw.ph.at || {}).length : 0; // ((beta 7.9, Drawing preview) the plan shown: what it is; its photos: drag them)
+    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.${drwMvs().some((m) => m.kind !== 'photo') ? ` Drag a cable label, a pole number or a pole's details to place it by hand; ↶ undoes. Select anything for its tools (double-tap a text to edit it); Text and Photo add your own.` : ''}` : drw.hint0)
+      + (n ? ' Photos sit where the plan puts them: drag one to place it by hand.' : '');
+  }
+  /** The plan's place of this point's photo (report.photoAt), for the drawing shown; null: none (no preview yet, or the plan has none). */
+  const drwPhOf = (it) => (drw && drw.ph && drw.ph.row === rowIdx() ? drw.ph.at[String(it.p.id)] || null : null);
+  /** Its frame where the plan puts it, at its size, its line to the pole when the plan has one (dragged: where the finger is, a dashed line to its pole).
+   *  pl: (beta 7.9, Drawing preview) over the plan: where the plan draws it (not from the pole as the Drawing draws it), its picture in it. */
+  function drwPhFrame(g, d, it, A, placed, pl) {
+    const id = String(it.p.id), dr = drw.phDrag && drw.phDrag.id === id ? drw.phDrag : null, sh = pl ? [0, 0] : [it.xy[0] - A.dp[0], it.xy[1] - A.dp[1]], at = (q) => drwPx([q[0] + sh[0], q[1] + sh[1]]);
+    let [cx, cy] = at([A.x, A.y]); if (dr) { cx += dr.dx; cy += dr.dy; }
+    if (pl) { const mo = drwMvPhOff(id); cx += mo[0] * drw.view.sc; cy -= mo[1] * drw.view.sc; } // ((beta 7.10, Drawing labels) its block moved: with it)
+    const sc = drw.view.sc, w = Math.max(8 * d, A.w * sc), h = Math.max(8 * d, A.h * sc), rot = -(+A.rot || 0) * Math.PI / 180, hand = A.how === 'by hand', sel = String(drw.selPh) === id;
+    if (dr) { const [px, py] = drwPx(pl ? A.dp : it.xy); g.strokeStyle = 'rgba(28,126,214,.8)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(px, py); g.lineTo(cx, cy); g.stroke(); g.setLineDash([]); }
+    else if (A.line && A.line.length > 1) { g.strokeStyle = '#868e96'; g.lineWidth = 1.2 * d; g.beginPath(); A.line.forEach((q, k) => { const P = at(q); if (k) g.lineTo(P[0], P[1]); else g.moveTo(P[0], P[1]); }); g.stroke(); }
+    g.save(); g.translate(cx, cy); g.rotate(rot);
+    if (sel || dr) { g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 5 * d; g.strokeRect(-w / 2, -h / 2, w, h); }
+    if (!pl || dr || drwPhMoved(id)) { // ((beta 7.9, Drawing preview) over the plan: the plan draws its picture where it prints it; here only its frame, unless it moved)
+      g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(-w / 2, -h / 2, w, h);
+      const th = pl && w >= 20 * d && h >= 20 * d ? drwThumb(it) : null; // (its picture, from the phone, once it is read)
+      if (th) g.drawImage(th, -w / 2, -h / 2, w, h);
+      else { const k = Math.min(w / 18, h / 14) * 0.8, s = (u) => u * k, X = -s(9), Y = -s(7); // (the picture sign, as the frames before)
+        g.fillStyle = hand ? '#74c0fc' : '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill(); } }
+    g.strokeStyle = hand ? '#1c7ed6' : '#495057'; g.lineWidth = (hand ? 1.8 : 1.2) * d; g.strokeRect(-w / 2, -h / 2, w, h);
+    const warn = !dr && drwPhCut(A); // ((beta 7.10, Plan kept) across a sheet's edge: it prints cut on both sheets: outlined orange, dashed)
+    if (warn) { g.strokeStyle = '#f08c00'; g.lineWidth = 2.4 * d; g.setLineDash([5 * d, 3 * d]); g.strokeRect(-w / 2 - 3 * d, -h / 2 - 3 * d, w + 6 * d, h + 6 * d); g.setLineDash([]); }
+    g.restore();
+    const ex = Math.abs(Math.cos(rot)) * w / 2 + Math.abs(Math.sin(rot)) * h / 2, ey = Math.abs(Math.sin(rot)) * w / 2 + Math.abs(Math.cos(rot)) * h / 2;
+    placed.push([cx - ex - d, cy - ey - d, 2 * ex + 2 * d, 2 * ey + 2 * d]); drw.phHit.push({ id, cx, cy, w, h, rot, ...(warn ? { warn: true } : {}) });
+  }
+  /** (Plan kept, tests) A display list's hash (dxfpdf.js planList, or the Drawing's plan made from one, drwPlanMake): its lines' points and items,
+   *  its texts and pictures as drawn, its styles, origin and scale. */
+  const planListHash = (pl) => { if (!pl) return null; const raw = pl.raw || pl; let h = 2166136261 >>> 0; const fnv = (u8) => { for (let i = 0; i < u8.length; i++) h = Math.imul(h ^ u8[i], 16777619) >>> 0; };
+    for (const k of ['pts', 'subs', 'items']) { const a = raw[k]; if (a && a.buffer) fnv(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
+    fnv(new TextEncoder().encode(JSON.stringify([(pl.texts || []).map((t) => [t.s, t.m, t.f, t.c, t.w, t.sc, t.lw]), (pl.images || []).map((im) => [im.name, im.m]), pl.styles, pl.origin, pl.K]))); return `${h.toString(16)}:${(pl.texts || []).length}`; };
+  /** (beta 7.10, Plan kept) A photo across a sheet's edge (report.photoAt[id].cut: the sheets it prints cut on), or null. */
+  const drwPhCut = (A) => (A && Array.isArray(A.cut) && A.cut.length > 1 ? A.cut : null);
+  /** A photo tapped: the information line says where it is, placed by hand with Back to automatic. */
+  function drwPhTap(id, how) {
+    const it = drwEdById(id); if (!it || !drw) return;
+    const mid = `ph:${id}`, has = !!mvById(mid); if (how === 'add' && has) { drwMvTap(mid, 'add'); return; } // ((beta 7.11, Drawing tools) Shift, Ctrl or Select more: added to the selection, or taken off it)
+    drw.sel = null; drw.selRun = null; drw.selPh = String(id); drw.mvSel = null;
+    if (!(drwSels().length === 1 && drwSels()[0] === mid)) drw.tbAll = false; drw.mvSels = has ? [mid] : []; // ((beta 7.11, Drawing tools) selected: the toolbar)
+    drwPhSay(id); drwTbRender();
+    if (cefHooks.drawSync) cefHooks.drawSync(); if (splHooks.drawSync) splHooks.drawSync(); drawDrawing();
+  }
+  /** A photo said on the information line: placed by hand (Back to automatic) or where the plan puts it, across a sheet's edge. */
+  function drwPhSay(id) {
+    const it = drwEdById(id); if (!it || !drw) return;
+    const p = it.p, n = drw.seq && drw.seq.get(String(id)), M = pmeta(drw.project), pin = (M.phPin || {})[String(id)], m = mvById(`ph:${id}`), hand = !!pin || (!!m && drwHandOf(m, M)), info = $('drawInfo');
+    const cut = drwPhCut(drw.ph && drw.ph.at[String(id)]); // ((beta 7.10, Plan kept) across a sheet's edge: said)
+    info.textContent = `Photo of ${p.poleId || elemOf(p)}${n ? ` (No. ${n})` : ''} · ${pin ? 'placed by hand on the plan' : hand ? 'changed by hand on the plan' : 'where the plan puts it: drag it to place it by hand'}${cut ? ` · across the edge of sheets ${andList(cut)}: it prints cut on both, drag it inside one` : ''}`;
+    if (hand) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawPhAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => (pin && !(m && ((M.mvPin || {})[m.id] || (M.mvStyle || {})[m.id])) ? drwPhAuto(String(id)) : drwMvAuto(`ph:${id}`))); info.appendChild(b); }
+    info.hidden = false; $('drawHint').hidden = true;
+  }
+  /** A photo let go after a drag (dx, dy: canvas pixels): kept where it was let go, its centre from its pole as the plan draws it. */
+  function drwPhDrop(id, dx, dy) {
+    const A = drw && drw.ph && drw.ph.at[id]; if (!A) { if (drw) drawDrawing(); return; }
+    const sc = drw.view.sc, off = [+(A.x - A.dp[0] + dx / sc).toFixed(2), +(A.y - A.dp[1] - dy / sc).toFixed(2)], proj = drw.project; drwUndoPush('photo moved'); const m0 = pmeta(proj); // ((beta 7.10, Drawing labels) Undo takes it back)
+    S.meta = S.meta || {}; S.meta[proj] = { ...m0, phPin: { ...(m0.phPin || {}), [id]: off } }; persist();
+    planGridKeep(proj, drw.ph.grid, drw.ph.lab, drw.ph.split); // ((beta 7.10, Plan kept) the first photo placed by hand: the plan keeps the grid it shows)
+    drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null, cut: null } } }; // (where it was let go, until the plan's own comes: its line, the others moved aside, whether it is across a sheet's edge; the one kept stays as it was made)
+    LOG.info('draw.photo.pin', { n: Object.keys(S.meta[proj].phPin).length });
+    drwPlanUi(); drwPhTap(id); drwPhSoon(250); // ((beta 7.9, Drawing preview) the chip of the photos placed by hand at once)
+  }
+  /** Back to automatic: the photo placed by hand goes back where the plan puts it. */
+  function drwPhAuto(id) {
+    if (!drw) return; const proj = drw.project, m0 = pmeta(proj); if (!m0.phPin || !(id in m0.phPin)) return;
+    drwUndoPush('photo back to automatic'); // ((beta 7.10, Drawing labels) Undo takes it back)
+    const P = { ...m0.phPin }; delete P[id]; const m = { ...m0, phPin: P }; if (!Object.keys(P).length) delete m.phPin; if (!pinsAny(m)) delete m.planGrid; // ((Plan kept; (beta 7.10, Drawing labels)) nothing placed by hand left: the grid is worked out again)
+    S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.auto', { n: Object.keys(P).length });
+    if (drw.ph && drw.ph.at[id]) drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [id]: { ...drw.ph.at[id], how: 'auto' } } }; // (where it is until the plan's place comes)
+    drwPlanUi(); drwPhTap(id); drwPhSoon(0);
+  }
+  /* (beta 7.9, Drawing preview) The plan on the Drawing as its PDF prints it (the owner, beta 7.8: "I want the drawing to be the preview of pdf export
+     plan that is editable and can be rearranged… a button to regenerate the plan preview"). With the company template on the phone (the
+     template plan chosen), the preview (drwPhRun, in its worker) is the plan the export makes, and its model space drawn by the PDF's own
+     drawing code (dxfpdf.js, modelList: the same lines, colours, line weights, line types, texts, symbols, cable labels with their arrows,
+     span lengths, numbers, pole details, landmarks and street names, at the GEO sheets' scale), sent back as a display list in metres, made
+     ready to draw once (drwPlanMake: Path2D objects, a run of items of one look in tiles of 120 m) and drawn each frame with the view
+     (drwPlanPaint: only the tiles on the screen; texts too small to read left out, all of them with Labels off). Over it: the GEO sheets
+     that print, as boxes with their names as the plan writes them (Sheet grid, shown or hidden), the photos where the plan puts them
+     (dragged, tapped, Back to automatic as before; the picture of each, from the phone), what is tapped. The points are where the plan
+     draws them (report.drawnAt: beside their road) for a tap. Without a template, while the first preview is made, in Edit route and while
+     a pull-off's poles are tapped: the Drawing as before. Regenerate plan preview makes it again now (busy: said, not pressed again); Back
+     to automatic (N) puts every photo placed by hand back where the plan puts it, asked first. */
+  let drwPlanN = 0, drwThumbQ = 0, drwFrameN = 0, drwThumbIn = 0, drwZoomT = 0, drwPlanHold = false, drwPhForce = false; const drwThumbs = new Map(); // (the previews made; the photos' pictures read for the frames; the frames drawn; pictures being read; the settle after a zoom; tests: the Drawing as before)
+  const drwPlanOn = () => !!(drw && drw.ph && drw.ph.plan && drw.ph.row === rowIdx() && !drwEd && !jnPick && !drwPlanHold);
+  /** A photo moved since the plan shown was made (let go, back to automatic): the plan's picture is not where it is now. */
+  const drwPhMoved = (id) => !!(drw && drw.ph && drw.ph.planAt && drw.ph.at[id] !== drw.ph.planAt[id]);
+  /** Where the Drawing shows a point: where the plan draws it while the plan is shown, else where it was surveyed (metres). */
+  const drwAt = (it) => { if (!drwPlanOn()) return it.xy; const id = String(it.p.id), a = drw.ph.drawnAt && drw.ph.drawnAt[id]; if (!a) return it.xy; const d = drwPtShift(id, pmeta(drw.project)); return [a[0] + d[0], a[1] + d[1]]; }; // ((beta 7.11, Drawing tools) a pole moved on the plan: where the plan draws it now; (beta 7.12) its record moved: there too)
+  /** The plan's GEO sheets from its report: [{ sheet, name, box: [x0, y0, x1, y1] }] (null: a builder that does not say). */
+  const drwGridOf = (rep) => (rep && rep.grid && Array.isArray(rep.grid.sheets) ? { cell: rep.grid.cell, sheets: rep.grid.sheets, geo: Array.isArray(rep.grid.geo) ? rep.grid.geo.slice() : null, n: +rep.grid.n || ((rep.tidy || {}).grid || {}).n || 1, kept: !!rep.grid.kept } : null); // ((beta 7.10, Plan kept) + the GEO cells' origin, the split, whether it was the grid kept)
+  /* (beta 7.10, Plan kept) Once a photo ((beta 7.10, Drawing labels) or a label, a number, a pole's details) is placed by hand on the Drawing, the plan keeps its grid: the GEO cells' origin and (Tidy) its split, as the plan shown
+     had them (pmeta().planGrid { geo, n, cell, lab, split, at }), passed to every later plan (job.gridKeep: the preview and every export), so its
+     sheets and their names no longer change by themselves (another grid found best after a photo moved, a pole moved a little); the route's new
+     parts get new cells of the same grid. For the Pole labels (Standard / Tidy) and the Sheet split it was kept with (another: worked out as
+     before, then kept anew). Back to automatic for all of them (asked first), for the last one placed by hand, or Undo back to none lets it go. On this phone only. */
+  const planLab = () => (S.exp.dxfLabels === 'tidy' ? 'tidy' : 'std');
+  /** The grid kept with a project, { origin, n } for the plan's job, or null (none, or kept for other labels or another split). */
+  function planGridOf(m) {
+    const G = m && m.planGrid; if (!G || !Array.isArray(G.geo) || G.geo.length !== 2 || !G.geo.every((v) => Number.isFinite(+v))) return null;
+    return G.lab === planLab() && (+G.split || 0) === (+plStyle().grid.split || 0) ? { origin: [+G.geo[0], +G.geo[1]], n: Math.max(1, +G.n || 1) } : null;
+  }
+  /** The grid of the plan shown (G, drwGridOf; lab, split: what it was made with) kept with the project, when a photo is placed by hand and none is kept. */
+  function planGridKeep(proj, G, lab, split) {
+    const m0 = pmeta(proj); if (!G || !Array.isArray(G.geo) || !pinsAny(m0) || planGridOf(m0)) return false; // ((beta 7.10, Drawing labels) a photo, label, number or pole's details placed by hand)
+    if (lab !== planLab() || (+split || 0) !== (+plStyle().grid.split || 0)) return false; // (made with other labels or split than now: the next one)
+    S.meta = S.meta || {}; S.meta[proj] = { ...m0, planGrid: { geo: G.geo.slice(), n: G.n || 1, cell: G.cell, lab, split: +split || 0, at: new Date().toISOString() } }; persist();
+    LOG.info('plan.grid.keep', { n: G.n || 1, sheets: (G.sheets || []).length }); return true;
+  }
+  const PL_TILE = 120, PL_FONT = ['', 'bold ', 'italic ', 'italic bold '].map((w) => `${w}64px Helvetica, Arial, sans-serif`); // (texts drawn at 64 px, scaled: Helvetica as the PDF's, else the nearest)
+  /** (beta 7.10, Drawing labels) an item's subpaths (s0, ns of the display list's points P and subpaths SB) added to the Path2D p. */
+  function drwPlanSub(p, P, SB, s0, ns) { for (let q = s0; q < s0 + ns; q++) { const f = SB[3 * q], c = SB[3 * q + 1]; if (c < 1) continue; p.moveTo(P[2 * f], P[2 * f + 1]); for (let m = 1; m < c; m++) p.lineTo(P[2 * (f + m)], P[2 * (f + m) + 1]); if (SB[3 * q + 2]) p.closePath(); } }
+  /** (beta 7.10, Drawing labels) Item i of report.movable (a label, a number, pole details, a photo) drawn apart from the plan's tiles, moved by off ([E, N] metres;
+   *  null: back in its tiles, where the plan has it): the tiles it is in made again without it, its own paths made once (drawn over the rest). */
+  function drwPlanLift(PL, i, off, xf) { // ((beta 7.11, Drawing tools) xf: turned, sized, its colour or font as changed since: { rot, piv, sc, col, font })
+    if (!PL || !PL.byOwn || !PL.byOwn.has(i)) return;
+    const had = PL.lifted.get(i);
+    if (!off && !xf) { if (had) { PL.lifted.delete(i); drwPlanRetile(PL, i); } return; }
+    if (had) { had.off = off || [0, 0]; had.xf = xf || null; return; }
+    const { items: IT, subs: SB, pts: P } = PL.raw, own = [];
+    for (const k of PL.byOwn.get(i)) { const kind = IT[4 * k]; if (kind <= 2) { const p = new Path2D(); drwPlanSub(p, P, SB, IT[4 * k + 2], IT[4 * k + 3]); own.push({ kind, style: IT[4 * k + 1], p }); } else own.push({ kind, ix: IT[4 * k + 1] }); }
+    PL.lifted.set(i, { off: off || [0, 0], xf: xf || null, own }); drwPlanRetile(PL, i);
+  }
+  /** (beta 7.11, Drawing tools) Two matrices [a b c d e f] ((x, y) -> (a x + c y + e, b x + d y + f)) multiplied: A after B. */
+  const affMul = (A, B) => [A[0] * B[0] + A[2] * B[1], A[1] * B[0] + A[3] * B[1], A[0] * B[2] + A[2] * B[3], A[1] * B[2] + A[3] * B[3], A[0] * B[4] + A[2] * B[5] + A[4], A[1] * B[4] + A[3] * B[5] + A[5]];
+  /** (beta 7.10, Drawing labels) The plan's tiles that hold item i's lines and fills made again, without the items lifted off them. */
+  function drwPlanRetile(PL, i) {
+    const { items: IT, subs: SB, pts: P } = PL.raw;
+    for (const t of PL.tilesAll) { if (!t.mv || !t.mv.has(i)) continue; const p = new Path2D(); for (const k of t.items) if (!PL.lifted.has(PL.own[k])) drwPlanSub(p, P, SB, IT[4 * k + 2], IT[4 * k + 3]); t.p = p; }
+  }
+  /** The display list (dxfpdf.js modelList) made ready to draw: the items in the order printed, each run of lines or fills of one look one
+   *  Path2D for each tile its items are in (an even-odd fill over another of its run starts a run of its own), each run of texts their list. */
+  function drwPlanMake(pl) {
+    if (!pl || !pl.items || typeof Path2D === 'undefined') return null;
+    const t0 = performance.now(), P = pl.pts, SB = pl.subs, IT = pl.items, BX = pl.boxes, n = IT.length / 4, runs = [], kinds = [0, 0, 0, 0, 0];
+    const OWN = pl.own && pl.own.length === n ? pl.own : null, byOwn = new Map(), tilesAll = []; // ((beta 7.10, Drawing labels) each item's report.movable index; each one's items; every tile (its items, to make it again without a moved one))
+    const grow = (a, b) => { if (b[0] < a[0]) a[0] = b[0]; if (b[1] < a[1]) a[1] = b[1]; if (b[2] > a[2]) a[2] = b[2]; if (b[3] > a[3]) a[3] = b[3]; };
+    const hits = (a, b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+    let run = null, tiles = 0;
+    for (let k = 0; k < n; k++) {
+      const kind = IT[4 * k], ix = IT[4 * k + 1], s0 = IT[4 * k + 2], ns = IT[4 * k + 3], b = [BX[4 * k], BX[4 * k + 1], BX[4 * k + 2], BX[4 * k + 3]]; kinds[kind]++;
+      const ow = OWN ? OWN[k] : -1; if (ow >= 0) { const L = byOwn.get(ow); if (L) L.push(k); else byOwn.set(ow, [k]); }
+      if (kind >= 3) { if (!run || run.kind !== 3) runs.push(run = { kind: 3, idx: [], box: b.slice() }); else grow(run.box, b); if (kind === 3) { pl.texts[ix].b = b; pl.texts[ix].o = ow; run.idx.push(ix); } else { pl.images[ix].b = b; pl.images[ix].o = ow; run.idx.push(-1 - ix); } continue; } // (texts and pictures as they come)
+      if (!run || run.kind !== kind || run.style !== ix || (kind === 2 && hits(run.box, b))) runs.push(run = { kind, style: ix, tiles: new Map(), box: b.slice() }); else grow(run.box, b);
+      const tk = `${Math.floor((b[0] + b[2]) / 2 / PL_TILE)},${Math.floor((b[1] + b[3]) / 2 / PL_TILE)}`;
+      let t = run.tiles.get(tk); if (!t) { run.tiles.set(tk, t = { p: new Path2D(), box: b.slice(), items: [] }); tilesAll.push(t); tiles++; } else grow(t.box, b);
+      t.items.push(k); if (ow >= 0) (t.mv || (t.mv = new Set())).add(ow);
+      drwPlanSub(t.p, P, SB, s0, ns);
+    }
+    runs.forEach((r) => { if (r.tiles) r.tiles = [...r.tiles.values()]; });
+    const kb = (P.byteLength + SB.byteLength + IT.byteLength + BX.byteLength + pl.texts.reduce((t, x) => t + 2 * x.s.length + 96, 0)) / 1024;
+    return { runs, styles: pl.styles, texts: pl.texts, images: pl.images, origin: pl.origin, K: pl.K, sheet: pl.sheet, raw: { items: IT, subs: SB, pts: P }, // (raw: its lines' points, for a check)
+      own: OWN, byOwn, tilesAll, lifted: new Map(), // ((beta 7.10, Drawing labels) lifted: the items moved since this plan was made (dragged, or let go and not made again yet): index → its own paths, where it is now)
+      count: { items: n, lines: kinds[0], fills: kinds[1] + kinds[2], texts: kinds[3], pictures: kinds[4], points: P.length / 2, runs: runs.length, tiles, kb: Math.round(kb), make: Math.round(performance.now() - t0) } };
+  }
+  /** The plan drawn with the view: model metres from its origin to the canvas, only what is on it. */
+  function drwPlanPaint(g, d, cv, v) {
+    const PL = drw.ph.plan, sc = v.sc, e = cv.width / 2 + (PL.origin[0] - v.cx) * sc, f = cv.height / 2 + (v.cy - PL.origin[1]) * sc;
+    const V = [-e / sc, (f - cv.height) / sc, (cv.width - e) / sc, f / sc], on = (b) => b[2] >= V[0] && b[0] <= V[2] && b[3] >= V[1] && b[1] <= V[3];
+    const minW = 0.6 * d / sc, minT = 3 * d / sc, labels = drw.labels !== false; let nP = 0, nT = 0; // (a line thinner than 0.6 px drawn 0.6 px; a text under 3 px left out)
+    const now = performance.now(), zooming = drw.plSc != null && Math.abs(drw.plSc - sc) > 1e-9 * sc ? (drw.plZoom = now, true) : now - (drw.plZoom || 0) < 200; drw.plSc = sc; drwFrameN++;
+    if (zooming) { clearTimeout(drwZoomT); drwZoomT = setTimeout(() => { if (drw && !$('drawing').hidden && drwPlanOn()) drawDrawing(); }, 230); } // (pinched or scrolled: the texts drawn as they print once it stops)
+    const LF = PL.lifted, lifted = (o) => o >= 0 && LF && LF.has(o); // ((beta 7.10, Drawing labels) the items moved since this plan was made: drawn last, where they are now)
+    /** a picture (a pole's photo): its picture from the phone where the plan prints it (ox, oy: moved by, metres); moved since, where it is now (drwPhFrame) */
+    const S0 = [sc, 0, 0, -sc, e, f], setM = (Q) => g.setTransform(Q[0], Q[1], Q[2], Q[3], Q[4], Q[5]); // ((beta 7.11, Drawing tools) A: a lifted item's matrix in the plan's metres, else none)
+    const pic = (im, A) => {
+      const m = im.m, id = drw.ph.fileId ? drw.ph.fileId[im.name] : null, nt = id != null && /^note:/.test(id) ? noteNow(id) : null, it = id != null && !nt ? drwEdById(id) : null; // ((beta 7.12, Drawing edit) a photo note's picture: its note's)
+      if (it && drwPhMoved(id)) return;
+      const big = Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d, bm = !big ? null : nt ? (nt.photo && nt.photo.pid ? drwThumbPid(nt.photo.pid) : null) : it ? drwThumb(it) : null, Mi = [m[0], m[1], -m[2], -m[3], m[2] + m[4], m[3] + m[5]];
+      setM(affMul(S0, A ? affMul(A, Mi) : Mi));
+      if (bm) g.drawImage(bm, 0, 0, 1, 1); else { g.fillStyle = '#e9ecef'; g.fillRect(0, 0, 1, 1); } // (until it is read, or none: a grey square)
+      nT++;
+    };
+    /** a text as it prints (A: moved, turned, sized by; X: its colour and font as changed since, (beta 7.11, Drawing tools)) */
+    const txt = (t, A, X) => {
+      const m = t.m; if (t.k == null) { g.font = PL_FONT[t.f] || PL_FONT[0]; const w = g.measureText(t.s).width / 64; t.k = w > 0 && t.w > 0 ? t.w / w : 1; } // (as wide as Helvetica prints it)
+      g.font = PL_FONT[X && X.font != null ? X.font : t.f] || PL_FONT[0]; const Mt = [m[0] * t.k / 64, m[1] * t.k / 64, -m[2] / 64, -m[3] / 64, m[4], m[5]];
+      setM(affMul(S0, A ? affMul(A, Mt) : Mt));
+      g.fillStyle = (X && X.col) || t.c;
+      if (zooming && Math.hypot(m[2], m[3]) * sc < 40 * d) { g.globalAlpha = 0.5; g.fillRect(0, -42, t.w * 64 / t.k, 34); g.globalAlpha = 1; nT++; return; } // (while zooming: a bar where it is)
+      g.fillText(t.s, 0, 0);
+      if (t.sc && t.lw > 0) { g.strokeStyle = (X && X.col) || t.sc; g.lineWidth = t.lw * 64; g.lineJoin = 'round'; g.setLineDash([]); g.strokeText(t.s, 0, 0); } // (an SHX font's strokes as thick as its line weight)
+      nT++;
+    };
+    g.save(); g.setTransform(sc, 0, 0, -sc, e, f); g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    const liftDraw = (under) => { if (LF && LF.size) for (const [i, L] of LF) { // ((beta 7.10, Drawing labels) a label, number or pole details moved: its own lines, texts and pictures where it is now, over the rest)
+      const X = L.xf; if ((X && X.hide) || (!!(X && X.z < 0)) !== under) continue; // ((beta 7.12, Drawing edit) a note deleted: not drawn; sent back: under the rest, until the plan made with it comes)
+      const A = drwMvAff(i, L, PL), SA = affMul(S0, A), k = Math.hypot(A[0], A[1]) || 1; setM(SA); // ((beta 7.11, Drawing tools) turned, sized, in its colour and font as changed since the plan was made)
+      for (const x of L.own) {
+        if (x.kind === 3) { const t = PL.texts[x.ix]; if (labels && Math.hypot(t.m[2], t.m[3]) * k >= minT) txt(t, A, X); setM(SA); continue; }
+        if (x.kind === 4) { pic(PL.images[x.ix], A); setM(SA); continue; }
+        const st = PL.styles[x.style], col = (X && X.col) || st.c;
+        if (x.kind === 0) { g.strokeStyle = col; g.lineWidth = Math.max(st.w, minW / k); g.lineCap = st.cap; g.lineJoin = st.join; g.setLineDash(st.dash || []); g.stroke(x.p); } else { g.fillStyle = col; g.fill(x.p, x.kind === 2 ? 'evenodd' : 'nonzero'); }
+        nP++;
+      }
+    } g.setTransform(sc, 0, 0, -sc, e, f); };
+    liftDraw(true);
+    for (const r of PL.runs) {
+      if (!on(r.box)) continue;
+      if (r.kind === 3) {
+        for (const ix of r.idx) {
+          if (ix < 0) { const im = PL.images[-1 - ix]; if (on(im.b) && !lifted(im.o)) pic(im, null); continue; }
+          const t = PL.texts[ix]; if (!labels || Math.hypot(t.m[2], t.m[3]) < minT || !on(t.b) || lifted(t.o)) continue;
+          txt(t, null, null);
+        }
+        g.setTransform(sc, 0, 0, -sc, e, f); continue;
+      }
+      const st = PL.styles[r.style];
+      if (r.kind === 0) { g.strokeStyle = st.c; g.lineWidth = Math.max(st.w, minW); g.lineCap = st.cap; g.lineJoin = st.join; g.setLineDash(st.dash || []); for (const t of r.tiles) if (on(t.box)) { g.stroke(t.p); nP++; } }
+      else { g.fillStyle = st.c; for (const t of r.tiles) if (on(t.box)) { g.fill(t.p, r.kind === 2 ? 'evenodd' : 'nonzero'); nP++; } }
+    }
+    liftDraw(false);
+    g.restore(); drw.planDrawn = { paths: nP, texts: nT };
+  }
+  /** The GEO sheets that print, as boxes, each with its name as the plan writes it in its top right corner (kept on the screen while the box is). */
+  function drwGridPaint(g, d, cv) {
+    const G = drw.ph.grid; drw.gridDrawn = []; if (!G || S.drawGrid === false) return;
+    const fs = 12 * d, m = 4 * d, h = fs + 8 * d; g.save(); g.setLineDash([]); g.lineWidth = 1.6 * d; g.font = `800 ${fs}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const cr = cv.getBoundingClientRect(), chips = ['drawXHid', 'drawPhAll'].map((id) => $(id)).filter((el) => !el.hidden).map((el) => { const r = el.getBoundingClientRect(); return [(r.left - cr.left) * d, (r.top - cr.top) * d, (r.right - cr.left) * d, (r.bottom - cr.top) * d]; }); // (the chips at the upper right: the names below them)
+    for (const s of G.sheets) {
+      const [x0, y1] = drwPx([s.box[0], s.box[1]]), [x1, y0] = drwPx([s.box[2], s.box[3]]); if (x1 < 0 || x0 > cv.width || y1 < 0 || y0 > cv.height) continue;
+      g.strokeStyle = 'rgba(174,62,201,.85)'; g.strokeRect(x0, y0, x1 - x0, y1 - y0);
+      const w = g.measureText(s.name).width + 12 * d; let lx = Math.min(x1, cv.width - 64 * d) - m - w, ly = Math.max(y0, 0) + m; // (left of the round tools)
+      if (lx + w > cv.width - 120 * d && ly < 78 * d) ly = Math.max(ly, 78 * d); // (under the north arrow and the scale bar)
+      for (const c of chips) if (lx < c[2] && lx + w > c[0] && ly < c[3] && ly + h > c[1]) ly = c[3] + m;
+      if (lx < x0 + m || ly + h > y1 - m) continue; // (the box too small on the screen for its name)
+      g.fillStyle = 'rgba(174,62,201,.9)'; g.fillRect(lx, ly, w, h); g.fillStyle = '#ffffff'; g.fillText(s.name, lx + w / 2, ly + h / 2 + 0.5 * d);
+      drw.gridDrawn.push({ name: s.name, sheet: s.sheet, x: lx + w / 2, y: ly + h / 2 });
+    }
+    g.restore();
+  }
+  /** The Drawing with the plan shown: the reference KMZ faint behind, the plan, its sheets, the cable and point tapped, the photos, the north arrow and scale bar. */
+  function drwPlanDraw(g, d, cv, v) {
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    drw.ref.forEach((l) => { g.strokeStyle = 'rgba(112,72,232,0.45)'; g.lineWidth = 2 * d; g.setLineDash([6 * d, 5 * d]); g.beginPath(); l.forEach((xy, i) => { const [px, py] = drwPx(xy); if (i) g.lineTo(px, py); else g.moveTo(px, py); }); g.stroke(); });
+    g.setLineDash([]);
+    drwPlanPaint(g, d, cv, v);
+    drwGridPaint(g, d, cv);
+    drw.hitL = (drw.fibs || []).map((f) => ({ n: f.n, lines: [f.ids.map((id, k) => { const it = drwEdById(id); return drwPx(it ? drwAt(it) : f.pts[k]); })] })); // (a cable tapped: its run, along the poles as the plan draws them)
+    g.save();
+    if (drw.selRun != null) { g.strokeStyle = 'rgba(250,176,5,.45)'; g.lineWidth = 12 * d; g.lineJoin = 'round'; g.lineCap = 'round'; drw.hitL.filter((x) => x.n === drw.selRun).forEach((x) => x.lines.forEach((L) => { g.beginPath(); L.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); })); }
+    const sel = drw.sel != null ? drwEdById(drw.sel) : null; if (sel) { const [px, py] = drwPx(drwAt(sel)); g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 4 * d; g.beginPath(); g.arc(px, py, 13 * d, 0, 2 * Math.PI); g.stroke(); }
+    g.restore();
+    const A0 = drw.ph.at || {}, dg = drw.phDrag; // the photos: each frame over the plan's own, big enough to take (zoomed out: the plan's)
+    drw.items.forEach((it) => { const id = String(it.p.id), A = A0[id]; if (A && !(dg && dg.id === id) && (Math.max(A.w, A.h) * v.sc >= 6 * d || drwPhMoved(id) || drwPhCut(A))) drwPhFrame(g, d, it, A, [], true); }); // ((beta 7.10, Plan kept) one across a sheet's edge always, outlined)
+    if (dg) { const it = drwEdById(dg.id), A = it && drwPhOf(it); if (A) drwPhFrame(g, d, it, A, [], true); } // (the one dragged: over everything)
+    drwNotesPend(g, d); // ((beta 7.12, Drawing edit) a note added since the plan shown was made: drawn here until the plan has it)
+    drwMvDraw(g, d); // ((beta 7.10, Drawing labels) the item tapped, the ones placed by hand across a sheet's edge, the one dragged)
+    drwNorthScale(g, d, cv, v);
+  }
+  /** (beta 7.12, Drawing edit) The notes the plan shown does not have yet (just added, or the plan made before): each drawn where it goes, as it will print as best
+   *  the Drawing knows (a text in black, about the size of the pole details; a photo as wide as the plan's photos), dashed round until the plan has it. */
+  function drwNotesPend(g, d) {
+    const P = drw.ph; if (!P || drw.labels === false) return; const N = notesOf(pmeta(drw.project)).filter((n) => !(P.mvIdx && P.mvIdx.has(`note:${n.id}`))); drw.notePend = N.map((n) => String(n.id)); if (!N.length) return;
+    const sc = drw.view.sc;
+    for (const n of N) {
+      const [x, y] = drwPx(n.at); g.save(); g.translate(x, y); g.rotate(-(+n.rot || 0) * Math.PI / 180); let w, h;
+      if (n.kind === 'photo') { const ph = n.photo || {}; w = (+n.size || NOTE_W()) * sc; h = w * (+ph.py || 3) / (+ph.px || 4); const bm = ph.pid ? drwThumbPid(ph.pid) : null; if (bm) g.drawImage(bm, -w / 2, -h / 2, w, h); else { g.fillStyle = '#e9ecef'; g.fillRect(-w / 2, -h / 2, w, h); } g.strokeStyle = '#495057'; g.lineWidth = 1.2 * d; g.strokeRect(-w / 2, -h / 2, w, h); }
+      else { const L = (n.lines || []).map(String), th = 1.2 * (+n.h || 1) * sc; g.font = `${n.italic ? 'italic ' : ''}${n.bold ? 'bold ' : ''}${Math.max(1, th)}px Helvetica, Arial, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = n.color ? drwAciCss(n.color) : '#000000';
+        w = Math.max(th, ...L.map((t) => g.measureText(t).width)); h = th * 1.5 * Math.max(1, L.length); L.forEach((t, k) => g.fillText(t, 0, -h / 2 + th * 1.5 * (k + 0.5))); }
+      g.setLineDash([4 * d, 3 * d]); g.strokeStyle = 'rgba(28,126,214,.7)'; g.lineWidth = 1.2 * d; g.strokeRect(-w / 2 - 3 * d, -h / 2 - 3 * d, w + 6 * d, h + 6 * d); g.restore();
+    }
+  }
+  /** A photo's picture for its frame (the photo on the phone, made 96 px wide: the whole of it, as the plan prints it; the list's small copy is
+   *  a square cut from it), read once and kept (120 at most, the least used lately go: never one this frame drew, so a screen of more photos
+   *  than that shows the others as grey squares rather than reading them again and again); null until it is read. 3 read at a time. */
+  function drwThumb(it) { return drwThumbPid(coverPid(it.p) || it.p.id); }
+  /** (beta 7.12, Drawing edit) A picture of the photo store by its id (a point's photo, a photo note's), as drwThumb. */
+  function drwThumbPid(pid) {
+    const T = drwThumbs.get(pid);
+    if (T) { T.f = drwFrameN; drwThumbs.delete(pid); drwThumbs.set(pid, T); return T.bm; } // (the latest used last: the oldest first out)
+    if (drwThumbIn >= 3) return null;
+    if (drwThumbs.size >= 120) { let k0 = null; for (const [k, x] of drwThumbs) if (x.f < drwFrameN && x.done) { k0 = k; break; } if (k0 == null) return null; const x = drwThumbs.get(k0); drwThumbs.delete(k0); if (x.bm) x.bm.close(); }
+    const T1 = { bm: null, f: drwFrameN }; drwThumbs.set(pid, T1); drwThumbIn++;
+    (async () => {
+      try {
+        const ph = await dbGet('photos', pid).catch(() => null), b = ph && (ph.clean || ph.thumb); if (!(b instanceof Blob) || !b.size || typeof createImageBitmap !== 'function') return;
+        const bm = await createImageBitmap(b, { resizeWidth: 96, resizeQuality: 'medium' }).catch(() => null); if (!bm) return;
+        if (drwThumbs.get(pid) !== T1) { bm.close(); return; } T1.bm = bm;
+        if (!drwThumbQ) drwThumbQ = requestAnimationFrame(() => { drwThumbQ = 0; if (drw && !$('drawing').hidden) drawDrawing(); });
+      } finally { drwThumbIn--; T1.done = true; }
+    })();
+    return null;
+  }
+  /** The photos' pictures let go (the Drawing closed). */
+  function drwThumbsFree() { for (const x of drwThumbs.values()) if (x.bm) x.bm.close(); drwThumbs.clear(); }
+  /** No plan to preview (the Simple drawing, no template on the phone): the Drawing as before. */
+  function drwPlanNone() { if (!drw) return; const had = !!drw.ph || drw.plWant; drw.ph = null; drw.phBusy = false; drw.plWant = false; drwPhForce = false; drwPlanUi(); if (had) { drwPhHint(); renderDrawLegend(); drawDrawing(); } }
+  /** The preview made (or as made last time): shown. said: made again by Regenerate plan preview: said beside it, a moment. */
+  function drwPlanShow(said) {
+    if (!drw) return; drwMvShowPins(); if (drw.mvSel && !(drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.mvSel))) drw.mvSel = null; drw.mvSels = drwSels(); drwPhHint(); drwPlanUi(); renderDrawLegend(); drwTbRender(); drawDrawing(); // ((beta 7.10, Drawing labels) each item where its pin puts it, until the plan made with it comes) ((beta 7.11, Drawing tools) the selection still on the plan, its toolbar)
+    if (drw.selWant && drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.selWant) && !drw.add && !drwSels().length) { const w = drw.selWant; drw.selWant = null; drwMvTap(w); } // ((beta 7.12, Drawing edit) a note just added: selected once the plan has it)
+    if (said && drw.ph) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
+  }
+  /** The Drawing's plan tools: Regenerate plan preview (busy while it is made), Sheet grid, the photos placed by hand. */
+  function drwPlanUi() {
+    if (!drw) return;
+    const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen'), C = drwPinsN(drw.project), n = C.n; // ((beta 7.10, Drawing labels) everything placed by hand: photos, numbers, pole details, cable labels)
+    rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
+    if (busy) $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = '';
+    $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
+    $('drawPhAll').hidden = !(pl && n); $('drawPhAllT').textContent = `${drwPinsSay(C)} ${C.chg ? 'changed' : 'placed'} by hand · Back to automatic`; // ((beta 7.11, Drawing tools) styled or turned: changed)
+    drwIcoRender(); // ((beta 7.10, Drawing labels) Undo, while there is a change to take back; (beta 7.12, Drawing edit) in the row of the Drawing's tools)
+  }
+  /** Back to automatic for every photo placed by hand on this project's plan, asked first. */
+  async function drwPhAutoAll() {
+    if (!drw) return; const proj = drw.project, C = drwPinsN(proj), n = C.n; if (!n) return; // ((beta 7.10, Drawing labels) every photo, number, pole's details and cable label placed by hand)
+    const one = n === 1 && !C.lbl, it1 = one ? 'it' : 'them'; // (one photo, number or cable label: "it"; a pole's details, several: "them")
+    if (!(await ask(`Back to automatic: ${drwPinsSay(C)}?`, `The ${n === 1 ? drwPinsSay(C).replace(/^1 /, '') : drwPinsSay(C, true)} ${C.chg ? 'changed' : 'placed'} by hand ${one ? 'goes' : 'go'} back ${C.chg ? 'where and as' : 'where'} the plan puts ${it1}, and the plan's sheets are worked out again (kept as they were while things were placed by hand). The next export has ${it1} there too. Undo (↶) brings ${it1} back.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
+    if (!drw || drw.project !== proj) return;
+    drwUndoPush('all back to automatic');
+    const m = { ...pmeta(proj) }; MV_KEYS.forEach((k) => { if (k !== 'notes') delete m[k]; }); delete m.planGrid; /* ((beta 7.12, Drawing edit) the texts edited and the draw order too; the notes stay: the user's own) */ S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n, ph: C.ph, num: C.num, lbl: C.lbl, cab: C.cab, more: C.more, kinds: C.kind }); // ((beta 7.10, Plan kept) and the grid kept: worked out again) ((beta 7.11, Drawing tools) and every item turned or styled, every pole moved)
+    if (drw.ph) drw.ph = { ...drw.ph, sig: '', at: Object.fromEntries(Object.entries(drw.ph.at).map(([k, a]) => [k, a.how === 'by hand' ? { ...a, how: 'auto' } : a])) }; // (where they are until the plan's places come)
+    drwMvShowPins(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel && drwSels().length <= 1) drwMvTap(drw.mvSel); else if (drwSels().length) { drwSelSay(); drwTbRender(); } drwPlanUi(); drawDrawing(); drwPhSoon(0);
+  }
+  $('drawRegen').addEventListener('click', () => { if (!drw || drw.phBusy) return; LOG.info('draw.plan.regen', {}); clearTimeout(drwPhT); drwPhForce = true; drw.phBusy = true; drwPlanUi(); drwPhGo(true); });
+  $('drawGrid').addEventListener('change', () => { S.drawGrid = !!$('drawGrid').checked; persist(); LOG.info('draw.plan.grid', { on: S.drawGrid }); drwPlanUi(); drawDrawing(); });
+  $('drawPhAll').addEventListener('click', () => { drwPhAutoAll(); });
+  /* (beta 7.10, Drawing labels) Labels, numbers and pole details placed by hand on the Drawing (the owner: "I want the drawing to be the preview of pdf export plan
+     that is editable and can be rearranged per user desires… for editing and polishing"). Over the plan shown (the template plan on the phone; not in
+     Edit route nor while a pull-off's poles are tapped; Labels on), each item the plan's report.movable lists (a cable's label, a pole's number, a
+     pole's details: Standard its label stack, Tidy its block with its number in it, the photo beside the block carried along) can be pressed and
+     dragged (8 px; a second finger cancels it, as the photos'): its own lines, texts and pictures follow the finger (drwPlanLift: the rest of the plan
+     stays as it is drawn), a dashed line to what it names. Let go: kept as a pin, pmeta().numPin / lblPin / cabPin (its middle from its point as the
+     plan draws it, or from its span's middle; the details' and a cable label's angle), which the export's job carries (GeDxfTpl.build puts it there
+     first: the rest keeps off it; an arrow or a thin line where it no longer touches what it names); the preview is made again, the item drawn where
+     it was let go until it comes. A tap says what it is (Pole number 12, Pole details of CC-1012, Cable label RUN 1), placed by hand with Back to
+     automatic. Placed by hand across a sheet's edge: outlined in orange, as a photo ((beta 7.10, Plan kept): on no sheet, its sheet is added). Undo (↶) takes back the last changes of where things are
+     (a drag, Back to automatic, all back to automatic; the photos' too), one at a time, while the app is open. The chip puts everything placed by
+     hand back (asked first). Kept on this phone, as the photos' pins (shareMeta leaves them out). */
+  const PIN_KEYS = ['phPin', 'numPin', 'lblPin', 'cabPin'], PIN_OF = { number: 'numPin', details: 'lblPin', cable: 'cabPin', photo: 'phPin' }, drwUndoStack = []; // (the placements changed this session: the pins before each change, the last last)
+  /* (beta 7.11, Drawing tools) The owner: "allow to select all plan elements, includes tower/ODC/OLT, towerdetails, guying, grounding, NAP, closure, loop, span length,
+     and almost every detail on the plan"; "Adjust Font size, Style and Color. Also rotate the elements, models and labels as necessary. This will be put as a
+     toolbar that only appears when something is selected. Either it will edit all related or just the specific selections"; "Allow the user to move the poles
+     model also on the map and readjust details as necessary"; "grounding, guying and other pole dependent attachments must be rotated only on that poles";
+     "foc labels: when moved away it generated an arrow but allow users to adjust arrow pointer along its cable only". Every item of the plan's report.movable
+     can be selected (a tap; tapped again on the same spot: the next one under it; Shift / Ctrl + click or Select more: several), outlined with its handles
+     (turn; a cable label's arrow tip, which slides along its span only) and the toolbar over the plan (only while something is selected). Kept per project
+     as the 7.10 pins are (pmeta(), on this phone: shareMeta leaves them out), beside them: mvPin { [id]: { at, rot, tip } } (an item turned, its arrow's tip,
+     a kind 7.10 did not move placed by hand: job.pins, with its 7.10 pin's place and angle in it), mvStyle { [id]: style } (job.style), mvKind { [kind]: style }
+     (All like it: job.styleKind), poleAt { [pointId]: [E, N] } (a pole or a site moved on the plan, where it is drawn: job.poleAt; its record's GPS stays).
+     A photo, number, pole's details or cable label moved is still kept as 7.10 keeps it (phPin, numPin, lblPin, cabPin): a project saved by 7.10 is the
+     same plan. Undo (↶) takes back every change (places, turns, tips, styles, poles moved, Existing ↔ Proposed); Back to automatic, for one or all. */
+  /* (beta 7.12, Drawing edit) The owner: "allow also the user to edit the text if needed. just to make everything correct before exporting"; "let the user also add a
+     text or photo no related with the capture on plans as needed"; "allow order on the selected item, say, sent to back, backward, sent to front or forward". Kept
+     per project beside the 7.11 tools (pmeta(), on this phone: shareMeta leaves them out): mvText { [id]: [lines] } (an item's text as edited: job.text; the record
+     stays), mvOrder [{ id, op }] (the draw order: job.order, a later To front / To back of an item drops its earlier ones), notes [{ id, kind: 'text' | 'photo', at,
+     rot, lines, h, bold, italic, color, photo: { pid (the photo store's), px, py }, size }] (the texts and photos the user adds: job.notes, each photo's bytes in the
+     photo store as the plan's photos are, NOTE_<id>.jpg in the export). Undo takes each change back; all back to automatic leaves the notes (the user's own). */
+  const TOOL_KEYS = ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'mvText', 'mvOrder', 'notes', 'mvHide'], MV_KEYS = [...PIN_KEYS, ...TOOL_KEYS]; // ((beta 7.12, Drawing edit) mvHide { [id]: true }: the items left off the plan (job.hide))
+  /** Something placed by hand in a project (pmeta() m): a photo, a label, a number or a pole's details ((beta 7.10, Plan kept): the grid is kept while there is) ((beta 7.11, Drawing tools) or an item turned or styled, a pole moved). */
+  const pinsAny = (m) => MV_KEYS.some((k) => !!(m && m[k] && Object.keys(m[k]).length));
+  /** The items of the plan shown that the Drawing may move (report.movable), or none. */
+  const drwMvs = () => (drw && drw.ph && drw.ph.mv && drw.ph.row === rowIdx() ? drw.ph.mv : []);
+  /** (beta 7.11, Drawing tools) An item of the plan shown by its id, and its index; null: none. */
+  const mvById = (id) => { const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null; return i != null && P.mv[i] ? P.mv[i] : null; };
+  const mvIx = (id) => { const P = drw && drw.ph; return P && P.mvIdx && P.mvIdx.has(id) ? P.mvIdx.get(id) : null; };
+  /** (beta 7.11, Drawing tools) The point an item belongs to (its pole for an attachment, a closure or a NAP), or null (a cable label, a span, a landmark, a street). */
+  const pidOf = (m) => (m.point != null ? String(m.point) : m.pole != null ? String(m.pole) : m.can && m.can.status && m.can.status.point != null ? String(m.can.status.point) : null);
+  /** An item's pin as kept (pmeta(), or M): its offset [dE, dN] (a cable's label: its at), or null ((beta 7.11, Drawing tools) a kind 7.10 did not move: its mvPin's at). */
+  const drwPinOf = (m, M) => { const MM = M || pmeta(drw.project), key = PIN_OF[m.kind];
+    if (!key) { const t = (MM.mvPin || {})[m.id]; return t && Array.isArray(t.at) ? t.at : null; }
+    const P = MM[key], v = P ? P[m.kind === 'cable' ? m.key : m.point] : null; return m.kind === 'cable' ? (v && Array.isArray(v.at) ? v.at : null) : Array.isArray(v) ? v : null; };
+  /** (beta 7.11, Drawing tools) An item's 7.10 pin (pmeta() m; id: its report.movable id) as the builder's pins read it: { at, rot }, or null. */
+  const pin710 = (m, id) => { const s0 = String(id), i = s0.indexOf(':'), k = s0.slice(0, i), x = s0.slice(i + 1);
+    if (k === 'ph' || k === 'num') { const v = (m[k === 'ph' ? 'phPin' : 'numPin'] || {})[x]; return Array.isArray(v) ? { at: [+v[0], +v[1]] } : null; }
+    if (k === 'lbl') { const v = (m.lblPin || {})[x]; return Array.isArray(v) ? { at: [+v[0], +v[1]], ...(v.length > 2 && v[2] != null ? { rot: +v[2] } : {}) } : null; }
+    if (k === 'cab') { const v = (m.cabPin || {})[x]; return v && Array.isArray(v.at) ? { at: [+v.at[0], +v.at[1]], ...(v.rot != null ? { rot: +v.rot } : {}) } : null; }
+    return null; };
+  /** (beta 7.11, Drawing tools) The job's fields of the Drawing tools for a project's plan (m: its pmeta(); P: plStyle()), only those set (none: the job is 7.10's):
+   *  pins (each item turned, its arrow's tip, a kind 7.10 did not move placed by hand: mvPin, with its 7.10 pin's place and angle in it, so that the builder,
+   *  which takes pins first, has the item whole), poleAt (the poles and sites moved on the plan), style and styleKind (the toolbar's: This one, All like it),
+   *  leaders (Plan style › Lines to the pole: photos, pole details, numbers; sent when one is off) and cloStyle (Plan style › Closure labels: Bubble). */
+  function toolJob(m, P) {
+    const o = {}, mv = (m && m.mvPin) || {}, ks = Object.keys(mv), cp = (v) => JSON.parse(JSON.stringify(v));
+    if (ks.length) o.pins = Object.fromEntries(ks.map((id) => [id, { ...(pin710(m, id) || {}), ...cp(mv[id]) }]));
+    if (m && m.poleAt && Object.keys(m.poleAt).length) o.poleAt = cp(m.poleAt);
+    if (m && m.mvStyle && Object.keys(m.mvStyle).length) o.style = cp(m.mvStyle);
+    if (m && m.mvKind && Object.keys(m.mvKind).length) o.styleKind = cp(m.mvKind);
+    if (P && P.lead && (!P.lead.photo || !P.lead.details || !P.num.leader)) o.leaders = { photo: !!P.lead.photo, details: !!P.lead.details, number: !!P.num.leader };
+    if (P && P.clo && P.clo.style === 'bubble') o.cloStyle = 'bubble';
+    if (m && m.mvText && Object.keys(m.mvText).length) o.text = cp(m.mvText); // ((beta 7.12, Drawing edit) the texts edited, the notes added, the draw order: only those set)
+    const N = notesOf(m); if (N.length) o.notes = N.map(noteJob);
+    if (m && Array.isArray(m.mvOrder) && m.mvOrder.length) o.order = cp(m.mvOrder);
+    if (m && m.mvHide && Object.keys(m.mvHide).length) o.hide = Object.keys(m.mvHide); // ((beta 7.12, Drawing edit) the items deleted from the plan only)
+    return o;
+  }
+  /** (beta 7.12, Drawing edit) A project's notes (pmeta() m): the texts and photos added on its plan. */
+  const notesOf = (m) => (m && Array.isArray(m.notes) ? m.notes.filter((n) => n && n.id && Array.isArray(n.at) && n.at.length === 2) : []);
+  /** A note as the plan's job has it (job.notes): its photo by the file the export writes next to the DXF (NOTE_<id>.jpg; its bytes made from the photo store). */
+  const noteJob = (n) => { const o = { id: String(n.id), kind: n.kind === 'photo' ? 'photo' : 'text', at: [+n.at[0], +n.at[1]] }; if (+n.rot) o.rot = +n.rot;
+    if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map(String); for (const k of ['h', 'bold', 'italic', 'color']) if (n[k] != null) o[k] = n[k]; }
+    else { o.photo = { file: `NOTE_${n.id}.jpg`, px: +((n.photo || {}).px) || 800, py: +((n.photo || {}).py) || 600 }; if (+n.size > 0) o.size = +n.size; }
+    return o; };
+  /** (beta 7.12, Drawing edit) A note's item on the plan (report.movable id note:<id>, kind note or notephoto). */
+  const isNote = (m) => !!m && (m.kind === 'note' || m.kind === 'notephoto' || /^note:/.test(String(m.id || '')));
+  /** A note item's note as kept now (M: pmeta()), or null (deleted since the plan shown was made). */
+  const noteNow = (m, M) => { const id = String(m.id || m).replace(/^note:/, ''); return notesOf(M || pmeta(drw.project)).find((n) => String(n.id) === id) || null; };
+  /** Its note as the plan shown was made with it (the job's), or null. */
+  const noteMade = (m) => { const id = String(m.id || m).replace(/^note:/, ''), T = (drw && drw.ph && drw.ph.tools) || {}; return (T.notes || []).find((n) => String(n.id) === id) || null; };
+  /** Whether an item's text can be edited (a plan item with texts, report.movable can.text; a text note). */
+  const canText = (m) => !!m && (isNote(m) ? m.kind !== 'notephoto' && !(noteNow(m) && noteNow(m).kind === 'photo') : !!canOf(m).text);
+  /** (beta 7.11, Drawing tools) An item's kind from its id (the contract's prefixes), and the nouns the counts use. */
+  const MV_PFX = { ph: 'photo', num: 'number', lbl: 'details', cab: 'cable', pole: 'pole', site: 'site', sitelbl: 'sitedetails', sitename: 'sitename', nap: 'nap', clo: 'closure', clolbl: 'closurelabel', loop: 'loop', span: 'span', guy: 'guy', gnd: 'ground', arm: 'arm', lm: 'landmark', road: 'road', note: 'note', loopsym: 'loopsym', clamp: 'clamp', msg: 'messenger', msgtext: 'msgtext', cabname: 'cablename', cableline: 'cableline' };
+  const MV_NOUN = { photo: ['photo', 'photos'], number: ['number', 'numbers'], details: ['pole\'s details', 'poles\' details'], cable: ['cable label', 'cable labels'], pole: ['pole', 'poles'], site: ['site', 'sites'], sitedetails: ['site\'s details', 'sites\' details'], sitename: ['site name', 'site names'], nap: ['NAP', 'NAPs'], closure: ['closure', 'closures'], closurelabel: ['closure label', 'closure labels'], loop: ['loop', 'loops'], span: ['span length', 'span lengths'], guy: ['guying', 'guyings'], ground: ['grounding', 'groundings'], arm: ['arm', 'arms'], landmark: ['landmark', 'landmarks'], road: ['street name', 'street names'], note: ['note', 'notes'], notephoto: ['photo note', 'photo notes'], text: ['text', 'texts'], loopsym: ['loop on the cable', 'loops on the cable'], clamp: ['clamp tag', 'clamp tags'], messenger: ['messenger arm', 'messenger arms'], msgtext: ['messenger text', 'messenger texts'], cablename: ['cable name', 'cable names'], cableline: ['cable', 'cables'] }; // ((beta 7.12, Drawing edit) every element of the plan) // ((beta 7.12, Drawing edit) the notes; a text edited)
+  const mvKindOf = (id) => { const s = String(id), k = s.indexOf(':'); return MV_PFX[k > 0 ? s.slice(0, k) : s] || 'item'; };
+  /** (beta 7.11, Drawing tools) An item moved where the plan draws its point (poleAt: a pole, an OLT, an ODC, an ODF), not a tower (its model moved by its pin, a line
+   *  or arrow back to its point, as the plan draws a tower set aside). */
+  const ptMoves = (m) => { if (m.kind === 'pole') return true; if (m.kind !== 'site') return false; const p = points.find((x) => String(x.id) === String(pidOf(m))); return !(p && elemOf(p) === 'Site' && !/olt/i.test(p.siteKind || '')); };
+  /** A pole or a site moved on the plan: its noun ('site' when the plan shown has it as a site). */
+  const ptNoun = (pid) => (drw && drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(`site:${pid}`) ? 'site' : 'pole');
+  /** The pins kept for a project, by kind, and all ((beta 7.11, Drawing tools) and every other item placed, turned or styled by hand, each once; the poles moved; the styles for all of a kind). */
+  const drwPinsN = (proj) => {
+    const m = pmeta(proj), c = (k) => Object.keys(m[k] || {}).length, r = { ph: c('phPin'), num: c('numPin'), lbl: c('lblPin'), cab: c('cabPin'), more: {}, kinds: Object.keys(m.mvKind || {}) };
+    const seen = new Set([['phPin', 'ph'], ['numPin', 'num'], ['lblPin', 'lbl'], ['cabPin', 'cab']].flatMap(([k, p]) => Object.keys(m[k] || {}).map((x) => `${p}:${x}`))), F = { photo: 'ph', number: 'num', details: 'lbl', cable: 'cab' };
+    for (const pid of Object.keys(m.poleAt || {})) { const k = ptNoun(pid); seen.add(`${k}:${pid}`); r.more[k] = (r.more[k] || 0) + 1; }
+    for (const id of [...Object.keys(m.mvPin || {}), ...Object.keys(m.mvStyle || {}), ...(m.mvOrder || []).map((o) => o && o.id).filter(Boolean)]) { if (seen.has(id)) continue; seen.add(id); const k = mvKindOf(id); if (F[k]) r[F[k]]++; else r.more[k] = (r.more[k] || 0) + 1; } // ((beta 7.12, Drawing edit) + drawn over or under others)
+    for (const id of Object.keys(m.mvText || {})) { if (seen.has(id)) continue; seen.add(id); r.more.text = (r.more.text || 0) + 1; } // ((beta 7.12, Drawing edit) a text edited: "1 text changed by hand"; its item placed too: counted once)
+    for (const id of Object.keys(m.mvHide || {})) { if (seen.has(id)) continue; seen.add(id); const k = mvKindOf(id); r.more[k] = (r.more[k] || 0) + 1; } // ((beta 7.12) an item left off the plan)
+    r.kind = r.kinds.length; r.n = r.ph + r.num + r.lbl + r.cab + Object.values(r.more).reduce((a, b) => a + b, 0) + r.kind;
+    r.chg = !!(Object.keys(m.mvStyle || {}).length || r.kind || Object.keys(m.mvText || {}).length || (m.mvOrder || []).length || Object.keys(m.mvHide || {}).length || Object.values(m.mvPin || {}).some((t) => t && (t.rot != null || t.tip != null))); return r; }; // (chg: styled, turned, an arrow's tip ((beta 7.12) its text, its draw order): "changed by hand"; only placed: 7.10's words. The notes are not counted: they are the user's own, not the plan's put elsewhere)
+  /** They in words: "2 photos", "1 cable label"; of several kinds "5 items" (long: "2 photos, 1 number and 2 cable labels"; (beta 7.11, Drawing tools) "1 pole", "the style of all cable labels"). */
+  const drwPinsSay = (C, long) => { const L = [[C.ph, 'photo', 'photos'], [C.num, 'number', 'numbers'], [C.lbl, 'pole\'s details', 'poles\' details'], [C.cab, 'cable label', 'cable labels'], ...Object.entries(C.more || {}).map(([k, n]) => [n, ...(MV_NOUN[k] || ['item', 'items'])])].filter((x) => x[0]).map(([n, a, b]) => `${n} ${n === 1 ? a : b}`);
+    const K = (C.kinds || []).map((k) => `the style of all ${(MV_NOUN[k] || ['item', 'items'])[1]}`);
+    if (!long) return L.length === 1 && !K.length ? L[0] : `${C.n} ${C.n === 1 ? 'item' : 'items'}`;
+    const A = [...L, ...K]; return A.length < 2 ? A.join('') : `${A.slice(0, -1).join(', ')} and ${A[A.length - 1]}`; };
+  /** What an item is, as the information line says it. */
+  function drwMvName(m) {
+    if (isNote(m)) { const n = noteNow(m); return n && n.kind === 'photo' ? 'Photo added on the plan' : `Text added on the plan${n && n.lines && n.lines[0] ? ` “${String(n.lines[0]).slice(0, 40)}${String(n.lines[0]).length > 40 ? '…' : ''}”` : ''}`; } // ((beta 7.12, Drawing edit) a note)
+    if (m.kind === 'cable') return `Cable label ${m.name}`;
+    const it = drwEdById(m.point), pole = !it || it.el === 'Pole';
+    if (m.kind === 'number') return pole ? `Pole number ${m.seq}` : `Number ${m.seq} · ${m.name}`;
+    if (m.kind === 'details') return `Pole details of ${m.name}${m.number && m.seq ? ` (its number ${m.seq} with them)` : ''}`;
+    if (m.kind === 'photo') return `Photo of ${m.name}`;
+    // ((beta 7.11, Drawing tools) the other kinds: by their point's ID (an attachment, a closure, a NAP: its pole's) or the plan's name for them)
+    const pid = pidOf(m), q = pid != null ? drwEdById(pid) : null, at = q ? q.p.poleId || elemOf(q.p) : m.name || '';
+    return { pole: `Pole ${at}`, site: `${at || 'Site'}`, sitedetails: `Details of ${at}`, sitename: `Site name ${m.name || at}`, nap: `NAP at ${at}`, closure: `Closure at ${at}`, closurelabel: `Closure label at ${at}`, loop: `Loop at ${at}`,
+      span: `Span length ${m.name || ''}`.trim(), loopsym: `Loop on the cable at ${at}`, clamp: `Clamp tag at ${at}`, messenger: `Messenger arm of ${at}`, msgtext: `Messenger text of ${at}`, cablename: `Cable name ${m.name || ''}`.trim(), cableline: `Cable ${String(m.id).replace(/^cableline:/, '').split('|').map((x) => { const q = drwEdById(x); return q ? q.p.poleId || elemOf(q.p) : x; }).join(' – ')}`, guy: `Guying at ${at}`, ground: `Grounding at ${at}`, arm: `Arm at ${at}`, landmark: `Landmark ${m.name || ''}`.trim(), road: `Street name ${m.name || ''}`.trim() }[m.kind] || `${m.kind} ${m.name || at}`.trim();
+  }
+  /** (beta 7.11, Drawing tools) What an item can do (report.movable can): the builder's; a builder that does not say (7.10): its four kinds, moved (and turned: the details, a cable label). */
+  const CAN_710 = { photo: { move: true }, number: { move: true }, details: { move: true, rotate: true }, cable: { move: true, rotate: true } };
+  const canOf = (m) => (m && m.can) || CAN_710[m && m.kind] || { move: true };
+  /** (beta 7.11, Drawing tools) An item's style: its kind's (All like it), then its own, field by field (St: job.style, Sk: job.styleKind; none: as the plan). */
+  const styOf = (m, St, Sk) => ({ ...(((Sk || {})[m.kind]) || {}), ...(((St || {})[m.id]) || {}) });
+  /** Item i drawn moved by (metres): lifted off the plan (L: moved since the plan was made), and by the finger while it (or the block carrying it) is dragged. */
+  function drwMvOff(i, L) { const D = drw.mvDrag, o = L.off; if (D && (D.i === i || (D.with && D.with.includes(i)))) { const sc = drw.view.sc, t = D.snap ? drwSnapDelta(D, D.dx / sc, -D.dy / sc) : [D.dx / sc, -D.dy / sc]; return [o[0] + t[0], o[1] + t[1]]; } return o; } // ((beta 7.12) a closure or a loop on its cable: along it only)
+  /* (beta 7.12, Drawing edit) The owner: "Closure and loop does not follow cable orientation. Cable is where that loop and closure should snap in to": a closure and a
+     loop's symbol (loopsym) are on their cable (report path: the cable through their pole as drawn; along: their place on it, metres from the pole). Dragged, they
+     slide along it only (the finger taken to the nearest point of the cable), what names them with them; let go, kept as their pin's along (job.pins[id].along),
+     the plan turning them as the cable runs there. */
+  const isSnap = (m) => !!m && (m.kind === 'closure' || m.kind === 'loopsym') && Array.isArray(m.path) && m.path.length > 1;
+  /** A path's ([E, N] points) point nearest q: { s: metres along it from its first point, q: the point }, or null. */
+  function pathNear(P, q) {
+    let best = null, cum = 0;
+    for (let k = 1; k < P.length; k++) { const a = P[k - 1], b = P[k], vx = b[0] - a[0], vy = b[1] - a[1], l2 = vx * vx + vy * vy; if (l2 < 1e-12) continue; const l = Math.sqrt(l2), t = Math.max(0, Math.min(1, ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / l2)), x = [a[0] + vx * t, a[1] + vy * t], d = Math.hypot(x[0] - q[0], x[1] - q[1]);
+      if (!best || d < best.d - 1e-9) best = { d, s: cum + t * l, q: x }; cum += l; }
+    return best;
+  }
+  /** The point s metres along a path (held to its ends). */
+  function pathAt(P, s) { let cum = 0; for (let k = 1; k < P.length; k++) { const a = P[k - 1], b = P[k], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (s <= cum + l || k === P.length - 1) { const t = l ? Math.max(0, Math.min(1, (s - cum) / l)) : 0; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; } cum += l; } return P[0].slice(); }
+  /** How far a closure or a loop dragged by (dE, dN) goes along its cable (metres, [dE, dN] on it), and its new along; cached for one place of the finger. */
+  function drwSnapDelta(D, dE, dN) {
+    const k = `${dE.toFixed(3)},${dN.toFixed(3)}`; if (D.snap.k === k) return D.snap.t; const A = pathNear(D.snap.P, D.snap.base), B = pathNear(D.snap.P, [D.snap.base[0] + dE, D.snap.base[1] + dN]);
+    D.snap.k = k; D.snap.t = A && B ? [B.q[0] - A.q[0], B.q[1] - A.q[1]] : [0, 0]; D.snap.ds = A && B ? B.s - A.s : 0; return D.snap.t;
+  }
+  /** A closure's or loop's along kept by hand (its pin), else as the plan has it. */
+  const drwAlongNow = (m, M) => { const t = ((M || pmeta(drw.project)).mvPin || {})[m.id]; return t && t.along != null && Number.isFinite(+t.along) ? +t.along : +m.along || 0; };
+  /** (beta 7.11, Drawing tools) The matrix [a b c d e f] that draws lifted item i where it is now, in the plan's metres from its origin: moved (drwMvOff), turned
+   *  and sized about its pivot (L.xf: rot degrees, sc, piv [E, N]) and, while its turn handle is held, turned by the finger. */
+  function drwMvAff(i, L, PL) {
+    const [ox, oy] = drwMvOff(i, L), X = L.xf, H = drw.hDrag && drw.hDrag.kind === 'rot' && drw.hDrag.i === i ? drw.hDrag : null;
+    const rot = ((X && X.rot) || 0) + (H ? H.da : 0), s = (X && X.sc) || 1; if (!rot && s === 1) return [1, 0, 0, 1, ox, oy];
+    const P0 = H ? H.piv : X && X.piv ? X.piv : null, o = PL ? PL.origin : [0, 0], pv = P0 ? [P0[0] - o[0], P0[1] - o[1]] : [0, 0], a = rot * Math.PI / 180, c = Math.cos(a) * s, sn = Math.sin(a) * s;
+    return [c, sn, -sn, c, pv[0] - c * pv[0] + sn * pv[1] + ox, pv[1] - sn * pv[0] - c * pv[1] + oy];
+  }
+  /** A pole photo carried by its block being moved: how far it is moved now (metres). */
+  const drwMvPhOff = (id) => { const P = drw && drw.ph, PL = P && P.plan, i = P && P.mvIdx ? P.mvIdx.get(`ph:${id}`) : null, L = i != null && PL && PL.lifted ? PL.lifted.get(i) : null; return L ? drwMvOff(i, L) : [0, 0]; };
+  /** Item i's box where it is drawn now: [cx, cy, w, h, deg] (metres) ((beta 7.11, Drawing tools) turned and sized with it). */
+  const drwMvBox = (m, i) => { const PL = drw.ph && drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; if (!L) return [m.box[0], m.box[1], m.box[2], m.box[3], m.box[4]];
+    const A = drwMvAff(i, L, PL), o = PL.origin, x = m.box[0] - o[0], y = m.box[1] - o[1], s = Math.hypot(A[0], A[1]) || 1, r = Math.atan2(A[1], A[0]) * 180 / Math.PI;
+    return [A[0] * x + A[2] * y + A[4] + o[0], A[1] * x + A[3] * y + A[5] + o[1], m.box[2] * s, m.box[3] * s, m.box[4] + r]; };
+  /** (beta 7.11, Drawing tools) Every item under a finger, as a tap goes through them (tapped again on the same spot: the next): a point's centre right there
+   *  first (its tap, as before: { pt, id: its pole's or site's item }), the photo frames (the one drawn last first), the plan's items (the smallest first; none
+   *  too small on the screen to take: its texts are not drawn either), a point within 24 px. Labels off: the points only. */
+  function drwCands(e) {
+    const out = []; if (!drw || !drw.view) return out;
+    const cv = $('drawCanvas'), r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1, x = (e.clientX - r.left) * d, y = (e.clientY - r.top) * d, P = drw.ph, on = drwPlanOn() && drw.labels !== false;
+    const ptItem = (pid) => (on && P && P.mvIdx ? (P.mvIdx.has(`pole:${pid}`) ? `pole:${pid}` : P.mvIdx.has(`site:${pid}`) ? `site:${pid}` : null) : null);
+    let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(drwAt(it)), dd = Math.hypot(px - x, py - y); if (dd < 24 * d && (!best || dd < best.dd)) best = { it, dd }; });
+    const pt = best ? { pt: String(best.it.p.id), id: ptItem(best.it.p.id), near: best.dd < 10 * d } : null;
+    if (pt && pt.near) out.push(pt);
+    for (let k = (drw.phHit || []).length - 1; k >= 0; k--) { const H = drw.phHit[k], c = Math.cos(H.rot), sn = Math.sin(H.rot), dx = x - H.cx, dy = y - H.cy, u = dx * c + dy * sn, v = -dx * sn + dy * c; // (the photo frames drawn, with the plan or without it, as 7.10 found them)
+      if (Math.abs(u) <= Math.max(H.w / 2 + 2 * d, 10 * d) && Math.abs(v) <= Math.max(H.h / 2 + 2 * d, 10 * d)) out.push({ photo: String(H.id), id: on && P && P.mvIdx && P.mvIdx.has(`ph:${H.id}`) ? `ph:${H.id}` : null }); }
+    if (on) {
+      const M = drwMvs(), v = drw.view, sc = v.sc, E = v.cx + (x - cv.width / 2) / sc, N = v.cy - (y - cv.height / 2) / sc, mg = (e.pointerType === 'mouse' ? 5 : 9) * d / sc, hit = [], hid = new Set(Object.keys(pmeta(drw.project).mvHide || {}));
+      M.forEach((m, i) => {
+        const line = m.kind === 'cableline' || m.kind === 'messenger'; // ((beta 7.12, Drawing edit) a line (a span's cable, a messenger arm): taken within a finger of it; after what is on it)
+        if (m.kind === 'photo' || (!line && Math.min(m.box[2], m.box[3]) * sc < 3 * d) || (line && m.box[2] * sc < 6 * d) || (pt && pt.id === m.id) || (isNote(m) && !noteNow(m)) || hid.has(m.id) || m.hidden) return; // ((beta 7.12, Drawing edit) a note deleted since the plan shown was made, an item deleted from the plan: not there)
+        const B = drwMvBox(m, i), a = B[4] * Math.PI / 180, dx = E - B[0], dy = N - B[1], u = dx * Math.cos(a) + dy * Math.sin(a), w = -dx * Math.sin(a) + dy * Math.cos(a);
+        if (Math.abs(u) <= B[2] / 2 + mg && Math.abs(w) <= B[3] / 2 + mg) hit.push({ id: m.id, i, ar: line ? B[2] * Math.max(B[3], 2 * mg) * 4 : B[2] * B[3] });
+      });
+      hit.sort((p, q) => p.ar - q.ar).forEach((h) => out.push({ id: h.id, i: h.i }));
+    }
+    if (pt && !pt.near) out.push(pt);
+    return out;
+  }
+  /** (beta 7.11, Drawing tools) What a finger pressed there drags: a selected item under it (the selection with it), else a photo frame or an item that moves
+   *  without being selected (a label, a number, the details, a symbol: never a pole or a site, which are selected first so that a pan over them moves nothing),
+   *  null: the drawing is panned. A point's centre pressed: only its pole (or site) when selected. */
+  function drwGrabAt(e) {
+    const C = drwCands(e); if (!C.length) return null; const sel = new Set(drwSels()), mv = (id) => { const m = mvById(id); return !!m && canOf(m).move !== false; };
+    for (const c of C) if (c.id && sel.has(c.id) && mv(c.id)) return c.photo && sel.size === 1 ? { photo: c.photo } : { id: c.id };
+    for (const c of C) { if (c.pt) return null; if (c.photo) return { photo: c.photo }; if (c.id && mv(c.id) && !/^(pole|site):/.test(c.id)) return { id: c.id }; }
+    return null;
+  }
+  /** (beta 7.12, Drawing edit) How far the plan shown would draw point pid now from where it drew it (metres): to its plan-only place (poleAt, 7.11), or as far as its
+   *  record's place moved since the plan was made (report pts at made time, ptsAt), or as given (SH: a move being kept); [0, 0]: where it is. */
+  const drwPtShift = (pid, M, SH) => { const id = String(pid); if (SH && SH.has(id)) return SH.get(id); const P = drw && drw.ph, a = P && P.drawnAt ? P.drawnAt[id] : null; if (!a) return [0, 0];
+    const q = ((M || {}).poleAt || {})[id]; if (Array.isArray(q)) return [q[0] - a[0], q[1] - a[1]]; const s0 = P.ptsAt && P.ptsAt[id], it = s0 ? drwEdById(id) : null; return it ? [it.xy[0] - s0[0], it.xy[1] - s0[1]] : [0, 0]; };
+  /** (beta 7.11, Drawing tools) Where an item's pin is measured from now (metres): its anchor as the plan shown has it, moved with its pole (a cable label, a span
+   *  length: with its span's poles) where a pole was moved since (M: pmeta(); job.poleAt then; report.drawnAt: where the plan shown draws each point). */
+  function drwAnchorNow(m, M, SH) {
+    const D = (pid) => drwPtShift(pid, M, SH); // ((beta 7.12, Drawing edit) its plan-only place (poleAt), its record moved since, or a move being kept (SH))
+    const sp = Array.isArray(m.span) && m.span.length === 2 ? m.span : m.kind === 'span' && /^span:/.test(m.id) ? m.id.slice(5).split('|') : null;
+    if (m.kind === 'cable' || m.kind === 'span') { if (!sp) return m.anchor.slice(); const A = D(String(sp[0])), B = D(String(sp[1])); return [m.anchor[0] + (A[0] + B[0]) / 2, m.anchor[1] + (A[1] + B[1]) / 2]; }
+    const pid = pidOf(m); if (pid == null) return m.anchor.slice(); const d = D(pid); return [m.anchor[0] + d[0], m.anchor[1] + d[1]];
+  }
+  /** (beta 7.11, Drawing tools) An item's angle as kept by hand (degrees; null: as the plan puts it). */
+  const drwRotOf = (m, M) => { const MM = M || pmeta(drw.project);
+    if (isNote(m)) { const n = noteNow(m, MM); return n && +n.rot ? +n.rot : null; } // ((beta 7.12, Drawing edit) a note: its own turn)
+    if (m.kind === 'details') { const v = (MM.lblPin || {})[m.point]; if (Array.isArray(v) && v.length > 2 && v[2] != null) return +v[2]; }
+    if (m.kind === 'cable') { const v = (MM.cabPin || {})[m.key]; if (v && v.rot != null) return +v.rot; }
+    const t = (MM.mvPin || {})[m.id]; return t && t.rot != null ? +t.rot : null; };
+  /** Each item drawn where its pin puts it until the plan made with it comes (lifted off the plan by the difference), the others where the plan has them
+   *  (one placed by hand and now back to automatic: where it is, until then); a block's photo with its block. After every change and every plan shown.
+   *  ((beta 7.11, Drawing tools) and turned, sized, in its colour and font as set since the plan shown was made; a pole moved: there, with what is on it.) */
+  function drwMvShowPins() {
+    const P = drw && drw.ph, PL = P && P.plan; if (!PL || !PL.lifted || !P.mv || !P.mvIdx) return;
+    const M = pmeta(drw.project), want = new Map(), J = P.tools || {}, moved = new Map();
+    for (const pid of Object.keys(P.drawnAt || {})) { const d = drwPtShift(pid, M); if (Math.hypot(d[0], d[1]) > 0.02) moved.set(String(pid), d); } // (the poles moved since: by how much ((beta 7.12) on the plan only, or their record))
+    const zNow = drwOrderNow(M), zMade = drwOrderNow({ mvOrder: J.order || [] }); // ((beta 7.12, Drawing edit) each item's last draw order op, now and as the plan shown was made)
+    const alive = new Set(points.filter((q) => q.project === drw.project).map((q) => String(q.id))); // ((beta 7.12) a point deleted since the plan was made: what is on it not drawn until the plan made without it comes)
+    P.mv.forEach((m, i) => {
+      if (isNote(m)) { want.set(i, drwNoteLift(m, M)); return; } // ((beta 7.12, Drawing edit) a note: where, how turned and sized it is now, from the note itself; deleted: hidden)
+      if (((M.mvHide || {})[m.id] && !(J.hide || []).includes(m.id)) || (pidOf(m) != null && /^(pole|site|sitelbl|sitename|nap|clo|clolbl|loop|loopsym|guy|gnd|arm|lbl|num|ph|clamp|msg|msgtext):/.test(m.id) && !alive.has(String(pidOf(m))))) { want.set(i, { off: [0, 0], xf: { hide: true } }); return; } // ((beta 7.12) deleted from the plan, or its point deleted, since it was made: not drawn until the plan made without it comes)
+      const z = zNow.get(m.id) !== zMade.get(m.id) ? (/^(front|forward)$/.test(zNow.get(m.id) || '') ? 1 : /^(back|backward)$/.test(zNow.get(m.id) || '') ? -1 : 0) : 0; // ((beta 7.12) over or under the rest until the plan made with it comes)
+      if (m.kind === 'photo') { if (!want.has(i)) want.set(i, z ? { off: [0, 0], xf: { z } } : null); return; }
+      const pin = drwPinOf(m, M), pid = pidOf(m); let off = null;
+      if (isSnap(m)) { const al = drwAlongNow(m, M); if (Math.abs(al - (+m.along || 0)) > 0.02) { const A = pathNear(m.path, [m.box[0], m.box[1]]); if (A) { const q = pathAt(m.path, A.s + al - (+m.along || 0)); off = [q[0] - A.q[0], q[1] - A.q[1]]; } } else if (pid != null && moved.has(pid)) off = moved.get(pid); } // ((beta 7.12, Drawing edit) slid along its cable: there until the plan made with it comes)
+      else if (ptMoves(m) && pid != null) { if (moved.has(pid)) off = moved.get(pid); }
+      else if (pin) { const an = drwAnchorNow(m, M), dx = an[0] + +pin[0] - m.box[0], dy = an[1] + +pin[1] - m.box[1]; if (Math.hypot(dx, dy) > 0.02) off = [dx, dy]; }
+      else if (m.how === 'by hand') { const L = PL.lifted.get(i); off = L ? L.off : null; }
+      else if (pid != null && moved.has(pid)) off = moved.get(pid); // (on a pole moved: with it until the plan made with it comes)
+      else if ((m.kind === 'cable' || m.kind === 'span') && moved.size) { const an = drwAnchorNow(m, M); if (Math.hypot(an[0] - m.anchor[0], an[1] - m.anchor[1]) > 0.02) off = [an[0] - m.anchor[0], an[1] - m.anchor[1]]; }
+      // ((beta 7.11, Drawing tools) turned, sized, its colour or font changed since the plan shown was made)
+      const C = canOf(m), sw = styOf(m, M.mvStyle, M.mvKind), sm = styOf(m, J.style, J.styleKind), rw = drwRotOf(m, M), X = {};
+      if (rw != null && Math.abs(((rw - m.box[4] + 540) % 360) - 180) > 0.05) { X.rot = ((rw - m.box[4] + 540) % 360) - 180; X.piv = C.about ? C.about.slice() : [m.box[0], m.box[1]]; }
+      const fs = (+sw.scale || 1) / (+sm.scale || 1), fh = (+sw.h || 1) / (+sm.h || 1), f = C.scale && C.text ? fs * fh : C.scale ? fs : C.text ? fh : 1;
+      if (Math.abs(f - 1) > 1e-3) { X.sc = f; if (!X.piv) X.piv = C.about ? C.about.slice() : m.kind === 'closurelabel' && Math.abs(fs - 1) > 1e-3 ? m.anchor.slice() : [m.box[0], m.box[1]]; } // (an attachment from where it meets its pole; a closure's bubble about its closure, its label with it: as the plan sizes them)
+      if (sw.color && sw.color !== sm.color) X.col = drwAciCss(sw.color);
+      if ((sw.bold != null || sw.italic != null) && (!!sw.bold !== !!sm.bold || !!sw.italic !== !!sm.italic)) X.font = (sw.bold ? 1 : 0) + (sw.italic ? 2 : 0);
+      if (z) X.z = z;
+      const xf = Object.keys(X).length ? X : null;
+      const par = want.get(i); want.set(i, off || xf ? { off: off || (par ? par.off : [0, 0]), xf } : par || null); // ((beta 7.11) carried by a parent set before (a pole moved, a block placed by hand): with it, unless placed by hand itself)
+      for (const w of m.with || []) { const j = P.mvIdx.get(w); if (j != null && !want.get(j)) want.set(j, off ? { off, xf: null } : null); }
+    });
+    for (const [i, w] of want) drwPlanLift(PL, i, w ? w.off : null, w ? w.xf : null);
+  }
+  /** (beta 7.12, Drawing edit) The draw order kept (M: pmeta(), or { mvOrder }): each item's last op (front, forward, backward, back). */
+  const drwOrderNow = (M) => { const o = new Map(); for (const x of (M && Array.isArray(M.mvOrder) ? M.mvOrder : [])) if (x && x.id) o.set(String(x.id), String(x.op)); return o; };
+  /** (beta 7.12, Drawing edit) A note item drawn as the note is now until the plan made with it comes: moved by at, turned by rot (about at), sized by h (a text)
+   *  or size (a photo), its colour and font; deleted since: hidden. { off, xf } for drwPlanLift, or null (as made). */
+  function drwNoteLift(m, M) {
+    const n = noteNow(m, M), n0 = noteMade(m); if (!n) return { off: [0, 0], xf: { hide: true } }; if (!n0) return null;
+    const X = {}, off = [+n.at[0] - +n0.at[0], +n.at[1] - +n0.at[1]], dr = (+n.rot || 0) - (+n0.rot || 0);
+    if (Math.abs(dr) > 0.05) { X.rot = dr; X.piv = [+n0.at[0], +n0.at[1]]; }
+    const f = n.kind === 'photo' ? (+n.size || +m.box[2] || 1) / (+n0.size || +m.box[2] || 1) : (+n.h || 1) / (+n0.h || 1); if (Math.abs(f - 1) > 1e-3) { X.sc = f; if (!X.piv) X.piv = [+n0.at[0], +n0.at[1]]; }
+    if (n.color && n.color !== n0.color) X.col = drwAciCss(n.color);
+    if (!!n.bold !== !!n0.bold || !!n.italic !== !!n0.italic) X.font = (n.bold ? 1 : 0) + (n.italic ? 2 : 0);
+    const moved = Math.hypot(off[0], off[1]) > 0.02; return moved || Object.keys(X).length ? { off: moved ? off : [0, 0], xf: Object.keys(X).length ? X : null } : null;
+  }
+  /** (beta 7.11, Drawing tools) An AutoCAD colour as the plan's PDF prints it (7: black on the paper). */
+  const drwAciCss = (c) => { const A = window.GeDxfPdf && window.GeDxfPdf.ACI, v = A && A[+c] ? A[+c] : { 1: [255, 0, 0], 2: [255, 255, 0], 3: [0, 255, 0], 4: [0, 255, 255], 5: [0, 0, 255], 6: [255, 0, 255], 7: [0, 0, 0], 8: [128, 128, 128] }[+c] || [0, 0, 0]; return `rgb(${v[0]},${v[1]},${v[2]})`; };
+  /** (beta 7.11, Drawing tools) The items selected on the plan shown (ids; the last one tapped last). */
+  const drwSels = () => { if (!drw || !Array.isArray(drw.mvSels)) return []; const P = drw.ph; return P && P.mvIdx ? drw.mvSels.filter((id) => P.mvIdx.has(id)) : []; };
+  /** (beta 7.11, Drawing tools) Nothing selected any more (Esc, a tap on the empty plan, ✕): true when something was. */
+  function drwSelClear(quiet) {
+    if (!drw) return false; const had = drwSels().length > 0 || drw.mvSel != null || drw.selPh != null; drw.mvSels = []; drw.mvSel = null; drw.selPh = null; drw.tbMore = false; drw.tbAll = false; drw.tbX = false; drw.tapC = null;
+    if (had && !quiet) { $('drawInfo').hidden = true; $('drawHint').hidden = !!S.drawHintOff; drwTbRender(); drawDrawing(); } return had;
+  }
+  /** The information line for what is selected: one item as 7.10 says it (placed by hand: Back to automatic); several: how many and what. */
+  function drwSelSay() {
+    const L = drwSels(), info = $('drawInfo'); if (!L.length) return;
+    if (L.length === 1) { const m = mvById(L[0]); if (m && m.kind === 'photo') { drwPhSay(m.point); drwAllSay(); return; } if (m) { drwMvSay(m); drwAllSay(); return; } }
+    const nm = L.map((id) => { const m = mvById(id); return m ? drwMvName(m) : id; });
+    info.textContent = `${L.length} selected: ${nm.slice(0, 4).join(', ')}${nm.length > 4 ? '…' : ''}${drw.tbMore ? ' · tap more to add or take off' : ''}`;
+    info.hidden = false; $('drawHint').hidden = true; drwAllSay();
+  }
+  /** All like it: the information line says which items the styles go to (a turn, a move, Existing / Proposed: these selected only). */
+  function drwAllSay() {
+    if (!drw.tbAll) return; const K = [...new Set(drwSels().map((id) => { const m = mvById(id); return m ? m.kind : null; }).filter(Boolean))].map((k) => (MV_NOUN[k] || ['item', 'items'])[1]);
+    if (K.length) { const sp = document.createElement('span'); sp.className = 'drwall'; sp.textContent = ` · the style for all ${K.length > 1 ? `${K.slice(0, -1).join(', ')} and ${K[K.length - 1]}` : K[0]}`; const b = $('drawInfo').querySelector('button'); $('drawInfo').insertBefore(sp, b || null); }
+  }
+  /** One item said: what it is, placed by hand or where the plan puts it, across a sheet's edge (7.10's words). */
+  function drwMvSay(m) {
+    if (isNote(m)) { const info = $('drawInfo'); info.textContent = `${drwMvName(m)}${drwSels().length === 1 && drw.tbMore ? ' · tap more to add' : ''} · your own, not from a record: drag it to move it${canText(m) ? ', double-tap to edit it' : ''}; Delete takes it off (↶ brings it back)`; info.hidden = false; $('drawHint').hidden = true; return; } // ((beta 7.12, Drawing edit) a note)
+    const i = mvIx(m.id), M = pmeta(drw.project), pin = drwPinOf(m), hand = !!pin || drwHandOf(m, M), info = $('drawInfo'), cut = pin ? drwMvCut(m, i) : null; // ((beta 7.10, Plan kept) across a sheet's edge: said, as a photo's)
+    const pole = ptMoves(m), how = hand ? (isSnap(m) && ((M.mvPin || {})[m.id] || {}).along != null ? 'slid along its cable by hand' : pole && (M.poleAt || {})[pidOf(m)] ? 'moved on the plan (its record\'s place stays)' : pin ? 'placed by hand on the plan' : 'changed by hand on the plan') : `where the plan puts it: ${pole ? 'drag it to move it (its record\'s place moves with it: ↶ undoes)' : isSnap(m) ? 'drag it along its cable' : 'drag it to place it by hand'}`;
+    info.textContent = `${drwMvName(m)}${drwSels().length === 1 && drw.tbMore ? ' · tap more to add' : ''} · ${how}${cut ? ` · across the edge of sheets ${andList(cut)}: it prints cut on both, drag it inside one` : ''}${m.empty ? ' · its texts left off (Edit text, or Automatic, brings them back)' : ''}${drwZSay(m)}`; // ((beta 7.12, Drawing edit) nothing of it drawn; what it is drawn over and under)
+    if (hand) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawMvAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwMvAuto(m.id)); info.appendChild(b); }
+    info.hidden = false; $('drawHint').hidden = true;
+  }
+  /** (beta 7.12, Drawing edit) What an item whose draw order was changed by hand is drawn over and under, among the items its box touches (report.movable z: its
+   *  place in the draw order), or '' (as the plan draws it: not said). */
+  function drwZSay(m) {
+    if (m.z == null || !drw || !drw.ph || !(pmeta(drw.project).mvOrder || []).some((o) => o && o.id === m.id)) return ''; const ext = (B) => { const a = B[4] * Math.PI / 180, ex = (Math.abs(Math.cos(a)) * B[2] + Math.abs(Math.sin(a)) * B[3]) / 2, ey = (Math.abs(Math.sin(a)) * B[2] + Math.abs(Math.cos(a)) * B[3]) / 2; return [B[0] - ex, B[1] - ey, B[0] + ex, B[1] + ey]; };
+    const A = ext(m.box); let over = 0, under = 0;
+    for (const q of drw.ph.mv || []) { if (q === m || q.z == null || q.empty) continue; const Q = ext(q.box); if (Q[0] > A[2] || Q[2] < A[0] || Q[1] > A[3] || Q[3] < A[1]) continue; if (q.z < m.z) over++; else under++; }
+    return over || under ? ` · drawn ${[over ? `over ${over}` : '', under ? `under ${under}` : ''].filter(Boolean).join(' and ')} of what it touches` : '';
+  }
+  /** (beta 7.11, Drawing tools) An item changed by hand (placed, turned, styled, its pole moved). */
+  const drwHandOf = (m, M) => { const MM = M || pmeta(drw.project); if (isNote(m)) return false; return !!(drwPinOf(m, MM) || (MM.mvPin || {})[m.id] || (MM.mvStyle || {})[m.id] || (MM.mvText || {})[m.id] || (MM.mvHide || {})[m.id] || (MM.mvOrder || []).some((o) => o && o.id === m.id) || ((m.kind === 'pole' || m.kind === 'site') && (MM.poleAt || {})[pidOf(m)])); }; // ((beta 7.12, Drawing edit) its text, its draw order; a note is the user's own: never "by hand", no Back to automatic)
+  /** An item tapped: the information line says what it is, placed by hand with Back to automatic ((beta 7.11, Drawing tools) selected, with the toolbar;
+   *  how 'add': Shift / Ctrl + click or Select more: added to the selection, or taken off it). */
+  function drwMvTap(id, how) {
+    const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null; if (!m) return;
+    drw.sel = null; drw.selRun = null; drw.selPh = null;
+    if (how === 'add') { const L = drwSels(), k = L.indexOf(id); if (k >= 0) L.splice(k, 1); else L.push(id); drw.mvSels = L; drw.mvSel = L.length ? L[L.length - 1] : null; }
+    else { if (!(drwSels().length === 1 && drwSels()[0] === id)) drw.tbAll = false; drw.mvSels = [id]; drw.mvSel = id; } // (another item: "This one" again)
+    if (!drw.mvSels.length) { $('drawInfo').hidden = true; $('drawHint').hidden = !!S.drawHintOff; } else drwSelSay();
+    if (drw.mvSels.length === 1 && m.kind === 'photo' && drw.mvSels[0] === id) drw.selPh = String(m.point);
+    drwTbRender();
+    if (cefHooks.drawSync) cefHooks.drawSync(); if (splHooks.drawSync) splHooks.drawSync(); drawDrawing();
+  }
+  /** An item let go after a drag (dx, dy: canvas pixels): kept where it was let go (its pin), drawn there until the plan made with it comes ((beta 7.11, Drawing
+   *  tools) the selection dragged with it: each kept so; a pole or a site: where the plan draws it (poleAt), the items on it measured from there). */
+  function drwMvDrop(id, dx, dy, G) {
+    const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null; if (!m || (m.kind === 'photo' && !(G && G.grp && G.grp.length > 1))) { if (drw) drawDrawing(); return; }
+    const grp = (G && G.grp && G.grp.length ? G.grp : [id]).map(mvById).filter((q) => q && canOf(q).move !== false), sc = drw.view.sc, dE = dx / sc, dN = -dy / sc, proj = drw.project, PL = P.plan;
+    if (!grp.length) { drawDrawing(); return; }
+    const offOf = (q) => { const L = PL && PL.lifted ? PL.lifted.get(mvIx(q.id)) : null; return L ? L.off : [0, 0]; }; let at = null; // (the photos' places, new: the preview kept for this job stays as it was made)
+    // the poles and sites first ((beta 7.12, Drawing edit) the point itself, as its pin moved on the map: its record's place moved as far as it was dragged from where
+    // the plan draws it, adjusted, updated by this user; its plan-only place (7.11's poleAt) let go. SH: how far each is drawn from where the plan shown has it, now:
+    // the items on it are measured from there. The other items as before; one step of Undo for all of it)
+    const recs = [], prev = [], SH = new Map(), now = new Date().toISOString(), lock = [];
+    for (const q of grp) {
+      if (!ptMoves(q)) continue; const pid = pidOf(q), p = points.find((x) => String(x.id) === String(pid)), it = drwEdById(pid); if (!p || !it) continue;
+      const lk = tmHooks.locked ? tmHooks.locked(p.id, 'edit') : ''; if (lk) { lock.push(lk); continue; }
+      const o = offOf(q), s0 = P.ptsAt && P.ptsAt[pid], E = (s0 ? s0[0] + o[0] : it.xy[0]) + dE, N = (s0 ? s0[1] + o[1] : it.xy[1]) + dN, ll = C.utmInverse(E, N, drw.zone, !!drw.south);
+      prev.push(JSON.parse(JSON.stringify(p))); recs.push({ ...p, lat: +(+ll[0]).toFixed(7), lon: +(+ll[1]).toFixed(7), adjusted: true, updated: now, updatedBy: byLine() }); SH.set(String(pid), [o[0] + dE, o[1] + dN]);
+    }
+    if (lock.length && !recs.length && grp.every(ptMoves)) { toast(lock[0], 6500); drwMvShowPins(); drawDrawing(); return; }
+    drwUndoPush(grp.length > 1 ? `${grp.length} items moved` : `${m.kind} moved`, prev.length ? prev : null); const m0 = pmeta(proj), nm = { ...m0 };
+    if (recs.length && nm.poleAt) { const Q = { ...nm.poleAt }; for (const pid of SH.keys()) delete Q[pid]; if (Object.keys(Q).length) nm.poleAt = Q; else delete nm.poleAt; }
+    let NT = null; // ((beta 7.12, Drawing edit) the notes moved: the note itself)
+    for (const q of grp) {
+      if (ptMoves(q)) continue;
+      if (isNote(q)) { NT = NT || notesOf(nm).map((x) => ({ ...x })); const n = NT.find((x) => `note:${x.id}` === q.id); if (n) n.at = [+(+n.at[0] + dE).toFixed(2), +(+n.at[1] + dN).toFixed(2)]; continue; }
+      if (isSnap(q)) { const o = offOf(q), base = [q.box[0] + o[0], q.box[1] + o[1]], A = pathNear(q.path, base), B = pathNear(q.path, [base[0] + dE, base[1] + dN]); if (!A || !B) continue; // ((beta 7.12) a closure or a loop: its place along its cable)
+        const t = { ...((nm.mvPin || {})[q.id] || {}), along: +(drwAlongNow(q, nm) + B.s - A.s).toFixed(2) }; delete t.at; nm.mvPin = { ...(nm.mvPin || {}), [q.id]: t }; continue; }
+      if (q.kind === 'photo') { const A = P.at && P.at[q.point]; if (!A) continue; const off = [+(A.x - A.dp[0] + dE).toFixed(2), +(A.y - A.dp[1] + dN).toFixed(2)]; nm.phPin = { ...(nm.phPin || {}), [q.point]: off };
+        at = { ...(at || P.at), [q.point]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null, cut: null } }; continue; } // (as a photo let go: drwPhDrop)
+      const o = offOf(q), an = drwAnchorNow(q, nm, SH), c = [q.box[0] + o[0] + dE, q.box[1] + o[1] + dN], off = [+(c[0] - an[0]).toFixed(2), +(c[1] - an[1]).toFixed(2)], ang = +(+q.box[4] || 0).toFixed(3), key = PIN_OF[q.kind];
+      if (key) { const k = q.kind === 'cable' ? q.key : q.point, rk = drwRotOf(q, nm); nm[key] = { ...(nm[key] || {}), [k]: q.kind === 'cable' ? { at: off, rot: rk != null ? rk : ang } : q.kind === 'details' ? [off[0], off[1], rk != null ? rk : ang] : off }; } // (as it was let go: where, and its angle)
+      else { const t = { ...((nm.mvPin || {})[q.id] || {}), at: off }; if (canOf(q).about) delete t.at; nm.mvPin = { ...(nm.mvPin || {}), [q.id]: t }; } // ((beta 7.11) an attachment turns about its pole and stays on it: not moved on its own)
+    }
+    if (NT) nm.notes = NT;
+    S.meta = S.meta || {}; S.meta[proj] = nm; persist(); // (as it was let go: where, and its angle)
+    if (at) drw.ph = { ...drw.ph, sig: '', at }; // (the photos where they were let go, until the plan's own places come)
+    LOG.info('draw.label.pin', { kind: m.kind, n: grp.length, recs: recs.length, ...(PIN_OF[m.kind] ? { kept: Object.keys(nm[PIN_OF[m.kind]] || {}).length } : {}) });
+    planGridKeep(proj, P.grid, P.lab, P.split); // ((beta 7.10, Plan kept) the first item placed by hand: the plan keeps the grid it shows)
+    if (recs.length) { const sel = grp.length > 1 ? grp.map((q) => q.id) : [id]; drwRecsPut(recs).then((ok) => { if (!ok || !drw) return; drw.mvSels = sel.filter((x) => drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(x)); drw.mvSel = drw.mvSels.length ? drw.mvSels[drw.mvSels.length - 1] : null; drwSelSay(); drwTbRender(); drawDrawing(); if (lock.length) toast(lock[0], 6500); else toast(`${recs.length === 1 ? `${recName(recs[0]) || elemOf(recs[0])} moved` : `${recs.length} points moved`}: its record's place, the KMZ, the BOQ and the plan follow (↶ undoes)`, 3500); }); return; } // ((beta 7.12) the Drawing made again with the record moved)
+    drwMvShowPins(); drwPlanUi(); if (grp.length > 1) { drw.mvSels = grp.map((q) => q.id); drw.mvSel = id; drwSelSay(); drwTbRender(); drawDrawing(); } else if (m.kind === 'photo') drwPhTap(m.point); else drwMvTap(id); drwPhSoon(250);
+  }
+  /** Back to automatic: the item placed by hand goes back where the plan puts it ((beta 7.11, Drawing tools) its place, its turn, its arrow's tip, its style, a pole's
+   *  place on the plan; ids: several (the toolbar's), withKind: their kinds' styles (All like it) too). */
+  function drwMvAuto(id, ids, withKind) {
+    const L = (ids || [id]).map(mvById).filter(Boolean); if (!L.length || !drw) return; const proj = drw.project, m0 = pmeta(proj), nm = { ...m0 }; let n = 0;
+    const drop = (key, k) => { if (!nm[key] || !(k in nm[key])) return; const Q = { ...nm[key] }; delete Q[k]; nm[key] = Q; if (!Object.keys(Q).length) delete nm[key]; n++; };
+    for (const m of L) {
+      if (isNote(m)) continue; // ((beta 7.12, Drawing edit) a note has no automatic place)
+      const key = PIN_OF[m.kind]; if (key) drop(key, m.kind === 'cable' ? m.key : m.point);
+      drop('mvPin', m.id); drop('mvStyle', m.id); if ((m.kind === 'pole' || m.kind === 'site') && pidOf(m) != null) drop('poleAt', pidOf(m));
+      drop('mvText', m.id); drop('mvHide', m.id); if ((nm.mvOrder || []).some((o) => o && o.id === m.id)) { nm.mvOrder = nm.mvOrder.filter((o) => !(o && o.id === m.id)); if (!nm.mvOrder.length) delete nm.mvOrder; n++; } // ((beta 7.12, Drawing edit) its own text back, drawn where the plan draws it)
+      if (withKind) drop('mvKind', m.kind);
+    }
+    if (!n) return; drwUndoPush(L.length > 1 ? `${L.length} items back to automatic` : `${L[0].kind} back to automatic`);
+    if (!pinsAny(nm)) delete nm.planGrid; // ((beta 7.10, Plan kept) nothing placed by hand left: the grid is worked out again)
+    S.meta[proj] = nm; persist(); LOG.info('draw.label.auto', { kind: L[0].kind, n: L.length });
+    for (const m of L) if (m.kind === 'photo' && drw.ph && drw.ph.at && drw.ph.at[m.point]) drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [m.point]: { ...drw.ph.at[m.point], how: 'auto' } } }; // (where it is until the plan's place comes)
+    drwMvShowPins(); drwPlanUi(); if (L.length === 1 && !ids) drwMvTap(id); else { drwSelSay(); drwTbRender(); drawDrawing(); } drwPhSoon(0);
+  }
+  /** Undo: the pins as they were before the last change of where things are on this project's plan (kept: a drag, Back to automatic, all of them back)
+   *  ((beta 7.11, Drawing tools) and the turns, tips, styles and poles moved; recs: the records as they were before Existing ↔ Proposed).
+   *  (beta 7.12, Drawing edit) The owner: "allow also a cntrl+z or cmd+z to trigger undo and cmd+Y to redo": every change on the Drawing has its step, the plan's
+   *  own (kept on this phone) and the records' (a pole moved, a field deleted, a text written into its record, a point deleted: recs, the records as they were;
+   *  more.ph: the photos of a record to come back; more.route: the spans and cables as they were). Undo puts the step back and keeps the change for Redo; a new
+   *  change drops the steps to redo. */
+  const drwRedoStack = [];
+  const drwPinsSnap = (M) => Object.fromEntries([...MV_KEYS, 'planGrid'].map((k) => [k, M[k] ? JSON.parse(JSON.stringify(M[k])) : null])); // ((beta 7.10, Plan kept) the grid kept with them, as it was)
+  function drwUndoPush(what, recs, more) {
+    if (!drw) return; const M = pmeta(drw.project);
+    drwUndoStack.push({ project: drw.project, what, pins: drwPinsSnap(M), ...(recs ? { recs } : {}), ...(more && more.ph && more.ph.length ? { ph: more.ph } : {}), ...(more && more.route ? { route: more.route } : {}) });
+    if (drwUndoStack.length > 60) drwUndoStack.shift();
+    for (let k = drwRedoStack.length - 1; k >= 0; k--) if (drwRedoStack[k].project === drw.project) drwRedoStack.splice(k, 1); // ((beta 7.12) a new change: nothing to redo)
+  }
+  /** (beta 7.12, Drawing edit) A step's other side, now: the pins as they are, each of its records as it is (null: not there), the photos of those that the step
+   *  would take away (for the way back), the route as it is when the step has one. */
+  async function drwStepNow(proj, U) {
+    const o = { project: proj, what: U.what, pins: drwPinsSnap(pmeta(proj)) };
+    if (U.recs && U.recs.length) {
+      o.recs = U.recs.map((r) => { const cur = points.find((x) => String(x.id) === String(r.id)); return cur ? JSON.parse(JSON.stringify(cur)) : { id: r.id, gone: true, project: proj }; });
+      const ph = []; for (const r of U.recs) { if (!r.gone) continue; const cur = points.find((x) => String(x.id) === String(r.id)); if (cur) for (const pid of allPids(cur)) { const x = await dbGet('photos', pid).catch(() => null); if (x) ph.push(x); } } if (ph.length) o.ph = ph;
+    }
+    if (U.route) o.route = routeSnap(); return o;
+  }
+  /** (beta 7.12, Drawing edit) A step applied: the pins, then each record as it was (one marked gone: deleted, as its record's Delete does), its photos back, the route. */
+  async function drwStepApply(proj, U) {
+    const m = { ...pmeta(proj) };
+    for (const k of MV_KEYS) { if (U.pins[k] && Object.keys(U.pins[k]).length) m[k] = U.pins[k]; else delete m[k]; }
+    if (!pinsAny(m)) delete m.planGrid; else if (U.pins.planGrid) m.planGrid = U.pins.planGrid; // ((beta 7.10, Plan kept) the grid as it was kept then (none kept then: the one kept now); none placed by hand: worked out again)
+    S.meta = S.meta || {}; S.meta[proj] = m; persist();
+    if (!(U.recs && U.recs.length) && !U.route) return false;
+    for (const x of U.ph || []) await dbPut('photos', x).catch(() => {});
+    const now = new Date().toISOString(); let del = false;
+    for (const r of U.recs || []) {
+      const cur = points.find((x) => String(x.id) === String(r.id)), mm = { ...(S.meta[proj] || {}) }, g = { ...(mm.gone || {}) };
+      if (r.gone) { if (!cur) continue; await dbDel('points', cur.id); await deletePhotosIfUnused(allPids(cur), new Set([cur.id])); points = points.filter((x) => x.id !== cur.id); g[cur.id] = now; del = true; } // (as its record's Delete: the deletion goes with the next share)
+      else { await dbPut('points', r); const i = points.findIndex((x) => x.id === r.id); if (i >= 0) points[i] = r; else points.push(r); delete g[r.id]; }
+      mm.gone = g; if (!Object.keys(g).length) delete mm.gone; S.meta[proj] = mm; persist();
+    }
+    if (U.route && S.project === proj) setRoute(U.route.l, U.route.f);
+    changedAfterApproval(proj, del ? 'delete' : 'record'); try { renderPoles(); } catch (e) { /* not ready */ }
+    return true;
+  }
+  /** Undo (dir 1: Redo): the last step of this project's Drawing taken back (made again), its other side kept for Redo (Undo). */
+  async function drwUndo(dir) {
+    if (!drw) return; const proj = drw.project, A = dir === 1 ? drwRedoStack : drwUndoStack, B = dir === 1 ? drwUndoStack : drwRedoStack;
+    let j = A.length - 1; while (j >= 0 && A[j].project !== proj) j--; if (j < 0) return;
+    const U = A.splice(j, 1)[0]; B.push(await drwStepNow(proj, U)); if (B.length > 60) B.shift();
+    LOG.info(dir === 1 ? 'draw.redo' : 'draw.undo', { what: U.what, left: A.filter((u) => u.project === proj).length });
+    const recs = await drwStepApply(proj, U), m = pmeta(proj);
+    if (recs) { drwRecsShow(); return; } // ((beta 7.11, Drawing tools) the records as they were: the Drawing made again with them)
+    if (drw.ph && drw.ph.at) { // (the photos where their pins put them, until the plan's places come)
+      const pp = m.phPin || {}, at = {};
+      for (const [id, A0] of Object.entries(drw.ph.at)) {
+        const pin = pp[id], P0 = drw.ph.planAt ? drw.ph.planAt[id] : null, x = pin ? A0.dp[0] + pin[0] : 0, y = pin ? A0.dp[1] + pin[1] : 0;
+        at[id] = pin ? (P0 && P0.how === 'by hand' && Math.hypot(P0.x - x, P0.y - y) < 0.02 ? P0 : { ...A0, x, y, how: 'by hand', line: null }) : P0 && P0.how !== 'by hand' ? P0 : A0.how === 'by hand' ? { ...A0, how: 'auto' } : A0;
+      }
+      drw.ph = { ...drw.ph, sig: '', at };
+    }
+    drwMvShowPins(); drwPlanUi(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel && drwSels().length <= 1) drwMvTap(drw.mvSel); else { if (drwSels().length) { drwSelSay(); drwTbRender(); } drawDrawing(); } drwPhSoon(0);
+  }
+  const drwRedo = () => drwUndo(1);
+  $('drawUndo').addEventListener('click', () => { drwUndo(); });
+  $('drawRedo').addEventListener('click', () => { drwRedo(); });
+  /* (beta 7.12, Drawing edit) Ctrl + Z (Cmd + Z on a Mac): Undo; Ctrl + Y, Ctrl + Shift + Z (Cmd + Y, Cmd + Shift + Z): Redo, on the Drawing (not while typing in a
+     field, nor in ✎ Edit route, which has its own ↶). */
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented || !drw || $('drawing').hidden || drwEd || typingIn(e.target) || !$('askBox').hidden || boxOpen()) return;
+    const k = String(e.key || '').toLowerCase(), top = stack[stack.length - 1]; if (top !== 'drawing' && !((top === 'drwStyle' || top === 'export') && $(top).classList.contains('side'))) return;
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); drwUndo(); } else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); drwRedo(); }
+  });
+  /** Over the plan: the item tapped outlined (yellow), the items placed by hand across a sheet's edge (orange, dashed, as a photo's), the one
+   *  dragged with a dashed line to what it names ((beta 7.11, Drawing tools) every item selected, and one alone with its handles: its turn, its arrow's tip). */
+  function drwMvDraw(g, d) {
+    const M = drwMvs(); drw.hdl = []; if (!M.length || drw.labels === false) { if (!$('drawTb').hidden) drwTbRender(); return; } // (Labels off: the plan's texts are not drawn, nor these; (beta 7.11) nor the toolbar)
+    const P = drw.ph, sc = drw.view.sc, out = (B, col, w, dash) => { const [cx, cy] = drwPx([B[0], B[1]]), a = -B[4] * Math.PI / 180; g.save(); g.translate(cx, cy); g.rotate(a); g.strokeStyle = col; g.lineWidth = w * d; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.strokeRect(-B[2] * sc / 2 - 2 * d, -B[3] * sc / 2 - 2 * d, B[2] * sc + 4 * d, B[3] * sc + 4 * d); g.restore(); };
+    const SL1 = new Set(drwSels()), HD = pmeta(drw.project).mvHide || {}; M.forEach((m, i) => { if (!m.empty || SL1.has(m.id) || HD[m.id]) return; const B = drwMvBox(m, i), [cx, cy] = drwPx([B[0], B[1]]); if (Math.max(B[2], B[3]) * sc < 6 * d) return; g.save(); g.translate(cx, cy); g.rotate(-B[4] * Math.PI / 180); g.strokeStyle = 'rgba(134,142,150,.75)'; g.lineWidth = 1.2 * d; g.setLineDash([3 * d, 3 * d]); g.strokeRect(-B[2] * sc / 2, -B[3] * sc / 2, B[2] * sc, B[3] * sc); g.restore(); }); // ((beta 7.12, Drawing edit) an item whose texts were all left off: where it was, dashed, to take it again)
+    M.forEach((m, i) => { if (m.kind !== 'photo' && drwMvCut(m, i)) { const B = drwMvBox(m, i), [cx, cy] = drwPx([B[0], B[1]]); g.save(); g.translate(cx, cy); g.rotate(-B[4] * Math.PI / 180); g.strokeStyle = '#f08c00'; g.lineWidth = 2.4 * d; g.setLineDash([5 * d, 3 * d]); g.strokeRect(-B[2] * sc / 2 - 3 * d, -B[3] * sc / 2 - 3 * d, B[2] * sc + 6 * d, B[3] * sc + 6 * d); g.restore(); } }); // ((beta 7.10, Plan kept) as a photo across a sheet's edge (drwPhFrame): orange, dashed)
+    const SL = drwSels(); if (SL.length && $('drawTb').hidden) drwTbRender(); for (const id of SL) { const s = P.mvIdx.get(id); if (s != null && !(M[s].kind === 'photo' && SL.length === 1)) out(drwMvBox(M[s], s), 'rgba(255,212,59,.95)', 4); } // (a photo alone: its frame outlined, drwPhFrame)
+    const D = drw.mvDrag; if (D && M[D.i]) { const B = drwMvBox(M[D.i], D.i), an = drwAnchorNow(M[D.i], pmeta(drw.project)), [ax, ay] = drwPx(an), [bx, by] = drwPx([B[0], B[1]]); g.save(); g.strokeStyle = 'rgba(28,126,214,.8)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.restore(); }
+    if (SL.length === 1 && !D) drwHandlesDraw(g, d, mvById(SL[0]), P.mvIdx.get(SL[0]));
+    drwTbPlace();
+  }
+  /** An item across a sheet's edge as the plan shown has it (report.movable cut: the sheets it prints cut on, as a photo's photoAt[id].cut), still where
+   *  the plan put it (not moved since), or null. */
+  const drwMvCut = (m, i) => { const PL = drw.ph && drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; return m.how === 'by hand' && Array.isArray(m.cut) && m.cut.length > 1 && !(L && Math.hypot(L.off[0], L.off[1]) > 0.02) && !(drw.mvDrag && drw.mvDrag.i === i) ? m.cut : null; };
+  /** A drag begun on item id: lifted off the plan (and the photo its block carries), followed by the finger ((beta 7.11, Drawing tools) the selection with it when
+   *  it is selected; a pole or a site: what is on it too). */
+  function drwMvGrab(id) {
+    const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null, PL = P && P.plan; if (!m || !PL) return null;
+    const S0 = drwSels(), grp = S0.includes(id) && S0.length > 1 ? S0.filter((x) => { const q = mvById(x); return q && canOf(q).move !== false; }) : [id], W = new Set();
+    for (const x of grp) { const j = P.mvIdx.get(x); if (j == null) continue; W.add(j); for (const w of P.mv[j].with || []) { const k = P.mvIdx.get(w); if (k != null) W.add(k); }
+      const q = P.mv[j]; if (q.kind === 'pole' || q.kind === 'site') { const pid = pidOf(q); P.mv.forEach((r, k) => { if (k !== j && pidOf(r) === pid && r.kind !== 'pole' && r.kind !== 'site') W.add(k); }); } } // (what is on a pole goes with it)
+    W.delete(i); const w = [...W];
+    for (const j of [i, ...w]) { const L = PL.lifted ? PL.lifted.get(j) : null; drwPlanLift(PL, j, L ? L.off : [0, 0], L ? L.xf : null); }
+    const L0 = PL.lifted ? PL.lifted.get(i) : null, o0 = L0 ? L0.off : [0, 0]; // ((beta 7.12, Drawing edit) a closure or a loop alone: along its cable only)
+    return { id, i, with: w, grp, dx: 0, dy: 0, ...(isSnap(m) && grp.length === 1 ? { snap: { P: m.path, base: [m.box[0] + o0[0], m.box[1] + o0[1]] } } : {}) };
+  }
+  /* (beta 7.11, Drawing tools) An item's pivot: where it turns about (its middle; a guying, grounding or arm: its pole's drawn centre, can.about) as the plan shown
+     made it (drwPivMade: the lifted item's matrix turns it there, then moves it), and where that is now (moved with it, or with its pole). */
+  const drwPivMade = (m) => { const C = canOf(m); return C.about && C.about.length === 2 ? [+C.about[0], +C.about[1]] : [m.box[0], m.box[1]]; };
+  const drwPivNow = (m, i) => { const PL = drw.ph && drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null, o = L ? drwMvOff(i, L) : [0, 0], p = drwPivMade(m); return [p[0] + o[0], p[1] + o[1]]; };
+  /** An item's angle now (degrees): as kept by hand, else as the plan shown draws it. */
+  const drwAngNow = (m) => { const r = drwRotOf(m); return r != null ? r : +m.box[4] || 0; };
+  /** A finger's place on the plan (metres). */
+  const drwEN = (e) => { const cv = $('drawCanvas'), r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1, v = drw.view; return [v.cx + ((e.clientX - r.left) * d - cv.width / 2) / v.sc, v.cy - ((e.clientY - r.top) * d - cv.height / 2) / v.sc]; };
+  /** A cable label's span as drawn (report spanPts, a → b): the point nearest f on it and how far along it (t, 0..1 from a); null without one. */
+  function drwSpanProj(m, f) {
+    const P = Array.isArray(m.spanPts) ? m.spanPts.filter((q) => Array.isArray(q) && q.length >= 2) : []; if (P.length < 2) return null;
+    const cum = [0]; for (let k = 1; k < P.length; k++) cum.push(cum[k - 1] + Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1])); const tot = cum[cum.length - 1] || 1; let best = null;
+    for (let k = 1; k < P.length; k++) { const a = P[k - 1], b = P[k], vx = b[0] - a[0], vy = b[1] - a[1], l2 = vx * vx + vy * vy || 1, u = Math.max(0, Math.min(1, ((f[0] - a[0]) * vx + (f[1] - a[1]) * vy) / l2)), q = [a[0] + vx * u, a[1] + vy * u], dd = Math.hypot(q[0] - f[0], q[1] - f[1]);
+      if (!best || dd < best.dd) best = { dd, p: q, t: (cum[k - 1] + u * Math.sqrt(l2)) / tot }; }
+    return best;
+  }
+  /** The point t (0..1) along a cable label's span as drawn. */
+  const drwSpanAt = (m, t) => { const P = (m.spanPts || []).filter((q) => Array.isArray(q) && q.length >= 2); if (P.length < 2) return null; let tot = 0; for (let k = 1; k < P.length; k++) tot += Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]);
+    let s = Math.max(0, Math.min(1, t)) * tot; for (let k = 1; k < P.length; k++) { const l = Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]); if (s <= l || k === P.length - 1) { const u = l ? Math.min(1, s / l) : 0; return [P[k - 1][0] + (P[k][0] - P[k - 1][0]) * u, P[k - 1][1] + (P[k][1] - P[k - 1][1]) * u]; } s -= l; } return null; };
+  /** Where a cable label's arrow points now: where it was let go since the plan shown was made (pins[id].tip), else where the plan has it (report tip). */
+  const drwTipNow = (m) => { const t = ((pmeta(drw.project).mvPin || {})[m.id] || {}).tip, t0 = (((drw.ph.tools || {}).pins || {})[m.id] || {}).tip; if (t != null && t !== t0) { const q = drwSpanAt(m, +t); if (q) return { at: q, moved: true }; } return Array.isArray(m.tip) ? { at: m.tip, moved: false } : null; };
+  /** The handles of one item selected (canvas pixels): its turn (a round handle beyond its box: about its pole, along the line from the pole) and a cable label's arrow tip. */
+  function drwHandles(m, i) {
+    const out = []; if (!m || i == null || !drwPlanOn()) return out; const C = canOf(m), d = window.devicePixelRatio || 1, sc = drw.view.sc, B = drwMvBox(m, i), [cx, cy] = drwPx([B[0], B[1]]);
+    if (C.rotate) {
+      const a = B[4] * Math.PI / 180, ax = [Math.cos(a), -Math.sin(a)], ay = [-Math.sin(a), -Math.cos(a)]; let u = null; // (the box's axes on the screen)
+      if (C.about) { const [px, py] = drwPx(drwPivNow(m, i)), l = Math.hypot(cx - px, cy - py); if (l > 4 * d) u = [(cx - px) / l, (cy - py) / l]; }
+      if (!u) u = ay; const ext = Math.abs(u[0] * ax[0] + u[1] * ax[1]) * B[2] * sc / 2 + Math.abs(u[0] * ay[0] + u[1] * ay[1]) * B[3] * sc / 2, r = ext + 4 * d + 24 * d;
+      out.push({ kind: 'rot', x: cx + u[0] * r, y: cy + u[1] * r, ex: cx + u[0] * (ext + 4 * d), ey: cy + u[1] * (ext + 4 * d), id: m.id, i });
+    }
+    if (m.kind === 'cable' && Array.isArray(m.spanPts) && m.spanPts.length > 1) { const T = drwTipNow(m); if (T) { const [tx, ty] = drwPx(T.at); out.push({ kind: 'tip', x: tx, y: ty, id: m.id, i, moved: T.moved }); } }
+    return out;
+  }
+  /** The handles drawn (blue on white, as the plan's other marks of the Drawing): the turn's round arrow on its stalk; the tip's diamond; while the tip is held,
+   *  the span lit and a dashed line from the label to where its arrow would point. */
+  function drwHandlesDraw(g, d, m, i) {
+    const H = drwHandles(m, i); drw.hdl = H; if (!H.length) return; const B = drwMvBox(m, i), [bx, by] = drwPx([B[0], B[1]]), T = drw.hDrag && drw.hDrag.kind === 'tip' && drw.hDrag.id === m.id ? drw.hDrag : null;
+    g.save(); g.setLineDash([]); g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const h of H) {
+      if (h.kind === 'rot') {
+        const R = drw.hDrag && drw.hDrag.kind === 'rot' && drw.hDrag.id === m.id; if (R && canOf(m).about) { const [px, py] = drwPx(drwPivNow(m, i)), rr = Math.hypot(bx - px, by - py); g.strokeStyle = 'rgba(28,126,214,.35)'; g.lineWidth = 1.2 * d; g.setLineDash([4 * d, 4 * d]); g.beginPath(); g.arc(px, py, rr, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]); g.fillStyle = '#1c7ed6'; g.beginPath(); g.arc(px, py, 3 * d, 0, 2 * Math.PI); g.fill(); } // (an attachment swings round its pole)
+        g.strokeStyle = '#1c7ed6'; g.lineWidth = 1.6 * d; g.beginPath(); g.moveTo(h.ex, h.ey); g.lineTo(h.x, h.y); g.stroke();
+        g.fillStyle = '#ffffff'; g.lineWidth = 2 * d; g.beginPath(); g.arc(h.x, h.y, 11 * d, 0, 2 * Math.PI); g.fill(); g.stroke();
+        g.lineWidth = 1.8 * d; g.beginPath(); g.arc(h.x, h.y, 5.5 * d, -0.15 * Math.PI, 1.35 * Math.PI); g.stroke(); // (a turning arrow)
+        const ea = -0.15 * Math.PI, ex = h.x + 5.5 * d * Math.cos(ea), ey = h.y + 5.5 * d * Math.sin(ea); g.fillStyle = '#1c7ed6'; g.beginPath(); g.moveTo(ex + 3.2 * d, ey - 1.2 * d); g.lineTo(ex - 1.8 * d, ey - 3.6 * d); g.lineTo(ex - 0.6 * d, ey + 2.6 * d); g.closePath(); g.fill();
+      }
+      if (h.kind === 'tip') {
+        if (T && T.at) { const L = (m.spanPts || []).map((q) => drwPx(q)); g.strokeStyle = 'rgba(28,126,214,.35)'; g.lineWidth = 9 * d; g.beginPath(); L.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); } // (it slides along its span only)
+        const at = T && T.at ? drwPx(T.at) : [h.x, h.y]; if (T || h.moved) { g.strokeStyle = 'rgba(28,126,214,.85)'; g.lineWidth = 1.4 * d; g.setLineDash([5 * d, 4 * d]); g.beginPath(); g.moveTo(bx, by); g.lineTo(at[0], at[1]); g.stroke(); g.setLineDash([]); }
+        g.fillStyle = '#1c7ed6'; g.strokeStyle = '#ffffff'; g.lineWidth = 2 * d; const s = 8 * d; g.beginPath(); g.moveTo(at[0], at[1] - s); g.lineTo(at[0] + s, at[1]); g.lineTo(at[0], at[1] + s); g.lineTo(at[0] - s, at[1]); g.closePath(); g.fill(); g.stroke();
+      }
+    }
+    g.restore();
+  }
+  /** The handle under a finger (canvas pixels: a finger takes it from further), or null. */
+  function drwHandleAt(e) {
+    const H = drw && drw.hdl; if (!H || !H.length) return null; const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1, x = (e.clientX - r.left) * d, y = (e.clientY - r.top) * d, R = (e.pointerType === 'mouse' ? 13 : 22) * d;
+    let best = null; for (const h of H) { const dd = Math.hypot(h.x - x, h.y - y); if (dd < R && (!best || dd < best.dd)) best = { ...h, dd }; } return best;
+  }
+  /** A handle pressed: its item lifted off the plan (drawn turned while the handle is held). */
+  function drwHandleGrab(h, e) {
+    const m = mvById(h.id), i = mvIx(h.id), PL = drw.ph && drw.ph.plan; if (!m || i == null || !PL) return null;
+    const L = PL.lifted.get(i); drwPlanLift(PL, i, L ? L.off : [0, 0], L ? L.xf : null);
+    if (h.kind === 'rot') { const pn = drwPivNow(m, i), f = drwEN(e); return { kind: 'rot', id: h.id, i, piv: drwPivMade(m), pn, a0: Math.atan2(f[1] - pn[1], f[0] - pn[0]) * 180 / Math.PI, base: drwAngNow(m), x0: e.clientX, y0: e.clientY }; }
+    return { kind: 'tip', id: h.id, i, x0: e.clientX, y0: e.clientY };
+  }
+  /** A handle dragged: the item turned by the finger about its pivot (snapped to 15° within 3°), or its arrow's tip slid along its span. */
+  function drwHandleMove(hD, e) {
+    const f = drwEN(e), m = mvById(hD.id); if (!m) return;
+    if (hD.kind === 'rot') { let da = ((Math.atan2(f[1] - hD.pn[1], f[0] - hD.pn[0]) * 180 / Math.PI - hD.a0 + 540) % 360) - 180, ang = hD.base + da; const s = Math.round(ang / 15) * 15; if (Math.abs(ang - s) < 3) ang = s; da = ang - hD.base;
+      const X = (drw.ph.plan.lifted.get(hD.i) || {}).xf; drw.hDrag = { kind: 'rot', id: hD.id, i: hD.i, piv: X && X.piv ? X.piv : hD.piv, da, ang }; return; }
+    const Q = drwSpanProj(m, f); if (Q) drw.hDrag = { kind: 'tip', id: hD.id, i: hD.i, t: Q.t, at: Q.p };
+  }
+  /** A handle let go: the turn kept (as Turn on the toolbar), or the arrow's tip (pins[id].tip). */
+  function drwHandleDrop(hD) {
+    const H = drw.hDrag, m = mvById(hD.id); drw.hDrag = null; if (!m || !H) { drawDrawing(); return; }
+    if (hD.kind === 'rot') { drwRotSet([m], () => H.ang, 'turned'); return; }
+    if (hD.kind === 'tip' && H.t != null) drwTipSet(m, H.t); else drawDrawing();
+  }
+  /** (beta 7.11, Drawing tools) The project's tools kept anew (nm: its pmeta() with them): saved, the grid kept from the first change by hand, the items drawn as
+   *  changed until the plan made with them comes (made again in 250 ms), the information line, the toolbar and the chip. */
+  function drwKeep(nm) {
+    const proj = drw.project; for (const k of TOOL_KEYS) if (nm[k] && !Object.keys(nm[k]).length) delete nm[k];
+    S.meta = S.meta || {}; S.meta[proj] = nm; persist(); const P = drw.ph; if (P) planGridKeep(proj, P.grid, P.lab, P.split);
+    drwMvShowPins(); drwPlanUi(); drwSelSay(); drwTbRender(); drawDrawing(); drwPhSoon(250);
+  }
+  /** Turned (fn(item): its new angle in degrees, counter-clockwise; null: as the plan): a pole's details and a cable label as 7.10 keeps them (their place with
+   *  their angle), the rest in mvPin rot (an attachment turns about its pole). */
+  function drwRotSet(L, fn, what) {
+    const T = L.filter((m) => canOf(m).rotate); if (!T.length) return; const proj = drw.project, m0 = pmeta(proj), nm = { ...m0 }, PL = drw.ph.plan; let n = 0;
+    const atNow = (m) => { const i = mvIx(m.id), Lf = PL && PL.lifted ? PL.lifted.get(i) : null, o = Lf ? Lf.off : [0, 0], an = drwAnchorNow(m, nm); return [+(m.box[0] + o[0] - an[0]).toFixed(2), +(m.box[1] + o[1] - an[1]).toFixed(2)]; };
+    const plan = [];
+    for (const m of T) {
+      const deg0 = fn(m), dg = deg0 == null ? null : +((((+deg0 + 540) % 360) - 180).toFixed(2)), had = drwRotOf(m, nm); if (dg == null && had == null) continue; if (dg != null && had != null && Math.abs(dg - had) < 0.01) continue;
+      plan.push([m, dg]);
+    }
+    if (!plan.length) return; drwUndoPush(what);
+    for (const [m, dg] of plan) {
+      if (isNote(m)) { nm.notes = notesOf(nm).map((x) => (`note:${x.id}` === m.id ? (() => { const y = { ...x }; if (dg == null) delete y.rot; else y.rot = dg; return y; })() : x)); n++; continue; } // ((beta 7.12, Drawing edit) a note turned: the note itself)
+      if (m.kind === 'details' || m.kind === 'cable') { const key = PIN_OF[m.kind], k = m.kind === 'cable' ? m.key : m.point, v = (nm[key] || {})[k];
+        const at = m.kind === 'cable' ? (v && Array.isArray(v.at) ? v.at : atNow(m)) : Array.isArray(v) ? [v[0], v[1]] : atNow(m);
+        nm[key] = { ...(nm[key] || {}), [k]: m.kind === 'cable' ? (dg == null ? { at } : { at, rot: dg }) : dg == null ? [at[0], at[1]] : [at[0], at[1], dg] }; n++; continue; }
+      const t = { ...((nm.mvPin || {})[m.id] || {}) }; if (dg == null) delete t.rot; else t.rot = dg; const P2 = { ...(nm.mvPin || {}) }; if (Object.keys(t).length) P2[m.id] = t; else delete P2[m.id]; nm.mvPin = P2; n++;
+    }
+    LOG.info('draw.tools.turn', { n, what }); drwKeep(nm);
+  }
+  /** A cable label's arrow tip let go: t along its span (0..1 from its point a to b), kept as pins[id].tip. */
+  function drwTipSet(m, t) {
+    const proj = drw.project, nm = { ...pmeta(proj) }, tt = +Math.max(0, Math.min(1, t)).toFixed(4); if (((nm.mvPin || {})[m.id] || {}).tip === tt) { drawDrawing(); return; }
+    drwUndoPush('arrow tip moved'); nm.mvPin = { ...(nm.mvPin || {}), [m.id]: { ...((nm.mvPin || {})[m.id] || {}), tip: tt } }; LOG.info('draw.tools.tip', { t: tt }); drwKeep(nm);
+  }
+  /* The toolbar's styles: font size steps (a factor of the plan's size), symbol size steps; what each tool needs of the item (report.movable can). */
+  const H_STEPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3], S_STEPS = [0.5, 0.6, 0.75, 0.9, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+  const stepOf = (A, v, dir) => { let k = 0, best = Infinity; A.forEach((x, j) => { const dd = Math.abs(Math.log(x / (+v || 1))); if (dd < best) { best = dd; k = j; } }); return A[Math.max(0, Math.min(A.length - 1, k + dir))]; };
+  const TB_NEED = { 'h-': 'text', 'h+': 'text', bold: 'text', italic: 'text', color: 'color', 's-': 'scale', 's+': 'scale', callout: 'callout', lead: 'lead', 'lw-': 'lw', 'lw+': 'lw' };
+  /** (beta 7.12, Drawing edit) A line's weight (a span's cable, a messenger arm: style lw, 1/100 mm as AutoCAD's), its steps, and what the plan draws without one. */
+  const LW_STEPS = [13, 18, 25, 35, 50, 70, 100, 140, 200], LW_BASE = { cableline: 70, messenger: 18 };
+  /** An item's own texts on the plan shown (display list texts), for its bold / italic now. */
+  const drwOwnTexts = (m) => { const P = drw.ph, PL = P && P.plan, i = mvIx(m.id); if (!PL || !PL.byOwn || i == null || !PL.byOwn.has(i)) return []; const IT = PL.raw.items; return PL.byOwn.get(i).filter((k) => IT[4 * k] === 3).map((k) => PL.texts[IT[4 * k + 1]]).filter(Boolean); };
+  const drwStyNow = (m) => { if (isNote(m)) { const n = noteNow(m) || {}; return { h: n.h, bold: n.bold, italic: n.italic, color: n.color }; } const M = pmeta(drw.project); return styOf(m, M.mvStyle, M.mvKind); }; // ((beta 7.12, Drawing edit) a note: its own)
+  const drwBoldNow = (m) => { const s = drwStyNow(m); if (s.bold != null) return !!s.bold; const T = drwOwnTexts(m); return T.length > 0 && T.every((t) => (t.f & 1) === 1); };
+  const drwItalNow = (m) => { const s = drwStyNow(m); if (s.italic != null) return !!s.italic; const T = drwOwnTexts(m); return T.length > 0 && T.every((t) => (t.f & 2) === 2); };
+  const drwLeadNow = (m) => { const s = drwStyNow(m), P = plStyle(); if (s.lead === false) return false; return m.kind === 'photo' ? P.lead.photo : m.kind === 'details' ? P.lead.details : m.kind === 'number' ? P.num.leader : true; };
+  /** A style of the toolbar (a: its tool, v: its value) for the items selected that take it: each one's own (This one: job.style), or every item of their kinds
+   *  (All like it: job.styleKind). Toggles (Bold, Italic, Line) go on for all unless all are on. */
+  function drwStyleSet(L, a, v) {
+    const T = L.filter((m) => canOf(m)[TB_NEED[a]]); if (!T.length) return; const proj = drw.project, m0 = pmeta(proj), all = !!drw.tbAll, St = { ...(m0.mvStyle || {}) }, Sk = { ...(m0.mvKind || {}) }, done = new Set();
+    const tgt = a === 'bold' ? !T.every(drwBoldNow) : a === 'italic' ? !T.every(drwItalNow) : a === 'lead' ? !T.every(drwLeadNow) : null; let n = 0;
+    // ((beta 7.12, Drawing edit) a note: the note itself (a text: its size h, bold, italic, colour; a photo: its width on the plan, size); All like it: every note of its kind)
+    const TN = T.filter(isNote); let NT = null;
+    if (TN.length) {
+      NT = notesOf(m0).map((x) => ({ ...x })); const kinds = new Set(TN.map((m) => (noteNow(m, m0) || {}).kind)), ids = new Set(TN.map((m) => m.id)), boxW = new Map(TN.map((m) => [m.id, +m.box[2] || 0]));
+      for (const x of NT) {
+        if (!(all ? kinds.has(x.kind) : ids.has(`note:${x.id}`))) continue; const js = JSON.stringify(x), up = a === 'h+' || a === 's+';
+        if (x.kind === 'photo') { if (a === 's-' || a === 's+') { const w0 = +x.size || boxW.get(`note:${x.id}`) || (mvById(`note:${x.id}`) || { box: [0, 0, 0] }).box[2] || +plStyle().photo.size || 18; x.size = +Math.max(1, Math.min(200, w0 * (up ? 1.25 : 0.8))).toFixed(2); } }
+        else if (a === 'h-' || a === 'h+' || a === 's-' || a === 's+') { const h = stepOf(H_STEPS, x.h || 1, up ? 1 : -1); if (h === 1) delete x.h; else x.h = h; }
+        else if (a === 'bold' || a === 'italic') { if (tgt) x[a] = true; else delete x[a]; }
+        else if (a === 'color') { if (+v > 0) x.color = +v; else delete x.color; }
+        if (JSON.stringify(x) !== js) n++;
+      }
+    }
+    for (const m of T) {
+      if (isNote(m)) continue;
+      const key = all ? m.kind : m.id; if (done.has(key)) continue; done.add(key);
+      const B = all ? Sk : St, o = { ...(B[key] || {}) }, eff = styOf(m, m0.mvStyle, m0.mvKind), inh = all ? {} : (m0.mvKind || {})[m.kind] || {}, js = JSON.stringify(o);
+      const put = (f, val, dflt) => { if (val === dflt && inh[f] == null) delete o[f]; else o[f] = val; };
+      if (a === 'h-' || a === 'h+') put('h', stepOf(H_STEPS, eff.h, a === 'h+' ? 1 : -1), 1);
+      else if (a === 's-' || a === 's+') put('scale', stepOf(S_STEPS, eff.scale, a === 's+' ? 1 : -1), 1);
+      else if (a === 'bold' || a === 'italic') o[a] = tgt;
+      else if (a === 'color') { if (+v > 0) o.color = +v; else if (inh.color != null) o.color = 0; else delete o.color; } // (0 with a kind's colour: this one as the plan)
+      else if (a === 'callout') put('callout', v === 'bubble' ? 'bubble' : 'arrow', plStyle().clo.style);
+      else if (a === 'lead') put('lead', !!tgt, true);
+      else if (a === 'lw-' || a === 'lw+') { const w0 = +eff.lw || LW_BASE[m.kind] || 35, w = stepOf(LW_STEPS, w0, a === 'lw+' ? 1 : -1); if (w !== w0) o.lw = w; } // ((beta 7.12) thinner, thicker)
+      if (JSON.stringify(o) !== js) n++; if (Object.keys(o).length) B[key] = o; else delete B[key];
+    }
+    if (!n) { drwTbRender(); return; }
+    drwUndoPush(`style ${a}`); LOG.info('draw.tools.style', { a, v: v || null, n, all });
+    drwKeep({ ...m0, mvStyle: St, mvKind: Sk, ...(NT ? { notes: NT } : {}) });
+  }
+  /** (beta 7.11, Drawing tools) Existing ↔ Proposed of an item (report.movable can.status): what its record says now (the toolbar shows the change at once). */
+  const ST_BOQ = { closureOld: 'cloSt', napOld: 'napSt', nap2Old: 'nap2St', cloSt: 'cloSt', napSt: 'napSt', nap2St: 'nap2St' };
+  const ARM_F = new Set(['armType', 'armText']), armOn = (p) => ((p && p.details) || []).findIndex((d) => ARMS_ON_POLE.some(([re]) => re.test(String((d && d.item) || '').trim())));
+  const stOk = (s) => { if (!(s && s.point != null && (s.field === 'status' || ST_BOQ[s.field] || ARM_F.has(s.field)))) return false; const p = points.find((x) => String(x.id) === String(s.point)); if (!p) return false;
+    const now = drwStatusNow(s); return !!drwStatusRec(p, s.field, now === 'existing' ? 'proposed' : 'existing'); }; // (one this app can change in its record, both ways: else it is changed in the record's form) // (one this app can change in its record: else it is changed in the record's form)
+  const drwStatusNow = (s) => { const p = points.find((x) => String(x.id) === String(s.point)); if (!p) return s.now; if (s.field === 'status') return p.status === 'Existing' ? 'existing' : 'proposed'; const k = ST_BOQ[s.field]; if (k) return (p.boq || {})[k] === 'Existing' ? 'existing' : 'proposed'; if (ARM_F.has(s.field)) return s.field === 'armType' ? ((p.boq || {}).arm ? 'proposed' : armOn(p) >= 0 ? 'existing' : s.now) : armOn(p) >= 0 ? 'existing' : (p.boq || {}).arm ? 'proposed' : s.now; return s.now; };
+  /** Its record changed as its record editor changes it (the job's field back to the record's: status Existing / Proposed or New; a closure's or a NAP's on a pole:
+   *  its cloSt / napSt / nap2St Existing / New), or null: no such choice for it here. */
+  function drwStatusRec(p, field, to) {
+    const ex = to === 'existing', stamp = { updated: new Date().toISOString(), updatedBy: byLine() };
+    if (field === 'status') { const L = svStatuses(elemOf(p), svPurpose(p.project)); if (!L.includes('Existing') || L.length < 2) return null; const st = ex ? 'Existing' : L.find((v) => v !== 'Existing'); return p.status === st ? null : { ...p, status: st, ...stamp }; }
+    if (ARM_F.has(field)) { // (an arm: a new one is the record's BOQ arm (armType); one already on the pole is in what is on the pole (armText). Only an extension arm or a 10-pin alley arm,
+      // which the plan draws either way with its own model: a single or double arm has no such arm on a pole, a telco arm none to propose; those are changed in the record)
+      const b = { ...(p.boq || {}) }, det = Array.isArray(p.details) ? p.details.map((d) => ({ ...d })) : [], k0 = armOn(p), both = (t) => !/telco/i.test(t) && ARMS_ON_POLE.some(([re]) => re.test(t)) && BOQ_OPT.arm.some((x) => x.toLowerCase() === t.toLowerCase());
+      if (ex) { const t = String(b.arm || '').trim(); if (!t || k0 >= 0 || !both(t)) return null; delete b.arm; det.push({ item: t, qty: 1 }); return { ...p, boq: b, details: det, ...stamp }; }
+      if (k0 < 0 || b.arm) return null; const t = String(det[k0].item).trim(); if (!both(t)) return null; det.splice(k0, 1); b.arm = BOQ_OPT.arm.find((x) => x.toLowerCase() === t.toLowerCase()); return { ...p, boq: b, details: det, ...stamp };
+    }
+    const k = ST_BOQ[field]; if (!k) return null; const b = { ...(p.boq || {}) }, st = ex ? 'Existing' : 'New'; if (b[k] === st) return null; b[k] = st; return { ...p, boq: b, ...stamp };
+  }
+  /** The items selected made existing or proposed: their records changed (one Undo step), the Drawing and its plan made again with them (the BOQ follows). */
+  async function drwStatusSet(L, to) {
+    const T = L.filter((m) => { const s = canOf(m).status; return stOk(s) && drwStatusNow(s) !== to; }); if (!T.length) return;
+    const recs = new Map(), why = [];
+    for (const m of T) {
+      const s = canOf(m).status, pid = String(s.point), p0 = recs.get(pid) || points.find((x) => String(x.id) === pid); if (!p0) continue;
+      const lk = tmHooks.locked ? tmHooks.locked(p0.id, 'edit') : ''; if (lk) { why.push(lk); continue; }
+      const r = drwStatusRec(p0, s.field, to); if (r) recs.set(pid, r); else why.push(`${drwMvName(m)}: change it in its record`);
+    }
+    if (!recs.size) { if (why.length) toast(why[0], 6000); return; }
+    const prev = [...recs.keys()].map((pid) => JSON.parse(JSON.stringify(points.find((x) => String(x.id) === pid))));
+    drwUndoPush(`${to} (${recs.size === 1 ? 'its record' : `${recs.size} records`})`, prev); LOG.info('draw.tools.status', { to, n: recs.size });
+    if (await drwRecsPut([...recs.values()])) toast(`${recs.size === 1 ? `${recName([...recs.values()][0]) || 'The record'} is` : `${recs.size} records are`} ${to} now: its record, the BOQ and the plan (↶ undoes)`, 3500);
+  }
+  /** Records saved (as the record editor saves one: the approval of a task after the change cancelled), the map, and the Drawing made again with them (its view and
+   *  its selection kept). */
+  async function drwRecsPut(recs) {
+    for (const r of recs) { try { await dbPut('points', r); } catch (e) { toast('Could not save: try again', 3500); return false; } const i = points.findIndex((x) => x.id === r.id); if (i >= 0) points[i] = r; changedAfterApproval(r.project, 'record'); }
+    try { renderPoles(); } catch (e) { /* not ready */ }
+    drwRecsShow(); return true;
+  }
+  /** The Drawing made again with the records as they are now (its view and its selection kept; an item no longer on it: off the selection). */
+  function drwRecsShow() { if (drw && !$('drawing').hidden) { const v = drw.view ? { ...drw.view } : null, sel = drwSels(), all = !!drw.tbAll, more = !!drw.tbMore; openDrawing(true, v); if (drw) { drw.mvSels = sel; drw.mvSel = sel.length ? sel[sel.length - 1] : null; drw.tbAll = all; drw.tbMore = more; drwSelSay(); drwTbRender(); drawDrawing(); } } }
+  /* (beta 7.11, Drawing tools) The toolbar of what is selected: shown only while something on the plan is (the plan shown, Labels on), its tools those the selection
+     can take (report.movable can), over the plan at its top, or at its bottom while the selection is under it. */
+  const TB_COLS = [[0, 'As the plan'], [1, 'Red'], [2, 'Yellow'], [3, 'Green'], [4, 'Cyan'], [5, 'Blue'], [6, 'Magenta'], [7, 'Black (white in CAD)'], [8, 'Grey']];
+  function drwTbRender() {
+    const tb = $('drawTb'); if (!tb) return; const L = drw ? drwSels().map(mvById).filter(Boolean) : [], on = !!drw && drwPlanOn() && L.length > 0 && drw.labels !== false;
+    if (!on) { if (!tb.hidden) { tb.hidden = true; drwTbPal(false); } $('drawWrap').classList.remove('tbtop'); return; }
+    const C = L.map(canOf), any = (f) => C.some((c) => !!c[f]), M = pmeta(drw.project), pl = plStyle();
+    const vis = { 'lw-': any('lw'), 'lw+': any('lw'), 'h-': any('text'), 'h+': any('text'), bold: any('text'), italic: any('text'), color: any('color'), 'rot-': any('rotate'), 'rot+': any('rotate'), rot0: L.some((m) => canOf(m).rotate && drwRotOf(m, M) != null), 's-': any('scale'), 's+': any('scale'), status: L.some((m) => stOk(canOf(m).status)), callout: any('callout'), lead: any('lead') };
+    // ((beta 7.12, Drawing edit) Edit text: one item with texts (or a text note); the draw order: anything; Delete: notes only (the plan's own items are not deleted); Automatic: not for notes)
+    Object.assign(vis, { text: L.length === 1 && canText(L[0]), front: true, forward: true, backward: true, back: true, del: L.every((m) => !!delOf(m)), auto: !L.every(isNote) }); // ((beta 7.12) Delete: as the plan says for each)
+    { const db = tb.querySelector('[data-a="del"]'), t = vis.del ? delSay(L) : 'Delete'; if (db.title !== t) { db.title = t; db.setAttribute('aria-label', t); } }
+    vis.scope = vis['h-'] || vis.color || vis['s-'] || vis.callout || vis.lead || vis['lw-']; vis.sep1 = vis['h-'] || vis.color || vis.text || vis['lw-']; vis.sep2 = vis['rot-']; vis.sep3 = vis['s-']; vis.sep4 = vis.status || vis.callout || vis.lead; vis.sep5 = true;
+    tb.querySelectorAll('[data-a]').forEach((b) => { const a = b.dataset.a; if (a in vis) b.hidden = !vis[a]; });
+    const xb = tb.querySelector('[data-a="xtra"]'); xb.hidden = ![...tb.querySelectorAll('.lo')].some((b) => !b.hidden); tb.classList.toggle('xopen', !!drw.tbX); xb.setAttribute('aria-expanded', String(!!drw.tbX)); xb.setAttribute('aria-pressed', String(!!drw.tbX)); // ((beta 7.12) a phone: the tools used less under More)
+    const press = (a, on2) => tb.querySelectorAll(`[data-a="${a}"]`).forEach((b) => b.setAttribute('aria-pressed', String(!!on2))), seg = (a, v) => tb.querySelectorAll(`[data-a="${a}"] button`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+    const T = L.filter((m) => canOf(m).text), LD = L.filter((m) => canOf(m).lead); press('bold', T.length && T.every(drwBoldNow)); press('italic', T.length && T.every(drwItalNow)); press('lead', LD.length && LD.every(drwLeadNow)); press('more', drw.tbMore);
+    const cs = [...new Set(L.filter((m) => canOf(m).color).map((m) => +drwStyNow(m).color || 0))], sw = $('drawTbSw'), c1 = cs.length === 1 ? cs[0] : -1; // ((beta 7.12) a note's own colour)
+    sw.style.background = c1 > 0 ? drwAciCss(c1) : 'conic-gradient(#e03131, #f59f00, #2f9e44, #1098ad, #1c7ed6, #ae3ec9, #e03131)'; sw.classList.toggle('mix', c1 <= 0);
+    tb.querySelector('[data-a="color"]').title = `Colour: ${c1 > 0 ? TB_COLS.find((x) => x[0] === c1)[1].toLowerCase() : c1 === 0 ? 'as the plan' : 'mixed'}`;
+    $('drawTbPal').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === c1)));
+    const st = [...new Set(L.map((m) => canOf(m).status).filter(stOk).map(drwStatusNow))]; seg('status', st.length === 1 ? st[0] : '');
+    const co = [...new Set(L.filter((m) => canOf(m).callout).map((m) => styOf(m, M.mvStyle, M.mvKind).callout || pl.clo.style))]; seg('callout', co.length === 1 ? co[0] : '');
+    seg('scope', drw.tbAll ? 'kind' : 'one');
+    const ab = tb.querySelector('[data-a="auto"]'); ab.disabled = !L.some((m) => drwHandOf(m, M)) && !(drw.tbAll && L.some((m) => (M.mvKind || {})[m.kind]));
+    $('drawTbN').textContent = L.length > 1 ? `${L.length} selected` : ''; $('drawTbN').hidden = L.length < 2;
+    tb.hidden = false; drwTbPlace();
+  }
+  /** Where the toolbar goes: at the top of the plan, at its bottom (above the information line, clear of the round tools) while the selection is under it. */
+  function drwTbPlace() {
+    const tb = $('drawTb'); if (!tb || tb.hidden || !drw || !drw.view) return; const wr = $('drawWrap').getBoundingClientRect(), cr = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1, sc = drw.view.sc;
+    let y0 = Infinity, y1 = -Infinity; for (const id of drwSels()) { const m = mvById(id), i = mvIx(id); if (!m) continue; const B = drwMvBox(m, i), a = B[4] * Math.PI / 180, ey = (Math.abs(Math.sin(a)) * B[2] + Math.abs(Math.cos(a)) * B[3]) / 2, [, py] = drwPx([B[0], B[1]]), c = cr.top - wr.top + py / d; y0 = Math.min(y0, c - ey * sc / d - 6); y1 = Math.max(y1, c + ey * sc / d + 6); }
+    const place = (at) => { if (tb.classList.contains('bot') !== (at === 'bot')) tb.classList.toggle('bot', at === 'bot'); const h = tb.offsetHeight, info = $('drawInfo'), ih = info.hidden ? 0 : info.offsetHeight + 8, top = 14, bot = Math.max(top, wr.height - h - 12 - ih); return { at, y: at === 'bot' ? bot : top, h }; }; // (top 14 px: its ✕ badge on its corner, inside the plan)
+    let at = drw.tbAt === 'bot' ? 'bot' : 'top', p = place(at); const over = (q) => y1 > q.y && y0 < q.y + q.h;
+    if (over(p)) { const q = place(at === 'top' ? 'bot' : 'top'); if (!over(q)) p = q; else p = place(at); }
+    drw.tbAt = p.at; const T = `${Math.round(p.y)}px`, Hh = `${Math.round(p.y + p.h)}px`, wr2 = $('drawWrap'); if (tb.style.top !== T) tb.style.top = T; // (written only when it changes: drawn at every move of a pan)
+    if (wr2.classList.contains('tbtop') !== (p.at === 'top')) wr2.classList.toggle('tbtop', p.at === 'top'); if (wr2.style.getPropertyValue('--tbh') !== Hh) wr2.style.setProperty('--tbh', Hh); // (the chips at the upper right below it)
+  }
+  /** The colour palette (the plan's colours as the PDF prints them; As the plan: its own), opened under the toolbar (above it at the bottom). */
+  function drwTbPal(open) {
+    const P = $('drawTbPal'), b = $('drawTb').querySelector('[data-a="color"]'); if (!P) return;
+    if (open && !P.childElementCount) TB_COLS.forEach(([c, nm]) => { const s = document.createElement('button'); s.type = 'button'; s.dataset.v = String(c); s.title = nm; s.setAttribute('aria-label', nm); if (c) s.style.background = drwAciCss(c); else s.classList.add('asplan'); P.appendChild(s); });
+    P.hidden = !open; if (b) b.setAttribute('aria-expanded', String(!!open));
+  }
+  /** A tool of the toolbar used (a: its data-a; v: a choice's data-v). */
+  function drwTbAct(a, v) {
+    const L = drw ? drwSels().map(mvById).filter(Boolean) : []; if (!L.length) return;
+    if (a === 'done') { drwSelClear(); return; }
+    if (a === 'more') { drw.tbMore = !drw.tbMore; drwSelSay(); drwTbRender(); return; }
+    if (a === 'xtra') { drw.tbX = !drw.tbX; drwTbRender(); return; } // ((beta 7.12, Drawing edit) a phone: the tools used less, shown or put away)
+    if (a === 'text') { drwTxtEdit(L[0]); return; }
+    if (a === 'del') { drwDelete(L); return; } // ((beta 7.12) each as the plan says: a note, a field of its record, the point, from the plan only)
+    if (a === 'front' || a === 'forward' || a === 'backward' || a === 'back') { drwOrderSet(L, a); return; }
+    if (a === 'scope') { drw.tbAll = v === 'kind'; drwSelSay(); drwTbRender(); return; }
+    if (a === 'color') { drwTbPal($('drawTbPal').hidden); return; }
+    if (a === 'pal') { drwTbPal(false); drwStyleSet(L, 'color', v); return; }
+    if (a === 'auto') { drwMvAuto(null, L.map((m) => m.id), !!drw.tbAll); return; }
+    if (a === 'status') { drwStatusSet(L, v === 'existing' ? 'existing' : 'proposed'); return; }
+    if (a === 'rot-' || a === 'rot+') { const dd = a === 'rot+' ? 15 : -15; drwRotSet(L, (m) => drwAngNow(m) + dd, `turned ${dd > 0 ? '+' : ''}${dd}°`); return; }
+    if (a === 'rot0') { drwRotSet(L, () => null, 'turned back'); return; }
+    if (TB_NEED[a]) drwStyleSet(L, a, v);
+  }
+  $('drawTb').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b || !drw || b.disabled) return; const g = b.closest('[data-a]'); if (!g) return; e.preventDefault(); drwTbAct(g.dataset.a, b.dataset.v); });
+  /* (beta 7.13, Drawing fixes) The owner (after beta 7.12): "allow right click to open options tool for that element". On a computer, a right-click on the plan
+     selects what is under the pointer (what a tap there selects; on an item already selected: the selection as it is) and opens its tools as a menu at the
+     pointer: the toolbar's tools it can take (as drwTbRender shows them), each with the toolbar's icon and words, doing what its button does (drwTbAct: one
+     Undo step); on the empty plan: Add text here (a text of yours there, as the row's Text). Kept inside the window; Esc, a click elsewhere or a choice closes it. The
+     browser's own menu does not open over the plan (it still does elsewhere in the app); a phone: as before (a long press is not taken). */
+  const CTX_SKIP = new Set(['done', 'more', 'xtra', 'scope', 'pal']); // (the toolbar's own: Done, Several, More, This one / All like it, its palette)
+  /** The right-click menu put away: true when it was open. */
+  function drwCtxClose() { const M = $('drawCtx'); if (!M || M.hidden) return false; M.hidden = true; M.textContent = ''; return true; }
+  /** The menu opened at (x, y) (page pixels): the toolbar's tools for what is selected; at: the empty plan there ({ clientX, clientY }): Add text here. False: nothing to offer. */
+  function drwCtxOpen(x, y, at) {
+    const M = $('drawCtx'), tb = $('drawTb'); if (!M || !drw) return false; M.textContent = '';
+    const cap = (el) => ((el.querySelector('span:last-child') || el).textContent || '').trim();
+    const item = (o) => { const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', o.role || 'menuitem'); b.dataset.a = o.a; if (o.v != null) b.dataset.v = o.v; if (o.checked != null) b.setAttribute('aria-checked', String(!!o.checked));
+      if (o.title) b.title = o.title; if (o.label) b.setAttribute('aria-label', o.label); if (o.disabled) b.disabled = true; if (o.ico) { const i = o.ico.cloneNode(true); i.removeAttribute('id'); b.appendChild(i); }
+      const t = document.createElement('span'); t.textContent = o.cap; b.appendChild(t); b.addEventListener('click', () => o.go(b)); M.appendChild(b); return b; };
+    const hr = () => { if (M.lastElementChild && M.lastElementChild.tagName !== 'HR') M.appendChild(document.createElement('hr')); };
+    if (!at) {
+      if (tb.hidden) return false;
+      for (const el of tb.children) {
+        const a = el.dataset.a; if (!a || CTX_SKIP.has(a) || el.hidden) continue;
+        if (el.classList.contains('drwtbsep')) { hr(); continue; }
+        if (el.classList.contains('drwtbseg')) { el.querySelectorAll('button').forEach((b) => item({ a, v: b.dataset.v, role: 'menuitemradio', checked: b.getAttribute('aria-pressed') === 'true', title: b.title, ico: b.querySelector('svg.dpi'), cap: cap(b), go: () => drwCtxDo(a, b.dataset.v) })); continue; } // (Existing / Proposed, Arrow / Bubble)
+        if (a === 'color') { const b = item({ a, title: el.title, label: el.getAttribute('aria-label'), ico: $('drawTbSw'), cap: cap(el), go: (bb) => drwCtxPal(bb) }); b.setAttribute('aria-haspopup', 'true'); b.setAttribute('aria-expanded', 'false'); continue; } // (its colours under it)
+        const pr = el.getAttribute('aria-pressed'); item({ a, title: el.title, label: el.getAttribute('aria-label'), ico: el.querySelector('svg.dpi'), cap: cap(el), disabled: el.disabled, role: pr != null ? 'menuitemcheckbox' : 'menuitem', checked: pr != null ? pr === 'true' : null, go: () => drwCtxDo(a) });
+      }
+    } else { const t = $('drawIcons').querySelector('[data-a="addtext"]'); item({ a: 'addtext', title: 'Add text here: type it, it goes where you clicked', label: 'Add text here', ico: t.querySelector('svg.dpi'), cap: 'Add text here', go: () => { drwCtxClose(); if (drw.add) drwAddEnd(); drwAddStart({ kind: 'text' }); if (drw.add) drwAddAt(at); } }); }
+    while (M.lastElementChild && M.lastElementChild.tagName === 'HR') M.lastElementChild.remove();
+    if (!M.childElementCount) return false;
+    M.hidden = false; drwCtxPlace(x, y); M.dataset.x = String(x); M.dataset.y = String(y);
+    const f = M.querySelector('button:not([disabled])'); if (f) f.focus({ preventScroll: true }); LOG.info('draw.ctx', { n: M.querySelectorAll('button').length, sel: drwSels().length }); return true;
+  }
+  /** The menu at (x, y), inside the window: to the left of the pointer where it has no room at its right, up where none below. */
+  function drwCtxPlace(x, y) { const M = $('drawCtx'); M.style.left = '0px'; M.style.top = '0px'; const r = M.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight, pad = 8; let L = x + 2, T = y + 2; if (L + r.width > W - pad) L = Math.max(pad, x - r.width - 2); if (T + r.height > H - pad) T = Math.max(pad, H - pad - r.height); M.style.left = `${Math.round(L)}px`; M.style.top = `${Math.round(T)}px`; }
+  /** A tool of the menu chosen: the menu put away, its toolbar button's work done. */
+  function drwCtxDo(a, v) { drwCtxClose(); if (drw) drwTbAct(a, v); }
+  /** Colour in the menu: the colours under it (as the toolbar's palette), the one of the selection ticked; again: put away. */
+  function drwCtxPal(b) {
+    const M = $('drawCtx'), was = M.querySelector('.pal'); if (was) { was.remove(); b.setAttribute('aria-expanded', 'false'); return; }
+    const L = drwSels().map(mvById).filter(Boolean), cs = [...new Set(L.filter((m) => canOf(m).color).map((m) => +drwStyNow(m).color || 0))], c1 = cs.length === 1 ? cs[0] : -1, P = document.createElement('div'); P.className = 'pal'; P.setAttribute('role', 'group'); P.setAttribute('aria-label', 'Colour');
+    TB_COLS.forEach(([c, nm]) => { const s0 = document.createElement('button'); s0.type = 'button'; s0.setAttribute('role', 'menuitemradio'); s0.setAttribute('aria-checked', String(c === c1)); s0.dataset.a = 'pal'; s0.dataset.v = String(c); s0.title = nm; s0.setAttribute('aria-label', nm); if (c) s0.style.background = drwAciCss(c); else s0.classList.add('asplan'); s0.addEventListener('click', () => drwCtxDo('pal', String(c))); P.appendChild(s0); });
+    b.after(P); b.setAttribute('aria-expanded', 'true'); drwCtxPlace(+M.dataset.x || 0, +M.dataset.y || 0); (P.querySelector('[aria-checked="true"]') || P.querySelector('button')).focus({ preventScroll: true });
+  }
+  $('drawCtx').addEventListener('keydown', (e) => { // (the keys of a menu: ↑ ↓ (← → among the colours) to go through it, Home / End, Enter to choose, Esc or Tab to put it away)
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); drwCtxClose(); return; }
+    if (e.key === 'Tab') { drwCtxClose(); return; }
+    const B = [...$('drawCtx').querySelectorAll('button:not([disabled])')], i = B.indexOf(document.activeElement), k = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (k || e.key === 'Home' || e.key === 'End') { e.preventDefault(); e.stopPropagation(); if (B.length) B[e.key === 'Home' ? 0 : e.key === 'End' ? B.length - 1 : i < 0 ? 0 : (i + k + B.length) % B.length].focus({ preventScroll: true }); }
+  });
+  document.addEventListener('pointerdown', (e) => { if (!$('drawCtx').hidden && !(e.target instanceof Element && e.target.closest('#drawCtx'))) drwCtxClose(); }, true); // (a click elsewhere: put away, before what it does)
+  $('drawCtx').addEventListener('contextmenu', (e) => e.preventDefault()); // (a right-click on the menu itself: not the browser's over it)
+  window.addEventListener('resize', () => drwCtxClose()); window.addEventListener('blur', () => drwCtxClose());
+  /* (beta 7.12, Drawing edit) The text of an item of the plan edited (the owner: "allow also the user to edit the text if needed. just to make everything correct before
+     exporting"): Edit text on the toolbar, or a double-tap (a double-click) on it, opens a small editor with its text as the plan writes it (report.movable text: one
+     line per line), kept as mvText[id] (job.text: the plan only, the record stays as it is); Automatic puts the plan's own text back; ↶ undoes. A text note the same. */
+  let drwTxtCb = null, drwTxtAt = 0; const DBL_MS = 300; // (a second tap on the same spot within this: a double-tap, as a phone counts one; slower: the next item under it, as 7.11)
+  /** An item's text as the plan writes it: report.movable text (one string a line), else its own texts on the plan shown, from the top. */
+  function drwTextOf(m) {
+    if (Array.isArray(m.text)) return m.text.map(String);
+    const T = drwOwnTexts(m); if (!T.length) return []; const u = [T[0].m[2], T[0].m[3]], l = Math.hypot(u[0], u[1]) || 1; // (a builder that does not say: its texts from the top, along their own up, turned or not)
+    return T.map((t) => ({ t, y: (t.m[4] * u[0] + t.m[5] * u[1]) / l })).sort((a, b) => b.y - a.y).map((x) => String(x.t.s));
+  }
+  /** The editor opened (o: title, sub, lines, auto: Automatic offered, need: a line needed, onSave(lines), onAuto()). */
+  function drwTxtOpen(o) {
+    drwTxtCb = o; drwTxtAt = Date.now(); $('drawTxtTitle').textContent = o.title; $('drawTxtSub').textContent = o.sub || ''; $('drawTxtArea').value = (o.lines || []).join('\n');
+    $('drawTxtAuto').hidden = !o.auto; $('drawTxtYes').textContent = o.ok || 'Save'; $('drawTxtBox').hidden = false; drwTxtCheck();
+    setTimeout(() => { const t = $('drawTxtArea'); if ($('drawTxtBox').hidden) return; try { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } catch (e) { /* not focusable yet */ } }, 40);
+  }
+  /** Its lines as typed: one a line, the spaces at their ends and the empty lines at the end left off. */
+  const drwTxtLines = () => { const L = $('drawTxtArea').value.replace(/\r/g, '').split('\n').map((x) => x.replace(/\s+$/, '')); while (L.length && !L[L.length - 1].trim()) L.pop(); return L; };
+  const drwTxtCheck = () => { const cb = drwTxtCb; $('drawTxtYes').disabled = !!(cb && cb.need && !drwTxtLines().some((x) => x.trim())); };
+  function drwTxtEnd(how) { const cb = drwTxtCb; if (!cb) return; const L = drwTxtLines(); if (how === 'save' && cb.need && !L.some((x) => x.trim())) return; drwTxtCb = null; $('drawTxtBox').hidden = true; if (how === 'save') cb.onSave(L); else if (how === 'auto' && cb.onAuto) cb.onAuto(); else if (cb.onCancel) cb.onCancel(); }
+  const drwTxtGhost = () => Date.now() - drwTxtAt < 450; // (opened by a tap on the plan: the click a phone sends after that tap lands on the editor, maybe on a button: not taken)
+  $('drawTxtYes').addEventListener('click', () => { if (!drwTxtGhost()) drwTxtEnd('save'); }); $('drawTxtNo').addEventListener('click', () => { if (!drwTxtGhost()) drwTxtEnd('no'); }); $('drawTxtAuto').addEventListener('click', () => { if (!drwTxtGhost()) drwTxtEnd('auto'); });
+  $('drawTxtArea').addEventListener('input', drwTxtCheck);
+  $('drawTxtBox').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); drwTxtEnd('no'); } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); drwTxtEnd('save'); } }); // (Esc: Cancel; Ctrl + Enter: Save)
+  /** Edit text of an item (a plan item with texts, or a text note). */
+  function drwTxtEdit(m) {
+    if (!m || !drw || !canText(m)) return;
+    if (isNote(m)) { const n = noteNow(m); if (!n) return; drwTxtOpen({ title: 'Edit the note', sub: 'One line per line, as it goes on the plan (the DXF, its PDF and the One PDF).', lines: n.lines || [], need: true, onSave: (L) => drwNoteSet(m, { lines: L }, 'note edited') }); return; }
+    const had = (pmeta(drw.project).mvText || {})[m.id], own = drwTextOf(m), S0 = own.map((_, k) => srcOf(m, k)), recL = S0.map((x, k) => (x ? `${k + 1} (${x.point === pidOf(m) ? 'its' : `${recName(x.rec) || x.rec.poleId || elemOf(x.rec)}'s`} ${x.R.say})` : '')).filter(Boolean); // ((beta 7.12) the lines from its record)
+    drwTxtOpen({ title: `Edit text · ${drwMvName(m)}`, sub: `As it goes on the plan (the DXF, its PDF and the One PDF), one line per line; ${had ? 'changed by hand: Automatic puts the plan\'s own text back' : 'the plan\'s own text now'}. ${recL.length ? `Line${recL.length > 1 ? 's' : ''} ${andList(recL)} ${recL.length > 1 ? 'are' : 'is'} from its record: changed, ${recL.length > 1 ? 'they are' : 'it is'} written into the record (the KMZ, the BOQ and every export follow); the others change the plan only.` : 'The record stays as it is.'}`, lines: had || own, auto: !!had, onSave: (L) => drwTextSave(m, L), onAuto: () => drwTextSet(m, null) });
+  }
+  /* (beta 7.12, Drawing edit) The owner: "after edit or update or delete. the kmz and other related docs must be updated as well": an item's text lines that show a field of
+     a record (report.movable src) are written into that record when changed, as its form writes it (updated by this user; an ID in capitals, a size one of its form's),
+     so the KMZ, the BOQ and every export show them; the other lines (a line not in its form, a span's measured length, its cable's label, the plan's own words) stay the
+     plan's (job.text). One step of Undo / Redo. */
+  /* SRC_REC: a field the plan names (report src; job.pts' names) written into the app's record as its form writes it: say (the editor's words), put(record, value)
+     → the record, { err } (said, nothing saved) or null (not in the record's form: the plan's only). */
+  const srcId = (p, v) => ({ ...p, poleId: v.toUpperCase().slice(0, 60) }), srcUp = (k) => (p, v) => ({ ...p, [k]: v.toUpperCase().slice(0, 40) });
+  const srcOpt = (k, nm) => (p, v) => { const o = (BOQ_OPT[k] || []).find((x) => [v, `${v}m`, `${v}C`].some((y) => x.toLowerCase() === y.toLowerCase())); return o ? { ...p, boq: { ...(p.boq || {}), [k]: o } } : { err: `${v}: ${nm} is one of ${(BOQ_OPT[k] || []).join(', ')}` }; };
+  const SRC_REC = {
+    poleId: { say: 'ID', put: srcId }, tag: { say: 'ID', put: srcId }, siteName: { say: 'name', put: srcId },
+    label1: { say: 'ID', put: (p, v) => { const x = /^PROP\.?\s*POLE\s+(\S.*)$/i.exec(v); return x ? srcId(p, x[1].trim()) : null; } }, // ('PROP.POLE <its ID>')
+    napId: { say: 'NAP ID', put: srcUp('napId') }, nap2Id: { say: 'second NAP ID', put: srcUp('nap2Id') }, closureId: { say: 'closure ID', put: srcUp('closureId') },
+    height: { say: 'pole size', put: srcOpt('height', 'a new pole\'s size') }, clamp: { say: 'clamp size', put: srcOpt('clamp', 'a clamp size') }, cloSize: { say: 'closure size', put: srcOpt('clo', 'a closure size') },
+    ownerName: { say: 'owner\'s name', put: (p, v) => ({ ...p, boq: { ...(p.boq || {}), ownerName: v.slice(0, 60) } }) },
+    armText: { say: 'arm', put: (p, v) => { const a = ARMS_ON_POLE.find((x) => x[2].toLowerCase() === v.toLowerCase() || x[3].toLowerCase() === v.toLowerCase()), k = armOn(p); if (!a) return { err: `${v}: an arm on the pole is one of ${ARMS_ON_POLE.map((x) => x[2]).join(', ')}` }; if (k < 0) return null; const det = (p.details || []).map((d) => ({ ...d })); det[k] = { ...det[k], item: a[3] }; return { ...p, details: det }; } },
+    mloopM: { say: 'loop length', put: (p, v) => { const n = parseFloat(v); if (!(n > 0 && n <= 300)) return { err: `${v}: a loop's length in metres` }; const b = { ...(p.boq || {}), mloopM: String(+n.toFixed(1)) }; if (!loopsAt(p).own) b.mloop = 'Yes'; return { ...p, boq: b }; } }, // (as its form's length chips)
+  };
+  /** The record field line k of an item's text shows (report src: { point, field, line?, value? }), with its record; null: not a record's (a span's measured length,
+      its cable's label, a street's name, the plan's own words). */
+  function srcOf(m, k) {
+    const x = Array.isArray(m && m.src) ? m.src[k] : null; if (!x || typeof x !== 'object' || x.point == null || !SRC_REC[x.field]) return null;
+    const rec = points.find((p) => String(p.id) === String(x.point)); return rec ? { ...x, point: String(x.point), rec, R: SRC_REC[x.field] } : null;
+  }
+  /** The value the line typed (t) gives its field: its line's form round the value ('{v}m LOOP'), the field made from it ('CC-{v}'); null: not in that form (the plan's only). */
+  function srcVal(x, t) {
+    let v = String(t).trim(); if (!v) return null;
+    if (x.line) { const [a, b] = String(x.line).split('{v}'); if (b == null || v.length <= a.length + b.length || v.slice(0, a.length).toUpperCase() !== a.toUpperCase() || v.slice(v.length - b.length).toUpperCase() !== b.toUpperCase()) return null; v = v.slice(a.length, v.length - b.length).trim(); }
+    if (x.value) v = String(x.value).replace('{v}', v);
+    return v || null;
+  }
+  /** Edit text saved: its record's lines into the record, the rest kept for the plan (job.text). */
+  async function drwTextSave(m, L) {
+    const own = drwTextOf(m), had = (pmeta(drw.project).mvText || {})[m.id], recs = new Map(), errs = [], L2 = L.slice(); let plan = false;
+    L.forEach((t, k) => {
+      if (t === own[k]) return; const x = srcOf(m, k), v = x && t !== (had ? had[k] : own[k]) ? srcVal(x, t) : null; if (v == null) { plan = true; return; } // (not a record's, or not in its form: the plan's only)
+      const cur = recs.get(x.point) || x.rec, r = x.R.put(cur, v); if (!r) plan = true; else if (r.err) errs.push(r.err); else if (JSON.stringify(r) !== JSON.stringify(cur)) recs.set(x.point, r); else L2[k] = own[k]; // (the record says it already, as its form writes it: the plan writes it so)
+    });
+    if (L.length !== own.length) plan = true; if (errs.length) { toast(`Not saved: ${errs[0]}`, 5000); return; }
+    if (!recs.size) { drwTextSet(m, JSON.stringify(L2) === JSON.stringify(own) && had ? null : L2); return; }
+    const proj = drw.project, m0 = pmeta(proj), T = { ...(m0.mvText || {}) }, now = new Date().toISOString(), before = [...recs.keys()].map((pid) => JSON.parse(JSON.stringify(points.find((p) => String(p.id) === pid))));
+    for (const b of before) { const lk = tmHooks.locked ? tmHooks.locked(b.id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    const dup = [...recs.values()].filter((r) => r.poleId && r.poleId !== (before.find((b) => b.id === r.id) || {}).poleId && points.some((q) => q.project === r.project && q.id !== r.id && String(q.poleId || '').toUpperCase() === r.poleId)).map((r) => r.poleId); // (as its form warns: the ID already used in this project)
+    drwUndoPush('text written into its record', before); if (plan) T[m.id] = L2.slice(); else delete T[m.id]; S.meta = S.meta || {}; S.meta[proj] = { ...m0, mvText: T }; if (!Object.keys(T).length) delete S.meta[proj].mvText; persist();
+    LOG.info('draw.text.rec', { kind: m.kind, recs: recs.size, plan });
+    if (await drwRecsPut([...recs.values()].map((r) => ({ ...r, updated: now, updatedBy: byLine() })))) toast(`${recs.size === 1 ? `${recName([...recs.values()][0]) || 'Its record'}` : `${recs.size} records`}: written, the KMZ, the BOQ and the plan follow (↶ undoes)${dup.length ? `. ${dup[0]} is already used in this project.` : ''}`, dup.length ? 6000 : 3500);
+  }
+  /** An item's text kept as edited (L: its lines; [] its texts left off) or, null, the plan's own again. */
+  function drwTextSet(m, L) {
+    const proj = drw.project, m0 = pmeta(proj), T = { ...(m0.mvText || {}) }, had = T[m.id], js = (x) => JSON.stringify(x || null);
+    if (L == null) { if (!had) return; delete T[m.id]; } else { if (had ? js(L) === js(had) : js(L) === js(drwTextOf(m))) return; T[m.id] = L.slice(); }
+    drwUndoPush(L == null ? 'text back to automatic' : 'text edited'); LOG.info('draw.text', { kind: m.kind, lines: L ? L.length : null, auto: L == null });
+    drwKeep({ ...m0, mvText: T });
+  }
+  /** A note changed (o: its fields; null value: taken off), one Undo step (what). */
+  function drwNoteSet(m, o, what) {
+    const proj = drw.project, m0 = pmeta(proj), id = String(m.id || m).replace(/^note:/, ''); let hit = false;
+    const N = notesOf(m0).map((x) => { if (String(x.id) !== id) return x; const y = { ...x }; for (const [k, v] of Object.entries(o)) { if (v == null) delete y[k]; else y[k] = v; } hit = JSON.stringify(y) !== JSON.stringify(x); return y; });
+    if (!hit) return; drwUndoPush(what); LOG.info('draw.note.set', { what, keys: Object.keys(o) }); drwKeep({ ...m0, notes: N });
+  }
+  /* (beta 7.12, Drawing edit) Notes: a text or a photo the user adds on the plan, not from a record (the owner: "let the user also add a text or photo no related with
+     the capture on plans as needed"). Add text: a tap on the plan where it goes, then the editor; Add photo: the camera or the gallery (a file input: the phone's
+     camera app or its gallery, in the APK's WebView as in a browser), kept in the photo store as the app keeps its photos (made smaller: makeStoredImages), then a
+     tap on the plan where it goes. Each one a job.notes entry the plan draws (the DXF, its PDF, the One PDF; a photo's JPEG beside the DXF, NOTE_<id>.jpg, made as
+     the poles' photos are); selected, moved, turned, sized, styled, edited and deleted (↶ brings it back) with the toolbar, which changes the note itself. */
+  const NOTE_W = () => +plStyle().photo.size || 18; // (a photo note drawn, until the plan has it, as wide as the plan's photos)
+  function drwAddStart(o) {
+    if (!drw || !drwPlanOn()) return; drwSelClear(true); drw.add = o; $('drawWrap').classList.add('adding'); LOG.info('draw.note.adding', { kind: o.kind });
+    const info = $('drawInfo'); info.textContent = o.kind === 'photo' ? 'Add photo: tap the plan where it goes' : 'Add text: tap the plan where it goes'; const b = document.createElement('button'); b.type = 'button'; b.id = 'drawAddNo'; b.className = 'btn small'; b.textContent = 'Cancel'; b.addEventListener('click', () => drwAddEnd()); info.appendChild(b);
+    info.hidden = false; $('drawHint').hidden = true; drwTbRender(); drwIcoRender(); drawDrawing();
+  }
+  /** Adding ended (keep: the photo kept for its note; otherwise a photo taken for it is let go). */
+  function drwAddEnd(keep) {
+    if (!drw || !drw.add) return; const A = drw.add; drw.add = null; $('drawWrap').classList.remove('adding');
+    if (A.kind === 'photo' && A.pid && !keep) dbDel('photos', A.pid).catch(() => {});
+    if ($('drawAddNo')) { $('drawInfo').hidden = true; $('drawHint').hidden = !!S.drawHintOff; } drwIcoRender(); drawDrawing();
+  }
+  /** A tap on the plan while adding: a text there (the editor first), or the photo there. */
+  function drwAddAt(e) {
+    const A = drw.add; if (!A) return; const at = drwEN(e).map((v) => +v.toFixed(2));
+    if (A.kind === 'photo') { drwAddEnd(true); drwNoteAdd({ kind: 'photo', at, photo: { pid: A.pid, px: A.px, py: A.py } }); return; }
+    drwTxtOpen({ title: 'Add text', sub: 'One line per line. It goes where you tapped; drag it to move it, the toolbar turns, sizes and colours it.', lines: [], need: true, ok: 'Add', onSave: (L) => { drwAddEnd(); drwNoteAdd({ kind: 'text', at, lines: L }); }, onCancel: () => drwAddEnd() });
+  }
+  /** A note added to the project's plan (selected once the plan made with it is shown). */
+  function drwNoteAdd(n0) {
+    const proj = drw.project, m0 = pmeta(proj), N = notesOf(m0); let k = Date.now(); while (N.some((x) => String(x.id) === `n${k}`)) k++;
+    const n = { id: `n${k}`, ...n0 }; drwUndoPush(n.kind === 'photo' ? 'photo added' : 'text added'); drw.selWant = `note:${n.id}`;
+    LOG.info('draw.note.add', { kind: n.kind, n: N.length + 1, lines: n.lines ? n.lines.length : 0 }); drwKeep({ ...m0, notes: [...N, n] });
+    toast(n.kind === 'photo' ? 'Photo added to the plan: drag it to move it (↶ undoes)' : 'Text added to the plan: drag it to move it (↶ undoes)', 2600);
+  }
+  /** A photo picked or taken for a note: kept in the photo store (as the app keeps its photos), its size as the plan's photos are made (800 px on its long side); then a tap places it. */
+  async function drwNotePhoto(file) {
+    if (!file || !drw) return; if (!/^image\//.test(file.type || '') && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name || '')) { toast('That file is not a picture', 3500); return; }
+    busy('Keeping the photo…'); drwNotePrep++;
+    try {
+      const im = await makeStoredImages(file), pid = `drwn${uid()}`; await dbPut('photos', { id: pid, clean: im.clean, thumb: im.thumb });
+      const d = await phDims(pid); if (!d) { await dbDel('photos', pid).catch(() => {}); throw new Error('the picture could not be read'); }
+      LOG.info('draw.note.photo', { kb: Math.round(im.clean.size / 1024), px: d.w, py: d.h }); busy(false);
+      if (!drw || !drwPlanOn()) { await dbDel('photos', pid).catch(() => {}); return; } if (drw.add) drwAddEnd(); drwAddStart({ kind: 'photo', pid, px: d.w, py: d.h });
+    } catch (e) { busy(false); LOG.warn('draw.note.photo', errInfo(e)); toast(`Photo not added: ${e.message || e}`, 4500); } finally { drwNotePrep--; }
+  }
+  for (const id of ['drawNoteCam', 'drawNotePick']) $(id).addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) drwNotePhoto(f); });
+  /** Notes deleted (the toolbar's Delete; ↶ brings them back: their photos stay in the photo store meanwhile). */
+  function drwNotesDel(L) {
+    const T = L.filter(isNote); if (!T.length || !drw) return; const ids = new Set(T.map((m) => m.id)), m0 = pmeta(drw.project);
+    drwUndoPush(T.length > 1 ? `${T.length} notes deleted` : 'note deleted'); LOG.info('draw.note.del', { n: T.length });
+    const nm = { ...m0, notes: notesOf(m0).filter((x) => !ids.has(`note:${x.id}`)) }; if (Array.isArray(nm.mvOrder)) nm.mvOrder = nm.mvOrder.filter((o) => !(o && ids.has(o.id)));
+    drwSelClear(); drwKeep(nm); toast(`${T.length > 1 ? `${T.length} notes` : 'Note'} deleted (↶ Undo brings ${T.length > 1 ? 'them' : 'it'} back)`, 3000);
+  }
+  /* (beta 7.12, Drawing edit) Delete (the owner: "double check every plan element and ensure that it can be edit, delete or update(text, colors and etc) as user requires.
+     after edit or update or delete. the kmz and other related docs must be updated as well"): each item as the plan says (report.movable del): 'field', its record's
+     field set off as its record's form sets it off (the BOQ, the KMZ, the PMI and the plan follow); 'point', the point itself deleted as its record's Delete does (asked
+     first, naming it; its spans' cable stays joined); 'hide', left off the plan only (job.hide: More › Hidden lists them, Show or Back to automatic brings one back);
+     a note, the note. One step of Undo / Redo for all of it (the records and their photos and the route as they were). */
+  const FIELD_OFF = {
+    closure: (p) => { const b = { ...(p.boq || {}) }; delete b.clo; delete b.cloSt; delete b.cloAuto; return { ...p, closure: false, closureId: '', boq: b }; }, // (the survey form's Closure switch off: its size, status and ID with it)
+    nap: (p) => { const b = { ...(p.boq || {}) }; ['napType', 'napSz', 'napSt'].forEach((k) => delete b[k]); return { ...p, nap: false, napId: '', boq: b }; },
+    nap2: (p) => { const b = { ...(p.boq || {}) }; ['nap2Type', 'nap2Sz', 'nap2St'].forEach((k) => delete b[k]); return { ...p, nap2: false, nap2Id: '', boq: b }; }, // (as its Remove)
+    ground: (p) => ({ ...p, boq: { ...(p.boq || {}), ground: 'No' } }), // (No grounding)
+    mloop: (p) => { if (loopsAt(p).own) return p; const b = { ...(p.boq || {}), mloop: 'No' }; delete b.mloopM; return { ...p, mloop: false, boq: b }; }, // (its form's No loop; a NAP's, closure's or riser's own loop has none)
+    riser: (p) => { const b = { ...(p.boq || {}) }; delete b.riser; return { ...p, boq: b }; },
+  };
+  /** (beta 7.12) The plan's del { how: 'field', field, off, also } (field: job.pts' name) as the record's form changes the record: (rec) → the record, or null when
+      its record cannot say it (then it is left off the plan only, said why). */
+  function delFieldFn(d) {
+    const f = String(d.field || '');
+    if (f === 'closure') return FIELD_OFF.closure;
+    if (f === 'nap') return (p) => FIELD_OFF.nap2(FIELD_OFF.nap(p)); // (a pole's NAP and its second one: the plan draws them as one)
+    if (f === 'nap2' || f === 'mloop' || f === 'ground' || f === 'riser') return FIELD_OFF[f];
+    if (f === 'guy') return (p) => { const b = { ...(p.boq || {}) }, g = String(d.off == null ? '' : d.off).trim(); if (g) b.guy = g; else delete b.guy; if (!/pole.?to.?pole/i.test(b.guy || '')) delete b.p2p; return { ...p, boq: b }; }; // (its other guys kept, as its form's chips keep them)
+    if (f === 'armType') return (p) => { const b = { ...(p.boq || {}) }; delete b.arm; return { ...p, boq: b }; }; // (the new arm)
+    if (f === 'armText' || f === 'telcoArm') return (p) => { const k = armOn(p); if (k < 0) return p; const det = (p.details || []).slice(); det.splice(k, 1); return { ...p, details: det }; }; // (the arm on the pole: its line in the details)
+    if (f === 'att') return (p) => { // (a messenger arm: that pole taken off the pull-off's or cross-over's poles, as its poles' picker does; a pole that carries its cable stays)
+      const keep = new Set((Array.isArray(d.off) ? d.off : []).map(String)), drop = jnAtt(p).map((q) => String(q.id)).filter((id) => !keep.has(id)), fix = new Set(jnCablePoles(p).map(String));
+      if (!drop.length || drop.some((id) => fix.has(id))) return null;
+      const r = { ...p, att: (Array.isArray(p.att) ? p.att : []).filter((id) => !drop.includes(String(id))) };
+      try { const fit = jnFit(r, jnAtt(r)); if (fit && fit.main) r.jm = fit.main; else if (Array.isArray(r.jm) && r.jm.some((id) => drop.includes(String(id)))) delete r.jm; } catch (e) { /* (its messenger as it was) */ }
+      return r;
+    };
+    return null;
+  }
+  /** (beta 7.12) Still on the plan by the plan's own rule once its record says no: a loop (the cable's spacing; a NAP's, closure's or riser's own), a riser (the cable goes under there). */
+  function delStill(f, r) { if (f === 'riser') return riserAuto(r); if (f === 'mloop') { const o = loopsAt(r); return o.auto || o.own; } return false; }
+  /** The loops the plan puts on a pole by its own rule, with its record r: auto (the cable's spacing), own (a NAP's, a closure's, a riser's…), as planJob works them out. */
+  function loopsAt(r) { try { const pts = points.filter((q) => q.project === r.project).map((q) => (q.id === r.id ? r : q)), R = routeModel(), LA = autoLoops(pts, R); return { auto: LA.has(r.id) || !!(LA.fib && LA.fib.list.has(r.id)), own: loopOwnMap(pts, R).has(r.id) }; } catch (e) { return { auto: false, own: false }; } }
+  const DEL_WHY = { mloop: 'the plan puts a loop there by its own rule (the cable\'s spacing, or a NAP\'s, a closure\'s or a riser\'s own)', riser: 'the cable goes under there', att: 'that pole carries its cable' };
+  /** How an item is deleted (null: it is not): its note; the plan's del: 'field' (fn: its record changed), 'point', 'hide' (a field the app does not keep: 'hide' too). */
+  function delOf(m) {
+    if (isNote(m)) return noteNow(m) ? { how: 'note' } : null;
+    const d = m && m.del; if (!d || m.hidden) return null; const how = typeof d === 'string' ? d : d.how; if (!/^(field|point|hide)$/.test(how || '')) return null;
+    const point = d.point != null ? String(d.point) : pidOf(m), rec = point != null ? points.find((p) => String(p.id) === point) : null;
+    if (how === 'point') return rec ? { how, point } : null;
+    if (how === 'field') { if (!rec) return null; const fn = delFieldFn(d); return fn ? { how, point, field: String(d.field), fn } : { how: 'hide', point, field: String(d.field || '') }; }
+    return { how: 'hide', point };
+  }
+  /** What Delete does to them, said (the toolbar's tip). */
+  const delSay = (L) => { const H = new Set(L.map((m) => (delOf(m) || {}).how)); return H.size !== 1 ? 'Delete: each as the plan says' : { note: 'Delete this note (↶ brings it back)', hide: 'Delete from the plan only (More › Hidden brings it back)', field: 'Delete: off in its record, as its form does (the BOQ and the KMZ follow; ↶ brings it back)', point: 'Delete the point: its record (asked first; ↶ brings it back)' }[[...H][0]]; };
+  async function drwDelete(L) {
+    if (!drw) return; const T = L.map((m) => ({ m, d: delOf(m) })).filter((x) => x.d); if (!T.length) return;
+    if (T.every((x) => x.d.how === 'note')) { drwNotesDel(T.map((x) => x.m)); return; }
+    const proj = drw.project, pts = [...new Set(T.filter((x) => x.d.how === 'point').map((x) => x.d.point))], nameOf = (pid) => { const p = points.find((q) => String(q.id) === pid); return p ? recName(p) || p.poleId || elemOf(p) : pid; };
+    for (const pid of new Set(T.filter((x) => x.d.how === 'field' || x.d.how === 'point').map((x) => x.d.point))) { const lk = tmHooks.locked ? tmHooks.locked(pid, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    if (pts.length) { const nm1 = pts.map(nameOf); if (!(await ask(`Delete ${nm1.length === 1 ? nm1[0] : `${nm1.length} points`}?`, `${nm1.length === 1 ? 'Its record and its photos are' : `${nm1.join(', ')}: their records and photos are`} removed from this phone, as Delete in ${nm1.length === 1 ? 'its record' : 'their records'} does: the KMZ, the BOQ and the plan follow; a cable through ${nm1.length === 1 ? 'it' : 'them'} stays joined. ↶ Undo brings ${nm1.length === 1 ? 'it' : 'them'} back.`, [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }])) || !drw || drw.project !== proj) return; }
+    // the records' fields off, as their forms set them off; what its record cannot say (the plan puts it there by its own rule) left off the plan too, said why
+    const recs = new Map(), why = [];
+    for (const x of T) {
+      if (x.d.how !== 'field' || pts.includes(x.d.point)) continue; const cur = recs.get(x.d.point) || points.find((q) => String(q.id) === x.d.point); if (!cur) continue;
+      const r = x.d.fn(cur), same = !r || JSON.stringify(r) === JSON.stringify(cur); if (!same) recs.set(x.d.point, r);
+      if (same || delStill(x.d.field, r)) { x.hide = true; why.push(x); }
+    }
+    const ids = [...new Set([...recs.keys(), ...pts])], before = ids.map((pid) => points.find((q) => String(q.id) === pid)).filter(Boolean).map((p) => JSON.parse(JSON.stringify(p))), ph = [];
+    for (const pid of pts) { const p = points.find((q) => String(q.id) === pid); if (p) for (const x of allPids(p)) { const st = await dbGet('photos', x).catch(() => null); if (st) ph.push(st); } }
+    const what = T.length === 1 ? { field: `${T[0].m.kind} off in its record`, point: 'point deleted', hide: `${T[0].m.kind} deleted from the plan`, note: 'note deleted' }[T[0].d.how] : `${T.length} items deleted`;
+    drwUndoPush(what, before.length ? before : null, { ph, route: pts.length ? routeSnap() : null }); LOG.info('draw.delete', { n: T.length, how: [...new Set(T.map((x) => x.d.how))], rule: why.length });
+    // the plan's own: left off, the notes
+    const m0 = pmeta(proj), nm = { ...m0 }, H = { ...(nm.mvHide || {}) }; for (const x of T) if (x.d.how === 'hide' || x.hide) H[x.m.id] = true; if (Object.keys(H).length) nm.mvHide = H;
+    const nid = new Set(T.filter((x) => x.d.how === 'note').map((x) => x.m.id)); if (nid.size) { nm.notes = notesOf(nm).filter((n) => !nid.has(`note:${n.id}`)); if (!nm.notes.length) delete nm.notes; }
+    S.meta = S.meta || {}; S.meta[proj] = nm; persist(); drwSelClear(true); $('drawInfo').hidden = true; $('drawHint').hidden = !!S.drawHintOff; // (what was selected is gone: its line too)
+    // a point deleted (as its record's Delete)
+    const now = new Date().toISOString();
+    for (const pid of pts) {
+      const p = points.find((q) => String(q.id) === pid); if (!p) continue; await dbDel('points', p.id); await deletePhotosIfUnused(allPids(p), new Set([p.id])); points = points.filter((q) => q.id !== p.id);
+      if (links().some(([a, b]) => a === p.id || b === p.id) || fibers().some((f) => f.path.includes(p.id))) { const q = routeDrop(new Set([p.id]), links(), fibers()); setRoute(q.l, q.f); } // (as its record's Delete: off its spans and cables, a cable through it stays joined)
+      const mm = { ...(S.meta[proj] || {}) }; mm.gone = { ...(mm.gone || {}), [p.id]: now }; S.meta[proj] = mm; persist(); changedAfterApproval(proj, 'delete');
+    }
+    if (recs.size) await drwRecsPut([...recs.values()].map((r) => ({ ...r, updated: now, updatedBy: byLine() }))); else if (pts.length) { try { renderPoles(); } catch (e) { /* not ready */ } drwRecsShow(); } else { drwMvShowPins(); drwPlanUi(); drwTbRender(); drawDrawing(); drwPhSoon(250); }
+    const w0 = why[0], rule = w0 ? ` ${drwMvName(w0.m)}: ${DEL_WHY[w0.d.field] || 'not a field its record keeps'}, so it is left off the plan only (More › Hidden brings it back).` : '';
+    toast(`${T.length === 1 ? 'Deleted' : `${T.length} items deleted`}${recs.size || pts.length ? ': the record, the KMZ, the BOQ and the plan follow' : ' from the plan'} (↶ Undo brings ${T.length === 1 ? 'it' : 'them'} back).${rule}`, rule ? 6000 : 3500);
+  }
+  /** (beta 7.12, Drawing edit) Items left off the plan shown again (ids; none: all of them). */
+  function drwUnhide(ids) {
+    if (!drw) return; const m0 = pmeta(drw.project), H = { ...(m0.mvHide || {}) }, L = ids || Object.keys(H); if (!L.some((id) => H[id])) return;
+    drwUndoPush(L.length > 1 ? `${L.length} items shown again` : 'shown again'); for (const id of L) delete H[id]; LOG.info('draw.unhide', { n: L.length }); drwKeep({ ...m0, mvHide: H });
+  }
+  /** (beta 7.12, Drawing edit) The photos of notes no project keeps any more (deleted, and no Undo step of this session left to bring them back), let go from the photo store. */
+  let drwNotePrep = 0;
+  async function drwNotesSweep() {
+    if (drwNotePrep) return;
+    try {
+      const keys = (await dbKeys('photos')).filter((k) => /^drwn/.test(String(k))); if (!keys.length) return;
+      const keep = new Set(), add = (N) => { for (const n of Array.isArray(N) ? N : []) if (n && n.photo && n.photo.pid) keep.add(n.photo.pid); };
+      for (const mm of Object.values(S.meta || {})) add(mm && mm.notes); for (const u of drwUndoStack) add(u.pins && u.pins.notes); if (drw && drw.add && drw.add.pid) keep.add(drw.add.pid);
+      const gone = keys.filter((k) => !keep.has(k)); if (gone.length && !drwNotePrep) { await dbDelMany('photos', gone); LOG.info('draw.note.sweep', { n: gone.length }); }
+    } catch (e) { LOG.warn('draw.note.sweep', errInfo(e)); }
+  }
+  /* (beta 7.12, Drawing edit) The draw order of what is selected (the owner: "allow order on the selected item, say, sent to back, backward, sent to front or forward"):
+     job.order, kept as mvOrder; a To front or To back drops the item's earlier ops (the list stays short). Shown over or under the rest until the plan made with it comes. */
+  function drwOrderSet(L, op) {
+    if (!L.length || !drw) return; const m0 = pmeta(drw.project); let O = Array.isArray(m0.mvOrder) ? m0.mvOrder.slice() : [];
+    for (const m of L) { if (op === 'front' || op === 'back') O = O.filter((x) => !(x && x.id === m.id)); O.push({ id: m.id, op }); }
+    if (O.length > 400) O = O.slice(-400);
+    drwUndoPush({ front: 'brought to front', forward: 'brought forward', backward: 'sent backward', back: 'sent to back' }[op]); LOG.info('draw.tools.order', { op, n: L.length, ops: O.length });
+    drwKeep({ ...m0, mvOrder: O });
+  }
+  /* (beta 7.12, Drawing edit) The Drawing's own tools in a row (the CEF editor's look): Select (pressed while nothing is being added), Add text, Add photo (its tray: the
+     camera, the gallery), Undo (while there is a change to take back), More (its tray: select several, the photos' lines, everything back to automatic). */
+  function drwIcoRender() {
+    const R = $('drawIcons'); if (!R) return; const on = !!drw && !!drw.plWant && !drwEd && !$('drawing').hidden;
+    if (R.hidden !== !on) R.hidden = !on; if (!on) { drwIcoPop(null); if (drw && drw.add) drwAddEnd(); return; } // (Edit route, the Drawing closed: adding stops)
+    const pl = drwPlanOn() && drw.labels !== false, ad = drw.add ? drw.add.kind : '', b = (a) => R.querySelector(`[data-a="${a}"]`);
+    b('sel').setAttribute('aria-pressed', String(!ad)); b('addtext').setAttribute('aria-pressed', String(ad === 'text')); b('addphoto').setAttribute('aria-pressed', String(ad === 'photo' || drw.icoPop === 'photo'));
+    for (const a of ['sel', 'addtext', 'addphoto', 'more']) b(a).disabled = !pl;
+    b('addphoto').setAttribute('aria-expanded', String(drw.icoPop === 'photo')); b('more').setAttribute('aria-expanded', String(drw.icoPop === 'more')); b('more').setAttribute('aria-pressed', String(drw.icoPop === 'more'));
+    const nu = drwUndoStack.filter((u) => u.project === drw.project).length, ub = $('drawUndo'); ub.disabled = !nu; ub.title = nu ? `Undo (Ctrl + Z): where things were before the last change (${nu})` : 'Undo (Ctrl + Z): nothing to take back yet';
+    const nr = drwRedoStack.filter((u) => u.project === drw.project).length, rb = $('drawRedo'); rb.disabled = !nr; rb.title = nr ? `Redo (Ctrl + Y): the change taken back, made again (${nr})` : 'Redo (Ctrl + Y): nothing to make again'; // ((beta 7.12, Drawing edit) Redo)
+    const say = ad === 'text' ? 'Tap the plan where the text goes' : ad === 'photo' ? 'Tap the plan where the photo goes' : drw.tbMore && !drwSels().length ? 'Select several: tap each one' : ''; if ($('drawIcoSay').textContent !== say) $('drawIcoSay').textContent = say;
+  }
+  /** The row's tray (k: 'photo', 'more'; null: put away). */
+  function drwIcoPop(k) {
+    const P = $('drawIcoPop'); if (!P) return; if (drw) drw.icoPop = k || null;
+    if (!k || !drw) { if (!P.hidden) { P.hidden = true; P.textContent = ''; } return; }
+    const tile = (a, icon, cap, label, o) => `<button type="button" data-a="${a}" aria-label="${label}" title="${label}"${o && o.pressed != null ? ` aria-pressed="${o.pressed}"` : ''}${o && o.dis ? ' disabled' : ''}><svg class="dpi" aria-hidden="true"><use href="#ce-${icon}"/></svg><span>${cap}</span></button>`;
+    if (k === 'photo') P.innerHTML = `<b>Add a photo</b><div class="tiles">${tile('cam', 'cam', 'Camera', 'Take a photo with the camera')}${tile('gal', 'img', 'Gallery', 'Choose a photo from the gallery')}</div><p class="hint">Then tap the plan where it goes. It is printed on the plan, its PDF and the One PDF, as the poles' photos are.</p>`;
+    else if (k === 'hidden') { const H = Object.keys(pmeta(drw.project).mvHide || {}), nm = (id) => { const m = mvById(id); return m ? drwMvName(m) : ((MV_NOUN[mvKindOf(id)] || ['item'])[0]).replace(/^./, (c) => c.toUpperCase()); };
+      P.innerHTML = `<b>Deleted from the plan (${H.length})</b><div class="hidl">${H.map((id) => `<div class="hidr"><span>${hEsc(nm(id))}</span><button type="button" data-a="unhide" data-id="${hEsc(id)}" aria-label="Show ${hEsc(nm(id))} again" title="Show it on the plan again"><svg class="dpi" aria-hidden="true"><use href="#ce-undo"/></svg><span>Show</span></button></div>`).join('')}</div>${H.length > 1 ? `<div class="tiles">${tile('unhideall', 'undo', 'Show all', 'Every item deleted from the plan shown again')}</div>` : ''}<p class="hint">Deleted from the plan only: their records are as they were.</p>`; } // ((beta 7.12, Drawing edit) the items deleted from the plan only, each shown again)
+    else { const C = drwPinsN(drw.project), nh = Object.keys(pmeta(drw.project).mvHide || {}).length; P.innerHTML = `<b>More</b><div class="tiles">${tile('several', 'sel2', 'Several', 'Select several: each tap adds one or takes it off', { pressed: !!drw.tbMore })}${tile('phlines', 'lead', 'Photo lines', 'Lines from the photos to their poles: on or off (Plan style › Photos › Line to its pole)', { pressed: !!plStyle().lead.photo })}${tile('autoall', 'auto', 'All automatic', 'Everything back where and as the plan puts it (asked first; the notes stay)', { dis: !C.n })}${nh ? tile('hidden', 'eyeoff', `Hidden (${nh})`, `The items deleted from the plan only (${nh}): show them again`) : ''}</div>`; }
+    P.hidden = false; drwIcoRender();
+  }
+  $('drawIcons').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-a]'); if (!b || b.disabled || !drw) return; const a = b.dataset.a; e.preventDefault();
+    if (a === 'undo' || a === 'redo') { drwIcoPop(null); return; } // (Undo, Redo: their own listeners)
+    if (a === 'sel') { drwIcoPop(null); drwAddEnd(); drwIcoRender(); return; }
+    if (a === 'addtext') { drwIcoPop(null); if (drw.add && drw.add.kind === 'text') drwAddEnd(); else { if (drw.add) drwAddEnd(); drwAddStart({ kind: 'text' }); } return; }
+    if (a === 'addphoto' || a === 'more') { const k = a === 'addphoto' ? 'photo' : 'more'; drwIcoPop(drw.icoPop === k ? null : k); drwIcoRender(); }
+  });
+  $('drawIcoPop').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-a]'); if (!b || b.disabled || !drw) return; const a = b.dataset.a; e.preventDefault();
+    if (a === 'cam' || a === 'gal') { drwIcoPop(null); if (drw.add) drwAddEnd(); const inp = $(a === 'cam' ? 'drawNoteCam' : 'drawNotePick'); inp.value = ''; inp.click(); return; } // (the click itself: the phone opens its camera or gallery only from a tap)
+    if (a === 'several') { drw.tbMore = !drw.tbMore; drwIcoPop(null); if (drw.add) drwAddEnd(); if (drwSels().length) drwSelSay(); drwTbRender(); drwIcoRender(); return; }
+    if (a === 'phlines') { drwPhLines(!plStyle().lead.photo); drwIcoPop('more'); return; }
+    if (a === 'autoall') { drwIcoPop(null); drwPhAutoAll(); return; }
+    if (a === 'hidden') { drwIcoPop('hidden'); return; } // ((beta 7.12, Drawing edit) the items deleted from the plan only)
+    if (a === 'unhide' || a === 'unhideall') { drwUnhide(a === 'unhide' ? [b.dataset.id] : null); const n = Object.keys(pmeta(drw.project).mvHide || {}).length; drwIcoPop(n ? 'hidden' : null); }
+  });
+  /** (beta 7.11, Drawing tools) A point tapped (7.10: its record said on the information line): its pole's (or site's) item selected too, with the toolbar (add: to the selection). */
+  function drwPtTap(pid, itemId, add) {
+    const it = drwEdById(pid); if (!it || !drw) return; if (add && itemId) { drwMvTap(itemId, 'add'); return; }
+    const p = it.p, u = it.xy, n = drw.seq.get(String(p.id)), tg = it.el === 'Pole' ? poleTags(it).map((x) => x[0]) : [], info = $('drawInfo');
+    drw.sel = p.id; drw.selPh = null; drw.mvSel = null; drw.selRun = null; if (!(drwSels().length === 1 && drwSels()[0] === itemId)) drw.tbAll = false; drw.mvSels = itemId ? [itemId] : [];
+    info.textContent = `${n ? `No. ${n} · ` : ''}${p.poleId || elemOf(p)} · ${svDesc(p)}${isJn(p) ? ` · extended messengers to ${jnAtt(p).map((q) => q.poleId || '(no ID)').join(', ') || 'no pole yet'} (${jnAtt(p).length} of ${JN[elemOf(p)].n})` : ''}${boqText(p) ? ` · ${boqText(p)}` : ''}${tg.length ? ` · on the plan: ${tg.join(', ')}` : ''}${it.on ? ` · on pole ${it.on.p.poleId || '(no ID)'}` : ''} · E ${u[0].toFixed(1)} N ${u[1].toFixed(1)}`;
+    const m = itemId ? mvById(itemId) : null, M = pmeta(drw.project); if (m && drwHandOf(m, M)) { info.textContent += (M.poleAt || {})[String(p.id)] ? ' · moved on the plan (its record\'s place stays)' : ' · changed by hand on the plan'; const b = document.createElement('button'); b.type = 'button'; b.id = 'drawMvAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwMvAuto(itemId)); info.appendChild(b); }
+    info.hidden = false; $('drawHint').hidden = true; drwTbRender();
+    if (cefHooks.drawSync) cefHooks.drawSync(); if (splHooks.drawSync) splHooks.drawSync(); drawDrawing();
+  }
+  /** A tap on nothing of the plan: a cable there (7.10: its run lit and said), else the selection cleared (Select more, Shift or Ctrl: kept). */
+  function drwTapNone(e, add) {
+    if (add && drwSels().length) { drwSelSay(); return; }
+    const cv = $('drawCanvas'), r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1, tx = (e.clientX - r.left) * d, ty = (e.clientY - r.top) * d, info = $('drawInfo');
+    drw.sel = null; drw.selPh = null; drw.mvSel = null; drw.mvSels = []; drw.tbMore = false; drw.tbAll = false; drw.tbX = false; drw.selRun = null;
+    let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((Ln) => { for (let k = 1; k < Ln.length; k++) { const a = Ln[k - 1], b = Ln[k], vx = b[0] - a[0], vy = b[1] - a[1], t = Math.max(0, Math.min(1, ((tx - a[0]) * vx + (ty - a[1]) * vy) / (vx * vx + vy * vy || 1))), dd = Math.hypot(a[0] + vx * t - tx, a[1] + vy * t - ty); if (dd < 16 * d && (!bc || dd < bc.dd)) bc = { n, dd }; } }));
+    if (bc) { drw.selRun = bc.n; const f = drw.R && drw.R.fib ? drw.R.fib.list.find((x) => x.n === bc.n) : null; // v2.42.26: a cable tapped: its whole run lit
+      if (f) { const by = drw.R.fib.by, a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by); let len = 0; for (let k = 1; k < f.path.length; k++) { const p = by.get(f.path[k - 1]), q = by.get(f.path[k]); if (p && q) len += haversine(p, q); }
+        info.textContent = `RUN ${f.n} · ${fibCabName(f)} · ${a.ref || a.kind} → ${z.ref || z.kind} · ${fmtLen(len)} · ${f.path.length - 1} spans`; info.hidden = false; $('drawHint').hidden = true; } }
+    if (drw.selRun == null) { info.hidden = true; $('drawHint').hidden = !!S.drawHintOff; } // (v2.42.26: a cable tapped keeps its line)
+    drwTbRender(); if (cefHooks.drawSync) cefHooks.drawSync(); if (splHooks.drawSync) splHooks.drawSync(); drawDrawing();
+  }
+  /** A tap on the plan (not in Edit route): what is under the finger, tapped again on the same spot the next one under it (a point, a photo, an item), selected
+   *  (add: Shift, Ctrl or Select more: added or taken off); on nothing, as 7.10 (a cable, or nothing: the selection cleared). */
+  function drwTapAt(e, add0) {
+    // ((beta 7.12, Drawing edit) a finger's second tap on the same spot within DBL_MS, on the one item the first selected, an item with texts: its text editor (a double-tap);
+    // the taps kept, for a mouse's double-click (dblclick: the item the first click selected))
+    const now = Date.now(), PT = drw.tapLast, many = !!add0 || !!drw.tbMore;
+    if (!many && PT && e.pointerType !== 'mouse' && now - PT.t < DBL_MS && Math.hypot(PT.x - e.clientX, PT.y - e.clientY) < 16 && drwDblText(PT)) { drw.tapLast = null; return; }
+    const S0 = drwSels(); drwTapAt0(e, add0); if (!drw) return; const S2 = drwSels();
+    drw.tapPrev = PT; drw.tapLast = { t: now, x: e.clientX, y: e.clientY, id: S2.length === 1 ? S2[0] : null, before: S0.length === 1 ? S0[0] : null, cyc: !!drw.tapCyc }; // (cyc: this tap went on to the next item under it)
+  }
+  /** (beta 7.12, Drawing edit) A double-tap or a double-click whose first tap was A: the item it is on (the one A selected; A went on from the one selected to the next
+   *  under it: that one), selected again if the second went on, and its text editor opened when it has texts. True when opened. */
+  function drwDblText(A) {
+    const id = A && (A.cyc && A.before ? A.before : A.id), m = id ? mvById(id) : null; if (!m || !canText(m)) return false;
+    if (!(drwSels().length === 1 && drwSels()[0] === id)) drwMvTap(id); drwTxtEdit(m); return true;
+  }
+  function drwTapAt0(e, add0) {
+    const add = !!add0 || !!drw.tbMore, C = drwCands(e), key = C.map((c) => c.id || c.photo || c.pt).join(','), T = drw.tapC;
+    let k = 0; drw.tapCyc = false; if (!add && T && C.length > 1 && T.key === key && Math.hypot(T.x - e.clientX, T.y - e.clientY) < 8) { k = (T.k + 1) % C.length; drw.tapCyc = true; } // ((beta 7.12, Drawing edit) tapCyc: went on to the next, for a double-tap)
+    drw.tapC = C.length ? { x: e.clientX, y: e.clientY, key, k } : null; const c = C[k];
+    if (c && c.pt) { drwPtTap(c.pt, c.id, add); return; }
+    if (c && c.photo) { drwPhTap(c.photo, add ? 'add' : ''); return; }
+    if (c && c.id) { drwMvTap(c.id, add ? 'add' : ''); return; }
+    drwTapNone(e, add);
   }
   function sizeDrawing() { const cv = $('drawCanvas'), r = $('drawWrap').getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d)); }
   if ('ResizeObserver' in window) { let rq = 0; new ResizeObserver(() => { cancelAnimationFrame(rq); rq = requestAnimationFrame(() => { if (drw && drw.view && !$('drawing').hidden) { sizeDrawing(); drawDrawing(); } }); }).observe($('drawWrap')); } // v2.42.28
@@ -2123,10 +3707,14 @@
   }
   function drawDrawing() {
     if (!drw || !drw.view) return;
+    { const sg = `${!!drw.plWant}|${drwEd}|${drwPlanOn()}|${drw.labels}|${drw.add ? drw.add.kind : ''}|${drw.icoPop || ''}|${drwUndoStack.length}|${drwRedoStack.length}|${!!drw.tbMore}|${(drw.mvSels || []).length}`; if (sg !== drw.icoSig) { drw.icoSig = sg; drwIcoRender(); } } // ((beta 7.12, Drawing edit) the row of tools as the Drawing is now: Edit route, Labels, adding, Undo)
+    drw.phHit = []; // (beta 7.8, Drawing photos) the photo frames drawn, for a finger ((beta 7.11, Drawing tools) drwCands)
     if (drwEd) drw.selRun = fibAdd != null ? fibAdd : fibSel; // beta 6.7: Edit route: the cable in the bar (or lit) lit as on the map
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
     g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
     if (drwBase() !== 'off') { drawUnderlay(g); underlaySoon(); } // v2.36: the map under the drawing
+    if (drwPlanOn()) { drwPlanDraw(g, d, cv, v); return; } // (beta 7.9, Drawing preview) the plan as its PDF prints it
+    if (!$('drawTb').hidden) { $('drawTb').hidden = true; $('drawTbPal').hidden = true; $('drawWrap').classList.remove('tbtop'); } // ((beta 7.11, Drawing tools) the Drawing as before (Edit route, a pull-off's poles, no plan): no toolbar)
     // grid every 10 / 50 / 100 m, by zoom
     const step = [5, 10, 20, 50, 100, 200, 500, 1000].find((m) => m * v.sc > 60 * d) || 1000;
     g.strokeStyle = 'rgba(28,63,148,0.08)'; g.lineWidth = 1;
@@ -2206,6 +3794,7 @@
     g.font = `600 ${fs}px ui-monospace, monospace`;
     // a NAP or closure pin: a dotted line to the pole it stands on
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
+    const PHR = drw.ph && drw.ph.row === rowIdx() ? drw.ph.at : null; // (beta 7.8, Drawing photos) where the plan puts the photos of the drawing shown (the preview), else null: as before
     const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num, rtaC = rtaCats(NS.rta, drw.items.map((it) => it.p)); /* (beta 6.6) */ // (v2.42.14: the drawing shown)
     const roomy = v.sc * 30 >= 26 * d; // the numbers / photos once the poles are far enough apart on screen (zoom in to see them)
     const phK = phTidyMm(plStyle().photo.size) * 1.1 / 18; // (Drawing style › Photos: the photos' size, 1 at 18 m; beta 6.7: as the plan prints it, 1:1100)
@@ -2221,19 +3810,21 @@
       if (el !== 'Pole' && !JN[el]) { g.fillStyle = pinCol(p) || SV_COLORS[el] || '#495057'; g.beginPath(); g.arc(px, py, r * 0.35, 0, Math.PI * 2); g.fill(); } }
       placed.push(bk && bk.kind === 'dn' ? [px - Math.abs(bk.ax[0]) * bk.hl - Math.abs(bk.ax[1]) * bk.hw, py - Math.abs(bk.ax[1]) * bk.hl - Math.abs(bk.ax[0]) * bk.hw, 2 * (Math.abs(bk.ax[0]) * bk.hl + Math.abs(bk.ax[1]) * bk.hw), 2 * (Math.abs(bk.ax[1]) * bk.hl + Math.abs(bk.ax[0]) * bk.hw)] : [px - r, py - r, r * 2, r * 2]);
       // its photo or number on the plan (as the DXF will have it)
-      const n = roomy ? drw.seq.get(String(p.id)) : 0;
+      const n = roomy ? drw.seq.get(String(p.id)) : 0, PA = roomy && PHR ? PHR[String(p.id)] || null : null, onPl = !!PHR; // (beta 7.8, Drawing photos) PA: its photo where the plan puts it
+      if (PA && !(drw.phDrag && drw.phDrag.id === String(p.id))) drwPhFrame(g, d, it, PA, placed); // (the one dragged: on top, below)
       if (n) { const rc = rtaCatOf(p, NS.rta, rtaC), nC = rc ? ACI_INK[rc.color] : nCol, bC = rc ? nC : bCol; // (beta 6.5: its RTA/JPA category's colour)
         const pp = bk && bk.kind === 'dn' ? (-bk.ax[1] >= 0 ? [-bk.ax[1], bk.ax[0]] : [bk.ax[1], -bk.ax[0]]) : null; // (v2.42.24: outside a block; beside a DN's long side)
         const hasPh = mode !== 'num' && photosOf(p).length > 0, dx = pp ? pp[0] * (bk.hw + 18 * d) : r + 8 * d, dy = pp ? pp[1] * (bk.hw + 18 * d) - 8 * d : -(r + 10 * d), cx = px + dx, cy = py + dy;
-        g.strokeStyle = bC; g.lineWidth = 1.2 * d; g.beginPath(); if (pp) g.moveTo(px + pp[0] * bk.hw, py + pp[1] * bk.hw); else g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke();
-        if (hasPh) { // a photo frame (beta 4.1: with photo + number it stands a little further out, and the number has its circle by the pole)
+        const phOld = hasPh && !onPl, numHere = !hasPh || mode === 'both' || (onPl && !PA); // (beta 7.8, Drawing photos) the plan's places known: its photo there (above); a photo the plan has no room for: its number, as on the plan
+        if (phOld || numHere) { g.strokeStyle = bC; g.lineWidth = 1.2 * d; g.beginPath(); if (pp) g.moveTo(px + pp[0] * bk.hw, py + pp[1] * bk.hw); else g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke(); }
+        if (phOld) { // a photo frame (beta 4.1: with photo + number it stands a little further out, and the number has its circle by the pole)
           const fx = mode === 'both' ? cx + 21 * d : cx, fy = mode === 'both' ? cy - 9 * d : cy;
           const k = phK, X = fx - 9 * d, Y = fy + 7 * d - 14 * d * k, s = (u) => u * d * k; // (Drawing style › Photos: the size set, Normal as before; grown from its corner by the pole)
           g.fillStyle = 'rgba(255,255,255,0.9)'; g.strokeStyle = '#495057'; g.lineWidth = 1.2 * d; g.fillRect(X, Y, s(18), s(14)); g.strokeRect(X, Y, s(18), s(14));
           g.fillStyle = '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill();
           placed.push([X - 1 * d, Y - 1 * d, s(18) + 2 * d, s(14) + 2 * d]);
         }
-        if (!hasPh || mode === 'both') {
+        if (numHere) {
           const rr = Math.max(7, 3 + String(n).length * 3.2) * d;
           const sh = [2, 3, 4].includes(+(rc ? rc.color : NS.color)), so = 1.1 * d; // v2.42.13: a light number over a dark shadow, as on the plan
           g.fillStyle = '#ffffff'; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fill();
@@ -2280,15 +3871,19 @@
         g.fillStyle = col; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, cx, cy + 0.5 * d); }); }
     placed.forEach(([x, y, w, h]) => occ.add(obb(x + w / 2, y + h / 2, w, h, 0), 'text'));
     if (drw.labels) drwLabels(g, d, cv, occ, BK, endAt, laneAt, GAP);
-    // north arrow and scale bar
+    if (drw.phDrag) { const it = drwEdById(drw.phDrag.id), A = it && drwPhOf(it); if (A) drwPhFrame(g, d, it, A, []); } // (beta 7.8, Drawing photos) a photo being dragged: over everything
+    drwNorthScale(g, d, cv, v);
+    if (drwEd) drwEdPaint(g, d); // beta 6.7: Edit route: the line being drawn, the handles, what is dragged
+    if (jnPick) jnPaintDrw(g, d); // beta 6.9: a pull-off's or cross-over's poles being tapped
+  }
+  /** The north arrow and the scale bar, at the upper right. */
+  function drwNorthScale(g, d, cv, v) {
     g.fillStyle = '#1b1b1b'; g.strokeStyle = '#1b1b1b'; g.lineWidth = 1.5 * d;
     const nx = cv.width - 26 * d, ny = 30 * d; g.beginPath(); g.moveTo(nx, ny - 14 * d); g.lineTo(nx + 7 * d, ny + 8 * d); g.lineTo(nx, ny + 3 * d); g.lineTo(nx - 7 * d, ny + 8 * d); g.closePath(); g.fill();
     g.font = `700 ${11 * d}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('N', nx, ny + 10 * d);
     const sb = [10, 20, 50, 100, 200, 500, 1000, 2000].find((m) => m * v.sc > 70 * d) || 2000, sx = cv.width - 26 * d - sb * v.sc, sy = 62 * d;
     g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + sb * v.sc, sy); g.moveTo(sx, sy - 5 * d); g.lineTo(sx, sy + 5 * d); g.moveTo(sx + sb * v.sc, sy - 5 * d); g.lineTo(sx + sb * v.sc, sy + 5 * d); g.stroke();
     g.textBaseline = 'bottom'; g.fillText(sb >= 1000 ? `${sb / 1000} km` : `${sb} m`, sx + sb * v.sc / 2, sy - 4 * d);
-    if (drwEd) drwEdPaint(g, d); // beta 6.7: Edit route: the line being drawn, the handles, what is dragged
-    if (jnPick) jnPaintDrw(g, d); // beta 6.9: a pull-off's or cross-over's poles being tapped
   }
   /* v2.42.24: the closure's texts and the cable labels and span lengths on the Drawing screen, where they cover nothing (the other
      labels, the IDs, numbers and tags, the blocks, the cables): as on the plan. Each cable its own label beside its own line, as large
@@ -2435,9 +4030,13 @@
   }
   (() => { // pan, pinch, wheel and tap on the drawing
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
-    let last = null, moved = 0, pinch = null;
-    cv.addEventListener('pointerdown', (e) => { if (!drw) return; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0;
-      if (drw.ptrs.size === 2) { const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc };
+    let ctxHere = false; // ((beta 7.13, Drawing fixes) this press opened the right-click menu (a Mac's Ctrl + click too): its release is not a tap)
+    let last = null, moved = 0, pinch = null, phD = null, mvD = null, hD = null, add = false; // (beta 7.8, Drawing photos) phD: a photo frame pressed (outside Edit route), dragged rather than the drawing ((beta 7.10, Drawing labels) mvD: a label, number or pole's details, the same) ((beta 7.11, Drawing tools) hD: a handle of the item selected (its turn, its arrow's tip); add: Shift or Ctrl held, a tap adds to the selection)
+    cv.addEventListener('pointerdown', (e) => { if (!drw) return; ctxHere = false; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); drwTbPal(false); if (drw.icoPop) { drwIcoPop(null); drwIcoRender(); } drw.lastPtr = e.pointerType; cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0; // ((beta 7.12, Drawing edit) the row's tray put away; a mouse or a finger: for a double-click)
+      if (drw.ptrs.size === 1) { const ok = !drwEd && !jnPick && !drw.add && (e.pointerType !== 'mouse' || e.button === 0); add = !!(e.shiftKey || e.ctrlKey || e.metaKey); phD = null; mvD = null; hD = null; // ((beta 7.12) adding a text or a photo: nothing is taken, a tap places it, a drag pans)
+        const Hd = ok && drwPlanOn() ? drwHandleAt(e) : null; if (Hd) hD = drwHandleGrab(Hd, e); // ((beta 7.11, Drawing tools) a handle first)
+        else if (ok) { const g = drwGrabAt(e); if (g && g.photo) phD = { id: g.photo, x0: e.clientX, y0: e.clientY }; else if (g && g.id) mvD = { id: g.id, x0: e.clientX, y0: e.clientY }; } } // ((beta 7.11) a selected item under the finger first; a pole or a site only when selected)
+      if (drw.ptrs.size === 2) { if (phD) { phD = null; drw.phDrag = null; } if (mvD) { mvD = null; if (drw.mvDrag) { drw.mvDrag = null; drawDrawing(); } } if (hD) { hD = null; if (drw.hDrag) { drw.hDrag = null; drawDrawing(); } } const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc };
         if (drwEd) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; pinch.m = m; pinch.w = [drw.view.cx + (m[0] * d() - cv.width / 2) / drw.view.sc, drw.view.cy - (m[1] * d() - cv.height / 2) / drw.view.sc]; } } }); // (beta 6.7, Edit route: two fingers move and zoom it, about their middle)
     cv.addEventListener('pointermove', (e) => {
       if (!drw || !drw.ptrs.has(e.pointerId)) return; drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]);
@@ -2445,30 +4044,43 @@
         if (pinch.w) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; drw.view.cx = pinch.w[0] - (m[0] * d() - cv.width / 2) / drw.view.sc; drw.view.cy = pinch.w[1] + (m[1] * d() - cv.height / 2) / drw.view.sc; }
         drawDrawing(); return; }
       const dx = e.clientX - last[0], dy = e.clientY - last[1]; last = [e.clientX, e.clientY]; moved += Math.abs(dx) + Math.abs(dy);
+      if (ctxHere && moved >= 8) drwCtxClose(); // ((beta 7.13, Drawing fixes) the right button dragged on: the plan panned, its menu put away)
+      if (hD) { if (moved >= 8) { drwHandleMove(hD, e); drawDrawing(); } return; } // ((beta 7.11, Drawing tools) turned by the finger, or its arrow's tip slid along its span; the drawing stays)
+      if (phD) { if (moved >= 8) { drw.phDrag = { id: phD.id, dx: (e.clientX - phD.x0) * d(), dy: (e.clientY - phD.y0) * d() }; drawDrawing(); } return; } // (beta 7.8, Drawing photos) the photo follows the finger; the drawing stays
+      if (mvD && moved >= 8 && !drw.mvDrag && !(drw.mvDrag = drwMvGrab(mvD.id))) mvD = null; // ((beta 7.10, Drawing labels) lifted off the plan at the first move)
+      if (mvD) { if (drw.mvDrag) { drw.mvDrag.dx = (e.clientX - mvD.x0) * d(); drw.mvDrag.dy = (e.clientY - mvD.y0) * d(); drawDrawing(); } return; } // ((beta 7.10, Drawing labels) the item follows the finger; the drawing stays
       if (drwEd && (rtDrawing() || rtGrab || rtDraft || rtMpan || (e.pointerType === 'mouse' && e.buttons !== 1))) return; // beta 6.7, Edit route: ✎ one finger draws (Route's gestures, rtGest); ✋ one finger moves it
       drw.view.cx -= dx * d() / drw.view.sc; drw.view.cy += dy * d() / drw.view.sc; drawDrawing();
     });
     const up = (e) => {
       if (!drw) return; drw.ptrs.delete(e.pointerId); if (drw.ptrs.size < 2) pinch = null;
+      if ((ctxHere || (e.pointerType === 'mouse' && e.button === 2)) && moved < 8) { ctxHere = false; hD = null; phD = null; mvD = null; drw.hDrag = null; drw.phDrag = null; drw.mvDrag = null; drawDrawing(); return; } // ((beta 7.13, Drawing fixes) a right-click: its menu (contextmenu below), not a tap
+      if (hD) { const D = hD; hD = null; if (e.type === 'pointerup' && moved >= 8 && drw.hDrag) drwHandleDrop(D); else { drw.hDrag = null; if (e.type === 'pointerup' && moved < 8) drwTapAt(e, add); else drawDrawing(); } return; } // ((beta 7.11, Drawing tools) a handle let go: the turn or the tip kept; only tapped: what is under it, as any tap)
+      if (phD) { const D = phD, G = drw.phDrag; phD = null; drw.phDrag = null; // (beta 7.8, Drawing photos) a photo let go where it was dragged, or tapped
+        if (e.type === 'pointerup' && moved >= 8 && G) drwPhDrop(D.id, G.dx, G.dy); else if (e.type === 'pointerup' && moved < 8) drwTapAt(e, add); else drawDrawing(); return; } // ((beta 7.11) a tap: what is under it, tapped again the next)
+      if (mvD) { const D = mvD, G = drw.mvDrag; mvD = null; drw.mvDrag = null; // ((beta 7.10, Drawing labels) a label, number or pole's details let go where it was dragged, or tapped
+        if (e.type === 'pointerup' && moved >= 8 && G) drwMvDrop(D.id, G.dx, G.dy, G); else if (e.type === 'pointerup' && moved < 8) drwTapAt(e, add); else drawDrawing(); return; }
       if (moved < 8 && e.type === 'pointerup' && !drwEd) { // a tap: the nearest point (beta 6.7: in Edit route, Route's tap)
-        const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
-        let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(it.xy), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; });
-        if (jnPick && jnPick.surf === 'drawing') { if (best) jnPickTap(best.it.p.id); return; } // beta 6.9: a pull-off's or cross-over's pole
-        drw.sel = best ? best.it.p.id : null; const info = $('drawInfo');
-        drw.selRun = null; if (!best) { let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((L) => { for (let k = 1; k < L.length; k++) { const a = L[k - 1], b = L[k], vx = b[0] - a[0], vy = b[1] - a[1], t = Math.max(0, Math.min(1, ((tx - a[0]) * vx + (ty - a[1]) * vy) / (vx * vx + vy * vy || 1))), dd = Math.hypot(a[0] + vx * t - tx, a[1] + vy * t - ty); if (dd < 16 * d() && (!bc || dd < bc.dd)) bc = { n, dd }; } }));
-          if (bc) { drw.selRun = bc.n; const f = drw.R && drw.R.fib ? drw.R.fib.list.find((x) => x.n === bc.n) : null; // v2.42.26: a cable tapped: its whole run lit
-            if (f) { const by = drw.R.fib.by, a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by); let len = 0; for (let k = 1; k < f.path.length; k++) { const p = by.get(f.path[k - 1]), q = by.get(f.path[k]); if (p && q) len += haversine(p, q); }
-              info.textContent = `RUN ${f.n} · ${fibCabName(f)} · ${a.ref || a.kind} → ${z.ref || z.kind} · ${fmtLen(len)} · ${f.path.length - 1} spans`; info.hidden = false; $('drawHint').hidden = true; } } }
-        if (best) { const p = best.it.p, u = best.it.xy, n = drw.seq.get(String(p.id)), tg = best.it.el === 'Pole' ? poleTags(best.it).map((x) => x[0]) : [];
-          info.textContent = `${n ? `No. ${n} · ` : ''}${p.poleId || elemOf(p)} · ${svDesc(p)}${isJn(p) ? ` · extended messengers to ${jnAtt(p).map((q) => q.poleId || '(no ID)').join(', ') || 'no pole yet'} (${jnAtt(p).length} of ${JN[elemOf(p)].n})` : ''}${boqText(p) ? ` · ${boqText(p)}` : ''}${tg.length ? ` · on the plan: ${tg.join(', ')}` : ''}${best.it.on ? ` · on pole ${best.it.on.p.poleId || '(no ID)'}` : ''} · E ${u[0].toFixed(1)} N ${u[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; }
-        else if (drw.selRun == null) { info.hidden = true; $('drawHint').hidden = !!S.drawHintOff; } // (v2.42.26: a cable tapped keeps its line)
-        if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: a tower site tapped: its CEF plan
-        if (splHooks.drawSync) splHooks.drawSync(); // beta 4.6: a site, closure or dummy NAP tapped: Splicing details ›
-        drawDrawing();
+        if (drw.add) { drwAddAt(e); return; } // ((beta 7.12, Drawing edit) a text or a photo added where the plan is tapped)
+        if (jnPick && jnPick.surf === 'drawing') { const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d(); let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(drwAt(it)), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; }); if (best) jnPickTap(best.it.p.id); return; } // beta 6.9: a pull-off's or cross-over's pole
+        drwTapAt(e, add); // ((beta 7.11, Drawing tools) a point, a photo, an item (tapped again on the same spot: the next under it), a cable, or nothing: the selection cleared)
       }
     };
-    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
-    cv.addEventListener('wheel', (e) => { if (!drw) return; e.preventDefault(); drw.view.sc *= e.deltaY < 0 ? 1.15 : 1 / 1.15; drawDrawing(); }, { passive: false });
+    cv.addEventListener('pointerup', (e) => { up(e); drwPhNextShow(); }); cv.addEventListener('pointercancel', (e) => { up(e); drwPhNextShow(); }); // ((beta 7.11, Drawing tools) a preview kept while something was held: shown)
+    cv.addEventListener('dblclick', (e) => { // ((beta 7.12, Drawing edit) a double-click on an item with texts: its text editor (the first click selected it; the second, which went on to the next one under it, is taken back). A finger: drwTapAt's double-tap)
+      if (!drw || drwEd || drw.add || drw.lastPtr !== 'mouse' || !drwPlanOn() || !$('drawTxtBox').hidden) return; const A = drw.tapPrev; if (!A || Date.now() - A.t > 900 || Math.hypot(A.x - e.clientX, A.y - e.clientY) > 12) return;
+      if (drwDblText(A)) e.preventDefault();
+    });
+    cv.addEventListener('contextmenu', (e) => { // ((beta 7.13, Drawing fixes) a right-click on the plan (a computer): the menu of what is under the pointer, never the browser's
+      if (!drw || drwEd) return; const pt = e.pointerType || drw.lastPtr; if (pt && pt !== 'mouse') return; // (✎ Edit route: its own (a right-click undoes); a phone's long press: as before)
+      e.preventDefault(); drwCtxClose(); ctxHere = true;
+      if (moved >= 8 || drw.add || jnPick || !drwPlanOn() || drw.labels === false || !drw.view) return; // (the right button dragged: the plan panned; adding a text or a photo; a pull-off's poles; no plan shown)
+      const C = drwCands(e), S0 = new Set(drwSels());
+      if (!C.length) { drwCtxOpen(e.clientX, e.clientY, { clientX: e.clientX, clientY: e.clientY }); return; } // (the empty plan: Add text here)
+      if (!C.some((c) => c.id && S0.has(c.id))) { drw.tapC = null; drwTapAt0(e, false); drw.tapLast = null; } // (what a tap there selects; on one selected: the selection as it is)
+      drwCtxOpen(e.clientX, e.clientY);
+    });
+    cv.addEventListener('wheel', (e) => { if (!drw) return; e.preventDefault(); drwCtxClose(); drw.view.sc *= e.deltaY < 0 ? 1.15 : 1 / 1.15; drawDrawing(); }, { passive: false });
     window.addEventListener('resize', () => { if (drw && !$('drawing').hidden) { sizeDrawing(); drawDrawing(); } });
   })();
   $('drawFit').addEventListener('click', () => { fitDrawing(); drawDrawing(); });
@@ -2580,6 +4192,17 @@
   function renderDrawLegend() {
     const pts = drw ? drw.items : [], has = (f) => pts.some(f), rows = [];
     const sv = (inner) => `<svg viewBox="0 0 22 16" aria-hidden="true">${inner}</svg>`, tag = (t, c) => sv(`<rect x="1" y="3" width="20" height="10" rx="1.5" fill="${c}"/><text x="11" y="10.6" text-anchor="middle" font-size="6.5" font-weight="800" fill="#fff" font-family="system-ui,sans-serif">${t}</text>`);
+    if (drwPlanOn()) { // (beta 7.9, Drawing preview) the plan as its PDF prints it: its own symbols (its LEGENDS sheet), its sheets, the photos
+      rows.push([sv('<path d="M2 12 8 5l4 4 3-3 5 6" fill="none" stroke="#1b1b1b" stroke-width="1.4"/><circle cx="8" cy="5" r="1.8" fill="#fff" stroke="#e03131" stroke-width="1.2"/>'), 'The plan as its PDF prints it: its lines, symbols and texts (its LEGENDS sheet says what each one is)']);
+      rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><rect x="11" y="3" width="8.5" height="5" fill="#ae3ec9"/>'), 'A sheet of the plan (GEO) and its name, as the plan writes it']);
+      if (drw.ph && Object.keys(drw.ph.at || {}).length) rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#1c7ed6" stroke-width="1.5"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#74c0fc"/>'), 'A photo where the plan puts it: drag it to place it by hand (blue: placed by hand)']);
+      if (drw.ph && (Object.values(drw.ph.at || {}).some(drwPhCut) || drwMvs().some((m, i) => m.kind !== 'photo' && drwMvCut(m, i)))) rows.push([sv('<rect x="4" y="3.5" width="14" height="9" fill="#fff" stroke="#495057" stroke-width="1.2"/><rect x="2" y="1.5" width="18" height="13" fill="none" stroke="#f08c00" stroke-width="1.6" stroke-dasharray="3 2"/>'), 'A photo across a sheet\u2019s edge (orange): it prints cut on both sheets (a label, number or pole\u2019s details too); drag it inside one']); // ((beta 7.10, Plan kept); (beta 7.10, Drawing labels) labels, numbers, pole details too)
+      if (drw.ph && drw.ph.grid && drw.ph.grid.kept) rows.push([sv('<rect x="1.5" y="2" width="19" height="12" fill="none" stroke="#ae3ec9" stroke-width="1.5"/><path d="M8 9.5l2.2 2.2L15 6.5" fill="none" stroke="#ae3ec9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'), 'The sheets are kept as they were when something was first placed by hand: they no longer change by themselves (Back to automatic for all of them works them out again)']); // ((beta 7.10, Plan kept))
+      if (drwMvs().some((m) => m.kind !== 'photo')) rows.push([sv('<rect x="2" y="4" width="18" height="8" fill="none" stroke="#fab005" stroke-width="2"/><path d="M5 8h12" stroke="#1b1b1b" stroke-width="1.6"/>'), 'A cable label, a pole number or a pole\'s details: drag it to place it by hand (tap it: what it is; ↶ undoes)']); // ((beta 7.10, Drawing labels))
+      rows.push([sv('<path d="M17 7.5a6 6 0 0 0-11-2.3M5 3v3h3M5 8.5a6 6 0 0 0 11 2.3M17 13v-3h-3" fill="none" stroke="#1b3a6b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'), 'Made again by itself when the drawing, its points or Plan style change; Regenerate plan preview (the round arrows): again now']);
+      if (drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); }
+      $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join(''); return;
+    }
     rows.push([sv('<circle cx="11" cy="8" r="4.5" fill="#fff" stroke="#1b1b1b" stroke-width="1.6"/>'), 'Pole (red: proposed)']);
     if (has((x) => ['Handhole', 'Manhole', 'Service box', 'ODC', 'ODF'].includes(x.el))) rows.push([sv('<rect x="6" y="3" width="10" height="10" fill="#fff" stroke="#1b1b1b" stroke-width="1.6"/>'), 'Handhole, ODC, ODF…']);
     if (has((x) => ['Site', 'NAP', 'Closure'].includes(x.el))) rows.push([sv('<path d="M11 2.5 16 13H6Z" fill="#fff" stroke="#1b1b1b" stroke-width="1.6"/>'), 'Site, NAP or closure pin']);
@@ -2620,7 +4243,7 @@
     site: { name: 'bottom', onKeep: false, move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) (beta 7.4 / 2.45.6: Bottom, its lat / long under it, as the owner's drafter wrote it) */
     jn: { name: 'text' }, /* beta 7.4 / 2.45.6: Cables › Pull-off / cross-over name: small text beside it (as the owner's drafter wrote it) or in a dashed bubble (beta 6.9) */
     crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room', icons: true }, /* beta 6.7: icons: Drawing style › Landmarks › Icons */
-    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0, idForm: 'auto' }, span: { h: 0, color: 0 }, photo: { size: 18, near: 16, stamp: 'addr' }, grid: { split: 0, pos: 'tr', h: 0, color: 0, leaders: 'auto' } }; /* beta 6.0: Photos: near its pole within 8-40 mm on the A3 sheet; Grid: leader lines only when there is no other way (auto) or allowed */ /* beta 6.0: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0, idForm: 'auto' }, span: { h: 0, color: 0 }, photo: { size: 18, near: 16, stamp: 'addr' }, grid: { split: 0, pos: 'tr', h: 0, color: 0, leaders: 'auto' }, lead: { photo: true, details: true }, clo: { style: 'arrow' } }; /* (beta 7.11, Drawing tools) Lines to the pole (the photos', the pole details'; the numbers': num.leader) and the closure labels (arrow or bubble) */ /* beta 6.0: Photos: near its pole within 8-40 mm on the A3 sheet; Grid: leader lines only when there is no other way (auto) or allowed */ /* beta 6.0: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
   /* (PL_STD, the company standard, is defined beside DEF: beta 6.7, UX step 4) */
   /** What differs from the company standard: [[setting, now]] (the look only: pole numbers are the project's). */
   function plStdDiff() {
@@ -2649,7 +4272,7 @@
   const phTidyMm = (m) => ({ 12: 9, 18: 18, 24: 36, 30: 48 }[m] || Math.min(48, Math.max(4, Math.round(m / 1.1 * 10) / 10)));
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (isHexCol(v) ? v.toLowerCase() : Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d); // (beta 6.0: or a colour of the user's own)
-    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Jn = { ...PL_DEF.jn, ...(u.jn || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, Gr = { ...PL_DEF.grid, ...(u.grid || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
+    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Jn = { ...PL_DEF.jn, ...(u.jn || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, Gr = { ...PL_DEF.grid, ...(u.grid || {}) }, Ld = { ...PL_DEF.lead, ...(u.lead || {}) }, Co = { ...PL_DEF.clo, ...(u.clo || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
     const Rt = { ...PL_DEF.num.rta, ...(N.rta || {}) }, rtaCats = (Array.isArray(Rt.cats) ? Rt.cats : RTA_STD).filter((x) => x && (x.k === 'proposed' || (x.k === 'owner' && String(x.owner || '').trim()))).slice(0, 16).map((x) => ({ k: x.k, ...(x.k === 'owner' ? { owner: String(x.owner).trim().slice(0, 40) } : {}), text: String(x.text || '').replace(/\s+/g, ' ').trim().slice(0, 32) || (x.k === 'proposed' ? 'PROPOSED POLES' : `RTA-${String(x.owner).trim().toUpperCase()}`), color: x.k === 'proposed' ? 1 : c(x.color, 2) })); // (beta 6.5: the proposed red stays the legend's)
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto', rta: { on: Rt.on !== false, cats: rtaCats, off: (Array.isArray(Rt.off) ? Rt.off : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 30), legend: ['boq', 'sheet'].includes(Rt.legend) ? Rt.legend : 'off' } }, // (beta 6.6: off: the automatic categories removed; legend: where it goes, off by default)
       id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, zoom: V.zoom !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
@@ -2659,7 +4282,7 @@
       jn: { name: Jn.name === 'bubble' ? 'bubble' : 'text' }, /* beta 7.4 / 2.45.6 */
       crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room', icons: Cr.icons !== false }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
       pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true), idForm: ['stack', 'line'].includes(Po.idForm) ? Po.idForm : 'auto' }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size), near: n(Ph.near, 8, 40, 16), stamp: ['off', 'll', 'addr'].includes(Ph.stamp) ? Ph.stamp : 'addr' }, /* (beta 6.4: the stamp on the plan's photos) */
-      grid: { split: Number.isInteger(+Gr.split) && +Gr.split >= 1 && +Gr.split <= 6 ? +Gr.split : 0, pos: ['tr', 'tl', 'br', 'bl'].includes(Gr.pos) ? Gr.pos : 'tr', h: hz(Gr.h, 4, 30), color: c(Gr.color, 0, true), leaders: Gr.leaders === 'allow' ? 'allow' : 'auto' } }; // beta 6.0 (beta 6.0: leaders)
+      grid: { split: Number.isInteger(+Gr.split) && +Gr.split >= 1 && +Gr.split <= 6 ? +Gr.split : 0, pos: ['tr', 'tl', 'br', 'bl'].includes(Gr.pos) ? Gr.pos : 'tr', h: hz(Gr.h, 4, 30), color: c(Gr.color, 0, true), leaders: Gr.leaders === 'allow' ? 'allow' : 'auto' }, lead: { photo: Ld.photo !== false, details: Ld.details !== false }, clo: { style: Co.style === 'bubble' ? 'bubble' : 'arrow' } }; // beta 6.0 (beta 6.0: leaders) ((beta 7.11, Drawing tools) lead, clo)
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
@@ -2748,6 +4371,7 @@
     o('stCrowdMinO', `${P.crowd.min} % of the size you set`); o('stCrowdMoveO', `${mmOf(P.crowd.move)} mm`);
     o('stSiteAColO', P.site.acol ? (P.site.acol === 7 ? 'white · black on the PDF' : colName(P.site.acol)) : 'as the tower');
     $('stCabW').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(!!P.cab.w[b.dataset.k])));
+    $('stLead').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.k === 'number' ? !!N.leader : !!P.lead[b.dataset.k]))); seg('stCloStyle', P.clo.style); // ((beta 7.11, Drawing tools) Lines to the pole, Closure labels)
     if (document.activeElement !== $('stCabH')) $('stCabH').value = String(P.cab.h || 1.3); $('stCabHAuto').setAttribute('aria-pressed', String(!P.cab.h)); o('stCabHO', P.cab.h ? `${mmOf(P.cab.h)} mm` : 'auto (0.9–1.2 mm, by the poles\u2019 spacing)');
     o('stCabReads', `Reads: ${['F72', 'L12', 'U144'].map((k, i) => runLbl(cabWords(k), i + 1) || '(nothing)').join(' · ')}`);
     seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0'); seg('stCabRoute', P.cab.route); drawRoutePreview(P); // (beta 6.1)
@@ -2758,6 +4382,7 @@
       if (document.activeElement !== $('stPhL')) $('stPhL').value = String(Z);
       o('stPhO', `${phTidyMm(Z)} mm on the printed sheet${PH_SIZES.some(([v]) => v === Z) ? '' : ' (your own size)'}`); // (beta 6.4; beta 6.7: Standard too; UX step 4: the readout of Basic › Photos on the plan)
       { const nm = P.photo.near; if (document.activeElement !== $('stPhNear')) $('stPhNear').value = String(nm); o('stPhNearO', `${nm} mm on the A3 sheet: about ${[1, 2, 3, 4].map((k) => `${Math.round(nm / 0.6135 / k)} m at 1/${k}`).join(', ')}`); } // beta 6.0: a photo is near its pole within this (its centre), at the company template's scale
+      seg('stPhLead', P.lead.photo ? '1' : '0'); o('stPhLeadO', P.lead.photo ? '' : 'off: no line from any photo'); // ((beta 7.12, Drawing edit) Line to its pole: the photos' (the same as Lines to the pole › Photos))
       seg('stPhStamp', P.photo.stamp); { const mm = phTidyMm(Z), /* (beta 6.7) */ fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' || geoOnPlan() ? '' : `text ${fsMm.toFixed(1)} mm high`); $('stPhStampGeo').hidden = !geoOnPlan(); /* (beta 7.6 / 2.45.8: the geotag stamp is used instead) */ } // beta 6.4 (an upright photo: the coordinates across its width; beta 6.7, UX step 4: short, in Basic)
       o('stPhHint', `Every photo on the plan is printed ${phTidyMm(Z)} mm on its long side on the A3 sheet (Small 9, Normal 18, Large 36, Extra large 48 mm; your own size in metres at 1:1100), the same for every pole and point. Where a photo has no free place near its pole it goes where there is room, with a thin line to its pole; only where there is no place at all is that photo drawn smaller, as little as it needs (listed in the README), never left out. The pole comes first, then its details and number, then its photo.${S.exp.dxfLabels === 'tidy' ? ' Pole labels Tidy: at any grid split; bigger photos may make Auto choose a finer grid.' : ` Standard: ${(phTidyMm(Z) * 1.1).toFixed(0)} m on the drawing (1:1100).`}`); } // (beta 6.7: one size for all, a line where needed)
     o('stSum', plSummary());
@@ -2795,17 +4420,28 @@
   [['stPoleIdH', 'pole', 'idH'], ['stPoleOwnH', 'pole', 'ownH'], ['stPoleLlH', 'pole', 'llH'], ['stSpanH', 'span', 'h']].forEach(([id, part, key]) => { $(id).addEventListener('input', () => setPl(part, key, +$(id).value)); $(id + 'Auto').addEventListener('click', () => setPl(part, key, 0)); }); // beta 4.3
   $('stCabH').addEventListener('input', () => setPl('cab', 'h', +$('stCabH').value)); $('stCabHAuto').addEventListener('click', () => setPl('cab', 'h', 0));
   $('stCabW').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; const w = { ...plStyle().cab.w, [b.dataset.k]: !plStyle().cab.w[b.dataset.k] }; setPl('cab', 'w', w); });
+  /* (beta 7.11, Drawing tools) Lines to the pole: the photos', the pole details' (job.leaders) and the numbers' (the same setting as Pole numbers › Line from the number
+     to its pole); Closure labels: Arrow or Bubble (job.cloStyle). The Drawing's preview made again with them at once (beside it on a computer). */
+  $('stLead').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; const k = b.dataset.k, P = plStyle(); if (k === 'number') setPl('num', 'leader', !P.num.leader); else setPl('lead', k, !P.lead[k]); LOG.info('plan.lead', { k, on: k === 'number' ? plStyle().num.leader : plStyle().lead[k] }); if (drw && !$('drawing').hidden) drwPhSoon(); });
+  $('stCloStyle').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; setPl('clo', 'style', b.dataset.v === 'bubble' ? 'bubble' : 'arrow'); LOG.info('plan.clo', { style: plStyle().clo.style }); if (drw && !$('drawing').hidden) drwPhSoon(); });
   /* beta 6.7 (UX step 4; critic: Reset… and Use company standard did different things with nothing to tell them apart): Reset… puts every
-     look choice back, Basic to the company standard (PL_STD) and Advanced to its defaults (PL_DEF), and says so first; never this
+     look choice back, Basic to the company standard (PL_STD) and Advanced to its defaults (PL_DEF), and says so first ((beta 7.8, Plan style cards):
+     Reset to recommended, the main choices and the others); never this
      project's pole numbers nor the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). beta 6.7 (UX
      step 6; reviewer): it says the owner colours and their legend texts go back to the standard four (RTA_STD). */
   $('stReset').addEventListener('click', async () => {
-    if (!(await ask('Reset Plan style?', `Every look choice goes back: Basic to the company standard, Advanced (sizes, colours, cables and their span length allowance, ${DEF.exp.focPct} %, tower site, location map, map sheets) to its defaults. The owner colours and their legend texts go back to the standard four (${RTA_STD.map((x) => x.text).join(', ')}): owner colours you added are taken off. Not changed: this project’s pole numbers and the Plan file section (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). Use company standard, at the top, changes only the Basic look and keeps your Advanced choices.`, [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
+    if (!(await ask('Reset to recommended?', `Every look choice goes back: the main ones to the company standard, the others (sizes, colours, cables and their span length allowance, ${DEF.exp.focPct} %, tower site, location map, map sheets) to their defaults. The owner colours and their legend texts go back to the standard four (${RTA_STD.map((x) => x.text).join(', ')}): owner colours you added are taken off. Not changed: this project’s pole numbers and More settings › Plan file (template, logo, loops in the PMI, roads, kind of drawing, UTM zone). Use company standard, at the top, changes only the main look and keeps your other choices.`, [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return; // ((beta 7.8, Plan style cards): Reset to recommended, was Reset…)
     delete S.plStyle; S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid; S.exp.focPct = DEF.exp.focPct; /* 2.45.1 / beta 6.9: the span length allowance back to 10 % */ persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Plan style: the company standard and the defaults', 2500);
   });
   $('stDone').addEventListener('click', () => closeSheet());
   $('stPhSize').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'size', +b.dataset.v); }); // Drawing style › Photos: Small, Normal, Large, Extra large
   $('stPhStamp').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'stamp', b.dataset.v); }); // beta 6.4: Stamp on the photos: Off, Lat-long, Lat-long + address
+  /* (beta 7.12, Drawing edit) Photos › Line to its pole (the owner: "photo1 shows images on the plan that has a line pointing to its pole. i want to remove that if the users
+     does not want it"): the same setting as Pole details and span lengths › Lines to the pole › Photos (job.leaders.photo), so the two say the same; the Drawing's preview
+     made again with it. */
+  $('stPhLead').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; drwPhLines(b.dataset.v === '1'); });
+  /** The photos' lines to their pole on or off (Plan style, the Drawing's More): the plan's preview made again. */
+  function drwPhLines(on) { if (!!plStyle().lead.photo === !!on) return; setPl('lead', 'photo', !!on); LOG.info('plan.lead', { k: 'photo', on: !!on, from: 'photos' }); if (drw && !$('drawing').hidden) drwPhSoon(); }
   $('stPhL').addEventListener('input', () => { const v = +$('stPhL').value; if (v >= 6 && v <= 40) setPl('photo', 'size', phSize(v)); }); // (your own size, while it is typed: only once it is one)
   $('stGridSplit').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'split', +b.dataset.v); }); // beta 6.0: Drawing style › Grid: Auto or the user's own split
   $('stGridPos').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'pos', b.dataset.v); }); // (the corner of the sheet's name)
@@ -3180,7 +4816,7 @@
        ST: the label's kind -> its rows. beta 6.7 (UX step 4; critic): the rows' one home: Basic (the photos: size and stamp) or the Advanced
        section (opened, with its Colours and sizes); Clamp types on/off is Basic's switch, the rest of the clamp boxes Advanced's. */
     const ST = { num: ['stNumCol', 'stNumBCol', 'stNumH', 'stNumD', 'stNumG', 'stNumLeader', 'stNumPlace'], pid: ['stPoleIdForm', 'stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stIdBold', 'stIdCol', 'stIdH'],
-      cab: ['stCabOn', 'stCabW', 'stCabPer', 'stCabH'], street: ['stCrowdStreets'], mark: ['stLmIcons', 'stCrowdMarks'], photo: ['stPhSize', 'stPhStamp'], route: ['stCabRoute', 'stCabOn', 'stCabW', 'stCabPer', 'stCabH'] }; // (beta 6.7: route, the cable itself)
+      cab: ['stCabOn', 'stCabW', 'stCabPer', 'stCabH'], street: ['stCrowdStreets'], mark: ['stLmIcons', 'stCrowdMarks'], photo: ['stPhSize', 'stPhStamp', 'stPhLead'], route: ['stCabRoute', 'stCabOn', 'stCabW', 'stCabPer', 'stCabH'] }; // (beta 6.7: route, the cable itself)
     const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner’s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the box names (NAPs, closures, boxes)', cab: 'the cable names', street: 'the street names', mark: 'the landmarks', photo: 'the photos', route: 'the fiber cable: how it runs between points, and its name' };
     let picked = null, pickT = 0;
     const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow, .psrow, .swrow')) : null; }).filter(Boolean); // (beta 6.7, UX step 4: a Basic row too)
@@ -3199,8 +4835,9 @@
     }
     function pick(key) {
       const rows = rowsOf(key); if (!rows.length) return false;
-      // beta 6.7 (UX step 4): its tab, its section and its Colours and sizes opened (the scene stays: the label tapped is in it)
-      pickAt = Date.now(); const pane = rows[0].closest('[role="tabpanel"]'); if (pane) plTab(pane.id === 'plAdv' ? 'advanced' : 'basic', null, true);
+      // beta 6.7 (UX step 4): its section and its Colours and sizes opened (the scene stays: the label tapped is in it). (beta 7.8, Plan style cards):
+      // its card (or More settings and its section), the other cards closed
+      pickAt = Date.now(); plOne(rows.map((x) => x.closest('details.stsec')));
       rows.forEach((x) => { for (let d = x.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) if (!d.open) d.open = true; });
       picked = key; render();
       const root = $('drwStyle'); root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); rows.forEach((x) => x.classList.add('sthl'));
@@ -3226,14 +4863,16 @@
     function wire() {
       if (wired) return; wired = true;
       const root = $('drwStyle');
-      // beta 6.7 (UX step 4): an Advanced section opened shows its part of the plan (Plan file: the scene stays); kept for next time
+      // beta 6.7 (UX step 4): a section opened shows its part of the plan (Plan file: the scene stays). (beta 7.8, Plan style cards): a card or a
+      // section of More settings; the last one closed: the street again
       root.querySelectorAll('details.stsec').forEach((d) => d.addEventListener('toggle', () => {
-        if (!d.open) return; if (S.plOpen !== d.id) { S.plOpen = d.id; persist(); }
-        if (!picking() && d.dataset.scene) setScene(d.dataset.scene.split(' ')[0]);
+        if (picking()) return;
+        if (d.open) { if (d.dataset.scene) setScene(d.dataset.scene.split(' ')[0]); return; }
+        if (!root.querySelector('details.stsec[open]')) setScene('street');
       }));
-      // Basic: the street; the photos while a photo row is changed
-      $('plBasic').addEventListener('pointerdown', (e) => { if (e.target.closest('#plPhRow, #plStampRow')) setScene('photo'); else if (e.target.closest('.plb')) setScene('street'); });
-      $('plBasic').addEventListener('focusin', (e) => { if (e.target.closest('#plPhRow, #plStampRow')) setScene('photo'); });
+      // (beta 7.8, Plan style cards): one card open at a time: a card (or a section of More settings) opened by a tap closes the others, and comes
+      // up just under the preview, its rows under it
+      root.addEventListener('click', (e) => { const s = e.target.closest('details.stsec > summary'), d = s && s.parentElement; if (!d || d.open) return; plOne([d]); setTimeout(() => { if (d.open) toRow(d); }, 0); });
       // beta 4.3: a tap on the preview: the label under the finger, or the nearest one within reach (the labels are small on a phone); on empty ground the marks go
       $('stPrev').addEventListener('click', (e) => { let best = null; $('stPrev').querySelectorAll('[data-st]').forEach((el) => { const r = el.getBoundingClientRect(); if (!(r.width > 0 || r.height > 0)) return;
           const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right), dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom), d = Math.hypot(dx, dy), ar = r.width * r.height; if (d <= 14 && (!best || d < best.d || (d === best.d && ar < best.ar))) best = { d, ar, k: el.getAttribute('data-st') }; });
@@ -5188,19 +6827,17 @@
   }
   /** ＋ Tower · OLT · ODC on the Drawing: which, then a tap where it stands; its record opens for its name (as the map's ＋ pin).
       beta 6.8: and a proposed pole (no photo: "it will only be plotted during plan drawing"); tapped on a cable's span, it is offered
-      onto that cable once its record is saved (ppOnCable). */
+      onto that cable once its record is saved (ppOnCable). (beta 7.9, Add Pin): ＋ Add Pin, the map's list (pinAsk). */
   async function drwSiteAsk() {
-    const pp = ppStatus(), ppL = pp === 'New' ? 'New pole' : 'Proposed pole';
-    const k = await ask('Add on the Drawing', `${pp ? `A ${ppL.toLowerCase()}, a pull-off, a cross-over, a tower` : 'A tower'}, an OLT or an ODC: pick it, then tap the Drawing where it stands${pp ? ' (a pole: on the cable\'s line, to put it on that cable; a pull-off or cross-over: on the cable at the corner with no pole, then tap its poles)' : ''}. Its record opens for its name and colour (a photo is optional). To move one later, hold it, then drag it.`, [
-      ...(pp ? [{ label: ppL, value: 'Pole' }, { label: 'Pull-off (3 poles)', value: 'Pull-off' }, { label: 'Cross-over (4 poles)', value: 'Cross-over' }] : []), { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
-    if (!k || !drwEd) return; drwSiteArm = { el: k === 'Pole' || JN[k] ? k : k === 'ODC' ? 'ODC' : 'Site', kind: k }; // (beta 6.9: + a pull-off or cross-over)
-    rtHint(k === 'Pole' ? `Tap the Drawing where the ${pp === 'New' ? 'new' : 'proposed'} pole goes (on a cable: on its line). Esc: cancel` : JN[k] ? `Tap the cable at the corner where the ${JN[k].name} goes. Esc: cancel` : `Tap the Drawing where the ${k === 'ODC' ? 'ODC' : k === 'OLT' ? 'OLT' : 'tower'} stands (Esc: cancel)`);
+    const x = await pinAsk('draw'); if (!x || !drwEd) return; drwSiteArm = { el: x.el, kind: x.k, pin: x }; // (beta 6.9: + a pull-off or cross-over; (beta 7.9, Add Pin): every kind)
+    const w = x.n.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase()); // (tower, closure, dummy NAP box, LCP, ODC…)
+    rtHint(x.el === 'Pole' ? 'Tap the Drawing where the pole goes (on a cable: on its line). Esc: cancel' : JN[x.el] ? `Tap the cable at the corner where the ${JN[x.el].name} goes. Esc: cancel` : x.el === 'NAP' || x.el === 'Closure' ? `Tap the pole the ${w} goes on (Esc: cancel)` : `Tap the Drawing where the ${w} ${x.el === 'Site' || x.el === 'ODC' ? 'stands' : 'goes'} (Esc: cancel)`);
   }
   function drwSitePlace(ll) {
     const a = drwSiteArm; drwSiteArm = null; rtHint(''); if (!a || !ll) return;
     const d = window.devicePixelRatio || 1, tol = drw && drw.view ? Math.min(25, Math.max(3, 20 * d / drw.view.sc)) : 8; // (beta 6.8: a pole tapped within 20 px of a cable's span: on it)
     drwSiteWait = { ids: new Set(points.map((p) => p.id)), tol }; LOG.info('draw.site.add', { el: a.el, k: a.kind });
-    openEditor({ mode: 'new', element: a.el, siteKind: a.el === 'Site' ? a.kind : '', ...(a.el === 'Pole' ? ppRec() : JN[a.el] ? { status: ppStatus() } : {}), lat: ll.lat, lon: ll.lng, source: 'map', takenAt: new Date().toISOString(), note: a.el === 'Pole' || JN[a.el] ? 'Placed on the Drawing · no photo needed' : 'Placed on the Drawing · photo optional' }).catch((e) => { LOG.warn('draw.site.add', errInfo(e)); drwSiteWait = null; });
+    openEditor({ ...pinOpts(a.pin), lat: ll.lat, lon: ll.lng, source: 'map', takenAt: new Date().toISOString(), note: a.el === 'Pole' || JN[a.el] ? 'Placed on the Drawing · no photo needed' : 'Placed on the Drawing · photo optional' }).catch((e) => { LOG.warn('draw.site.add', errInfo(e)); drwSiteWait = null; });
   }
   /** A tower, OLT or ODC let go where it was dragged on the Drawing: its record's place (pin adjusted), with ↶. */
   async function drwSiteMove(g) {
@@ -5339,7 +6976,7 @@
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
         h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
-        if (drwEd && !rtPairs) { const pp = ppStatus(); h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add ${pp ? `a ${pp === 'New' ? 'new' : 'proposed'} pole, a pull-off, a cross-over, ` : ''}a tower, an OLT or an ODC: tap the Drawing where it stands">＋ ${pp ? 'Pole · ' : ''}Tower · OLT · ODC</button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over)
+        if (drwEd && !rtPairs) { h += `<div class="rt-row"><button class="ib pinadd" type="button" data-rt="site" id="rtDrwSite" aria-label="Add Pin: pick what it is (as the map's Add Pin), then tap the Drawing where it goes" title="Add Pin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.8-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21Z"/><path d="M12 6.8v6M9 9.8h6"/></svg></button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over; (beta 7.9, Add Pin): the map's list)
       }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
@@ -7028,6 +8665,7 @@
     let msg = '';
     // v2.19: in PAT, cleanup and FAT an empty ID (or only the prefix) is fine: the record is saved as D-0001…
     if (ed.acc && (!id || DREF_RE.test(id) || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(id))) msg = '';
+    else if (ed.noPP && kind === 'Pole' && (!id || new RegExp(`^(${prefixAlt()})-?$`).test(id))) msg = ''; // (beta 7.9, Add Pin) a pole added by hand with no ID yet: the generic number at Save
     else if (id && kind === 'Pole' && poleIdXRe().test(id)) msg = 'X = a character the camera could not read. Type it if you can see it on the tag, or keep the X.';
     // v2.18: the ID after the prefix may mix letters and digits (CC-0123A); only one with no digit at all is flagged
     else if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id) && !PP_RE.test(id) && !new RegExp(`^(${prefixAlt()})-(?=[A-Z0-9-]*[0-9])[A-Z0-9][A-Z0-9-]*$`).test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
@@ -7133,7 +8771,8 @@
       const mk = Array.isArray(o.marks) ? o.marks : [];
       Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, details: JSON.parse(JSON.stringify(o.details || [])),
         marks: JSON.parse(JSON.stringify(mk)).map(normMark), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false,
-        nap: !!o.nap, nap2: !!o.nap2, closure: !!o.closure || (UG_BOXES.has(o.element || 'Pole') && !!o.closureId) }); // v2.41: the NAP and the hybrid closure on the pole (v2.42: a second box; v2.42.17: the closure in a handhole, manhole or service box)
+        nap: !!o.nap, nap2: !!o.nap2, closure: !!o.closure || (UG_BOXES.has(o.element || 'Pole') && !!o.closureId), // v2.41: the NAP and the hybrid closure on the pole (v2.42: a second box; v2.42.17: the closure in a handhole, manhole or service box)
+        noPP: !!o.noPP && o.mode === 'new', pinKind: o.mode === 'new' ? o.pinKind || '' : '' }); // (beta 7.9, Add Pin) its kind; a pole: no PP- number given
       const onPoleRec = (o.element || 'Pole') === 'Pole';
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = onPoleRec ? '' : o.closureId || '';
       $('napId').value = onPoleRec ? o.napId || '' : ''; $('closureId').value = onPoleRec ? o.closureId || '' : ''; $('nap2Id').value = onPoleRec ? o.nap2Id || '' : '';
@@ -7149,7 +8788,7 @@
     edLayout(!acc); edTab = !acc && o.mode === 'new' && o.blob && !o.restore ? 'photo' : 'details'; // beta 6.7: a photo just taken: the record opens on it (Photo/Model), to add a model or text $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
     $('editor').querySelector('.edbody').scrollTop = 0;
     $('svColorBox').hidden = acc; if (!acc) renderPinColors();
-    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole', 'Pull-off': 'pull-off', 'Cross-over': 'cross-over' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
+    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${mapPinWord(ed.element || 'Pole')} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
     $('siteKindBox').hidden = true; // shown for a site (survey)
     $('edHint').textContent = ed.mapPin ? 'Drag the map to place the pin where it goes' : `Drag the map to place the pin on the ${acc ? 'element' : 'pole'}`;
     $('edHint').classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => $('edHint').classList.add('gone'), 5000);
@@ -7254,7 +8893,7 @@
       mloop: !!ed.mloop, nap: !!ed.nap, nap2: !!ed.nap2, closure: !!ed.closure, odf: ed.odf || '', boq: ed.boq || {}, gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
       idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: (ed.dragged || ed.mapPin) && c ? { lat: c.lat, lon: c.lng } : null, color: ed.color || '', siteKind: ed.siteKind || '',
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
-      noDef: !!ed.noDef, pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
+      noDef: !!ed.noDef, noPP: !!ed.noPP, pinKind: ed.pinKind || '', pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
     };
   }
   const draftSig = (st) => JSON.stringify({ ...st, q: null, pin: st.pin ? [st.pin.lat.toFixed(6), st.pin.lon.toFixed(6)] : null });
@@ -7349,7 +8988,7 @@
       await openEditor({ mode: 'new', id: st.id, restore: true, gps: st.gps, takenAt: st.takenAt, source: st.source, q: st.q, type: st.type || undefined, element: st.element, status: st.status,
         poleId: st.poleId, remarks: st.svRemarks, closureId: st.acc ? st.closureId : st.svClosureId, napId: st.napId, nap2Id: st.nap2Id || '', details: st.details, marks: st.marks, origPid: st.origPid,
         photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, nap2: !!st.nap2, closure: st.closure, odf: st.odf, boq: st.boq || {}, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
-        blob: st.acc ? null : nb || sb, noDef: !!st.noDef, color: st.color || '', siteKind: st.siteKind || '', ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
+        blob: st.acc ? null : nb || sb, noDef: !!st.noDef, noPP: !!st.noPP, pinKind: st.pinKind || '', color: st.color || '', siteKind: st.siteKind || '', ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
     }
     if (!ed) return;
     Object.assign(ed, { pending: { ...ed.pending, ...pend }, removed: st.removed || [], idRead: st.idRead, idTouched: st.idTouched, dragged: st.dragged, element: st.element, type: st.type || ed.type,
@@ -7884,16 +9523,21 @@
     if (ed.mode === 'new' && (!ed.idTouched || !id || (kindOf(id) && kindOf(id) !== el))) { $('poleId').value = suggestId(el, ed.type); ed.idTouched = false; }
     applyElement(); checkDup(); checkFormat(); applyPlan();
   });
+  /** (beta 7.9, Add Pin) "New … on the map": the word for a pin placed by hand (a NAP pin by its kind: dummy NAP box, LCP). */
+  function mapPinWord(el) {
+    const nt = ((ed && ed.boq) || {}).napType || '';
+    return ({ Pole: 'pole', Site: ed && ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', NAP: /dummy/i.test(nt) ? 'dummy NAP box' : /lcp/i.test(nt) ? 'LCP' : 'NAP', Closure: 'closure', Handhole: 'handhole', Manhole: 'manhole', 'Service box': 'service box', 'Pull-off': 'pull-off', 'Cross-over': 'cross-over' })[el] || el;
+  }
   function applyElement() {
     const el = ed.element;
     if (cefHooks.pinRow) cefHooks.pinRow(); // v2.44: a site pin of an As-Plan: its CEF plan
     if (!ed.acc) { // survey point
       const isNew = ed.mode !== 'edit', nm = el === 'Pole' ? 'pole' : el;
-      $('editorTitle').textContent = ed.mapPin ? `New ${({ Pole: ed.status === 'Proposed' ? 'proposed pole' : 'pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole', 'Pull-off': 'pull-off', 'Cross-over': 'cross-over' })[el] || el} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : JN[el] ? JN[el].name : nm}`; // v2.36 (beta 6.9: + pull-off, cross-over)
+      $('editorTitle').textContent = ed.mapPin ? `New ${mapPinWord(el)} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : JN[el] ? JN[el].name : nm}`; // v2.36 (beta 6.9: + pull-off, cross-over; (beta 7.9, Add Pin): every kind, and "pole", not "proposed pole")
       $('siteKindBox').hidden = el !== 'Site'; $('siteKindSel').value = ed.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37
       $('idLabel').textContent = el === 'Site' ? 'SITE NAME / ID' : `${el.toUpperCase()} ID`;
       const sts = svStatuses(el); if (!sts.includes(ed.status)) ed.status = svDefaultStatus(el);
-      $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? 'e.g. PP-0001' : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001', Manhole: 'e.g. MH-0001', 'Service box': 'e.g. SB-0001', 'Pull-off': 'e.g. PO-0001', 'Cross-over': 'e.g. CO-0001' }[el];
+      $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? (ed.noPP ? 'Optional: a number is given at Save' : 'e.g. PP-0001') : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001', Manhole: 'e.g. MH-0001', 'Service box': 'e.g. SB-0001', 'Pull-off': 'e.g. PO-0001', 'Cross-over': 'e.g. CO-0001' }[el];
       $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole' || ed.status === 'Proposed';
       const ppGlobe = el === 'Pole' && ed.status === 'Proposed'; // v2.27: a proposed pole is a Globe pole (GT)
       if (ppGlobe && ed.type !== globeType()) { ed.type = globeType(); renderTypeChips(ed.type); }
@@ -7906,7 +9550,7 @@
       // v2.41: what is on the pole: the NAP and the hybrid closure (the maintenance loop is in the sizes)
       $('poleAttach').hidden = el !== 'Pole'; $('atMloop').closest('.tchip').hidden = true; $('atNap').checked = !!ed.nap; $('atClosure').checked = !!ed.closure; noCloSync(); markToggles(); renderAttach();
       renderBoq();
-      $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : JN[el] ? `Drag the map to place the pin at the corner (on the cable: on its line)` : `Drag the map to place the pin on the ${nm}`;
+      $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : JN[el] ? `Drag the map to place the pin at the corner (on the cable: on its line)` : ed.mapPin && (el === 'NAP' || el === 'Closure') ? `Drag the map to place the pin at its pole: it stands on the nearest pole within 30 m` : ed.mapPin ? `Drag the map to place the pin where the ${mapPinWord(el)} ${ed.status === 'Existing' ? 'is' : 'goes'}` : `Drag the map to place the pin on the ${nm}`; // ((beta 7.9, Add Pin) a NAP or closure pin: on its pole)
       jnBoxRender(); // beta 6.9: a pull-off's or cross-over's poles
       renderBoxInfo(); renderEdSym(); // v2.37: the legend symbol beside the photo, and on the pin
       idPadSync(); edRefreshSoon(); // v2.42.17
@@ -9019,7 +10663,7 @@
       if ((ed.removed || []).length) deletePhotosIfUnused(ed.removed.slice(), new Set()).catch(() => {}); // beta 3.5: the photos removed from the pin
       if (ed.mode === 'new' && !isNpt(poleId) && !genId && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
       if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type) && !['Proposed', 'New'].includes(ed.status)) S.lastType = ed.type; // v2.27: not the Globe type of a proposed / new pole
-      if (rec.status) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status };
+      if (rec.status && !(ed.pinKind && !ed.stTouched)) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status }; // ((beta 7.9, Add Pin): not the status a pin placed by hand started with: the camera's own stays)
       if (ed.newBlob) notePerf(Date.now() - t0);
       persist(); notePerson();
       LOG.info('save.done', { ms: Date.now() - t0 }); LOG.done('save.survey');
@@ -9047,10 +10691,10 @@
     requestAnimationFrame(() => setTimeout(() => { try { renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); } }, 0));
   }
   /** v2.27: the generic number of a survey record saved without its ID: P-0001 (pole), ODF-0001, SITE-0001, ODC-, NAP-, CL-, HH-0001;
-      a proposed pole keeps its PP- number. The next free number in the project. */
+      a proposed pole keeps its PP- number (but one added with Add Pin: P-). The next free number in the project. */
   const GEN_PRE = { Pole: 'P', ODF: 'ODF', Site: 'SITE', ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB', 'Pull-off': 'PO', 'Cross-over': 'CO' }; // v2.42.4: + MH, SB (they got X-0001)
   function genSvId(el, status) {
-    if (el === 'Pole' && status === 'Proposed') return suggestId('Pole', ed && ed.type);
+    if (el === 'Pole' && status === 'Proposed' && !(ed && ed.noPP)) return suggestId('Pole', ed && ed.type); // ((beta 7.9, Add Pin): P-, as any pole saved without its ID)
     if (JN[el]) return jnNextId(el, points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id))); // beta 6.9
     const pre = GEN_PRE[el] || 'X', re = new RegExp(`^${pre}-(\\d+)$`);
     const n = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id)).reduce((m, p) => { const x = re.exec(String(p.poleId || '').toUpperCase()); return x ? Math.max(m, +x[1]) : m; }, 0);
@@ -9830,7 +11474,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.notes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -9849,6 +11493,8 @@
     await deletePhotosIfUnused(pids, ids); busy(false);
     points = points.filter((p) => p.project !== name);
     if (cefHooks.drop) await cefHooks.drop(name); // v2.44: the photos of its CEF plans
+    for (const n of notesOf(m)) if (n.photo && n.photo.pid) await dbDel('photos', n.photo.pid).catch(() => {}); // ((beta 7.12, Drawing edit) the photos added on its plan)
+    { const rid = (m.planRoads || {}).id; if (rid) { await dbDel('packs', RK_PRE + rid).catch(() => {}); rkMem.delete(rid); } } // ((beta 7.10, Plan kept) the roads kept with its plan)
     if (S.meta) delete S.meta[name];
     for (const ar of (S.areas || []).filter((x) => x.project === name)) await deleteArea(ar.id);
     if (refInfo(name)) { await dbDel('packs', refKey(refInfo(name).id)).catch(() => {}); const r = { ...S.refs }; delete r[name]; S.refs = r; if (refFor === name) { refGeo = null; refFor = null; } }
@@ -10555,41 +12201,18 @@
     guard(() => mapsGuide(b.dataset.need, b.dataset.region || ''), 'Maps not opened'); });
   $('dxfRoads').addEventListener('change', () => { try { renderDxfNeed(); } catch (e) { /* not shown */ } });
   /* ---- beta 6.7 (UX step 3): the rows, their groups and badges, which one is open, Several at once ---- */
-  const XGH = { client: 'For the client or office', photos: 'Photos', lists: 'Lists and quantities', finish: 'Finish and keep', team: 'For the app team', handon: 'Hand on to the next stage', forms: 'Forms and reports', mapphotos: 'Map and photos' };
-  const XGROUPS = { survey: ['client', 'photos', 'lists', 'finish', 'team'], acc: ['handon', 'forms', 'mapphotos', 'finish', 'team'], cef: ['client', 'finish'] };
-  const XFOLDED = new Set(['team']); // For the app team (Photos for teaching the app: not needed for the task): folded
-  let xMany = false, xTeamOpen = false;
-  const xGroupOf = (c) => (isAcc() && c.dataset.groupAcc) || c.dataset.group || '';
-  /** The headings of the groups (made once, in the body). */
-  function xHeads() {
-    const body = $('export').querySelector('.body'), H = {};
-    Object.keys(XGH).forEach((g) => {
-      let h = body.querySelector(`:scope > .xgh[data-gh="${g}"]`);
-      if (!h) {
-        h = document.createElement(XFOLDED.has(g) ? 'button' : 'div'); h.className = 'xgh'; h.dataset.gh = g;
-        if (XFOLDED.has(g)) { h.type = 'button'; h.setAttribute('aria-expanded', 'false'); h.addEventListener('click', () => { xTeamOpen = h.getAttribute('aria-expanded') !== 'true'; xLayout(); }); }
-        else { h.setAttribute('role', 'heading'); h.setAttribute('aria-level', '3'); }
-        body.insertBefore(h, $('xOther'));
-      }
-      H[g] = h;
-    });
-    return H;
-  }
+  // ((beta 7.8, Export picks): the group headings (For the client or office, Photos, Lists and quantities, Finish and keep, For the app team) and their
+  // fold went: the tiles name each file, More exports holds the rest)
+  let xMany = false;
   /** The rows in their groups: CSS order (the body is a flex column; the cards stay where they are), the headings, the fold; the Ready
-      box under the row it came from. */
+      box under the row it came from. (beta 7.8, Export picks): the rows picked, in the tiles' order, under What you get; no headings (the tiles
+      name each file); Your file is ready under the row it came from, else just above the button at the foot. */
   function xLayout() {
-    const cards = exportCards(), shown = new Set(cards), H = xHeads(), groups = XGROUPS[xMode()] || [];
+    const cards = exportCards(), shown = new Set(cards);
     document.querySelectorAll('#export .xcard').forEach((c) => { c.classList.toggle('xoff', !shown.has(c)); c.style.order = ''; c.classList.remove('xfold'); });
-    Object.values(H).forEach((h) => { h.hidden = true; });
-    groups.forEach((g, gi) => {
-      const mine = cards.filter((c) => xGroupOf(c) === g); if (!mine.length) return;
-      const h = H[g], fold = XFOLDED.has(g) && !xMany, open = !fold || xTeamOpen || mine.some((c) => c.classList.contains('xopen'));
-      h.hidden = false; h.style.order = String(10 + gi * 100); h.textContent = fold ? `${XGH[g]} (${mine.length})` : XGH[g];
-      if (fold) h.setAttribute('aria-expanded', String(open));
-      mine.forEach((c, i) => { c.style.order = String(12 + gi * 100 + i * 2); c.classList.toggle('xfold', !open); });
-    });
-    // Your file is ready: under the row it came from (xResKey; beta 6.7 UX step 3 fixes), at the foot when that row is folded or not shown
-    const oc = document.querySelector('#export .xcard.xopen'), rc = xResKey ? xCard(xResKey) : oc, at = !xMany && rc && shown.has(rc) && !rc.classList.contains('xfold') && rc.style.order ? rc : null;
+    const P = xPicked(); P.forEach((c, k) => { c.style.order = String(500 + k * 2); });
+    $('xGetH').hidden = !P.length;
+    const rc = xResKey && xResKey !== '*' ? xCard(xResKey) || (xResKey === 'xOnePdf' ? $('dxfCard') : null) : null, at = !xMany && rc && P.includes(rc) ? rc : null;
     $('resultBox').style.order = at ? String(+at.style.order + 1) : '';
   }
   /** The row of the project's next step when that step is an export ('' otherwise). */
@@ -10633,47 +12256,154 @@
   /** Brings a row to the top of the sheet (its head; a row near the top: the sheet from its top, What do you need? in view). */
   function xScrollTo(c, smooth) {
     const body = $('export').querySelector('.body');
-    requestAnimationFrame(() => { const first = exportCards().filter((x) => x.offsetParent).sort((a, b2) => a.getBoundingClientRect().top - b2.getBoundingClientRect().top)[0] === c; // (the first row: What do you need? stays in view)
-      const t = c.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 8, top = first || t < body.clientHeight * 0.3 ? 0 : t;
+    requestAnimationFrame(() => { // ((beta 7.8, Export picks): the row picked under What you get, its title at the top: its choices and button under it)
+      const t = c.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 8, top = t < body.clientHeight * 0.3 ? 0 : t;
       if (smooth && body.scrollTo) body.scrollTo({ top, behavior: 'smooth' }); else body.scrollTop = top; });
   }
-  /** Opens one row and closes the others ('' : none open). */
+  /* ---- (Export picks; the owner: "make Plan style and Exports be: 1. Simple, intuitive and ease of use by the users (non technical, new
+     users)"): What do you need? as tiles, quick picks (For the client, For the drafter, Everything), More exports folded; the rows
+     picked under What you get, each with its You get and Change › (its choices); the checks before export, each with its Fix ›; one
+     button at the foot: one file picked, its own row's button as before (Make the Google Earth map…); two or more, Several at once's
+     (one ZIP, each with its own choices). The Plan drawing row gives two tiles: Plan to print (its One PDF, with the Drawing) and Plan
+     for AutoCAD (its AutoCAD files). Nothing that makes a file changed. ---- */
+  let xSel = []; // the tiles picked: their keys (the id of the button that makes the file), in the tiles' order
+  const XMAIN = new Set(['doDxf', 'doKmz', 'doBoq', 'doPhotos', 'doCef', 'xShare', 'doPdf', 'doXlsx', 'doAccKmz']); // (the others under More exports)
+  const XIC = { Excel: 'XLS', 'PDF · AutoCAD · Both': 'CEF' };
+  /** The tiles of this project, in the screen's order: { k, c (its row), n, d, ic, main, solo (it makes no file here: alone) }. */
+  function xTileList() {
+    const cards = exportCards(), few = cards.length <= 3, out = [];
+    cards.forEach((c) => {
+      const k = xKey(c); if (!k) return;
+      const tag = ((c.querySelector(':scope > .head .xtag') || {}).textContent || '').trim(), hint = ((c.querySelector(':scope > .head .xhint') || {}).textContent || '').trim();
+      const b = { c, solo: xSolo(c), main: few || XMAIN.has(k) };
+      if (k === 'doDxf') {
+        if (drawOn() && !isAcc()) out.push({ ...b, k: 'xOnePdf', n: 'Plan to print', d: 'One PDF of the plan, for the client', ic: 'PDF' });
+        out.push({ ...b, k: 'doDxf', n: 'Plan for AutoCAD', d: 'AutoCAD files (ZIP), for the drafter', ic: 'DXF' });
+        return;
+      }
+      out.push({ ...b, k, n: xName(c), d: hint, ic: XIC[tag] || tag.split(/[\s·+]/)[0].slice(0, 4).toUpperCase() });
+    });
+    return out;
+  }
+  const xTileCard = (k) => (k === 'xOnePdf' ? $('dxfCard') : xCard(k));
+  /** The rows picked, in the tiles' order. */
+  const xPicked = () => [...new Set(xSel.map(xTileCard))].filter((c) => c && exportCards().includes(c));
+  /** A row's tile for its key: the Plan drawing's AutoCAD files or One PDF, as What to make says. */
+  const xTileOf = (k) => (k === 'doDxf' && planOut() === 'onepdf' && drawOn() && !isAcc() ? 'xOnePdf' : k);
+  /** The quick picks (a survey): For the client, For the drafter, Everything. */
+  const XPICKS = [
+    { k: 'client', n: 'For the client', keys: (H) => [H.has('xOnePdf') ? 'xOnePdf' : 'doDxf', 'doBoq'] },
+    { k: 'drafter', n: 'For the drafter', keys: () => ['doDxf', 'doKmz', 'doPhotos'] },
+    { k: 'every', n: 'Everything', keys: (H, T) => T.filter((t) => t.main && !t.solo).map((t) => t.k) }];
+  const XSHORT = { xOnePdf: 'plan PDF', doDxf: 'AutoCAD', doKmz: 'Google Earth', doBoq: 'materials', doPhotos: 'photos' };
+  /** Picks these tiles (keys; a solo tile goes alone). o: open, its choices open (one row: Change ›, as a row opened before); scroll,
+      smooth: the row brought into view; focus: on its title; keep: not remembered (S.xSel, per survey, acceptance or CEF plan). */
+  function xPickSet(keys, o) {
+    o = o || {}; const T = xTileList(), have = new Set(T.map((t) => t.k));
+    let K = [...new Set(keys || [])].filter((k) => have.has(k));
+    const solo = K.filter((k) => T.find((t) => t.k === k).solo); if (solo.length && K.length > 1) K = [solo[solo.length - 1]];
+    K = T.map((t) => t.k).filter((k) => K.includes(k));
+    xSel = K; if (!o.keep) { S.xSel = { ...(S.xSel || {}), [xMode()]: K }; persist(); }
+    const cad = K.includes('doDxf'), pr = K.includes('xOnePdf'); // the Plan drawing: AutoCAD files, the One PDF, or both (Several at once)
+    if (cad !== pr) { const v = pr ? 'onepdf' : 'files'; if (planOut() !== v) { S.exp.planOut = v; persist(); } }
+    xMany = K.length > 1;
+    const P = xPicked(), one = K.length === 1;
+    document.querySelectorAll('#export .xcard').forEach((c) => {
+      const on = P.includes(c); c.classList.toggle('xsel', on); c.classList.toggle('xmany', on && xMany);
+      if (!on || (o.open && !one)) c.classList.remove('xopen'); else if (o.open) c.classList.add('xopen');
+      xChgLbl(c);
+    });
+    $('export').classList.toggle('xone', one);
+    xBoxes(P.map(xKey)); dxfOutRender(); xTilesRender(); xChecksRender(); xGoRender(); xLayout();
+    const c = one ? P[0] : null;
+    if (c && o.scroll) xScrollTo(c, o.smooth);
+    if (c && o.focus) requestAnimationFrame(() => { const h = c.querySelector(':scope > .head'); if (h && !$('export').hidden) try { h.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } });
+  }
+  /** A row's choices: shown (Change ›) or folded. */
+  function xChange(c, on) { c.classList.toggle('xopen', !!on); xChgLbl(c); xGoRender(); if (on) xScrollTo(c, true); }
+  function xChgLbl(c) {
+    const h = c.querySelector(':scope > .head'); if (!h) return; let l = h.querySelector('.xchgl');
+    if (!l) { l = document.createElement('span'); l.className = 'xchgl'; l.setAttribute('aria-hidden', 'true'); h.appendChild(l); }
+    const open = c.classList.contains('xopen'); l.textContent = open ? 'Close' : 'Change ›'; h.setAttribute('aria-expanded', String(open));
+  }
+  /** The quick picks, the tiles (More exports folded, opened when a tile of it is picked) and the Everything tile. */
+  function xTilesRender() {
+    const T = xTileList(), H = new Set(T.map((t) => t.k)), e = (x) => C.xmlEsc(String(x == null ? '' : x)), sel = new Set(xSel), same = (K) => K.length === xSel.length && K.every((k) => sel.has(k));
+    const main = T.filter((t) => t.main), more = T.filter((t) => !t.main), every = main.filter((t) => !t.solo).map((t) => t.k);
+    const tile = (t) => `<button type="button" class="xtile" data-xt="${e(t.k)}" aria-pressed="${sel.has(t.k)}"><span class="fi" aria-hidden="true">${e(t.ic)}</span><b>${e(t.n)}</b><small>${e(t.d)}</small></button>`;
+    $('xTiles').innerHTML = main.map(tile).join('') + (every.length > 1 ? `<button type="button" class="xtile" data-xt="*all" aria-pressed="${same(every)}"><span class="fi" aria-hidden="true">ZIP</span><b>Everything</b><small>All of these in one ZIP</small></button>` : '');
+    $('xTiles2').innerHTML = more.map(tile).join(''); $('xMoreT').hidden = !more.length;
+    $('xMoreTSum').textContent = more.map((t) => t.n).join(', ');
+    if (more.some((t) => sel.has(t.k))) $('xMoreT').open = true;
+    const P = xMode() === 'survey' ? XPICKS.map((q) => ({ ...q, K: [...new Set(q.keys(H, T))].filter((k) => H.has(k)) })).filter((q) => q.K.length > 1) : [];
+    $('xPicks').hidden = !P.length;
+    const sum = (K) => { const t = K.map((k) => XSHORT[k] || k).join(' + '); return t.charAt(0).toUpperCase() + t.slice(1); };
+    $('xPicks').innerHTML = P.map((q) => `<button type="button" class="xpk" data-xp="${q.k}" aria-pressed="${same(q.K)}"><b>${e(q.n)}</b><small>${e(q.k === 'every' ? 'All of these in one ZIP' : sum(q.K))}</small></button>`).join('');
+  }
+  /** The button at the foot, always on the screen: none picked, Pick what you need; one, worded as its row's own button, which it presses
+      (that button shows itself, at the foot of its row, once the row's choices are open); two or more, one ZIP. */
+  function xGoRender() {
+    const n = xSel.length, P = xPicked(), b1 = n === 1 ? $(xSel[0]) : null;
+    $('xGoBox').hidden = n === 1 && !!P[0] && P[0].classList.contains('xopen');
+    $('xMultiGo').disabled = !n; $('xMultiGo').textContent = n >= 2 ? `Export ${n} files (one ZIP)` : b1 ? b1.textContent.trim() : 'Pick what you need';
+    $('xMultiInfo').hidden = n < 2;
+  }
+  /** The checks before export, from the app's own: the poles on no cable (Fix ›: on the map, one at a time), the poles left out of the
+      files (Show ›: the Records list); with the plan picked, the company template and the road pack and offline map of the area (as
+      under the plan's You get: Get it, Get the roads, Download the map). ✓: what is fine. */
+  let xChk = [];
+  function xChecksRender() {
+    const box = $('xChecks'); if (!box) return; const acc = isAcc(), cef = !acc && !!S.project && isCefProj(), L = [], e = (x) => C.xmlEsc(String(x == null ? '' : x));
+    if (S.project && !acc && !cef) {
+      const on = onCableIds(), loose = loosePoles(), left = new Set((pmeta().xLeft || []).map(String)), nw = loose.filter((p) => !left.has(String(p.id)));
+      const np = xNow(projPoints).filter((p) => elemOf(p) === 'Pole').length, hid = xHiddenIds().size;
+      if (loose.length) L.push(['no', `${loose.length} pole${loose.length === 1 ? '' : 's'} on no cable${nw.length ? '' : ' (exported as they are)'}`, 'Fix ›', 'loose']);
+      else if (on.size && np) L.push(['ok', np === 1 ? 'The pole is on a cable' : `${np} poles, all on a cable`]);
+      if (hid) L.push(['no', `${hid} left out of the files (on no cable)`, 'Show ›', 'hidden']);
+      if (xSel.includes('doDxf') || xSel.includes('xOnePdf')) {
+        const tpl = dxfMode() === 'tpl'; let N = null; try { N = planNeeds(S.project); } catch (x) { N = null; }
+        if (tpl && !S.dxfSeed && !seedBusy) L.push(['no', 'No company template on this phone', 'Get it ›', 'tpl']);
+        else if (tpl && S.dxfSeed) L.push(['ok', 'On your company’s plan template']);
+        if (N && N.roads && (tpl || $('dxfRoads').checked)) L.push(['no', `The road pack of ${N.roads.regions.length === 1 && REGION_BY[N.roads.regions[0]] ? REGION_BY[N.roads.regions[0]][2] : 'this area'} is not on this phone`, 'Get it ›', 'roads', N.roads.regions[0] || '']);
+        if (N && N.map && tpl) L.push(['no', 'The offline map of this area is not on this phone', 'Get it ›', 'map']);
+      }
+    }
+    xChk = L; box.hidden = !L.length;
+    box.innerHTML = L.map(([k, t, b, a, v], n) => `<div class="xchk ${k}"><i aria-hidden="true">${k === 'ok' ? '✓' : '!'}</i><span>${e(t)}</span>${b ? `<button type="button" class="btn sm" data-xfix="${n}" aria-label="${e(`${b.replace(' ›', '')}: ${t}`)}">${e(b)}</button>` : ''}</div>`).join('');
+  }
+  $('xChecks').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-xfix]'); if (!b) return; const x = xChk[+b.dataset.xfix]; if (!x) return; const what = x[3];
+    LOG.info('export.check.fix', { what });
+    if (what === 'loose') { const ids = loosePoles().map((p) => p.id); if (ids.length) xfStart(ids, null, false); }
+    else if (what === 'hidden') { $('listSearch').value = 'not exported'; renderList(); openSheet('list'); }
+    else if (what === 'tpl') { if (seedId()) $('dxfTplGet').click(); else openStyle('advanced', 'stFile'); }
+    else guard(() => mapsGuide(what, x[4] || ''), 'Maps not opened');
+  });
+  // a tile: picked or not (a solo tile alone); Everything: every main tile, or none; a quick pick: its tiles
+  $('export').addEventListener('click', (ev) => {
+    const t = ev.target.closest && ev.target.closest('#export [data-xt], #export [data-xp]'); if (!t) return;
+    const T = xTileList(), every = T.filter((x) => x.main && !x.solo).map((x) => x.k);
+    if (t.dataset.xp) { const q = XPICKS.find((x) => x.k === t.dataset.xp), H = new Set(T.map((x) => x.k)); if (q) xPickSet(q.keys(H, T)); return; }
+    const k = t.dataset.xt;
+    if (k === '*all') { xPickSet(t.getAttribute('aria-pressed') === 'true' ? [] : every); return; }
+    const x = T.find((y) => y.k === k); if (!x) return;
+    if (xSel.includes(k)) xPickSet(xSel.filter((y) => y !== k));
+    else xPickSet(x.solo ? [k] : [...xSel.filter((y) => !(T.find((z) => z.k === y) || {}).solo), k]);
+    xRemember(k === 'xOnePdf' ? 'doDxf' : k);
+  });
+  /** Opens one row and closes the others ('' : none open). (beta 7.8, Export picks): picks it alone, its choices open (the Plan drawing as What to
+      make says). */
   function xOpen(key, how) {
-    how = how || {}; const c = xCard(key);
-    document.querySelectorAll('#export .xcard').forEach((x) => { const on = x === c; x.classList.toggle('xopen', on); const h = x.querySelector(':scope > .head'); if (h && !xMany) h.setAttribute('aria-expanded', String(on)); });
-    xBoxes(c ? [key] : []);
-    if (c && XFOLDED.has(xGroupOf(c))) xTeamOpen = true;
-    xLayout();
-    if (c && how.scroll !== false) xScrollTo(c, how.smooth);
-    if (c && how.focus) requestAnimationFrame(() => { const h = c.querySelector(':scope > .head'); if (h && !$('export').hidden) try { h.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } }); // (critic: the focus on the row that opens)
+    how = how || {};
+    if (!key) { xPickSet([], { keep: true }); return; }
+    xPickSet([xTileOf(key)], { open: true, scroll: how.scroll !== false, smooth: how.smooth, focus: how.focus });
   }
   /** Several at once: every row a tick (its head), the ticked rows open with their names and choices, their own buttons hidden; one
-      button for a ZIP with them all. */
-  function xManyOn(ids) {
-    xMany = true; $('export').classList.add('xmode'); $('xModeBar').hidden = false; $('xGoBox').hidden = false; if ($('export').classList.contains('plan')) { $('export').classList.add('planall'); $('xOther').hidden = true; } // (from Export plan: every row)
-    document.querySelectorAll('#export .xcard').forEach((x) => { x.classList.remove('xopen'); const h = x.querySelector(':scope > .head'); if (h) { h.setAttribute('role', 'checkbox'); h.removeAttribute('aria-expanded'); } });
-    xBoxes(ids); applyXPick(); xLayout(); xAgainRender();
-    $('export').querySelector('.body').scrollTop = 0;
-    try { $('xOneAtATime').focus({ preventScroll: true }); } catch (e) { /* old WebView */ }
-  }
-  function xManyOff(key) {
-    if (xMany) { xMany = false; $('export').classList.remove('xmode'); $('xModeBar').hidden = true; } $('xGoBox').hidden = true;
-    document.querySelectorAll('#export .xcard').forEach((x) => { x.classList.remove('xmany'); const h = x.querySelector(':scope > .head'); if (h) { h.removeAttribute('role'); h.removeAttribute('aria-checked'); } });
-    dxfOutRender(); xOpen(key || '', { focus: true }); xAgainRender();
-  }
-  function applyXPick() {
-    const ids = xTicked(), shown = new Set(exportCards()), n = ids.length;
-    document.querySelectorAll('#export .xcard').forEach((c) => { const on = xMany && shown.has(c) && ids.includes(xKey(c)); c.classList.toggle('xmany', on); const h = c.querySelector(':scope > .head'); if (h && xMany) h.setAttribute('aria-checked', String(on)); });
-    $('xMultiGo').disabled = n < 2; $('xMultiGo').textContent = n >= 2 ? `Make ${n} files (one ZIP)` : n === 1 ? 'Tick one more' : 'Tick two or more';
-    if (xMany && n >= 2) { S.xMulti = { ...(S.xMulti || {}), [xMode()]: ids }; persist(); }
-    dxfOutRender();
-  }
-  /** Several at once (one ZIP)… and Again: the last set (shown when one is kept). */
-  function xAgainRender() {
-    const many = exportCards().filter((c) => !xSolo(c)), keys = many.map(xKey), set = ((S.xMulti || {})[xMode()] || []).filter((k) => keys.includes(k)), b = $('xAgain');
-    b.hidden = set.length < 2 || xMany; if (!b.hidden) b.textContent = `Again: ${set.map((k) => xName(xCard(k))).join(' + ')} (one ZIP)`;
-    $('xManyBtn').hidden = many.length < 2; $('xFoot').hidden = $('xManyBtn').hidden && b.hidden;
-  }
+      button for a ZIP with them all. (beta 7.8, Export picks): the tiles of these rows picked. */
+  function xManyOn(ids) { xPickSet((ids || []).map(xTileOf)); }
+  function xManyOff(key) { xOpen(key || ''); }
+  function applyXPick() { xPickSet(xTicked().map(xTileOf)); }
+  // ((beta 7.8, Export picks): Several at once (one ZIP)… and Again went: the tiles picked are one ZIP, and are picked again next time)
   /** The project's line of the Completion report: its button (again, once complete) and what it does in this kind of task. */
   function complRender() {
     const m = pmeta(), cat = taskCat();
@@ -10687,47 +12417,46 @@
     opts = opts || {};
     renderDxfTpl(); // v2.30
     try { renderDxfNeed(); } catch (e) { LOG.warn('plan.need', errInfo(e)); } // v2.43 beta 2.1
-    if (xMany) xManyOff(''); // (Export always opens one row at a time)
-    xTeamOpen = false;
     const cards = exportCards(), acc = isAcc(), keys = cards.map(xKey), next = xNextKey(), last = (S.xLast || {})[xMode()];
     xBadges(next); complRender();
     $('boqCardText').textContent = svPurpose() === 'As-built' && !acc // v2.26.1
       ? 'what was built, by size, against the As-Plan (its KMZ as this project’s reference): planned, built and the difference, with the IDs, the planned elements not found and what was built outside the plan. The same BOQ is in the Completion report and in Route and span lengths.'
       : 'what the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and span lengths.';
-    const want = pick && keys.includes(pick) ? pick : next && keys.includes(next) ? next : last && keys.includes(last) ? last : keys[0] || '';
-    if (pick && keys.includes(pick)) xRemember(pick);
-    dxfOutRender(); xOpen(want, { focus: !opts.noFocus }); xAgainRender();
+    // (beta 7.8, Export picks): a row asked for (Export plan, the next step's button, Show me…): its tile alone, its choices open; else the project's
+    // next step when it is an export, else the tiles picked last, else the first tile
+    if (pick && keys.includes(pick)) { xRemember(pick); xOpen(pick, { focus: !opts.noFocus }); return; }
+    const T = xTileList(), kept = ((S.xSel || {})[xMode()] || []).filter((k) => T.some((t) => t.k === k));
+    const want = next && keys.includes(next) ? [xTileOf(next)] : kept.length ? kept : last && keys.includes(last) ? [xTileOf(last)] : T.length ? [T[0].k] : [];
+    xPickSet(want, { keep: true });
+    requestAnimationFrame(() => { const b = $('export').querySelector('.body'); if (b && !$('export').hidden) b.scrollTop = 0; });
   }
   /** beta 6.7 (UX step 3 fixes; review): Export on top again after a screen opened over it (Look › Change ›: Plan settings and its Drawing
       style; Get the roads: Maps; the CEF editor, the splicing details): what they change is shown anew. Before, the Look line still said
       "Your own · 1 change: Pole labels: Standard" after Tidy was chosen there. The open row, the ticks and the scroll stay. */
   function xBackOn() {
     if ($('export').hidden) return;
-    try { renderDxfTpl(); renderDxfNeed(); xBadges(xNextKey()); complRender(); } catch (e) { LOG.warn('export.back', errInfo(e)); }
+    try { renderDxfTpl(); renderDxfNeed(); xBadges(xNextKey()); complRender(); xTilesRender(); xChecksRender(); } catch (e) { LOG.warn('export.back', errInfo(e)); } // ((beta 7.8, Export picks): + the tiles and checks)
   }
-  // a row's head: opens it (closes the others), or closes it; in Several at once, its tick
+  // a row's head: opens it (closes the others), or closes it; in Several at once, its tick. (beta 7.8, Export picks): a row picked: Change › (its
+  // choices shown or folded); a row not picked (a test's click): picked alone, its choices open
   $('export').addEventListener('click', (e) => {
     const h = e.target.closest && e.target.closest('#export .xcard > .head'); if (!h) return;
     const c = h.parentElement, k = xKey(c); if (!k) return;
-    if (xMany) { const cb = $('xMultiList').querySelector(`input[value="${k}"]`); if (cb) { cb.checked = !cb.checked; applyXPick(); } return; }
-    if (c.classList.contains('xopen')) { xOpen('', { scroll: false }); return; }
-    xRemember(k); xOpen(k, { smooth: true });
+    if (!c.classList.contains('xsel')) { xRemember(k); xOpen(k, { smooth: true }); return; }
+    xChange(c, !c.classList.contains('xopen'));
   });
   // the row used: kept (the bar's Export opens on it next time); not while Several at once makes its files. beta 6.7 (UX step 3 fixes):
   // the row whose button was pressed (a tap, Show me, the next step, the tests' click()) is where Your file is ready goes
   $('export').addEventListener('click', (e) => { if (xCollect) return; const b = e.target.closest && e.target.closest('#export .xcard > button:not(.head)'); if (!b) return; xBtnKey = xKey(b.parentElement); if (e.isTrusted) xRemember(xBtnKey); }, true);
-  $('xMultiList').addEventListener('change', () => { // (the tests tick here: one ticked opens its row, two or more open Several at once)
+  $('xMultiList').addEventListener('change', () => { // (the tests tick here: one ticked opens its row, two or more open Several at once; (beta 7.8, Export picks): their tiles)
     const ids = xTicked();
-    if (xMany) { applyXPick(); return; }
-    if (ids.length > 1) xManyOn(ids); else if (ids.length === 1) { xRemember(ids[0]); xOpen(ids[0]); }
+    if (ids.length > 1) xManyOn(ids); else if (ids.length === 1) { xRemember(ids[0]); xOpen(ids[0]); } else xPickSet([]);
   });
-  $('xManyBtn').addEventListener('click', () => { const oc = document.querySelector('#export .xcard.xopen'), k = oc && !xSolo(oc) ? xKey(oc) : ''; xManyOn(k ? [k] : []); });
-  $('xAgain').addEventListener('click', () => { const keys = exportCards().filter((c) => !xSolo(c)).map(xKey); xManyOn(((S.xMulti || {})[xMode()] || []).filter((k) => keys.includes(k))); });
-  $('xOneAtATime').addEventListener('click', () => { const ids = xTicked(); xManyOff(ids[0] || (S.xLast || {})[xMode()] || ''); });
   $('xOther').addEventListener('click', () => { $('export').classList.add('planall'); $('xOther').hidden = true; xLayout(); }); // Export plan: the other rows too
   $('xMultiGo').addEventListener('click', async () => {
-    const ids = [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value);
-    if (ids.length < 2) { toast('Tick two or more (one file: Back to one at a time, then its own button)', 4000); return; }
+    if (xSel.length === 1) { const b = $(xSel[0]); if (b) b.click(); return; } // ((beta 7.8, Export picks): one file: its row's own button)
+    const ids = xSel.length > 1 ? xSel.slice() : [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value); // ((beta 7.8, Export picks): the tiles picked)
+    if (ids.length < 2) { toast('Pick two or more (one file: its own button)', 4000); return; }
     xCollect = []; const failed = [];
     try {
       for (const id of ids) {
@@ -10972,11 +12701,12 @@
   const planOut = () => (S.exp.planOut === 'onepdf' ? 'onepdf' : 'files');
   function dxfOutRender() {
     const card = $('dxfCard'), seg = $('dxfOut'); if (!card || !seg) return;
-    const tpl = dxfMode() === 'tpl', can = drawOn() && !isAcc(), one = can && tpl && planOut() === 'onepdf' && !xMany;
-    card.dataset.out = one ? 'onepdf' : 'files'; seg.hidden = !can;
-    $('dxfDescTpl').hidden = !tpl || one; $('dxfDescSimple').hidden = tpl; $('dxfDescOne').hidden = !one; // beta 6.7 (UX step 3 fixes; review): You get: the One PDF when it is chosen
+    const tpl = dxfMode() === 'tpl', can = drawOn() && !isAcc(), both = can && xSel.includes('xOnePdf') && xSel.includes('doDxf'), one = !both && can && tpl && planOut() === 'onepdf' && (!xMany || xSel.includes('xOnePdf')); // ((beta 7.8, Export picks): the tiles say it)
+    card.dataset.out = both ? 'both' : one ? 'onepdf' : 'files'; seg.hidden = !can;
+    { const tg = card.querySelector(':scope > .head .xtag'); if (tg) tg.textContent = !can ? 'AutoCAD' : both ? 'AutoCAD + one PDF' : one ? 'One PDF to print' : 'AutoCAD files'; } // ((beta 7.8, Export picks): what it makes, as its tile says)
+    $('dxfDescTpl').hidden = !tpl || one; $('dxfDescSimple').hidden = tpl; $('dxfDescOne').hidden = !(one || both); // beta 6.7 (UX step 3 fixes; review): You get: the One PDF when it is chosen
     seg.querySelectorAll('.chip').forEach((b) => { const on = b.dataset.v === (one ? 'onepdf' : 'files'); b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; if (b.dataset.v === 'onepdf') { b.setAttribute('aria-disabled', String(!tpl)); b.title = tpl ? '' : 'Needs the company template'; } });
-    const t = xMany ? 'Several at once: the AutoCAD files go in the ZIP (the One PDF is made one at a time).' : can && !tpl ? 'One PDF to print needs the company template: tap it to get it.' : '';
+    const t = can && !tpl && (one || xSel.includes('xOnePdf')) ? 'Plan to print needs the company template (Plan style › More settings › Plan file).' : ''; // ((beta 7.8, Export picks))
     $('dxfOutNote').textContent = t; $('dxfOutNote').hidden = !t;
   }
   $('dxfOut').addEventListener('click', (e) => {
@@ -11546,7 +13276,7 @@
     renderSig(); renderNums();
     if (!$('dxfFiles')) return;
     const tpl = dxfMode() === 'tpl', R = dxfRows(), pts = xNow(projPoints), np = pts.filter((p) => elemOf(p) === 'Pole').length, RM = xNow(routeModel), info = S.dxfSeed, stale = seedStale(); // (what the export makes: not the poles hidden from it)
-    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan style › Plan file)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan style › Plan file.'];
+    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan style › More settings › Plan file)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan style › More settings › Plan file.'];
     $('dxfSum').innerHTML = `<span class="nm">${C.xmlEsc(S.project || '')}</span><span class="mt">${C.xmlEsc([pu === 'As-built' ? 'As-Built' : pu === 'As-plan' ? 'As-Plan' : pu, `${np} pole${np === 1 ? '' : 's'}`, `${RM.spans.length} span${RM.spans.length === 1 ? '' : 's'}`, fmtLen(RM.total)].filter(Boolean).join(' · '))}</span><span class="${st[0]}">${C.xmlEsc(st[1])}</span>`;
     $('dxfFilesBox').hidden = !tpl; $('dxfWhatRow').hidden = !tpl; $('dxfWhat').hidden = !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl; $('dxfCefRow').hidden = !tpl || !(cefHooks.plansN && cefHooks.plansN(S.project)); // (beta 4.1: shown when the project holds a CEF plan)
     // beta 6.7 (UX step 3): Drawings (1 · Every point · Photo) and Look (the company standard, or what differs from it)
@@ -11613,7 +13343,7 @@
   SIG_CEF.forEach(([id, k]) => { const el = $(id); if (!el) return; el.addEventListener('input', () => { cefSetSign({ ...cefSign(), [k]: el.value }); }); el.addEventListener('change', () => { renderSig(); sigLine(); }); });
   /* v2.42.28: the DXF card's links: What to export (on the Drawing) and Plan settings */
   $('dxfWhat').addEventListener('click', () => { const under = stack.includes('drawing'); closeSheet().then(() => { if (!under) { if (!drawOn()) { toast('The Drawing is for As-Plan and As-Built surveys'); return; } openDrawing(); } if (!$('drawing').hidden) setWhat(true, deskOn()); }); });
-  $('dxfSetBtn').addEventListener('click', () => openStyle('basic')); // beta 6.7 (UX step 4): Look · Change › opens Plan style › Basic
+  $('dxfSetBtn').addEventListener('click', () => openStyle('basic')); // beta 6.7 (UX step 4): Look · Change › opens Plan style › Basic ((beta 7.8, Plan style cards): its cards)
   $('dxfPdf').addEventListener('change', () => setTimeout(renderDxfMarks, 0));
   /* beta 4.7: Pole labels on the plan: Standard (each pole's details and coordinates turned with the cable, as before) or Tidy (one
      straight label per pole: tag · type, then its clamps, owner and lat/long in smaller text), on the company template only; kept with the export settings */
@@ -11647,7 +13377,7 @@
     // the banners: no template on this phone (Get it); the Simple drawing (Basic's look is the company plan's: greyed, no company standard card)
     $('plBanTpl').hidden = !tpl || !!S.dxfSeed; $('plBanTplGet').textContent = seedId() ? 'Get it' : 'Load it ›'; $('plBanTplGet').disabled = !!seedBusy;
     $('plBanSimple').hidden = tpl;
-    $('plBasic').querySelectorAll('.plb:not(#psNum)').forEach((r) => r.classList.toggle('dim', !tpl));
+    $('drwStyle').querySelectorAll('.plb:not(#psNum)').forEach((r) => r.classList.toggle('dim', !tpl)); // ((beta 7.8, Plan style cards): the main rows, in their cards)
     planStdRender(tpl);
   }
   /** The company standard in words, from PL_STD (one place: flipping it there changes this). */
@@ -11663,7 +13393,7 @@
     const P = plStyle();
     S.exp.dxfLabels = PL_STD.dxfLabels; S.exp.dxfClampType = PL_STD.dxfClampType; S.exp.dxfBoqGrid = PL_STD.dxfBoqGrid;
     S.plStyle = { ...P, num: { ...P.num, rta: { ...P.num.rta, on: PL_STD.rtaOn } }, photo: { ...P.photo, size: PL_STD.photoSize, stamp: PL_STD.photoStamp }, cab: { ...P.cab, boxLoops: PL_STD.boxLoops } };
-    persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Company standard ✓ (your Advanced choices are kept)', 2500);
+    persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Company standard ✓ (your other choices are kept)', 2500); // ((beta 7.8, Plan style cards): no Advanced tab now)
   }
   $('psStdUse').addEventListener('click', useStd);
   /** Pole labels Tidy or Standard (Basic, and the Switch of a greyed row). */
@@ -11698,62 +13428,77 @@
       ctl.forEach((c) => { c.setAttribute('aria-disabled', 'true'); c.setAttribute('aria-describedby', w.id); });
     });
   }
-  /** Each Advanced section, closed, says what it is set to (e.g. Pole numbers: Keep · owner colours on · key Off). */
+  /** Each Advanced section, closed, says what it is set to (e.g. Pole numbers: Keep · owner colours on · key Off). (beta 7.8, Plan style cards): each
+      card in one line, its main choices first (e.g. Pole numbers: 1, 2, 3… for the whole project · numbers kept · colours by pole owner). */
   function plSums(P) {
     const on = (b) => (b ? 'on' : 'off'), c = numCfg(), set = (id, t) => { const d = $(id), x = d && d.querySelector(':scope > summary .secsum'); if (x) x.textContent = t; };
-    set('stNum', `${S.project ? `${c.keep ? 'Keep the numbers' : 'Renumber at each export'} · ` : ''}owner colours ${on(P.num.rta.on)} · key ${{ off: 'Off', boq: 'under the BOQ tables', sheet: 'on the LEGENDS sheet' }[P.num.rta.legend]}`);
-    set('stPole', `Pole ID ${{ auto: 'Auto', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]} · sizes ${[P.pole.idH, P.pole.ownH, P.pole.llH, P.span.h].some(Boolean) ? 'your own' : 'Auto'}`);
+    const tidy = S.exp.dxfLabels === 'tidy', key = { off: '', boq: 'key under the BOQ tables', sheet: 'key on the LEGENDS sheet' }[P.num.rta.legend];
+    set('stNum', [S.project ? (c.mode === 'owner' ? 'Each owner from 1' : '1, 2, 3… for the whole project') : '', S.project ? (c.keep ? 'numbers kept' : 'renumbered at each export') : '', P.num.rta.on ? 'colours by pole owner' : 'one colour', P.num.rta.on ? key : ''].filter(Boolean).join(' · '));
+    set('stPole', `${tidy ? 'Tidy labels' : 'Standard labels'} · clamp types ${on(S.exp.dxfClampType !== false)} · pole ID ${{ auto: 'Auto', stack: 'CC over 123456', line: 'CC-123456' }[P.pole.idForm]}${[P.pole.idH, P.pole.ownH, P.pole.llH, P.span.h].some(Boolean) ? ' · your own sizes' : ''}${(() => { const off = [['photos', P.lead.photo], ['pole details', P.lead.details], ['numbers', P.num.leader]].filter((x) => !x[1]).map((x) => x[0]); return off.length ? ` · no lines to the pole from the ${off.length > 1 ? `${off.slice(0, -1).join(', ')} and ${off[off.length - 1]}` : off[0]}` : ''; })()}`); // ((beta 7.11, Drawing tools) Lines to the pole)
+    set('stCab', `${P.cab.on ? `Along each cable: ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'No cable names'}${P.cab.boxLoops ? ' · 20 m loops written' : ''}${P.clo.style === 'bubble' ? ' · closure labels in a bubble' : ''}`); // ((beta 7.11, Drawing tools) Closure labels)
     set('stId', `${P.id.bold ? 'Bold' : 'Normal'} · ${mmOf(P.id.h)} mm high`); // (beta 6.8, UX step 6: mm on the printed sheet, as its row)
-    set('stCl', S.exp.dxfClampType === false ? 'Clamp types off (Basic)' : S.exp.dxfLabels === 'tidy' ? 'In the pole block (Tidy labels)' : `${{ label: 'In the pole label', tag: 'Small box (tag)', callout: 'Box with a line (callout)' }[P.clamp.place]}${P.clamp.place !== 'label' ? ` · side ${{ auto: 'Auto', up: 'above', down: 'below', left: 'left', right: 'right' }[P.clamp.pos]}` : ''}`);
-    set('stRoute', `${P.cab.route === 'straight' ? 'Straight from point to point' : 'Follows the road'} · name ${on(P.cab.on)} · allowance ${allowPct()} %`); // (2.45.1 / beta 6.9)
-    set('stPh', `${phName(P.photo.size)} · ${phTidyMm(P.photo.size)} mm · near its pole ${P.photo.near} mm`);
+    set('stCl', S.exp.dxfClampType === false ? 'Clamp types off (Pole details and span lengths)' : tidy ? 'In the pole block (Tidy labels)' : `${{ label: 'In the pole label', tag: 'Small box (tag)', callout: 'Box with a line (callout)' }[P.clamp.place]}${P.clamp.place !== 'label' ? ` · side ${{ auto: 'Auto', up: 'above', down: 'below', left: 'left', right: 'right' }[P.clamp.pos]}` : ''}`);
+    set('stRoute', `${P.cab.route === 'straight' ? 'Straight from point to point' : 'Follows the road'} · allowance ${allowPct()} %`); // (2.45.1 / beta 6.9; (beta 7.8, Plan style cards): the cable's name is in Cable labels)
+    set('stPh', `${phName(P.photo.size)} (${phTidyMm(P.photo.size)} mm) · ${geoOnPlan() ? 'the geotag stamp' : { off: 'no stamp', ll: 'stamped lat-long', addr: 'stamped lat-long + address' }[P.photo.stamp] || 'no stamp'}${P.lead.photo ? '' : ' · no line to the pole'}`); // ((beta 7.12, Drawing edit) Line to its pole off: said)
     set('stCrowd', P.crowd.auto ? 'Fit automatically' : 'Leave as they are');
     set('stLm', `Icons ${on(P.crowd.icons)} · names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]}`);
     set('stSite', `Name ${{ on: 'on the tower', top: 'top', side: 'side', bottom: 'bottom' }[P.site.name]} · ${P.site.move === 'point' ? 'kept at its point' : 'moved aside'} · ODF ${P.odf.place === 'auto' ? 'Auto' : P.odf.place}`);
     set('stVic', `Zoom ${on(P.vic.zoom)} · circle ${P.vic.area ? 'shown' : 'hidden'}`);
-    set('stGrid', `Split ${P.grid.split ? `1/${P.grid.split}` : 'Auto'} · sheet name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}`);
+    set('stGrid', `Split ${P.grid.split ? `1/${P.grid.split}` : 'Auto'} · ${S.exp.dxfBoqGrid !== false ? 'BOQ table on each sheet' : 'no BOQ table'} · name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}`);
     set('stFile', `${dxfMode() === 'tpl' ? (S.dxfSeed ? 'Company template ✓' : 'Company plan, no template yet') : 'Simple drawing'} · UTM ${S.zone}N · loops in the PMI ${on(S.exp.pmiLoops !== false)}`);
   }
-  /** An Advanced section by its id (stNum…) or the tutorial's part (numbers, sheets, file…); null for none. */
-  const plSec = (k) => { if (!k) return null; const d = $(k) || $(TUT_PLPART[k] || ''); return d && d.matches('#plAdv details.stsec') ? d : null; };
-  /** Basic or Advanced (and the section asked opened): the preview follows (Basic: the street; Advanced: the open section's part). keep:
-      the scene stays (a label tapped on the preview). The tab used last is kept (S.plTab), as the section opened last (S.plOpen). */
-  function plTab(t, sec, keep) {
-    const adv = t === 'advanced';
-    [['plTabB', !adv], ['plTabA', adv]].forEach(([id, on]) => { $(id).setAttribute('aria-selected', String(on)); $(id).tabIndex = on ? 0 : -1; });
-    $('plBasic').hidden = adv; $('plAdv').hidden = !adv;
-    if (S.plTab !== (adv ? 'advanced' : 'basic')) { S.plTab = adv ? 'advanced' : 'basic'; persist(); }
-    const d = adv ? plSec(sec) : null; if (d && !d.open) d.open = true;
-    if (!keep) { const o = d || (adv ? [...$('plAdv').querySelectorAll('details.stsec[open]')].pop() : null); DSP.setScene(o && o.dataset.scene ? o.dataset.scene.split(' ')[0] : 'street'); }
+  /** A section of Plan style, a card or one in More settings, by its id (stNum…) or the tutorial's part (numbers, sheets, file…); null for none. */
+  const plSec = (k) => { if (!k) return null; const d = $(k) || $(TUT_PLPART[k] || ''); return d && d.matches('#drwStyle details.stsec') ? d : null; };
+  /** (beta 7.8, Plan style cards): one card open at a time: every card and section of More settings closed but those of keep (an array). */
+  function plOne(keep) { const K = new Set((keep || []).filter(Boolean)); $('drwStyle').querySelectorAll('details.stsec[open]').forEach((d) => { if (!K.has(d)) d.open = false; }); }
+  /** (Plan style cards; were the Basic and Advanced tabs, beta 6.7, UX step 4): a card, or a section of More settings (its id or the
+      tutorial's part), opened and the others closed; more: More settings opened. The preview shows the part of the plan it changes (none
+      opened: the street); keep: the scene stays (a label tapped on the preview). Returns the section opened, or null. */
+  function plShow(sec, keep, more) {
+    const d = plSec(sec);
+    if (d) { plOne([d]); if (!d.open) d.open = true; }
+    if (more || (d && d.closest('#plMore'))) $('plMore').open = true;
+    if (!keep && d) DSP.setScene(d.dataset.scene ? d.dataset.scene.split(' ')[0] : DSP.scene()); // (Plan file has no part of its own: the scene stays)
     return d;
   }
-  /** Plan style: tab 'basic' or 'advanced' (else the one used last), sec: an Advanced section (its id or part) to open and show. top
-      (beta 6.7, UX step 5 fixes, round 2): no section brought into view (the one opened last stays as it is): Find a setting's turn. */
+  /** Plan style: sec, a card or a section of More settings (its id or the tutorial's part) to open and show; tab 'advanced' with no
+      sec: More settings opened (the tutorial's planstyle:advanced; 'basic': the cards, as before). A fresh opening shows the cards, every
+      one closed, from the top (the preview: the street). top (beta 6.7, UX step 5 fixes, round 2): nothing brought into view (Find a
+      setting's turn). */
   function openStyle(tab, sec, top) {
-    const t = tab === 'advanced' || tab === 'basic' ? tab : sec ? 'advanced' : S.plTab === 'advanced' ? 'advanced' : 'basic', s2 = sec || (t === 'advanced' && !top ? S.plOpen : '');
-    if (toSheet('drwStyle')) { const d = plTab(t, s2); setTimeout(() => { if (d) DSP.toRow(d); }, 0); return; }
+    const more = tab === 'advanced' && !sec;
+    if (toSheet('drwStyle')) { const d = plShow(sec, false, more), t = d || (more ? $('plMore') : null); setTimeout(() => { if (t && !top) DSP.toRow(t); }, 0); return; }
     renderDxfTpl(); syncExpUi(); renderNums();
     const side = stack.includes('drawing') && deskOn(); if (side && drwEd) drwEditSet(false); $('drwStyle').classList.toggle('side', side); if (side) document.body.classList.add('drwside'); // (beside the plan it would cover ✎'s route bar: ✎ ends first)
-    DSP.reset(); if ($('plFindQ').value) { $('plFindQ').value = ''; plFindRender(); } plFindReset(); const d = plTab(t, s2); renderStyle(); DSP.render(); openSheet('drwStyle'); // (beta 6.7, UX step 5: Find a setting empty at each opening)
-    setTimeout(() => { const bd = $('drwStyle').querySelector('.dsbody'); if (bd) bd.scrollTop = 0; DSP.onScroll(); if (d) DSP.toRow(d); }, 0); // (from the top, the preview large; a section asked: in view)
+    DSP.reset(); if ($('plFindQ').value) { $('plFindQ').value = ''; plFindRender(); } plFindReset(); // (beta 6.7, UX step 5: Find a setting empty at each opening)
+    plOne(null); $('plMore').open = false; DSP.setScene('street'); const d = plShow(sec, false, more), t = d || (more ? $('plMore') : null); renderStyle(); DSP.render(); openSheet('drwStyle');
+    setTimeout(() => { const bd = $('drwStyle').querySelector('.dsbody'); if (bd) bd.scrollTop = 0; DSP.onScroll(); if (t && !top) DSP.toRow(t); }, 0); // (from the top, the preview large; a card asked: in view)
   }
-  /** v2.42.28's Plan settings: Plan style › Basic (the old name kept for the tests and the tutorial's planset). */
-  function openPlanSet() { openStyle('basic'); }
-  ['plTabB', 'plTabA'].forEach((id) => $(id).addEventListener('click', () => { const adv = id === 'plTabA', d = plTab(adv ? 'advanced' : 'basic', adv ? S.plOpen : ''); if (d) setTimeout(() => DSP.toRow(d), 0); }));
-  // the tabs from the keyboard (critic; ARIA tabs): the arrows go to the other tab, Home to Basic, End to Advanced; the tab chosen has focus
-  document.querySelector('#drwStyle .pltabs').addEventListener('keydown', (e) => {
-    const k = e.key; if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(k)) return; e.preventDefault();
-    const adv = k === 'End' ? true : k === 'Home' ? false : $('plAdv').hidden; plTab(adv ? 'advanced' : 'basic', adv ? S.plOpen : ''); $(adv ? 'plTabA' : 'plTabB').focus();
-  });
-  $('plRtaLink').addEventListener('click', () => { plTab('advanced', 'stNum'); setTimeout(() => DSP.toRow($('stRtaRow')), 0); }); // Owner colours and key ›
+  /** v2.42.28's Plan settings: Plan style, its cards (the old name kept for the tests and the tutorial's planset). */
+  function openPlanSet() { openStyle(); }
+  /* (beta 7.9, Plan style wide) the owner: "Allow the plan style to expand on browser mode giving users room for navigation and ease of view on the
+     settings. side bar on a laptop browser is very small". Beside the Drawing on a computer, Plan style and Export are wide (index.html:
+     --sidew; Plan style's preview beside its cards); Narrower in their top bar gives the Drawing its room back (400 px, as before), Wider
+     the room again: kept on this computer (S.sideNarrow). A phone, or either screen opened away from the Drawing, does not change. */
+  function sideWSync() {
+    const nar = !!S.sideNarrow; document.body.classList.toggle('sidenarrow', nar);
+    document.querySelectorAll('[data-sidew]').forEach((b) => {
+      const t = nar ? 'Wider panel: more room for the settings' : 'Narrower panel: more room for the Drawing';
+      b.querySelector('span').textContent = nar ? 'Wider' : 'Narrower'; b.setAttribute('aria-label', t); b.title = `${t} (kept on this computer)`;
+      b.querySelector('path:last-child').setAttribute('d', nar ? 'M10 12h7' : 'M15 12H8'); b.querySelector('path:nth-child(2)').setAttribute('d', nar ? 'M15 7l-5 5 5 5' : 'M10 7l5 5-5 5');
+    });
+  }
+  document.querySelectorAll('[data-sidew]').forEach((b) => b.addEventListener('click', () => { S.sideNarrow = !S.sideNarrow; persist(); sideWSync(); if (!$('drwStyle').hidden) requestAnimationFrame(() => DSP.onScroll()); LOG.info('side.width', { narrow: !!S.sideNarrow }); })); // (the preview: small again as the cards scroll, in the narrow panel)
+  sideWSync();
+  $('plRtaLink').addEventListener('click', () => { plShow('stNum'); setTimeout(() => DSP.toRow($('stRtaRow')), 0); }); // Owner colours and key › ((beta 7.8, Plan style cards): further down its card)
   // beta 7.6 / 2.45.8: Change › under Stamp on the plan's photos (the geotag stamp used): Export's Photos with their locations, its tick marked
   $('stPhStampGeoGo').addEventListener('click', () => {
     const mark = () => { xOpen('doPhotos', { focus: false }); const el = $('setStampPlan'); if (el) requestAnimationFrame(() => { try { el.closest('label').scrollIntoView({ block: 'center' }); el.focus({ preventScroll: true }); } catch (e) { /* old WebView */ } }); };
     if (toSheet('export')) { setTimeout(mark, 450); return; }
     exportPick = 'doPhotos'; $('exportBtn').click(); setTimeout(mark, 450);
   });
-  $('plBanTplGet').addEventListener('click', () => { if (seedId()) { $('dxfTplGet').click(); return; } plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psTpl')), 0); });
-  $('plBanSimpleGo').addEventListener('click', () => { plTab('advanced', 'stFile'); setTimeout(() => DSP.toRow($('psKind')), 0); });
+  $('plBanTplGet').addEventListener('click', () => { if (seedId()) { $('dxfTplGet').click(); return; } plShow('stFile'); setTimeout(() => DSP.toRow($('psTpl')), 0); }); // ((beta 7.8, Plan style cards): More settings › Plan file)
+  $('plBanSimpleGo').addEventListener('click', () => { plShow('stFile'); setTimeout(() => DSP.toRow($('psKind')), 0); });
   $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderStyle(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
   ['pmiLoops', 'dxfMode', 'setZone', 'dxfBoqGrid', 'dxfRoads'].forEach((id) => $(id).addEventListener('change', () => setTimeout(() => { if (!$('drwStyle').hidden) renderStyle(); }, 0)));
   $('psBoxLoop').addEventListener('change', () => { setPl('cab', 'boxLoops', $('psBoxLoop').checked); toast($('psBoxLoop').checked ? 'The 20 m loops at boxes and ODF entrances are written on the plan' : 'The loops at boxes and ODF entrances: counted, not written', 2500); }); // beta 6.7: one setting (S.plStyle.cab.boxLoops)
@@ -11781,11 +13526,13 @@
       const c = el.cloneNode(true); c.querySelectorAll('details.help, .dimwhy, .findwhy, output, .secsum, .qhelp, .nopv, [data-find], [data-findx]').forEach((x) => x.remove());
       const w = document.createTreeWalker(c, NodeFilter.SHOW_TEXT), out = []; while (w.nextNode()) out.push(w.currentNode.nodeValue); return out.join(' ').replace(/\s+/g, ' ').trim();
     };
-    plIdx = [...$('drwStyle').querySelectorAll('[data-find], [data-findx]')].filter((el) => el.closest('#plBasic, #plAdv')).map((el) => {
-      const isSec = el.matches('details.stsec'), sec = isSec ? el : el.closest('details.stsec'), basic = !!el.closest('#plBasic'), nd = el.closest('[data-findneed]');
-      const where = ['Plan style', isSec ? 'Advanced' : basic ? 'Basic' : sec ? sec.dataset.find : '', el.closest('details.stcs') ? 'Colours and sizes' : ''].filter(Boolean).join(' › ');
-      return { label: el.dataset.find || el.dataset.findx, where, text: isSec ? '' : words(el), el, tab: basic ? 'basic' : 'advanced', sec: sec ? sec.id : '', main: basic,
-        when: /\btidy\b/.test(el.dataset.dim || '') ? 'Tidy' : el.closest('#dxfSimpleOpts') ? 'Simple drawing' : '', // (main: a Basic choice; when: Sheet split (Tidy) works with Tidy: GESAA_TUTORIAL.settings)
+    // (beta 7.8, Plan style cards): where: Plan style › its card (a card itself: Plan style), or Plan style › More settings › its section; main: one of
+    // the main choices (.plb, the rows of Basic before: the company standard's), first among equals
+    plIdx = [...$('drwStyle').querySelectorAll('[data-find], [data-findx]')].filter((el) => el.closest('#plCards, #plMore')).map((el) => {
+      const isSec = el.matches('details.stsec'), sec = isSec ? el : el.closest('details.stsec'), more = !!el.closest('#plMore'), nd = el.closest('[data-findneed]');
+      const where = ['Plan style', more ? 'More settings' : '', !isSec && sec ? sec.dataset.find : '', el.closest('details.stcs') ? 'Colours and sizes' : ''].filter(Boolean).join(' › ');
+      return { label: el.dataset.find || el.dataset.findx, where, text: isSec ? '' : words(el), el, sec: sec ? sec.id : '', main: el.classList.contains('plb'),
+        when: /\btidy\b/.test(el.dataset.dim || '') ? 'Tidy' : el.closest('#dxfSimpleOpts') ? 'Simple drawing' : '', // (main: a main choice; when: Sheet split (Tidy) works with Tidy: GESAA_TUTORIAL.settings)
         need: nd ? nd.dataset.findneed : '', why: nd ? nd.dataset.findwhy || '' : '', how: nd ? nd.dataset.findhow || '' : '', offIf: nd ? nd.dataset.findoff || '' : '' };
     });
     return plIdx;
@@ -11796,7 +13543,7 @@
       or Export opens, so right after launch the Tutorial's search read the Simple drawing's rows as shown. The screen still tells for a
       row with no data-findoff. */
   const PL_OFF = { tpl: () => dxfMode() === 'tpl' }; // (data-findoff="tpl": hidden while Kind of drawing is the company plan)
-  const plOff = (e) => { if (e.offIf && PL_OFF[e.offIf]) return PL_OFF[e.offIf](); for (let x = e.el; x && !x.matches('#plBasic, #plAdv'); x = x.parentElement) if (x.hidden) return true; return false; };
+  const plOff = (e) => { if (e.offIf && PL_OFF[e.offIf]) return PL_OFF[e.offIf](); for (let x = e.el; x && !x.matches('#plCards, #plMore'); x = x.parentElement) if (x.hidden) return true; return false; };
   /** Where a row is, and when it is used if it is hidden now: Plan style › Plan file · only with the Simple drawing (beta 6.7). */
   const plWhere = (r) => (r.off && r.e.why ? `${r.e.where} · ${r.e.why}` : r.e.where);
   /** The settings for q, the best first: [{ e (the row), score, label (words in its label), strong (every word in its label or place),
@@ -11855,11 +13602,11 @@
     const need = e.need && plOff(e) ? $(e.need) : null; // (from the setting itself: right after launch too, before renderDxfTpl has run)
     if (need) {
       const ns = need.closest('details.stsec'), name = e.when && e.label.endsWith(`(${e.when})`) ? e.label.slice(0, -(e.when.length + 2)).trim() : e.label;
-      openStyle(need.closest('#plBasic') ? 'basic' : 'advanced', ns ? ns.id : ''); plPend = e;
+      openStyle('', ns ? ns.id : ''); plPend = e; // ((beta 7.8, Plan style cards): its card, or More settings and its section)
       setTimeout(() => plMark(need, { note: `${name}: ${e.why}. ${e.how}`.trim(), focus: need.querySelector('select, input, button') }), 80);
       return;
     }
-    plPend = null; openStyle(e.tab, e.sec);
+    plPend = null; openStyle('', e.sec);
     setTimeout(() => plMark(e.el), 80);
   }
   /** beta 6.7 (UX step 5 fixes): the Tutorial's More ›: Plan style (over the screen the Tutorial was opened on), Find a setting
@@ -11998,17 +13745,19 @@
   /** The roads around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that covers them. */
   /** The roads and named places around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that
       covers them. bb: [south, west, north, east] of the vicinity; nb: the same for the places (round the route only). */
-  async function planRoads(bb, nb) {
+  async function planRoads(bb, nb, quiet, noNet) { // ((beta 7.8, Drawing photos) quiet: for the Drawing's preview: no busy screen; (beta 7.10, Plan kept) downloaded too, as the export does (noNet: not, after a try that failed); src: where they came from, for planRoadsOf)
     const U = (la, lo) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; };
     const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', hw: r.hw || '', lanes: r.lanes || '', width: r.width || '', bridge: !!r.bridge, name: r.name || '', pts: r.coords.map(([la, lo]) => U(la, lo)) }));
     // v2.35: a road pack on the phone first: no internet needed, and the same roads every time
     try {
-      const P = await roadsFromRoadPacks(bb, nb);
-      if (P) return { roads: conv(P.roads), pois: P.pois.map((q) => { const [E, N] = U(q.lat, q.lon); return { name: q.name, kind: q.kind, E, N }; }), note: P.note };
+      const P = await roadsFromRoadPacks(bb, nb, quiet);
+      if (P) return { roads: conv(P.roads), pois: P.pois.map((q) => { const [E, N] = U(q.lat, q.lon); return { name: q.name, kind: q.kind, E, N }; }), note: P.note, src: 'pack' };
     } catch (e) { LOG.warn('plan.roads.roadpack', errInfo(e)); }
-    if (navigator.onLine !== false) {
+    let tried = false;
+    if (!noNet && navigator.onLine !== false) { // ((beta 7.10, Plan kept) the preview too, quietly: the roads it gets are kept for the export)
+      tried = true;
       try {
-        busy('Downloading the roads and places from OpenStreetMap…');
+        if (!quiet) busy('Downloading the roads and places from OpenStreetMap…');
         const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 90000), B = bb.map((v) => v.toFixed(6)).join(','), NB = (nb || bb).map((v) => v.toFixed(6)).join(',');
         const kinds = ['building', 'amenity', 'shop', 'office', 'leisure', 'tourism', 'healthcare', 'craft', 'historic'];
         const q = `[out:json][timeout:90];way["highway"](${B});out geom;(${kinds.map((k) => `nwr["name"]["${k}"](${NB});`).join('')});out center tags;`;
@@ -12021,22 +13770,69 @@
             const la = el.lat != null ? el.lat : el.center && el.center.lat, lo = el.lon != null ? el.lon : el.center && el.center.lon; if (la == null || lo == null) continue;
             const [E, N] = U(la, lo); pois.push({ name: el.tags.name, kind: kinds.map((k) => el.tags[k]).find(Boolean) || '', E, N });
           }
-          return { roads, pois, note: `${roads.length} roads and ${pois.length} named places from OpenStreetMap (Overpass)` };
+          return { roads, pois, note: `${roads.length} roads and ${pois.length} named places from OpenStreetMap (Overpass)`, src: js.remark && /error|time ?out|timed out/i.test(String(js.remark)) ? 'osm-part' : 'osm' }; // ((beta 7.10, Plan kept) an answer cut short by Overpass itself is used, not kept)
         }
       } catch (e) { LOG.warn('plan.roads.online', errInfo(e)); }
     }
-    try { const R = await roadsFromPack(bb, nb); if (R) return R; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
-    return { roads: [], pois: [], note: navigator.onLine === false ? 'no roads: offline, and no road pack or offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no road pack or offline map pack covers the area' };
+    try { const R = await roadsFromPack(bb, nb, quiet); if (R) return { ...R, src: 'map', tried }; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
+    return { roads: [], pois: [], note: navigator.onLine === false ? 'no roads: offline, and no road pack or offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no road pack or offline map pack covers the area', src: 'none', tried };
+  }
+  /* (beta 7.10, Plan kept) The roads of each project's plan, one set for the Drawing's preview and every export. The first roads a place of the plan gets (a
+     road pack on the phone, else OpenStreetMap downloaded: by an export, or quietly by the preview when the phone is online) are kept with the
+     project (IndexedDB, packs store, ~planroads:<id>; pmeta().planRoads { id } names it), and every later plan of that place reads them there:
+     the plan no longer changes by itself between sessions (another download, OpenStreetMap edited since or not answering, a road pack added,
+     read differently or gone). Kept for the place's area until it grows (a point added outside it): then the larger area's roads are got and
+     kept. The fallback (offline, OpenStreetMap not answering, no road pack: the offline map pack, else no roads) is the same for both and not
+     kept, so the roads are got next time. The team does not get them (shareMeta). */
+  const RK_PRE = '~planroads:', rkMem = new Map(), rkBusy = new Map(), rkFail = new Map();
+  const rkBox = (a, b) => !!b && a[0] >= b[0] - 1e-9 && a[1] >= b[1] - 1e-9 && a[2] <= b[2] + 1e-9 && a[3] <= b[3] + 1e-9;
+  /** The roads kept with a project { id, parts: [{ bb, nb, zone, src, at, note, roads, pois }] }, or null when it has none. */
+  async function rkGet(proj) {
+    const id = (pmeta(proj).planRoads || {}).id; if (!id) return null;
+    if (rkMem.has(id)) return rkMem.get(id);
+    const r = await dbGet('packs', RK_PRE + id).catch(() => null), K = { id, parts: r && Array.isArray(r.parts) ? r.parts : [] };
+    if (rkMem.size > 3) rkMem.clear(); rkMem.set(id, K); return K;
+  }
+  /** Roads for a place of a project's plan (bb, nb as planRoads): the kept ones covering it, else got (planRoads) and kept when they came from a
+   *  road pack or OpenStreetMap. One get at a time for the same place (the preview and an export wait for the same); the preview does not try
+   *  the internet again for 3 minutes after a try that failed. */
+  async function planRoadsOf(proj, bb, nb, quiet) {
+    const nbb = nb || bb, zone = S.zone, K = await rkGet(proj).catch(() => null);
+    const hit = K && K.parts.filter((x) => x.zone === zone && rkBox(bb, x.bb) && rkBox(nbb, x.nb)).sort((x, y) => (x.at < y.at ? 1 : -1))[0];
+    if (hit) return { roads: hit.roads, pois: hit.pois, note: hit.note, src: hit.src, keptAt: hit.at };
+    const key = `${proj}|${zone}|${JSON.stringify([bb, nbb])}`;
+    if (rkBusy.has(key)) { if (!quiet) busy('Downloading the roads and places from OpenStreetMap…'); return rkBusy.get(key); } // (the preview's get, under way: the export waits for it, said)
+    const job = (async () => {
+      const r = await planRoads(bb, nb, quiet, quiet && Date.now() - (rkFail.get(key) || 0) < 180000);
+      if (r.src !== 'pack' && r.src !== 'osm') { if (r.tried) rkFail.set(key, Date.now()); return r; }
+      rkFail.delete(key);
+      const part = { bb: bb.slice(), nb: nbb.slice(), zone, src: r.src, at: new Date().toISOString(), note: r.note, roads: r.roads, pois: r.pois };
+      try { const got = await rkPut(proj, part); return { roads: got.roads, pois: got.pois, note: got.note, src: got.src, keptAt: got.at }; } catch (e) { LOG.warn('plan.roads.keep', errInfo(e)); return r; }
+    })().finally(() => rkBusy.delete(key));
+    rkBusy.set(key, job); return job;
+  }
+  /** Keep a place's roads with the project (the parts its area holds go: the larger one has them); kept already by another get: that one. One at a time. */
+  let rkChain = Promise.resolve();
+  function rkPut(proj, part) { const r = rkChain.then(() => rkPut0(proj, part)); rkChain = r.catch(() => {}); return r; }
+  async function rkPut0(proj, part) {
+    let id = (pmeta(proj).planRoads || {}).id;
+    if (!id) { id = uid(); S.meta = S.meta || {}; S.meta[proj] = { ...pmeta(proj), planRoads: { id, at: part.at } }; persist(); }
+    const K = (await rkGet(proj)) || { id, parts: [] }, have = K.parts.find((x) => x.zone === part.zone && rkBox(part.bb, x.bb) && rkBox(part.nb, x.nb));
+    if (have) return have;
+    const parts = K.parts.filter((x) => !(x.zone === part.zone && rkBox(x.bb, part.bb) && rkBox(x.nb, part.nb))).concat([part]).slice(-16);
+    await dbPut('packs', { k: RK_PRE + id, project: proj, parts }); rkMem.set(id, { id, parts });
+    LOG.info('plan.roads.kept', { src: part.src, roads: part.roads.length, pois: part.pois.length, parts: parts.length });
+    return part;
   }
   /** Roads and named places read from the downloaded map packs (Protomaps vector tiles, zoom 14) that cover the area. Each road is
       cut exactly at its tile's edge, so the pieces of neighbouring tiles meet (the plan joins them again). Every pack at once:
       each tile comes from one pack (PackSet), so where two packs overlap no road is there twice. */
-  async function roadsFromPack(bb, nb) {
+  async function roadsFromPack(bb, nb, quiet) {
     if (!window.protomapsL || !window.protomapsL.PmtilesSource) return null;
     const maps = installedPacks().filter((p) => p.bbox && bbHits(p.bbox, bb[0], bb[1], bb[2], bb[3]));
     if (!maps.length) return null;
     const zmin = Math.min(...maps.map((p) => p.maxzoom || 14)), pk = { name: packNames(maps), maxzoom: zmin };
-    busy(`Reading the roads from the offline map ${pk.name}…`);
+    if (!quiet) busy(`Reading the roads from the offline map ${pk.name}…`);
     const src = new window.protomapsL.PmtilesSource(new PackSet(maps), false), z = Math.min(14, pk.maxzoom || 14), TS = 4096, n = 2 ** z;
     const x0 = lon2tx(bb[1], z), x1 = lon2tx(bb[3], z), y0 = lat2ty(bb[2], z), y1 = lat2ty(bb[0], z), out = [], P = nb || bb;
     let pois = [];
@@ -12277,13 +14073,17 @@
   $('dxfLogoSet').addEventListener('click', () => { if (cefHooks.canLogo && !cefHooks.canLogo()) { toast('Company logo: your coordinator sets it', 5000); return; } $('dxfLogoFile').value = ''; $('dxfLogoFile').click(); });
   // beta 6.7 (UX step 4): Plan style › Plan file › Company logo runs the same code as Settings › Exports and files › Company logo (one logo)
   $('dxfLogoFile').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) guard(() => cefLogoSet(f), 'Logo not saved').then(() => renderLogo()); });
-  async function exportPlanDxf(pts, o) {
-    const one = !!(o && o.one); // beta 4.6: One PDF (the plan, the CEF plan, the splicing details): only the plan's sheets are made here, of the drawing the Drawing shows
-    if (!window.GeDxfTpl) await loadScript('dxftpl.js');
-    const seed = await ensureSeed();
-    if (!seed) { if (!seedId()) toast('No plan template yet: ask your admin to share it, or load the template file they sent you', 6000); renderDxfTpl(); return; }
-    busy('Preparing the plan drawing…');
-    const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
+  /* (beta 7.8, Drawing photos) The plan's job, as Export › Plan drawing sends it to the builder (GeDxfTpl.build, dxftpl.js): made here for the
+     export and for the Drawing's preview of where the plan puts each photo. pts: the points as an export sees them (projPoints() inside
+     xScope or xNow); everything that reads the records and the route is worked out before the first wait, so the preview (in xNow) leaves
+     the hidden records out as the export does. o.one: the One PDF's drawing only (the one the Drawing shows). o.preview: that drawing too,
+     for the Drawing, made quietly: no busy screen; ((beta 7.10, Plan kept) the roads kept with the project, planRoadsOf, the same as the export's: got
+     quietly the first time); no photo files (each photo's size from its file, as the export makes it), vicinity pictures, logo, ROW table or
+     addresses, which move nothing on the GEO sheets. (beta 7.10, Plan kept) With photos placed by hand, the grid kept with the plan (job.gridKeep,
+     planGridOf). Returns what the export goes on with, and jobOf(st): the job of one drawing of SETS. */
+  async function planJob(pts, o) {
+    const one = !!(o && o.one), prev = !!(o && o.preview), say = prev ? () => {} : busy; // (beta 4.6: One PDF: only the plan's sheets are made, of the drawing the Drawing shows)
+    const proj = S.project, m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
     const QC = { loops: [] }, R = routeModel(), Q = surveyQty(pts, QC), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R); // v2.42.16: the maintenance loops the app adds (As-Plan); v2.42.18: the own ones
     const showCT = S.exp.dxfClampType !== false; // v2.40: the plan's options (v2.41: set on the Drawing screen)
@@ -12296,7 +14096,7 @@
       return { id: `row${i + 1}`, tag: rowTag(r), mode: r.mode, ids: MS.ids, no: MS.no, what: r.pts.includes('*') ? 'every pole and the other points (handholes, ODC, site…)' : on.length ? `only ${on.map(markName).join(', ')}` : r.pts.length ? `only ${r.pts.map(markName).join(', ')}: none in this project (no photo or number)` : 'no point (no photo or number)' };
     });
     { const seen = new Map(); SETS.forEach((x) => { const n = (seen.get(x.tag) || 0) + 1; seen.set(x.tag, n); if (n > 1) x.tag = `${x.tag}_${n}`; }); } // two alike: _2
-    if (one && SETS.length > 1) SETS.splice(0, SETS.length, SETS[rowIdx()] || SETS[0]); // (beta 4.6: one drawing in the One PDF; several would repeat the sheets)
+    if ((one || prev) && SETS.length > 1) SETS.splice(0, SETS.length, SETS[rowIdx()] || SETS[0]); // (beta 4.6: one drawing in the One PDF; several would repeat the sheets)
     const markSet = new Set(SETS.filter((x) => x.mode !== 'num').flatMap((x) => x.ids)); // the points whose photo some drawing shows
     // v2.31: what the template's pole models show: proposed pole (its ID unless generic) / height / clamp; an existing pole's material
     // and pole tag (electric) or material and ID (telco pole: Globe, Bayantel, or a telco owner); the new arm and guying
@@ -12327,20 +14127,6 @@
     // the whole vicinity area
     const south = rows.some((r) => r.lat < 0), locs = window.GeDxfTpl.locations(rows, spans), nLoc = locs.length;
     const llBox = (b, m) => { const c = [[b[0] - m, b[1] - m], [b[2] + m, b[1] - m], [b[0] - m, b[3] + m], [b[2] + m, b[3] + m]].map(([E, N]) => C.utmInverse(E, N, zone, south)); return [Math.min(...c.map((q) => q[0])), Math.min(...c.map((q) => q[1])), Math.max(...c.map((q) => q[0])), Math.max(...c.map((q) => q[1]))]; };
-    let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)';
-    if ($('dxfRoads').checked) {
-      const notes = [], seenR = new Set(), seenP = new Set();
-      for (let k = 0; k < nLoc; k++) {
-        if (nLoc > 1) busy(`Roads and places: place ${k + 1} of ${nLoc}…`);
-        const r = await planRoads(llBox(locs[k].box, 500), llBox(locs[k].box, 250)); notes.push(r.note);
-        for (const x of r.roads || []) { const a = x.pts[0], b = x.pts[x.pts.length - 1], kk = `${x.name}|${x.pts.length}|${Math.round(a[0])},${Math.round(a[1])}|${Math.round(b[0])},${Math.round(b[1])}`; if (!seenR.has(kk)) { seenR.add(kk); roads.push(x); } }
-        for (const q of r.pois || []) { const kk = `${q.name}|${Math.round(q.E)},${Math.round(q.N)}`; if (!seenP.has(kk)) { seenP.add(kk); pois.push(q); } }
-      }
-      roadsNote = nLoc > 1 ? notes.map((n, k) => `place ${k + 1}: ${n}`).join('; ') : notes[0];
-    }
-    if (pois && pois.length) pois = pois.slice().sort((a, b) => poiRank(a.kind, a.detail) - poiRank(b.kind, b.detail)); // v2.35.5: public services, churches, health… placed first
-    let lmBlocks = null; // v2.35.6: the landmarks' icons as AutoCAD blocks
-    if (pois && pois.length && LM) { pois = pois.map((q) => ({ ...q, icon: lmIcon(q.kind, q.detail) })); if (pois.some((q) => q.icon >= 0)) lmBlocks = await loadLandmarkBlocks(); }
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), isNew = (p) => ['Proposed', 'New'].includes(p.status), exist = poles.filter((p) => !isNew(p));
     const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = isGlobePole; // (beta 6.6: Globe's own poles, as the numbers' colours: its type, or Globe as owner)
     const m1 = (v) => `${(Math.round(v * 10) / 10).toFixed(1)}m`;
@@ -12364,7 +14150,7 @@
     const SF = siteFieldsOf(), sfm = sfMeta(SF); // v2.41: the site's details as kept (and corrected) in Project details
     const sName = sfm.siteName || m.siteName || (task && task.project) || '', sPla = sfm.plaId || m.plaId || (task && task.site) || '', sSerial = sfm.serial || m.serial || (task && extraOf(task, 'Serial Number')) || ((m.siteExtra || []).find(([k]) => /serial/i.test(k)) || [])[1] || '';
     const known = !!(sName || sPla || sSerial);
-    try { cseLeadSync(m); } catch (e) { /* the CSE Lead as kept */ }
+    if (!prev) try { cseLeadSync(m); } catch (e) { /* the CSE Lead as kept */ }
     /* beta 6.6 (the owner: "PMI must should add automatically the poles RTA"): an existing pole (not Globe's) counts in RTA CONVERGE
        (owner CONVERGE), RTA LOCAL COOP (an electric company, a coop or power), RTA OTHER (PLDT POLE) (PLDT only; before 6.6 every other
        owner), or a row of its own owner's, RTA <OWNER>, added to the PMI table and to each sheet's BOQ table */
@@ -12403,10 +14189,49 @@
         .concat(poles.filter((p) => (p.closure || p.closureId) && stOf(p, 'cloSt') === 'New')).forEach((p) => out.points.push({ id: p.id, v: { PMI_HYBRID_CLOSURE: nClo(p) } }));
       return out;
     })();
+    // v2.39.1: a place that no road pack on this phone covers has no city / municipality or barangay in the table: say which pack
+    const noPack = locs.map((L, k) => ({ k, b: llBox(L.box, 0) })).filter(({ b }) => !roadPacksFor(b).length)
+      .map(({ k, b }) => { const r = REGION_BY[regionAt((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)]; return { k, region: r ? r[2] : '' }; });
+    // v2.32: the photo of each pole beside it on the drawing (the JPEGs go next to the DXF), and the street map on the vicinity sheet
+    // v2.40: the photos of the points chosen for the plan (poles of the chosen types, handholes and the other points), none for numbers only
+    const names = uniqueNames(pts), photos = {}, files = [], withPh = pts.filter((p) => markSet.has(p.id));
+    // beta 6.4: Drawing style › Photos on the plan › Stamp on the photos: lat, long and (the road packs') address burned into each photo,
+    // sized to its long side on the sheet (the same JPEGs go in the ZIP, the plan PDF and the One PDF)
+    // beta 7.6 / 2.45.8: or, with Export › Photos with their locations › Same stamp on the plan's photos, that geotag band (its fields) instead
+    const GEO = geoOnPlan(), PST = GEO ? 'off' : PLS.photo.stamp, stampMm = phTidyMm(PLS.photo.size); /* (beta 6.7: Standard prints them at the same steps) */ /* (beta 6.4: Tidy prints the photos at its own steps) */ // (LOC, the addresses: below)
+    const PS = plStyle(), name = `${fileBase()}_PLAN_UTM${zone}N`, byPt = new Map(pts.map((p) => [String(p.id), p])), many = SETS.length > 1;
+    // beta 6.5: each pole number in its RTA/JPA category's colour (number and circle), and the categories on the plan for its legend
+    const rtaC = rtaCats(PS.num.rta, pts), rtaN = new Map(); rows.forEach((r) => { const p = byPt.get(String(r.id)), cat = p ? rtaCatOf(p, PS.num.rta, rtaC) : null; if (!cat) return; /* (beta 6.6: Globe's, the automatic categories) */ r.numCol = jobCols({ c: cat.color }).c; rtaN.set(cat, (rtaN.get(cat) || 0) + 1); });
+    // beta 6.6 (the owner: "under drawing style, let the user decide, off by default"): Drawing style › Loops at boxes and ODF entrances › Written: each such loop the PMI counts, for the plan to write beside its point
+    const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
+    const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
+    const phPin = { ...(m.phPin || {}) }; // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres)
+    const numPin = { ...(m.numPin || {}) }, lblPin = { ...(m.lblPin || {}) }, cabPin = { ...(m.cabPin || {}) }; // ((beta 7.10, Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
+    const gridKeep = pinsAny(m) ? planGridOf(m) : null; // ((beta 7.10, Plan kept) the plan edited on the Drawing keeps its grid: its sheets and their names; (beta 7.10, Drawing labels) a photo, label, number or pole's details placed by hand)
+    const tools = toolJob(m, PS); // ((beta 7.11, Drawing tools) the items turned, styled, their arrow's tip, the poles moved on the Drawing, Lines to the pole, Closure labels: only those set)
+    // ((beta 7.11, Drawing tools) a closure's bubble (Plan style › Closure labels: Bubble, or one closure's) says its size as its record has it: PROPOSE 72C (the largest of
+    // several); the plan's own guess (its largest cable) without one. Only with a bubble: the job is otherwise as before)
+    if (tools.cloStyle === 'bubble' || Object.values(tools.style || {}).some((x) => x && x.callout === 'bubble') || ((tools.styleKind || {}).closurelabel || {}).callout === 'bubble')
+      pts.forEach((p, i) => { if (!(p.closure || p.closureId || elemOf(p) === 'Closure' || boxClo(p)) || !rows[i] || String(rows[i].id) !== String(p.id)) return; const c = String((p.boq || {}).clo || '').split('+').map((x) => x.trim().toUpperCase()).filter((x) => /^\d+C$/.test(x)).sort((x, y) => parseInt(y, 10) - parseInt(x, 10))[0]; if (c) rows[i].cloSize = c; });
+    // (what follows waits for the phone: the roads, the photos, the vicinity pictures, the logo)
+    let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)'; const keptAt = [];
+    if ($('dxfRoads').checked) {
+      const notes = [], seenR = new Set(), seenP = new Set();
+      for (let k = 0; k < nLoc; k++) {
+        if (nLoc > 1) say(`Roads and places: place ${k + 1} of ${nLoc}…`);
+        const r = await planRoadsOf(proj, llBox(locs[k].box, 500), llBox(locs[k].box, 250), prev); notes.push(r.note); keptAt.push(r.keptAt || ''); // ((beta 7.10, Plan kept) the roads kept with the project: the preview's and the export's the same)
+        for (const x of r.roads || []) { const a = x.pts[0], b = x.pts[x.pts.length - 1], kk = `${x.name}|${x.pts.length}|${Math.round(a[0])},${Math.round(a[1])}|${Math.round(b[0])},${Math.round(b[1])}`; if (!seenR.has(kk)) { seenR.add(kk); roads.push(x); } }
+        for (const q of r.pois || []) { const kk = `${q.name}|${Math.round(q.E)},${Math.round(q.N)}`; if (!seenP.has(kk)) { seenP.add(kk); pois.push(q); } }
+      }
+      roadsNote = nLoc > 1 ? notes.map((n, k) => `place ${k + 1}: ${n}`).join('; ') : notes[0];
+    }
+    if (pois && pois.length) pois = pois.slice().sort((a, b) => poiRank(a.kind, a.detail) - poiRank(b.kind, b.detail)); // v2.35.5: public services, churches, health… placed first
+    let lmBlocks = null; // v2.35.6: the landmarks' icons as AutoCAD blocks
+    if (pois && pois.length && LM) { pois = pois.map((q) => ({ ...q, icon: lmIcon(q.kind, q.detail) })); if (pois.some((q) => q.icon >= 0)) lmBlocks = await loadLandmarkBlocks(); }
     // v2.35: the ROW AREA COVERAGE sheet: the cities / municipalities and barangays the route passes (every 20 m of each span and
     // every point), from the boundaries in a road pack on this phone
     let rowNote = 'no road pack on this phone covers the route, so the table is left blank (Maps → Offline map packs → Roads · your region)';
-    try {
+    if (!prev) try {
       const samp = [];
       for (const s of R.spans) { const n = Math.max(1, Math.ceil((s.len || 0) / 20)); for (let k = 0; k <= n; k++) samp.push({ lat: s.a.lat + (s.b.lat - s.a.lat) * k / n, lon: s.a.lon + (s.b.lon - s.a.lon) * k / n }); }
       pts.forEach((p) => samp.push({ lat: p.lat, lon: p.lon }));
@@ -12420,23 +14245,27 @@
           : `the route is in no city / municipality or barangay boundary of the road pack (${A.src}): the table is left blank`;
       }
     } catch (e) { LOG.warn('plan.row', errInfo(e)); rowNote = `not filled: ${e.message || e}`; }
-    // v2.39.1: a place that no road pack on this phone covers has no city / municipality or barangay in the table: say which pack
-    const noPack = locs.map((L, k) => ({ k, b: llBox(L.box, 0) })).filter(({ b }) => !roadPacksFor(b).length)
-      .map(({ k, b }) => { const r = REGION_BY[regionAt((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)]; return { k, region: r ? r[2] : '' }; });
     if (noPack.length) rowNote += ` · ${noPack.map(({ k, region }) => `${nLoc > 1 ? `place ${k + 1}` : 'the route'} is in no road pack on this phone, so its city / municipality and barangays are not in the table: add Maps → Offline map packs → Roads · ${region || 'its region'} and export again`).join(' · ')}`;
-    // v2.32: the photo of each pole beside it on the drawing (the JPEGs go next to the DXF), and the street map on the vicinity sheet
-    // v2.40: the photos of the points chosen for the plan (poles of the chosen types, handholes and the other points), none for numbers only
-    const names = uniqueNames(pts), photos = {}, files = [], withPh = pts.filter((p) => markSet.has(p.id));
-    // beta 6.4: Drawing style › Photos on the plan › Stamp on the photos: lat, long and (the road packs') address burned into each photo,
-    // sized to its long side on the sheet (the same JPEGs go in the ZIP, the plan PDF and the One PDF)
-    // beta 7.6 / 2.45.8: or, with Export › Photos with their locations › Same stamp on the plan's photos, that geotag band (its fields) instead
-    const GEO = geoOnPlan(), PST = GEO ? 'off' : PLS.photo.stamp, stampMm = phTidyMm(PLS.photo.size), /* (beta 6.7: Standard prints them at the same steps) */ /* (beta 6.4: Tidy prints the photos at its own steps) */ LOC = PST === 'addr' && withPh.length ? await poleLocations(withPh, true).catch(() => new Map()) : new Map();
+    const LOC = !prev && PST === 'addr' && withPh.length ? await poleLocations(withPh, true).catch(() => new Map()) : new Map();
     for (let i = 0; i < withPh.length; i++) {
+      if (prev) { const d = await phDims(coverPid(withPh[i]) || withPh[i].id); if (d) photos[withPh[i].id] = { file: `${names[withPh[i].id]}.jpg`, px: d.w, py: d.h }; continue; } // (beta 7.8, Drawing photos) the preview: its size as the export makes it, no file
       busy(`Preparing the photos ${i + 1} / ${withPh.length}`, i / withPh.length);
       const q = withPh[i], band = PST !== 'off' && Number.isFinite(+q.lat) && Number.isFinite(+q.lon) ? { lat: q.lat, lon: q.lon, addr: PST === 'addr' ? LOC.get(q.id) || '' : '', mm: stampMm } : null;
       const jpg = await pdfJpeg(coverPid(q) || q.id, 800, null, null, 0.8, band, GEO && Number.isFinite(+q.lat) && Number.isFinite(+q.lon) ? { p: q, fields: S.exp.stampFields } : null).catch(() => null); if (!jpg) continue;
       let dim; try { dim = window.PoleReports.jpegInfo(jpg); } catch (e) { continue; }
       const file = `${names[withPh[i].id]}.jpg`; photos[withPh[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
+    }
+    // ((beta 7.12, Drawing edit) the photos added on the Drawing (job.notes, kind photo): each one's JPEG made as the poles' photos are (800 px on its long side), beside
+    // the DXF as NOTE_<id>.jpg (the name the job gives), in the ZIP, the plan's PDF and the One PDF; its size in the job as made. The preview needs no file.)
+    if (!prev && tools.notes) {
+      const gone = new Set();
+      for (const n of tools.notes) {
+        if (n.kind !== 'photo' || !n.photo) continue; const nt = notesOf(m).find((x) => String(x.id) === n.id), pid = nt && nt.photo ? nt.photo.pid : null;
+        const jpg = pid ? await pdfJpeg(pid, 800, null, null, 0.8).catch(() => null) : null; if (!jpg) { gone.add(n.id); LOG.warn('plan.note.photo', { id: n.id }); continue; } // (its photo not on this phone: the note left out, not an empty frame)
+        try { const dm = window.PoleReports.jpegInfo(jpg); if (dm && dm.w > 0 && dm.h > 0) { n.photo.px = dm.w; n.photo.py = dm.h; } } catch (e) { /* its size as kept */ }
+        files.push({ name: n.photo.file, data: jpg });
+      }
+      if (gone.size) { tools.notes = tools.notes.filter((n) => !gone.has(n.id)); if (!tools.notes.length) delete tools.notes; }
     }
     // v2.38: a vicinity map for each place
     const vics = [], vicSay = [];
@@ -12444,8 +14273,8 @@
       const vz = PLS.vic.zoom !== false, [cE, cN, size] = window.GeDxfTpl.vicArea(locs[k].box, vz), vicC = window.GeDxfTpl.vicCircle(locs[k].idx.map((i) => [rows[i].E, rows[i].N]), size, vz); // (beta 4.1: zoomed to the project area unless turned off)
       // // v2.37: the PROJECT AREA circle
       const file = k ? `VICINITY_MAP_${k + 1}.jpg` : 'VICINITY_MAP.jpg'; let image = null, kind = 'street', drawn = false;
-      if (nLoc > 1) busy(`Vicinity map ${k + 1} of ${nLoc}…`);
-      try {
+      if (nLoc > 1) say(`Vicinity map ${k + 1} of ${nLoc}…`);
+      if (!prev) try { // ((beta 7.8, Drawing photos) the preview: no picture)
         // v2.36: online, the satellite picture (else the street map); offline, the offline map pack; else a street map drawn from the roads
         // v2.41: the satellite picture first, then the offline map pack (before the online street map), then the street map online
         let v = navigator.onLine === false ? null : await vicinityJpeg(cE, cN, size, zone, south, busy, SAT_SOURCE).catch((e) => { LOG.warn('plan.vicinity.sat', errInfo(e)); return null; });
@@ -12463,22 +14292,31 @@
     }
     // v2.34: the vendor's logo in every title block (set in Export → AutoCAD · DXF, shared with the company's users through the sheet)
     let logo = null;
-    try { const lg = await logoGet(); if (lg) { const ext = lg.type === 'image/png' ? 'png' : 'jpg'; logo = { file: `COMPANY_LOGO.${ext}`, px: lg.px, py: lg.py }; files.push({ name: logo.file, data: b64ToBytes(lg.data) }); } } catch (e) { LOG.warn('plan.logo', errInfo(e)); }
-    const PS = plStyle(), name = `${fileBase()}_PLAN_UTM${zone}N`, byPt = new Map(pts.map((p) => [String(p.id), p])), many = SETS.length > 1, outs = [];
-    // beta 6.5: each pole number in its RTA/JPA category's colour (number and circle), and the categories on the plan for its legend
-    const rtaC = rtaCats(PS.num.rta, pts), rtaN = new Map(); rows.forEach((r) => { const p = byPt.get(String(r.id)), cat = p ? rtaCatOf(p, PS.num.rta, rtaC) : null; if (!cat) return; /* (beta 6.6: Globe's, the automatic categories) */ r.numCol = jobCols({ c: cat.color }).c; rtaN.set(cat, (rtaN.get(cat) || 0) + 1); });
-    // beta 6.6 (the owner: "under drawing style, let the user decide, off by default"): Drawing style › Loops at boxes and ODF entrances › Written: each such loop the PMI counts, for the plan to write beside its point
-    const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
-    const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
+    if (!prev) try { const lg = await logoGet(); if (lg) { const ext = lg.type === 'image/png' ? 'png' : 'jpg'; logo = { file: `COMPANY_LOGO.${ext}`, px: lg.px, py: lg.py }; files.push({ name: logo.file, data: b64ToBytes(lg.data) }); } } catch (e) { LOG.warn('plan.logo', errInfo(e)); }
+    /** The job of one drawing of the export (st: one of SETS), for GeDxfTpl.build. */
+    const jobOf = (st) => {
+      const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
+      return { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, jnName: PLS.jn.name, /* beta 7.4 / 2.45.6 */ odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
+        towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
+        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', phPin, /* (beta 7.8, Drawing photos) */ numPin, lblPin, cabPin, /* (beta 7.10, Drawing labels) */ ...(gridKeep ? { gridKeep } : {}), /* (beta 7.10, Plan kept) */ ...tools, /* (beta 7.11, Drawing tools) */ date: new Date() };
+    };
+    const roadsKept = keptAt.length && keptAt.every(Boolean) ? keptAt.slice().sort()[0] : ''; // ((beta 7.10, Plan kept) the roads kept with the project: since when)
+    return { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, roadsKept, gridKeep, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name, byPt, many, rtaC, rtaN, boxLoopN, jobOf };
+  }
+  async function exportPlanDxf(pts, o) {
+    const one = !!(o && o.one); // beta 4.6: One PDF (the plan, the CEF plan, the splicing details): only the plan's sheets are made here, of the drawing the Drawing shows
+    if (!window.GeDxfTpl) await loadScript('dxftpl.js');
+    const seed = await ensureSeed();
+    if (!seed) { if (!seedId()) toast('No plan template yet: ask your admin to share it, or load the template file they sent you', 6000); renderDxfTpl(); return; }
+    busy('Preparing the plan drawing…');
+    drwPhStop(); // (beta 7.8, Drawing photos) a preview of the Drawing's photos still being made stops: the export first
+    const { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, roadsKept, gridKeep, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name, byPt, many, rtaC, rtaN, boxLoopN, jobOf } = await planJob(pts, { one }), outs = [];
     for (let k = 0; k < SETS.length; k++) { // v2.41: one DXF for each drawing of the export
       const st = SETS[k];
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
-      const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, jnName: PLS.jn.name, /* beta 7.4 / 2.45.6 */ odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
-        towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
-      outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
+      const job = jobOf(st), out = await buildPlan(seed, job); // (Drawing photos: the job made by planJob, as the Drawing's preview has it)
+      outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(job.photos).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
     // v2.42.9: the sheets as a PDF too (drawn by the app from each DXF), when ticked on the DXF card: for printing, or when the DXF
@@ -12516,6 +14354,7 @@
       ...outs.map((o) => `  ${o.file}: ${besideOf(o)}.`), setFirst]
       : [`${outs[0].file} — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`, setFirst, `Beside the points: ${besideOf(outs[0])} (the list is at the end).`];
     if (pdfFiles.length) head.push(`${pdfFiles.map((f) => f.name).join(', ')}: the sheets as a PDF (A3), drawn by G-eSAA from the DXF for printing (texts in Helvetica, pattern hatches left out; AutoCAD's own plot is the reference).`); // v2.42.9
+    { const N = notesOf(m), nt = N.filter((n) => n.kind !== 'photo').length, np = N.length - nt; if (N.length) head.push(`Added on the Drawing: ${[nt ? `${nt} text${nt === 1 ? '' : 's'} (layer G-ESAA NOTES)` : '', np ? `${np} photo${np === 1 ? '' : 's'} (NOTE_….jpg next to the DXF)` : ''].filter(Boolean).join(' and ')}, not from a record.`); } // ((beta 7.12, Drawing edit) the notes)
     if (cefFiles.length) { const D = [...new Set(cefFiles.map((f) => f.name.split('/')[0]))]; head.push(`${D.join(', ')}: the CEF plan of ${D.length === 1 ? 'the tower site' : 'each tower site'} (its sheets as a PDF on A3 and as a DXF, the map DXF, the KML, its photos and its sketch), as the CEF plan's own Export makes ${D.length === 1 ? 'it' : 'them'}.`); } // beta 4.1
     head.splice(0, head.length, ...head.filter(Boolean));
     const readme = [...head,
@@ -12528,8 +14367,8 @@
       ...(() => { const J = pts.filter(isJn); if (!J.length) return []; const n = (el) => J.filter((p) => elemOf(p) === el).length, mm = J.reduce((t, p) => t + jnMsgM(p).m, 0); // beta 6.9
         return [`Pull-offs (${n('Pull-off')}) and cross-overs (${n('Cross-over')}), at a corner with no pole: a small red square (pull-off, block G-ESAA PULL-OFF) or circle (cross-over, block G-ESAA CROSS-OVER) where the cable turns, a thin continuous red line (layer MESSENGER) for each extended messenger to its poles (3 for a pull-off, 4 for a cross-over), and its name (PULL-OFF / CROSS-OVER) in red ${PLS.jn.name === 'bubble' ? 'in a dashed bubble above it, with a dashed tail to it, as high as the red PROPOSED CLOSURE text (or the pole labels\' lines where those are smaller)' : 'right beside it, as small as the poles\' lat / long lines (Plan style › Cables › Pull-off / cross-over name: Small text beside it)'}; EXTENDED MESSENGER along each extended messenger with no cable on it; no lat / long of it (beta 7.3). The spans to and from it are written as the others (the cable is measured round the corner). Extended messenger with no cable on it: ${mm} m (BOQ, survey quantities; not in the PMI table).`]; })(),
       `Sheets: TITLE, TOC, LEGENDS, ${(rp.vicinities || [{ sheet: 'VICINITY MAP' }]).map((v) => v.sheet).join(', ')}, ROW AREA COVERAGE, ${(rp.vicinities || [0]).map((_, k) => (k ? `KEYMAP (${k + 1})` : 'KEYMAP')).join(', ')}, ${rp.sheets.join(', ')}, PMI.`,
-      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Plan style \u203a Map sheets \u203a Sheet split, 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}).`, // (beta 6.0: the scale of a finer Tidy grid; which split)
-      `Roads: ${roadsNote}.`,
+      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Plan style \u203a Map sheets \u203a Sheet split, 1/${rp.tidy.grid.n}` : ((rp.tidy || {}).grid || {}).mode === 'kept' ? `; split 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}${gridKeep ? '; kept as the plan was when its photos were placed by hand on the Drawing, so its sheets and their names stay (Back to automatic, for all the photos, works them out again)' : ''}).`, // (beta 6.0: the scale of a finer Tidy grid; which split; (beta 7.10, Plan kept) the grid kept)
+      `Roads: ${roadsNote}${roadsKept ? ` (kept with this project since ${roadsKept.slice(0, 10)}: the Drawing's preview and every export of the plan use these roads)` : ''}.`, // ((beta 7.10, Plan kept) planRoadsOf)
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
       ...(() => { const N = [...new Set(outs.flatMap((o) => o.out.report.notes || []))]; return N.length ? [`Drawing checks (${N.length}): ${N.join(' · ')}.`] : []; })(), // v2.42.8: e.g. an object far from the plan
@@ -13875,16 +15714,19 @@
   const TUT_SCREEN = { map: '', projects: 'projects', newProject: 'newProj', projectDetails: 'projects', records: 'list', export: 'export', settings: 'settings',
     profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin', planset: 'drwStyle', planstyle: 'drwStyle', team: 'teamSheet', mbxset: 'mbxSetSheet' };
   /* beta 6.7 (UX step 1, 4): go 'planstyle' (Plan style; 'planset' is its old name) or 'planstyle:<part>': basic, advanced, or the
-     Advanced section that is the part (opened, its part of the plan in the preview). */
-  const TUT_PLPART = { numbers: 'stNum', details: 'stPole', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
+     Advanced section that is the part (opened, its part of the plan in the preview). (beta 7.8, Plan style cards): the part is a card (numbers,
+     details, labels, photos, landmarks, vicinity, sheets) or a section of More settings (boxes, clamps, cables, crowded, site, file);
+     basic: the cards; advanced: More settings. */
+  const TUT_PLPART = { numbers: 'stNum', details: 'stPole', labels: 'stCab', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
   const tutGoBase = (go) => String(go || '').split(':')[0];
   const tutHlEl = (st) => { try { return st && st.hl ? document.querySelector(st.hl) : null; } catch (e) { return null; } };
-  /** beta 6.7 (UX step 4): Plan style's tab and Advanced section for a step: its part, else where its control is. */
+  /** beta 6.7 (UX step 4): Plan style's card or section of More settings for a step: its part, else where its control is. (Plan style
+      cards): more: More settings opened (the part advanced, or a control in it). */
   const tutPlanAt = (go, st) => {
-    const part = String(go || '').split(':')[1] || '', el = tutHlEl(st), sec = TUT_PLPART[part] ? $(TUT_PLPART[part]) : el && el.closest('#plAdv details.stsec');
-    return { tab: part === 'basic' ? 'basic' : part === 'advanced' || sec || (el && el.closest('#plAdv')) ? 'advanced' : 'basic', sec: sec ? sec.id : '' };
+    const part = String(go || '').split(':')[1] || '', el = tutHlEl(st), sec = TUT_PLPART[part] ? $(TUT_PLPART[part]) : el && el.closest('#drwStyle details.stsec');
+    return { more: part === 'advanced' || !!(sec && sec.closest('#plMore')) || !!(el && el.closest('#plMore')), sec: sec ? sec.id : '' };
   };
-  const tutPlanOn = (go, st) => { const a = tutPlanAt(go, st); return tutTop() === 'drwStyle' && $(a.tab === 'advanced' ? 'plAdv' : 'plBasic').hidden === false && (!a.sec || $(a.sec).open); };
+  const tutPlanOn = (go, st) => { const a = tutPlanAt(go, st); return tutTop() === 'drwStyle' && (!a.more || $('plMore').open) && (!a.sec || $(a.sec).open); };
   const tutTop = () => stack[stack.length - 1] || '';
   const tutOnScreen = (go, st) => { const g = tutGoBase(go); return g === 'map' ? !stack.length : g === 'projectDetails' ? tutTop() === 'projects' && $('curMore').open : g === 'planstyle' || g === 'planset' ? tutPlanOn(go, st) : tutTop() === TUT_SCREEN[g]; };
   const tutModal = () => ['askBox', 'pinBox', 'promptBox', 'qrShow', 'busy', 'qrScan'].some((id) => { const e = $(id); return e && !e.hidden; });
@@ -13897,8 +15739,8 @@
       case 'projectDetails': if (tutTop() !== 'projects') openProjects(); await tutWait(150); $('curMore').open = true; break;
       case 'records': if (tutTop() !== 'list') $('listBtn').click(); break;
       case 'export': if (tutTop() !== 'export') $('exportBtn').click(); break;
-      case 'planset': case 'planstyle': { // v2.42.28; beta 6.7 (UX step 1): planstyle, planstyle:<part>; UX step 4: Plan style's tab and section
-        const a = tutPlanAt(go, st); openStyle(a.tab, a.sec); await tutWait(120); // (a section without a control: its heading just under the preview)
+      case 'planset': case 'planstyle': { // v2.42.28; beta 6.7 (UX step 1): planstyle, planstyle:<part>; UX step 4: Plan style's tab and section ((beta 7.8, Plan style cards): its card)
+        const a = tutPlanAt(go, st); openStyle(a.more ? 'advanced' : '', a.sec); await tutWait(120); // (a section without a control: its heading just under the preview)
         break;
       }
       case 'team': if (tutTop() !== 'teamSheet') { if (tutTop() !== 'settings') { $('settingsBtn').click(); await tutWait(150); } $('goTeam').click(); } break; // v2.43
@@ -13925,16 +15767,15 @@
   }
   /** beta 6.7 (UX step 1): the Export card that holds the step's control (its "do…" button id; #prCard, #sigBox… too), or ''. */
   const tutXCard = (st) => { const el = tutHlEl(st), c = el && el.closest('#export .xcard'), k = c ? xKey(c) : ''; return k && exportCards().includes(c) ? k : ''; }; // (beta 6.7, UX step 3: the row's own button id: doBackup, not the Restore link under it)
-  /** beta 6.7 (UX step 1): on the screen on top, what hides the step's control is opened: its tab (Plan style's Basic | Advanced),
-      its Export card, the closed folds (details: an Advanced section, its Colours and sizes) around it. true: something was opened. */
+  /** beta 6.7 (UX step 1): on the screen on top, what hides the step's control is opened: its Export card, the closed folds (details:
+      a card of Plan style, More settings and its sections, their Colours and sizes) around it. true: something was opened. */
   function tutUnfold(el) {
     const sh = el.closest('section.sheet'); if (!sh || sh.hidden || sh.id !== tutTop()) return false;
     let did = false;
-    const pane = el.closest('[role="tabpanel"][hidden]'), tab = pane && pane.id ? sh.querySelector(`[role="tab"][aria-controls="${pane.id}"]`) : null; // (Plan style's Basic | Advanced, step 4)
-    if (tab) { tab.click(); did = true; }
+    if (sh.id === 'drwStyle') { const d = el.closest('details.stsec'); if (d && !d.open) { plOne([d]); did = true; } } // ((beta 7.8, Plan style cards): one card open at a time)
     const xc = el.closest('#export .xcard'), xk = xc ? xKey(xc) : ''; // beta 6.7 (UX step 3): the row is opened (one at a time); Several at once for its ticks and its ZIP button
     if (xk && exportCards().includes(xc) && !xc.classList.contains('xopen') && !xc.classList.contains('xmany')) { showExport(xk); did = true; }
-    if (!xMany && el.closest('#xMulti, #xGoBox') && sh.id === 'export') { xManyOn([]); did = true; }
+    if (el.closest('#xMoreT') && !$('xMoreT').open && sh.id === 'export') { $('xMoreT').open = true; did = true; } // ((beta 7.8, Export picks): More exports)
     for (let d = el.closest('details:not([open])'); d; d = d.parentElement ? d.parentElement.closest('details:not([open])') : null) {
       if (el.tagName !== 'SUMMARY' || el.parentElement !== d) { d.open = true; did = true; } // (a fold's own title shows while it is shut)
     }
@@ -14866,17 +16707,24 @@
     $('askTitle').textContent = title; $('askText').textContent = text || '';
     const row = $('askBox').querySelector('.row'); row.innerHTML = '';
     const tiles = btns.some((b) => b.tile); row.classList.toggle('tiles', tiles); $('askBox').querySelector('.panel').classList.toggle('hasx', btns.some((b) => b.x)); // beta 4.6: big icon tiles (a caption under each), a quiet ✕
-    const stack = btns.length > 2 && !tiles; row.classList.toggle('stack', stack); // v2.19: three or more choices are listed one under another, Cancel last
+    const pins = btns.some((b) => b.pin); row.classList.toggle('pins', pins); $('askBox').classList.toggle('pinask', pins); if (pins) $('askBox').querySelector('.panel').scrollTop = 0; // (beta 7.9, Add Pin) the kinds of pin, in their groups (pinAsk)
+    const stack = btns.length > 2 && !tiles && !pins; row.classList.toggle('stack', stack); // v2.19: three or more choices are listed one under another, Cancel last
     const list = stack ? btns.filter((b) => b.label !== 'Cancel').concat(btns.filter((b) => b.label === 'Cancel')) : btns;
     return new Promise((res) => {
-      let mine = null; const done = (v) => { $('askBox').hidden = true; if (askEsc === mine) askEsc = null; res(v); };
+      let mine = null, gbox = null; const done = (v) => { $('askBox').hidden = true; if (askEsc === mine) askEsc = null; res(v); };
       list.forEach((b) => {
         const el = document.createElement('button'); el.type = 'button'; el.className = `btn grow${b.primary ? ' primary' : ''}`; el.textContent = b.label;
         if (b.x) { el.className = 'btn askx'; el.textContent = '✕'; el.setAttribute('aria-label', b.label); el.title = b.label; } // (beta 4.6: Later as a quiet ✕ in the corner)
         else if (b.tile) { el.className = `btn tile${b.primary ? ' primary' : ''}`; el.textContent = b.caption || b.label; el.setAttribute('aria-label', b.label); el.title = b.label; if (b.sub) { const sm = document.createElement('small'); sm.textContent = b.sub; el.appendChild(sm); } } // (a second, smaller line)
+        else if (b.pin) { // (beta 7.9, Add Pin) its symbol (the app's own SVG, symSvg), its name, a small line, NEW; in its group (b.group: the first of a group)
+          el.className = 'btn ptile'; el.textContent = ''; el.dataset.kind = b.value; el.setAttribute('aria-label', b.label);
+          const sy = document.createElement('span'); sy.className = 'psym'; sy.innerHTML = b.pin.svg; const nm = document.createElement('b'); nm.textContent = b.pin.name; const sm = document.createElement('small'); sm.textContent = b.pin.sub; el.append(sy, nm, sm);
+          if (b.pin.isNew) { const nw = document.createElement('span'); nw.className = 'pnew'; nw.textContent = 'NEW'; nw.setAttribute('aria-hidden', 'true'); el.appendChild(nw); }
+          if (b.group) { gbox = document.createElement('div'); gbox.className = 'pgrp'; gbox.setAttribute('role', 'group'); gbox.setAttribute('aria-label', b.group); const h = document.createElement('div'); h.className = 'pgrpt'; h.textContent = b.group; h.setAttribute('aria-hidden', 'true'); gbox.appendChild(h); row.appendChild(gbox); }
+        }
         if (b.icon && !b.x) { const sv = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', `#${b.icon}`); sv.appendChild(u); sv.setAttribute('class', 'aic'); sv.setAttribute('aria-hidden', 'true'); el.insertBefore(sv, el.firstChild); el.classList.add('ic1'); } // beta 4.6: an icon before the words (a sprite id)
         el.addEventListener('click', () => done(b.value));
-        row.appendChild(el);
+        (b.pin && gbox ? gbox : row).appendChild(el);
       });
       // v2.42.27: Esc on a computer answers Cancel (Keep, Keep editing, Back to the form…), or the only button; a question with
       // neither stays until a button is pressed (never a guess: the Unsaved record question's Discard is not taken)
@@ -18194,11 +20042,11 @@
   const mbxWaitsWifi = () => false; // 2.44.13: nothing waits for Wi-Fi (it was: an update over 20 MB on mobile data)
   let mbxAutoRun = null, mbxNoAuto = false; // (mbxNoAuto: the tests of the manual path, beta 3.3's, turn Sync's bringing in off)
   /** Brings in what is listed (mbxRefresh first), one at a time, oldest first. Returns { n, said: [...], notes: [...], wifi, err }. */
-  async function mbxAutoIn() {
+  async function mbxAutoIn(o) { // (o.ownBusy: the caller shows the busy screen itself: beta 7.9, the Team mailbox's Check brings in again)
     if (!mbxOn() || navigator.onLine === false || !mbxIn || mbxNoAuto) return null;
     if (mbxAutoRun) return mbxAutoRun;
     mbxAutoRun = (async () => {
-      const res = { n: 0, said: [], notes: [], wifi: 0, held: 0, err: '' }, hold = reloadBlocked(); // (a record or the camera open: no merge under it)
+      const res = { n: 0, said: [], notes: [], wifi: 0, held: 0, err: '' }, hold = reloadBlocked(o && o.ownBusy); // (a record or the camera open: no merge under it)
       const items = mbxIn.filter(mbxAutoOk).sort((a, b) => String(a.created || '').localeCompare(String(b.created || '')));
       for (const it of items) {
         if (mbxJob && !['done', 'fail'].includes(mbxJob.stage)) break; // a download you started: the rest come at the next Sync
@@ -18240,7 +20088,7 @@
     return res;
   }
   /** The team mailbox checked, and what is for projects here brought in (the mailbox's Check, Projects, the start). */
-  async function mbxCheck() { const ok = await mbxRefresh(); const a = ok ? await mbxAutoIn() : null; if (a && a.n) await mbxRefresh(); return { ok, a }; }
+  async function mbxCheck(o) { const ok = await mbxRefresh(); const a = ok ? await mbxAutoIn(o) : null; if (a && a.n) await mbxRefresh(); return { ok, a }; }
   const mbxAutoSay = (a, s) => [a && a.n ? `brought in: ${a.said.join('; ')}` : '', s && s.n ? `sent: ${s.said.join('; ')}` : '', a && a.wifi ? `${pl2(a.wifi, 'big update')} waiting for Wi-Fi (Projects → Get it now)` : '',
     a && a.held ? `${pl2(a.held, 'update')} at the next Sync (a record was open)` : '', a && a.err ? `not brought in: ${a.err}` : '', s && s.err ? `not sent: ${s.err}` : ''].filter(Boolean).join(' · ');
 
@@ -18629,7 +20477,7 @@
     o.st = 'resent'; persist(); busy(false); renderProjects(); toast(`Sent again to ${tmFirst(o.to, o.toName)}.`);
   }
   $('mbxCheckIn').addEventListener('click', () => guard(async () => { // beta 3.4: Check brings in what is for projects here, as Sync does
-    let a = null; busy('Checking the mailbox…'); try { ({ a } = await mbxCheck()); } finally { busy(false); }
+    let a = null; busy('Checking the mailbox…'); try { ({ a } = await mbxCheck({ ownBusy: true })); } finally { busy(false); } // (beta 7.9: its own busy screen no longer holds the updates back as "a record was open")
     const t = mbxAutoSay(a, null); if (t) toast(`Team mailbox: ${t}`, 6000);
   }, 'Not checked'));
 
@@ -19559,9 +21407,9 @@
      record or the marking screen is open, so a stray tap during capture or editing does nothing. */
   const verNum = (v) => String(v || '').split('.').map((x) => parseInt(x, 10) || 0);
   const verNewer = (a, b) => { const x = verNum(a), y = verNum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
-  function reloadBlocked() {
+  function reloadBlocked(ownBusy) { // (ownBusy: the busy screen is the caller's own, e.g. the Team mailbox's Check: it does not count)
     const open = (id) => { const e = $(id); return !!e && !e.hidden; };
-    return ['camera', 'editor', 'boxer', 'photoView', 'qrScan', 'busy', 'askBox', 'pinBox', 'promptBox', 'pickBox'].some(open) || !!ed;
+    return ['camera', 'editor', 'boxer', 'photoView', 'qrScan', ownBusy ? '' : 'busy', 'askBox', 'pinBox', 'promptBox', 'pickBox'].filter(Boolean).some(open) || !!ed;
   }
   $('brandBtn').addEventListener('click', () => guard(async () => {
     if (reloadBlocked()) return; // capture or editing in progress: the tap does nothing
@@ -19697,6 +21545,10 @@
       $('edClose').click(); return; // with changes not saved it asks first (Esc again: keep editing)
     }
     if ((top === 'export' || top === 'drwStyle') && $(top).classList.contains('side')) { e.preventDefault(); closeSheet(); return; } // v2.42.28: a panel beside the plan (beta 6.7, UX step 4: Plan style)
+    if (top === 'drawing' && drwCtxClose()) { e.preventDefault(); return; } // ((beta 7.13, Drawing fixes) Esc: the right-click menu put away first, the selection kept)
+    if (top === 'drawing' && drw && drw.icoPop) { e.preventDefault(); drwIcoPop(null); drwIcoRender(); return; } // ((beta 7.12, Drawing edit) Esc: the row's tray put away, adding a text or a photo stopped)
+    if (top === 'drawing' && drw && drw.add) { e.preventDefault(); drwAddEnd(); return; }
+    if (top === 'drawing' && drw && drwSelClear()) { e.preventDefault(); return; } // ((beta 7.11, Drawing tools) Esc: nothing selected on the plan any more)
     if (top === 'drawing' && !$('drawWhatBox').hidden) { e.preventDefault(); setWhat(false, false); return; }
     if (!stack.length && map._popup) map.closePopup();
   }
@@ -20807,7 +22659,7 @@
     $('dxfDescOne').textContent = `one PDF to print, with a bookmark for each part: ${andList(parts.map(([k]) => ({ plan: 'the plan', cef: 'the CEF plans', spl: 'the splicing details' })[k]))}.`; // beta 6.7 (UX step 3 fixes): You get, with the parts this project has
     const draw = () => {
       $('xOneParts').innerHTML = parts.map(([k, t, st, v]) => `<span role="listitem" data-p="${k}"><i class="${st === 'miss' ? 'miss' : ''}" aria-hidden="true"></i>${C.xmlEsc(t)}${v ? `: ${C.xmlEsc(v)}` : ' ✓'}</span>`).join('');
-      const lbl = tpl ? `One PDF: ${andList(parts.map((x) => x[1].toLowerCase()))}${parts.some((x) => x[2] === 'miss') ? ` (${parts.filter((x) => x[2] === 'miss').map((x) => `${x[1].toLowerCase()}: ${x[3]}`).join('; ')})` : ''}` : 'One PDF: it needs your company’s plan template (Plan style › Plan file)';
+      const lbl = tpl ? `One PDF: ${andList(parts.map((x) => x[1].toLowerCase()))}${parts.some((x) => x[2] === 'miss') ? ` (${parts.filter((x) => x[2] === 'miss').map((x) => `${x[1].toLowerCase()}: ${x[3]}`).join('; ')})` : ''}` : 'One PDF: it needs your company’s plan template (Plan style › More settings › Plan file)';
       btn.title = lbl;
     };
     draw();
@@ -20821,7 +22673,7 @@
   $('xOnePdf').addEventListener('animationend', () => $('xOnePdf').classList.remove('pulse'));
   $('xOnePdf').addEventListener('click', () => xguard(async () => {
     if (dxfMode() !== 'tpl') { // (Simple DXF: the plan's sheets of the One PDF are drawn on the company template)
-      const v = await ask('One PDF needs your plan template', 'The plan’s sheets in the One PDF are drawn on your company’s template, as the Plan drawing draws them. Load the template in Plan style › Plan file, then come back here.',
+      const v = await ask('One PDF needs your plan template', 'The plan’s sheets in the One PDF are drawn on your company’s template, as the Plan drawing draws them. Load the template in Plan style › More settings › Plan file, then come back here.',
         [{ label: 'Cancel', value: false }, { label: 'Plan style', value: true, primary: true }]);
       if (v) openStyle('advanced', 'stFile'); return; // (beta 6.7, UX step 4: Plan style › Plan file)
     }
@@ -20910,9 +22762,74 @@
   window.__polecam.newAt = (o) => openEditor({ mode: 'new', element: (o && o.element) || 'Pole', lat: +o.lat, lon: +o.lon, source: 'map', takenAt: new Date().toISOString() }); // beta 4.3 (tests): a new record with no photo
   /* beta 6.7 (tests) */ window.__polecam.drwEdit = (on) => drwEditSet(!!on);
   window.__polecam.drwEd = () => ({ on: drwEd, handles: (drw && drw.edH ? drw.edH : []).map((h) => { const r = $('drawCanvas').getBoundingClientRect(); return { x: r.left + h.x, y: r.top + h.y, r: h.r, n: h.n, a: String(h.a), b: String(h.b) }; }), site: drwSiteArm ? drwSiteArm.kind : null, selRun: drw ? drw.selRun : null, n: drw ? drw.items.length : 0 });
+  /* (beta 7.8, Drawing photos) for tests: the plan's photo places of the preview (report.photoAt), whether one is being made, and the frames drawn
+     (each one's centre and size in page pixels, its turn), the pins kept, and where a point stands as the Drawing draws it (metres) */
+  window.__polecam.drwPh = () => { if (!drw) return null; const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    return { busy: !!drw.phBusy, row: drw.ph ? drw.ph.row : null, at: drw.ph ? JSON.parse(JSON.stringify(drw.ph.at)) : null, notes: drw.ph ? drw.ph.notes : [], sc: drw.view ? drw.view.sc / d : 0, sel: drw.selPh || null, pins: JSON.parse(JSON.stringify(pmeta(drw.project).phPin || {})),
+      frames: (drw.phHit || []).map((H) => ({ id: H.id, x: r.left + H.cx / d, y: r.top + H.cy / d, w: H.w / d, h: H.h / d, rot: H.rot, warn: !!H.warn })), xy: Object.fromEntries(drw.items.map((it) => [String(it.p.id), it.xy])) }; }; // ((beta 7.10, Plan kept) warn: outlined, across a sheet's edge)
+  /* (beta 7.10, Drawing labels) for tests: the plan's movable items (report.movable) where they are drawn now (their box in page pixels: centre, size, turn), the
+     one tapped, the one dragged, the pins kept, the items lifted off the plan (moved since it was made) and the Undo steps of this project */
+  window.__polecam.drwMv = () => { if (!drw) return null; const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1, M = drw.view ? drwMvs() : [], PL = drw.ph && drw.ph.plan, sc = drw.view ? drw.view.sc : 1; // ((beta 7.12) the Drawing being made again (no view yet): no items)
+    return { items: M.map((m, i) => { const B = drwMvBox(m, i), [x, y] = drwPx([B[0], B[1]]); return { id: m.id, kind: m.kind, how: m.how, x: r.left + x / d, y: r.top + y / d, w: B[2] * sc / d, h: B[3] * sc / d, deg: B[4], box: B, anchor: m.anchor, cut: drwMvCut(m, i), name: drwMvName(m), with: m.with || [], handles: m.handles.length }; }),
+      sel: drw.mvSel || null, drag: drw.mvDrag ? { id: drw.mvDrag.id, dx: drw.mvDrag.dx / d, dy: drw.mvDrag.dy / d } : null, pins: Object.fromEntries(PIN_KEYS.map((k) => [k, JSON.parse(JSON.stringify(pmeta(drw.project)[k] || {}))])),
+      lifted: PL && PL.lifted ? [...PL.lifted].map(([i, L]) => ({ id: M[i] ? M[i].id : i, off: L.off.slice() })) : [], undo: drwUndoStack.filter((u) => u.project === drw.project).map((u) => u.what), redo: drwRedoStack.filter((u) => u.project === drw.project).map((u) => u.what), own: PL && PL.own ? PL.own.length : 0,
+      undoBtn: { hidden: $('drawUndo').hidden || $('drawUndo').disabled || $('drawIcons').hidden }, info: $('drawInfo').hidden ? null : $('drawInfo').textContent, // ((beta 7.12, Drawing edit) Undo in the row: not offered (greyed) with nothing to take back)
+      sels: drwSels(), tools: Object.fromEntries(TOOL_KEYS.map((k) => [k, JSON.parse(JSON.stringify(pmeta(drw.project)[k] || {}))])), more: !!drw.tbMore, all: !!drw.tbAll, // ((beta 7.11, Drawing tools) the selection, what the tools keep, Select more, All like it)
+      hdl: (drw.hdl || []).map((h) => ({ kind: h.kind, id: h.id, x: r.left + h.x / d, y: r.top + h.y / d })), hDrag: drw.hDrag ? { ...drw.hDrag } : null }; };
+  /* (beta 7.11, Drawing tools) for tests: the toolbar (shown, where, its tools shown with their state and place in page pixels), an item's can, tip, span and
+     each lifted item's look (moved, turned, sized, colour, font), the pole a point is drawn at */
+  window.__polecam.drwTb = () => { const tb = $('drawTb'), R = (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
+    return { hidden: tb.hidden, at: drw ? drw.tbAt || 'top' : null, rect: tb.hidden ? null : R(tb), tools: [...tb.querySelectorAll('[data-a]')].filter((b) => !b.classList.contains('drwtbsep') && b.id !== 'drawTbPal').map((b) => ({ a: b.dataset.a, hidden: b.hidden, pressed: b.getAttribute('aria-pressed'), disabled: !!b.disabled, seg: b.classList.contains('drwtbseg') ? [...b.querySelectorAll('button')].map((x) => ({ v: x.dataset.v, pressed: x.getAttribute('aria-pressed'), ...R(x) })) : null, ...(b.hidden || tb.hidden ? {} : R(b)) })),
+      pal: $('drawTbPal').hidden ? null : [...$('drawTbPal').querySelectorAll('button')].map((b) => ({ v: +b.dataset.v, pressed: b.getAttribute('aria-pressed'), ...R(b) })), sw: $('drawTbSw').style.background }; };
+  /* (beta 7.12, Drawing edit) for tests: the row of the Drawing's tools (shown, each tool: its name, caption, tip, pressed, greyed, place in page pixels; what it says; its tray),
+     the text editor (open, its title, text, Automatic offered, Save greyed), a text or photo being added, the notes kept and those the plan shown has not drawn yet */
+  window.__polecam.drwIco = () => { const R = $('drawIcons'), at = (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
+    const tl = (b) => ({ a: b.dataset.a, label: b.getAttribute('aria-label'), title: b.title, cap: (b.querySelector('span:last-child') || {}).textContent || '', icon: !!b.querySelector('svg.dpi use, .sw'), pressed: b.getAttribute('aria-pressed'), disabled: !!b.disabled, hidden: !(b.offsetWidth || b.offsetHeight), ...(b.offsetWidth || b.offsetHeight ? at(b) : {}) });
+    return { hidden: R.hidden, rect: R.hidden ? null : at(R), tools: [...R.querySelectorAll('button[data-a]')].map(tl), say: $('drawIcoSay').textContent, pop: $('drawIcoPop').hidden ? null : { rect: at($('drawIcoPop')), tools: [...$('drawIcoPop').querySelectorAll('button[data-a]')].map(tl) },
+      adding: drw && drw.add ? drw.add.kind : null, selWant: drw ? drw.selWant || null : null, tb: [...$('drawTb').querySelectorAll('button[data-a], .drwtbseg button')].map((b) => ({ ...tl(b), a: b.dataset.a || (b.closest('[data-a]') || {}).dataset.a, v: b.dataset.v || null })), xopen: $('drawTb').classList.contains('xopen') }; };
+  /* (beta 7.13, Drawing fixes) for tests: the right-click menu (shown, its place in page pixels, each item: its tool, choice, words, name, icon, ticked, greyed, place) */
+  window.__polecam.drwCtx = () => { const M = $('drawCtx'), R = (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
+    return { open: !M.hidden, rect: M.hidden ? null : R(M), focus: M.contains(document.activeElement) ? (document.activeElement.dataset.a || null) : null, items: M.hidden ? [] : [...M.querySelectorAll('button')].map((b) => ({ a: b.dataset.a, v: b.dataset.v || null, cap: (b.querySelector('span:last-child') || {}).textContent || '', label: b.getAttribute('aria-label') || '', title: b.title, role: b.getAttribute('role'), icon: ((b.querySelector('svg use') || {}).getAttribute ? b.querySelector('svg use').getAttribute('href') : null) || (b.querySelector('.sw') ? 'swatch' : null), checked: b.getAttribute('aria-checked'), disabled: !!b.disabled, ...R(b) })) }; };
+  window.__polecam.drwTxt = () => ({ open: !$('drawTxtBox').hidden, title: $('drawTxtTitle').textContent, sub: $('drawTxtSub').textContent, text: $('drawTxtArea').value, auto: !$('drawTxtAuto').hidden, saveOff: !!$('drawTxtYes').disabled, ok: $('drawTxtYes').textContent });
+  window.__polecam.drwNotes = () => ({ notes: drw ? JSON.parse(JSON.stringify(notesOf(pmeta(drw.project)))) : [], pend: drw ? (drw.notePend || []).slice() : [], made: drw && drw.ph && drw.ph.tools ? JSON.parse(JSON.stringify(drw.ph.tools.notes || null)) : null });
+  window.__polecam.drwNotesSweep = () => drwNotesSweep();
+  /* (beta 7.12, Drawing edit) for tests: what the plan shown draws of an item (its own items of the display list): its lines (each subpath's points in metres), how many texts and pictures */
+  window.__polecam.drwOwn = (id) => { const P = drw && drw.ph, PL = P && P.plan, i = P && P.mvIdx ? P.mvIdx.get(id) : null; if (!PL || i == null || !PL.byOwn || !PL.byOwn.has(i)) return null;
+    const { items: IT, subs: SB, pts: Pp } = PL.raw, o = PL.origin, out = { lines: [], texts: 0, images: 0 };
+    for (const k of PL.byOwn.get(i)) { const kind = IT[4 * k]; if (kind === 3) { out.texts++; continue; } if (kind === 4) { out.images++; continue; } if (kind !== 0) continue;
+      for (let q = IT[4 * k + 2]; q < IT[4 * k + 2] + IT[4 * k + 3]; q++) { const f = SB[3 * q], c = SB[3 * q + 1], L = []; for (let j = 0; j < c; j++) L.push([Pp[2 * (f + j)] + o[0], Pp[2 * (f + j) + 1] + o[1]]); out.lines.push(L); } }
+    return out; };
+  window.__polecam.drwMvItem = (id) => { const m = drw && mvById(id); if (!m) return null; const i = mvIx(id), PL = drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; return JSON.parse(JSON.stringify({ ...m, handles: m.handles.length, canNow: canOf(m), lifted: L ? { off: L.off, xf: L.xf } : null, boxNow: drwMvBox(m, i) })); };
+  window.__polecam.drwJobTools = () => (drw && drw.ph ? JSON.parse(JSON.stringify(drw.ph.tools || null)) : null);
+  window.__polecam.drwCands = (x, y, mouse) => (drw ? drwCands({ clientX: x, clientY: y, pointerType: mouse ? 'mouse' : 'touch' }).map((c) => ({ ...c })) : null); // ((beta 7.11, Drawing tools) tests: what a tap there goes through)
+  window.__polecam.shareMeta = (n) => JSON.parse(JSON.stringify(shareMeta(n || S.project))); // ((beta 7.11, Drawing tools) tests: what a project shares with the team)
   window.__polecam.drwLL = (lat, lon) => { if (!drw || !drw.view) return null; const p = RT_DRW.pt([lat, lon]), r = $('drawCanvas').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
   window.__polecam.drwLook = (lat, lon, mpp, ox, oy) => { if (!drw || !drw.view) return; const d = window.devicePixelRatio || 1, cv = $('drawCanvas'), u = C.utmForward(lat, lon, drw.zone, lat < 0), sc = d / mpp; drw.view = { ...drw.view, sc, cx: u.E - ((ox == null ? cv.width / 2 / d : ox) * d - cv.width / 2) / sc, cy: u.N + ((oy == null ? cv.height / 2 / d : oy) * d - cv.height / 2) / sc }; drawDrawing(); };
-  window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(it.xy), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; };
+  window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(drwAt(it)), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; }; // ((beta 7.9, Drawing preview) where the Drawing shows it: where the plan draws it, while the plan is shown)
+  /* (beta 7.9, Drawing preview) for tests: the plan shown or not, being made, the previews made (n: this one's), its display list's counts, the GEO sheets
+     (report.grid.sheets) and the names drawn (in page pixels), what the last frame drew; px(E, N): a point in metres in page pixels;
+     redraw(): the Drawing drawn again now (ms) */
+  window.__polecam.drwPlan = () => { if (!drw) return null; const P = drw.ph && drw.ph.plan, r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    return { on: drwPlanOn(), want: !!drw.plWant, busy: !!drw.phBusy, made: drwPlanN, n: drw.ph ? drw.ph.n || 0 : 0, ms: drw.ph ? drw.ph.ms : 0, count: P ? { ...P.count } : null, K: P ? P.K : 0, sheet: P ? P.sheet : null, origin: P ? P.origin.slice() : null,
+      sheets: drw.ph && drw.ph.grid ? JSON.parse(JSON.stringify(drw.ph.grid.sheets)) : null, gridOn: S.drawGrid !== false, gridDrawn: (drw.gridDrawn || []).map((x) => ({ ...x, x: r.left + x.x / d, y: r.top + x.y / d })), drawn: drw.planDrawn || null,
+      regen: { hidden: $('drawRegen').hidden, disabled: $('drawRegen').disabled, say: $('drawRegenT').textContent }, phAll: $('drawPhAll').hidden ? null : $('drawPhAllT').textContent }; };
+  /* (beta 7.10, Plan kept) for tests: what is kept with a project's plan (the grid, the roads: each place's area, where they came from, when, how many), a display
+     list's hash (the Drawing's plan; or the one dxfpdf.js's planList makes of a DXF and its report, on the page: an export's) */
+  window.__polecam.planKept = async (n) => { const nm = n || S.project, m = pmeta(nm), K = await rkGet(nm).catch(() => null);
+    return { grid: m.planGrid ? JSON.parse(JSON.stringify(m.planGrid)) : null, id: (m.planRoads || {}).id || null, roads: K ? K.parts.map((x) => ({ bb: x.bb, nb: x.nb, zone: x.zone, src: x.src, at: x.at, roads: x.roads.length, pois: x.pois.length, note: x.note })) : null }; };
+  window.__polecam.drwPlanHash = () => (drw && drw.ph && drw.ph.plan ? planListHash(drw.ph.plan) : null);
+  window.__polecam.planListHash = (text, report) => (window.GeDxfPdf ? planListHash(window.GeDxfPdf.planList(text, report)) : null);
+  window.__polecam.drwPx = (E, N) => { if (!drw || !drw.view) return null; const [x, y] = drwPx([E, N]), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; };
+  window.__polecam.drwRedraw = () => { const t0 = performance.now(); drawDrawing(); return performance.now() - t0; };
+  window.__polecam.drwView = (o) => { if (drw && drw.view) Object.assign(drw.view, o); }; // (where it looks, not drawn yet: cx, cy metres, sc canvas pixels a metre)
+  /** (tests) The Drawing drawn as before (its own labels, tags, cable labels) even with the plan's preview: on, or back to the plan. */
+  window.__polecam.drwPlanHold = (on) => { drwPlanHold = !!on; if (drw && !$('drawing').hidden) { drwPhHint(); drwPlanUi(); renderDrawLegend(); drawDrawing(); } };
+  /** (tests) The first segment of the plan's first line of colour c (e.g. '#ff0000'), in page pixels and metres; null: none. */
+  window.__polecam.drwPlanProbe = (c) => { const P = drw && drw.ph && drw.ph.plan; if (!P) return null; const { items, subs, pts } = P.raw;
+    for (let k = 0; k < items.length; k += 4) { if (items[k] !== 0 || P.styles[items[k + 1]].c !== c) continue; const f = subs[3 * items[k + 2]]; if (subs[3 * items[k + 2] + 1] < 2) continue;
+      const a = [pts[2 * f] + P.origin[0], pts[2 * f + 1] + P.origin[1]], b = [pts[2 * f + 2] + P.origin[0], pts[2 * f + 3] + P.origin[1]];
+      return { a: window.__polecam.drwPx(a[0], a[1]), b: window.__polecam.drwPx(b[0], b[1]), ma: a, mb: b, w: P.styles[items[k + 1]].w, dash: P.styles[items[k + 1]].dash }; }
+    return null; };
   window.__polecam.drawView = () => (drw && drw.view ? { cx: drw.view.cx, cy: drw.view.cy, sc: drw.view.sc } : null); // beta 4.3 (tests): where the Drawing looks
   window.__polecam.coops = () => ({ groups: coopGroups(), set: ed ? ed.coopSet || '' : '', name: ed ? (ed.boq || {}).ownerName || '' : '', owner: ed ? (ed.boq || {}).owner || '' : '', area: ed ? coopArea() : null }); // beta 4.3 (tests)
   window.__polecam.cef = { open: (n, o) => cefOpen(n, o), plans: (n) => JSON.parse(JSON.stringify(cefPlans(n || S.project))), of: (n) => JSON.parse(JSON.stringify(cefOf(n || S.project))), isCef: (n) => isCefProj(n), lock: () => cefLockText(S.project), now: () => (cefNow ? { ...cefNow } : null),

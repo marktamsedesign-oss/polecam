@@ -110,7 +110,8 @@ async def main():
                 b = _bb.extents([e]); lp.append([(b.extmin.x, b.extmin.y), (b.extmax.x, b.extmin.y), (b.extmax.x, b.extmax.y), (b.extmin.x, b.extmax.y)])
         hit = [t_ for t_, q in at for L in lp if g_['sat'](q, L)]
         check('C4. the closure\'s PROPOSED and ID cover no loop mark', len(at) == 2 and lp and not hit, (hit, [t_ for t_, _ in at], len(lp)))
-        # the Drawing screen
+        # the Drawing screen (its own labels: drawn as before, not the plan's preview (beta 7.9, Drawing preview))
+        await pg.evaluate("() => __polecam.drwPlanHold && __polecam.drwPlanHold(true)")
         await pg.click('#drawBtn'); await W(pg, 2500)
         res = []
         for sc in [None, 0.6, 1.5]:

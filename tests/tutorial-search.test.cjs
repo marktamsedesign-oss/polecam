@@ -104,8 +104,28 @@ const LINES = [
   ['6.9', '!pull-off · !pull off · !pulloff · pull-off pin · add pull-off', 'pulloff'],
   ['6.9', '!cross-over · !cross over · !crossover · cross-over pin · add cross-over', 'pulloff'],
   ['6.9', '!corner without pole · !extended messenger · corner with no pole · cable across houses · messenger', 'pulloff'],
+  // (beta 7.9, Add Pin): one Add Pin on the map and the Drawing, a list of every kind of pin (the owner: "Just put "Add Pin" and then the user will select which pin it is")
+  ['Add Pin', '!add pin · !dummy nap box · !pin kinds · lcp pin · handhole pin · manhole pin · service box pin · closure pin · add handhole · add manhole · what is it', 'mappin'],
+  ['Add Pin', '!add pin on the drawing · pin on the drawing', 'drawedit mappin'],
   // beta 7.6 / 2.45.8: Photos with their locations › Same stamp on the plan's photos (the geotag band on the plan's photos)
   ['7.6', '!same stamp on the plan\'s photos · !geotag stamp on the plan · plan photo stamp · caption band', 'fieldsettings planstyle'],
+  // (beta 7.8, Drawing photos): the Drawing's photos where the plan puts them; drag one to place it by hand, Back to automatic
+  ['Drawing photos', '!drag a photo · !back to automatic · photo placed by hand · move photo on the drawing', 'drawing'],
+  // (beta 7.9, Drawing preview): the Drawing shows the plan as its PDF prints it, its sheet grid, Regenerate plan preview
+  ['Drawing preview', '!regenerate plan preview · plan preview · sheet grid · drawing grid · pdf preview on the drawing', 'drawing'],
+  // (beta 7.10, Drawing labels): on the Drawing, drag a cable label, a pole number or a pole's details to place it by hand; Undo; Back to automatic for all
+  ['Drawing labels', '!drag a label · !move pole details · move cable label · move pole number · undo on the drawing · labels placed by hand', 'drawing'],
+  // (beta 7.11, Drawing tools): select anything on the plan, its toolbar (font size, bold, italic, colour, turn, size, Existing / Proposed, This one / All like it), poles moved on the plan, a cable label's arrow tip; Plan style › Lines to the pole, Closure labels
+  ['Drawing tools', '!select more · !drawing toolbar · font size on the drawing · rotate label · turn a label · move pole on the drawing · !arrow tip · arrow pointer · all like it', 'drawing'],
+  ['Drawing tools', '!lines to the pole · closure labels · !closure bubble', 'planstyle drawing'],
+  // (beta 7.12, Drawing edit): the Drawing's tools as icons (the CEF editor's look), an item's text edited, texts and photos added on the plan (notes), the draw order; Plan style › Photos › Line to its pole
+  ['Drawing edit', '!edit text on the drawing · !add text on the plan · !add a photo to the drawing · !photo note · !draw order · bring to front · send to back · bring forward · send backward · double tap to edit · !drawing icons · delete note', 'drawing'],
+  ['Drawing edit', '!line to its pole · photo lines · remove photo line', 'planstyle drawing'],
+  // (beta 7.12, Drawing edit, the owner's later asks): the keys and Redo, a pole moved on the Drawing moves its record (the KMZ follows), a closure and a loop slide along their cable
+  ['Drawing edit', '!redo on the drawing · !ctrl z · cmd z · ctrl y · !move pole record · snap closure · !slide along the cable', 'drawing'],
+  ['Drawing edit', '!delete on the drawing · delete from the plan · delete a guy on the drawing · !edit text record', 'drawing'],
+  // (beta 7.13, Drawing fixes): a right-click on the plan, on a computer: the tools of what is under the pointer as a menu there
+  ['Drawing fixes', '!right-click on the plan · !context menu on the drawing · right click menu · options menu on the drawing', 'drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];
@@ -290,10 +310,14 @@ test('(c) every Plan style row (.strow, .psrow, .swrow) and section carries its 
   assert.deepEqual(rows.filter((r) => !/\bdata-findx?="[^"]+"/.test(r)), []);
   const cs = styleHtml.split('<details class="stcs">').slice(1).map((x) => x.slice(0, x.indexOf('</details>')));
   assert.deepEqual(cs.flatMap((x) => [...x.matchAll(/\bdata-find="([^"]+)"/g)].map((m) => m[1])), [], 'Colours and sizes rows: data-findx');
-  const secs = [...styleHtml.matchAll(/<details class="stgrp stsec"[^>]*data-find="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(secs.length, 12, secs.join(', '));
-  const basic = styleHtml.slice(styleHtml.indexOf('id="plBasic"'), styleHtml.indexOf('id="plAdv"')), bl = [...basic.matchAll(/\bdata-find="([^"]+)"/g)].map((m) => m[1].replace(/&#39;/g, "'"));
-  assert.deepEqual(bl, ['Pole labels', 'Pole number colours', 'Photos on the plan', 'Stamp on the plan\'s photos', 'Clamp types beside each pole', '20 m loops at boxes', 'BOQ table on each map sheet', 'Pole numbers in this project']);
+  // (beta 7.8, Plan style cards): 7 cards (Pole numbers, Pole details and span lengths, Cable labels (FOC), Photos, Landmarks, Location map, Map
+  // sheets) and 6 sections in More settings; the main choices (.plb, the rows of Basic before) in their cards
+  const secs = [...styleHtml.matchAll(/<details class="stgrp stsec(?: plcard)?"[^>]*data-find="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(secs.length, 13, secs.join(', '));
+  const cards = [...styleHtml.slice(styleHtml.indexOf('id="plCards"'), styleHtml.indexOf('id="plMore"')).matchAll(/<details class="stgrp stsec plcard"[^>]*data-find="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(cards, ['Pole numbers', 'Pole details and span lengths', 'Cable labels (FOC)', 'Photos', 'Landmarks', 'Location map (vicinity map)', 'Map sheets']);
+  const bl = [...styleHtml.matchAll(/<(?:div|label)\b[^>]*\bclass="(?:[^"]*\s)?plb(?:\s[^"]*)?"[^>]*\bdata-find="([^"]+)"/g)].map((m) => m[1].replace(/&#39;/g, "'"));
+  assert.deepEqual(bl, ['Pole numbers in this project', 'Pole number colours', 'Pole labels', 'Clamp types beside each pole', '20 m loops at boxes', 'Photos on the plan', 'Stamp on the plan\'s photos', 'BOQ table on each map sheet']);
 });
 test('(d) every #id a tutorial step rings is in index.html', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), have = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
@@ -366,12 +390,13 @@ const STYLE = dom(styleHtml), EXPORT = dom(exportHtml);
 const byId = (root, id) => all(root, (n) => n.a.id === id)[0];
 const isSec = (n) => n.tag === 'details' && hasCls(n, 'stsec');
 const labelOf = (n) => n.a['data-find'] || n.a['data-findx'] || '';
-/** plIndex() of app.js, from index.html */
-const PL_INDEX = all(STYLE, (n) => !!labelOf(n) && !!closest(n, (x) => x.a.id === 'plBasic' || x.a.id === 'plAdv')).map((el) => {
-  const sec = isSec(el) ? el : closest(el, isSec), basic = !!closest(el, (x) => x.a.id === 'plBasic');
-  const where = ['Plan style', isSec(el) ? 'Advanced' : basic ? 'Basic' : sec ? sec.a['data-find'] : '', closest(el, (x) => x.tag === 'details' && hasCls(x, 'stcs')) ? 'Colours and sizes' : ''].filter(Boolean).join(' › ');
+/** plIndex() of app.js, from index.html ((beta 7.8, Plan style cards): Plan style › its card, or Plan style › More settings › its section; main: a
+    main choice, .plb) */
+const PL_INDEX = all(STYLE, (n) => !!labelOf(n) && !!closest(n, (x) => x.a.id === 'plCards' || x.a.id === 'plMore')).map((el) => {
+  const sec = isSec(el) ? el : closest(el, isSec), more = !!closest(el, (x) => x.a.id === 'plMore');
+  const where = ['Plan style', more ? 'More settings' : '', !isSec(el) && sec ? sec.a['data-find'] : '', closest(el, (x) => x.tag === 'details' && hasCls(x, 'stcs')) ? 'Colours and sizes' : ''].filter(Boolean).join(' › ');
   const skip = (k) => (k.tag === 'details' && hasCls(k, 'help')) || hasCls(k, 'dimwhy') || hasCls(k, 'findwhy') || k.tag === 'output' || hasCls(k, 'secsum') || hasCls(k, 'nopv') || !!labelOf(k);
-  return { label: labelOf(el), where, text: isSec(el) ? '' : textOf(el, skip).replace(/\s+/g, ' ').trim(), sec: sec ? sec.a.id : '', main: basic,
+  return { label: labelOf(el), where, text: isSec(el) ? '' : textOf(el, skip).replace(/\s+/g, ' ').trim(), sec: sec ? sec.a.id : '', isSec: isSec(el), main: hasCls(el, 'plb'),
     when: /\btidy\b/.test(el.a['data-dim'] || '') ? 'Tidy' : closest(el, (x) => x.a.id === 'dxfSimpleOpts') ? 'Simple drawing' : '' };
 });
 const base = (l) => l.replace(/\s*\([^)]*\)$/, '').toLowerCase();
@@ -387,7 +412,7 @@ test('(b) Find a setting: every label of Plan style (data-find and data-findx) l
 test('(b) rows of the same name: the label and the name of its section put it first', () => {
   const twins = PL_INDEX.filter((e) => PL_INDEX.filter((x) => base(x.label) === base(e.label)).length > 1), bad = [];
   assert.ok(twins.length >= 2, twins.map((e) => e.label).join(', ')); // (Circle colour of the pole numbers and of the location map; Label size)
-  twins.forEach((e) => { const sec = PL_INDEX.find((x) => x.sec === e.sec && x.where === 'Plan style › Advanced'), q = `${e.label} ${sec ? sec.label : ''}`, R = G.settings(q, PL_INDEX); if (!R.length || PL_INDEX[R[0].i] !== e) bad.push(`"${q}": ${R.slice(0, 3).map((r) => `${PL_INDEX[r.i].label} (${PL_INDEX[r.i].where})`).join(' | ')}`); });
+  twins.forEach((e) => { const sec = PL_INDEX.find((x) => x.sec === e.sec && x.isSec), q = `${e.label} ${sec ? sec.label : ''}`, R = G.settings(q, PL_INDEX); if (!R.length || PL_INDEX[R[0].i] !== e) bad.push(`"${q}": ${R.slice(0, 3).map((r) => `${PL_INDEX[r.i].label} (${PL_INDEX[r.i].where})`).join(' | ')}`); });
   assert.deepEqual(bad, []);
 });
 test('(b) the Tutorial\'s search shows every Plan style setting by its label (Setting · … · Show me: the first 3 strong ones)', () => {
@@ -406,7 +431,7 @@ test('(b) Find a setting finds a setting by the words of its choices and hint, i
   for (const q of ['foc', 'foc %', 'span length allowance', 'allowance', 'extra cable', 'sag', 'wastage']) {
     assert.equal(first(q), ALLOW, q);
     assert.ok(G.settings(q, PL_INDEX).some((r) => PL_INDEX[r.i].label === ALLOW && r.strong && r.label > 0), `${q}: listed by the Tutorial`);
-    assert.equal(PL_INDEX[G.settings(q, PL_INDEX)[0].i].where, 'Plan style › Cables', q);
+    assert.equal(PL_INDEX[G.settings(q, PL_INDEX)[0].i].where, 'Plan style › More settings › Cables', q);
   }
   assert.ok(!PL_INDEX.some((e) => /Extra cable on each span/.test(e.label)), 'the old Simple drawing row is gone');
   assert.equal(first('utm'), 'Map zone (UTM)');
@@ -429,8 +454,8 @@ test('(b) the Tutorial lists a setting only when its name or place says every wo
   assert.deepEqual(tut('logo'), []); // (the Company template row says it only in its text: the topics answer)
   assert.ok(tut('colour').length === 3 && tut('colour')[0] === 'Pole number colours', tut('colour').join(' | '));
 });
-test('(c) every control of Plan style\'s Basic and Advanced is inside a row that carries its label (data-find or data-findx)', () => {
-  const panes = ['plBasic', 'plAdv'].map((id) => byId(STYLE, id)), bad = [];
+test('(c) every control of Plan style\'s cards and More settings is inside a row that carries its label (data-find or data-findx)', () => {
+  const panes = ['plCards', 'plMore'].map((id) => byId(STYLE, id)), bad = [];
   panes.forEach((p) => all(p, (n) => ['input', 'select', 'textarea', 'button'].includes(n.tag)).forEach((c) => {
     if (closest(c, (x) => !!labelOf(x)) || closest(c, (x) => hasCls(x, 'plban'))) return; // (the banners: Get it, Change ›)
     bad.push(`${c.tag}#${c.a.id || '?'} ${textOf(c, () => false).trim().slice(0, 30)}`);

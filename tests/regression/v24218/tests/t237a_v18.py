@@ -1,5 +1,6 @@
 """v2.37.0 (the design review, rounds 1 and 2), in the app:
  1. the pin menu offers Tower, OLT and ODC only; a pin being placed shows its model; the map shows a tower / OLT / ODC as its model;
+    ((Add Pin): the menu is Add Pin's list of every kind, in its groups, an As-Plan's poles and corners first; Tower, OLT and ODC in Sites)
  2. the record: no Save inside the photo box, the legend symbol beside the photo; the project's other points (and route) on its map;
     the new settings: NAP kind (NAP pin), double LCP (ODC), grounding and riser (pole), the pole a pole-to-pole guy goes to;
     manhole and service box records; editing a record keeps its sizes (BOQ) and a site's kind;
@@ -78,7 +79,7 @@ def utm51(lat, lon):  # WGS84 UTM zone 51N (as core.js)
 async def add_pin(pg, choice, lat, lon, name=None, status=None, color=None, closure=None):
     await close_sheets(pg)
     await pg.click('#pinAddBtn'); await W(pg, 300)
-    await pg.locator('#askBox button', has_text=choice).click(); await pg.wait_for_selector('#editor:not([hidden])'); await W(pg, 900)
+    await pg.locator(f'#askBox .ptile[data-kind="{choice}"]').click(); await pg.wait_for_selector('#editor:not([hidden])'); await W(pg, 900)  # ((Add Pin): the kind's tile: tower, olt, odc…)
     info = await pg.evaluate("""() => ({ title: document.getElementById('editorTitle').textContent, thumb: !document.getElementById('edPhoto').closest('.thumbwrap').hidden,
       retake: document.getElementById('edRetake').textContent, colors: !document.getElementById('svColorBox').hidden, id: document.getElementById('poleId').value, status: document.getElementById('svStatus').value })""")
     if status: await pg.select_option('#svStatus', status); await W(pg, 200)
@@ -179,11 +180,11 @@ async def main():
         await pg.evaluate(f"__polecam.pinMap.setView([{PPLL[0]}, {PPLL[1]}], 19, {{ animate: false }})"); await W(pg, 500); await save(pg)
         # ===== 1. pins on the map: Tower / OLT / ODC only
         await close_sheets(pg); await pg.click('#pinAddBtn'); await W(pg, 300)
-        menu = await pg.evaluate("[...document.querySelectorAll('#askBox button')].map((b) => b.textContent.trim())")
+        menu = await pg.evaluate("[...document.querySelectorAll('#askBox .ptile')].map((b) => b.dataset.kind).concat([...document.querySelectorAll('#askBox button:not(.ptile)')].map((b) => b.textContent.trim()))")  # ((Add Pin): the tiles, then Cancel)
         await pg.locator('#askBox button', has_text='Cancel').click(); await W(pg, 300)
         last = POLES[4]['ll']; SITELL = (last[0] - 18 / 110574, last[1] - 6 / 110000)
         await close_sheets(pg); await pg.click('#pinAddBtn'); await W(pg, 300)
-        await pg.locator('#askBox button', has_text='Tower (site)').click(); await pg.wait_for_selector('#editor:not([hidden])'); await W(pg, 900)
+        await pg.locator('#askBox .ptile[data-kind="tower"]').click(); await pg.wait_for_selector('#editor:not([hidden])'); await W(pg, 900)
         await pg.select_option('#svStatus', 'Existing'); await W(pg, 200)
         tw = await pg.evaluate("""() => ({ title: document.getElementById('editorTitle').textContent, cross: !document.getElementById('crossSym').hidden && !!document.querySelector('#crossSym svg'), kind: document.getElementById('siteKindSel').value,
           kindShown: !document.getElementById('siteKindBox').hidden, cap: document.getElementById('edSymCap').textContent })""")
@@ -191,12 +192,12 @@ async def main():
         await pg.evaluate(f"__polecam.pinMap.setView([{SITELL[0]}, {SITELL[1]}], 19, {{ animate: false }})"); await W(pg, 500); await save(pg)
         ODCLL = (POLES[1]['ll'][0], POLES[1]['ll'][1] + 14 / 110000)
         await close_sheets(pg); await pg.click('#pinAddBtn'); await W(pg, 300)
-        await pg.locator('#askBox button', has_text='ODC (cabinet)').click(); await pg.wait_for_selector('#editor:not([hidden])'); await W(pg, 900)
+        await pg.locator('#askBox .ptile[data-kind="odc"]').click(); await pg.wait_for_selector('#editor:not([hidden])'); await W(pg, 900)
         await pg.fill('#poleId', 'ODC-0001'); await pg.evaluate("s => window.__polecam.edShow && window.__polecam.edShow(s)", '#svColors'); await pg.click('#svColors .sw[data-c="green"]'); await W(pg, 150)
         odc_cap = await pg.text_content('#edSymCap')
         await pg.evaluate(f"__polecam.pinMap.setView([{ODCLL[0]}, {ODCLL[1]}], 19, {{ animate: false }})"); await W(pg, 500); await save(pg)
-        check('1a. the pin menu: Tower (site), OLT (site), ODC (cabinet) only; placing a tower: "New tower on the map", its model on the pin, Site type Tower',
-              menu == ['Tower (site)', 'OLT (site)', 'ODC (cabinet)', 'Cancel'] and tw['title'] == 'New tower on the map' and tw['cross'] and tw['kind'] == 'Tower' and tw['kindShown'] and tw['cap'] == 'Existing tower', (menu, tw))
+        check('1a. the pin menu (Add Pin): every kind, Tower, OLT and ODC among the sites; placing a tower: "New tower on the map", its model on the pin, Site type Tower',
+              menu == ['pole', 'po', 'co', 'cl', 'dnap', 'lcp', 'hh', 'mh', 'sb', 'tower', 'odc', 'olt', 'Cancel'] and tw['title'] == 'New tower on the map' and tw['cross'] and tw['kind'] == 'Tower' and tw['kindShown'] and tw['cap'] == 'Existing tower', (menu, tw))
         check('1b. the symbol follows the record: a proposed pole, a new ODC (v2.41: the cabinet, not an LCP)', cap_pp == 'Proposed pole' and odc_cap == 'New ODC (cabinet)', (cap_pp, odc_cap))
         # NAP (dummy), manhole, service box, handhole by camera
         async def rec(el, ll, name, extra=None):

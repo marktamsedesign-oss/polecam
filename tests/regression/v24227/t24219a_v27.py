@@ -148,7 +148,8 @@ async def main():
         check('A6. a long form on a phone: scrolled down, the map goes small; back at the top it stays small (v2.42.27: an iPhone\'s glide made it flip); a tap on it: big again', small and still and big, (small, still, big, sh))
         # ======================= B. Straighten on the photo
         await pg.evaluate("__polecam.edTab('photo')"); await W(pg, 300)
-        await pg.click('#edPhoto'); await W(pg, 600); await pg.click('#pvBox'); await pg.wait_for_selector('#boxer:not([hidden])'); await W(pg, 800)
+        await pg.evaluate('window.__keepPhotoView = true')  # (the harness closes a photo shown over the record; this part works on it)
+        await pg.locator('#accPhotos:not([hidden]) .ph img, #photoStrip:not(.phgrid) #edPhoto').first.click(); await W(pg, 600); await pg.click('#pvBox'); await pg.wait_for_selector('#boxer:not([hidden])'); await W(pg, 800)  # (beta 3.5: with several photos per pin the record shows them in a grid; its first opens the photo)
         await pg.click('#boxModeFoc'); await W(pg, 300)
         st = await pg.evaluate("() => ({ vis: !document.getElementById('boxStraight').hidden, on: document.getElementById('boxStraight').getAttribute('aria-pressed'), t: document.getElementById('boxStraight').textContent, hint: document.getElementById('boxHint').textContent })")
         cb = await pg.locator('#boxCanvas').bounding_box()

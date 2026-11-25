@@ -132,9 +132,15 @@ async def main():
         lm = lambda n: sum(e[2] for r in FL['list'] for e in r[1] if e[0] == n)
         # 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables, 10 % unless set) in each FIBER_n (its line says it) and FOC_TOTAL
         fa = {int(r[0][6:]): float(re.search(r'allowance ([\d.]+) m', r[3]).group(1)) for r in fq if re.match(r'^FIBER_\d+$', r[0]) and re.search(r'allowance ([\d.]+) m', r[3])}
+        # beta 6.6: each span in whole metres in every export (as written on the plan; Math.round), so FIBER_n and FOC_TOTAL add
+        # whole metres: worked out here from the measured spans (__polecam.route()), each within ½ m of its measured length
+        RS = (await pg.evaluate("__polecam.route()"))['spans']; jr = lambda x: int(x + 0.5)  # (lengths are positive: as JavaScript's Math.round)
+        sk = lambda a, b: '|'.join(sorted((str(a), str(b)))); wm = {sk(s['ia'], s['ib']): jr(s['len']) for s in RS}
+        fw = lambda n: sum(wm.get(sk(a, b), 0) for a, b in zip(L[n]['path'], L[n]['path'][1:]))
+        cw = sum(jr(s['len']) * len(s.get('runs') or [None]) for s in RS)
         check('A7. quantities: FIBERS 3; FIBER_1/2/3 = spans + their span length allowance + that fiber\'s loops; MLOOP_COUNT 11, MLOOP_AUTO 3; FOC_TOTAL = cable on the spans + the allowance + every loop',
-              q.get('FIBERS') == 3 and sorted(fa) == [1, 2, 3] and all(fa[n] > 0 for n in (1, 2, 3)) and abs(q['FIBER_1'] - round(L[1]['len'] + fa[1] + lm(1), 1)) < 0.2 and abs(q['FIBER_2'] - round(L[2]['len'] + fa[2] + lm(2), 1)) < 0.2 and abs(q['FIBER_3'] - round(L[3]['len'] + fa[3] + lm(3), 1)) < 0.2
-              and q['MLOOP_COUNT'] == 11 and q['MLOOP_AUTO'] == 3 and abs(q['FOC_TOTAL'] - (M['cableTotal'] + q.get('ALLOW_TOTAL', 0) + sum(lm(n) for n in (1, 2, 3)))) < 0.5 and q.get('ALLOW_TOTAL', 0) > 0 and 'FIBER_4' not in q,
+              q.get('FIBERS') == 3 and sorted(fa) == [1, 2, 3] and all(fa[n] > 0 for n in (1, 2, 3)) and q['FIBER_1'] == fw(1) + fa[1] + lm(1) and abs(fw(1) - L[1]['len']) <= len(L[1]['path']) / 2 and q['FIBER_2'] == fw(2) + fa[2] + lm(2) and abs(fw(2) - L[2]['len']) <= len(L[2]['path']) / 2 and q['FIBER_3'] == fw(3) + fa[3] + lm(3) and abs(fw(3) - L[3]['len']) <= len(L[3]['path']) / 2
+              and q['MLOOP_COUNT'] == 11 and q['MLOOP_AUTO'] == 3 and q['FOC_TOTAL'] == cw + q.get('ALLOW_TOTAL', 0) + sum(lm(n) for n in (1, 2, 3)) and abs(cw - M['cableTotal']) <= sum(len(s.get('runs') or [None]) for s in RS) / 2 and q.get('ALLOW_TOTAL', 0) > 0 and 'FIBER_4' not in q,
               {k: v for k, v in q.items() if k.startswith(('FIB', 'MLOOP_COUNT', 'MLOOP_AUTO', 'FOC_TOTAL', 'DE'))})
         bq = await pg.evaluate("__polecam.boqRows()")
         loopsB = sorted((r[1], r[2], r[3]) for r in bq if r[0] == 'Maintenance loop')

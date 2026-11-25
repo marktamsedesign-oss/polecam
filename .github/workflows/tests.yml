@@ -1,0 +1,53 @@
+# Runs every G-eSAA test (python3 tests/run_all.py, see tests/README.md) and shows the table, one line per test file with
+# n of n, on the run's page. Every log is kept 14 days as "test-logs" at the foot of that page.
+# Runs by hand: Actions > Tests > Run workflow (pick the branch). To run it on every push to beta and main too, add under on:
+#   push: { branches: [beta, main], paths-ignore: ['**.md', 'maps/**', 'tools/**', '.gitignore'] }
+# once the older team tests (t2433c, t2433d, t24333a, t24333c) follow the app's Sync, which now merges an update by itself.
+# Tests that need private inputs (the company plan template, road packs made from your files, large test files, older builds)
+# are skipped with a line that says what they need: those files never go into this public repository.
+# It builds nothing and publishes nothing: a red ✗ here does not stop the APK or the website.
+name: Tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: # a newer run on the same branch stops the older one (a full run takes about 1½ hours)
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tests/requirements.txt
+
+      - name: Install the test tools
+        run: |
+          pip install -r tests/requirements.txt
+          npm install --prefix tests --no-audit --no-fund
+          python -m playwright install --with-deps chromium
+
+      - name: Run every test
+        run: python3 tests/run_all.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-logs
+          path: tests/results/
+          retention-days: 14
+          if-no-files-found: ignore

@@ -76,6 +76,9 @@ async def idle(pg, ms=20000):
 async def open_team(pg):
     await close_sheets(pg); await pg.click('#settingsBtn'); await W(pg, 500)
     await pg.click('#goTeam'); await W(pg, 800); await idle(pg)
+async def open_mbx(pg):  # beta 3.4: the company mailbox has its own page (Settings → Field work → Team Mailbox); Team keeps a line pointing there
+    await close_sheets(pg); await pg.click('#settingsBtn'); await W(pg, 500)
+    await pg.click('#goMbx'); await W(pg, 800); await idle(pg)
 async def confirm_email(pg, email):
     await pg.click('#tmSend'); await idle(pg); await W(pg, 300)
     code = e2e('/mail?to=' + email)['code']
@@ -105,7 +108,8 @@ async def main():
             e2e('/teamyes?email=' + JUAN); await A.click('#tmRefresh'); await idle(A); await W(A, 300)  # beta 3.3 (QA-08): the admin approves (Yes in the Team tab)
             st = await state(A); rows = e2e('/rows?tab=Team')
             check('T5 Juan is a Coordinator in the sheet and on his phone', st['snap']['me']['role'] == 'Coordinator' and any(r[1] == JUAN and r[3] == 'Coordinator' for r in rows), rows)
-            check('T5b the coordinator sees his empty team and the mailbox set-up button', await A.is_visible('#tmCo') and await A.is_visible('#tmMbxSetup') and not await A.is_visible('#tmMbxCheck'))
+            co_vis = await A.is_visible('#tmCo'); await open_mbx(A)
+            check('T5b the coordinator sees his empty team and (Team Mailbox, beta 3.4) the mailbox set-up button', co_vis and await A.is_visible('#tmMbxSetup') and not await A.is_visible('#tmMbxCheck'))
             # --- 2. Juan sets up the mailbox
             await A.click('#tmMbxSetup'); await W(A, 600)
             check('M1 the set-up screen links to the mailbox script from the sheet', await A.get_attribute('#mbxScript', 'href') == 'https://script.google.com/home/projects/DEMO-MAILBOX-SCRIPT' and await A.is_visible('#mbxScript'))
@@ -120,7 +124,9 @@ async def main():
             key1 = st['mbx']['key']
             check('M6 the mailbox refuses another key now that it is claimed', e2e('/mbx', {'action': 'hello', 'k': 'x' * 32}).get('keyOk') is False)
             await close_sheets(A); await open_team(A)
-            check('M7 Team shows the mailbox ready (set up by Juan Dela Cruz), with Check now and Change key', 'Ready · set up by Juan Dela Cruz' in await txt(A, '#tmMbxState') and await A.is_visible('#tmMbxCheck') and await A.is_visible('#tmMbxRekey'), await txt(A, '#tmMbxState'))
+            ptr = await txt(A, '#tmMbxPtrState'); await open_mbx(A)
+            check('M7 Team shows the mailbox ready (set up by Juan Dela Cruz); Team Mailbox too, with Check now and Change key', 'Ready · set up by Juan Dela Cruz' in ptr and 'Ready · set up by Juan Dela Cruz' in await txt(A, '#tmMbxState') and await A.is_visible('#tmMbxCheck') and await A.is_visible('#tmMbxRekey'), (ptr, await txt(A, '#tmMbxState')))
+            await open_team(A)
             # --- 3. Pedro: confirm, Field Partner, ask to join
             await open_team(B); await confirm_email(B, PEDRO)
             await B.click('#tmRole .chip[data-v="Field Partner"]'); await idle(B); await W(B, 400)
@@ -140,13 +146,14 @@ async def main():
             await B.click('#tmRefresh'); await idle(B); await W(B, 300)
             st = await state(B)
             check('P4 Pedro is in the team and got the mailbox (same address and key)', 'In the team' in await txt(B, '#tmCoList') and st['mbx'] and st['mbx']['url'] == MBX_URL and st['mbx']['key'] == key1, st['mbx'])
+            await open_mbx(B)
             check('P5 a field partner has Check now but not Set up or Change key', await B.is_visible('#tmMbxCheck') and not await B.is_visible('#tmMbxSetup') and not await B.is_visible('#tmMbxRekey'))
             await B.click('#tmMbxCheck'); await idle(B, 30000); await W(B, 300)
             check('P6 Check now works from Pedro\'s phone, straight to Google', 'straight to Google' in await txt(B, '#toast'), await txt(B, '#toast'))
+            await open_team(B)
             # --- 6. Google refuses the direct send: the check goes through the script
             e2e('/direct?on=0')
-            await A.click('#tmMbxCheck') if await A.is_visible('#tmMbxCheck') else None
-            if not await A.is_visible('#tmMbxCheck'): await open_team(A); await A.click('#tmMbxCheck')
+            await open_mbx(A); await A.click('#tmMbxCheck')
             await idle(A, 30000); await W(A, 300)
             check('D1 direct send refused: the check still passes, through the mailbox script', 'through the mailbox script' in await txt(A, '#toast'), await txt(A, '#toast'))
             e2e('/direct?on=1')

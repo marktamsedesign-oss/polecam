@@ -14,7 +14,7 @@ screen without the Format dropdown. On the 10 km sample with 12 PLDT poles (a ty
  5. the ODC is drawn as its cabinet (layers G-ESAA PROPOSED / EXISTING ODC, ODC written in it), not with the LCP model; the vicinity
     circle is yellow
  6. Export screen: no Format dropdown; FORMATS ticks: one shows its card and button; two show both cards without their buttons and
-    one button "Make 2 files (one ZIP)" (beta 6.7, UX step 3: Several at once); no page errors"""
+    one button "Export 2 files (one ZIP)" (beta 6.7, UX step 3: Several at once; (Export picks): Export); no page errors"""
 import asyncio, sys, os, shutil, json, zipfile, time, urllib.parse, io, re, collections
 # v2.42.8: the plan DXF is written with CRLF line ends (AutoCAD's own); ezdxf.read() on a text stream expects universal newlines
 class _UStringIO(io.StringIO):
@@ -180,7 +180,7 @@ async def main():
               and not [t for t in p2['texts'] if CT.match(t)] and not p2['imgs'] and not jp2 and f'numbered: only PLDT poles (PLDT) ({n_pl})' in toast,
               (sum2, seq2, card, hs, cols, len(p2['circ']), len(p2['lead']), toast, names2[:4]))
         # 3. the drawing style
-        await close_sheets(pg); await pg.click('#drawBtn'); await W(pg, 1500); await pg.click('#drawSetBtn'); await W(pg, 500); await pg.click('#plTabA'); await W(pg, 400)  # beta 6.7 (UX step 4): Plan style › Advanced: Pole numbers and Box names, with their Colours and sizes
+        await close_sheets(pg); await pg.click('#drawBtn'); await W(pg, 1500); await pg.click('#drawSetBtn'); await W(pg, 500); await pg.click('#plMore > summary'); await W(pg, 400)  # beta 6.7 (UX step 4): Plan style › Advanced: Pole numbers and Box names, with their Colours and sizes ((Plan style cards): the Pole numbers card, More settings › Box names)
         await pg.evaluate("() => ['stNum', 'stId'].forEach((id) => { const d = document.getElementById(id); d.open = true; d.querySelectorAll('details.stcs').forEach((x) => { x.open = true; }); })"); await W(pg, 400)
         await pg.click('#stNumCol .sw2[aria-label^="red"]'); await W(pg, 150)
         await pg.fill('#stNumH', '4'); await pg.dispatch_event('#stNumH', 'input'); await W(pg, 150)
@@ -224,8 +224,8 @@ async def main():
         await pg.evaluate("() => { const L = document.getElementById('xMultiList'); L.querySelectorAll('input').forEach((c) => { c.checked = ['doKmz', 'doCsv'].includes(c.value); }); L.dispatchEvent(new Event('change', { bubbles: true })); }"); await W(pg, 300)
         x2 = await pg.evaluate("""() => ({ shown: [...document.querySelectorAll('#export .xcard.xmany')].map((c) => c.querySelector('button[id^=do]').id), btns: ['doKmz', 'doCsv'].map((id) => document.getElementById(id).getClientRects().length > 0), go: !document.getElementById('xGoBox').hidden, label: document.getElementById('xMultiGo').textContent })""")
         await pg.screenshot(path=OUT + '/export_two.png', full_page=False)
-        check('6. Export: no Format dropdown; FORMATS ticks: one (KMZ) shows its card and its button; two (KMZ, CSV) show both cards without their own buttons and one "Make 2 files (one ZIP)"; no page errors',
-              not x1['fmt'] and x1['shown'] == ['doKmz'] and x1['ownBtn'] and not x1['go'] and sorted(x2['shown']) == ['doCsv', 'doKmz'] and x2['btns'] == [False, False] and x2['go'] and x2['label'] == 'Make 2 files (one ZIP)' and not errs,
+        check('6. Export: no Format dropdown; FORMATS ticks: one (KMZ) shows its card and its button; two (KMZ, CSV) show both cards without their own buttons and one "Export 2 files (one ZIP)" ((Export picks)); no page errors',
+              not x1['fmt'] and x1['shown'] == ['doKmz'] and x1['ownBtn'] and not x1['go'] and sorted(x2['shown']) == ['doCsv', 'doKmz'] and x2['btns'] == [False, False] and x2['go'] and x2['label'] == 'Export 2 files (one ZIP)' and not errs,
               (x1, x2, errs[:3]))
         await ctx.close()
     print(f'{sum(checks)}/{len(checks)} passed')

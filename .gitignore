@@ -1,3 +1,15 @@
 # Python caches made when the DXF tools in tools/ run
 __pycache__/
 *.pyc
+
+# The tests (tests/README.md). Private inputs (the company plan template, road packs made from your files, large test files,
+# older builds) never go into this public repository; the results, node_modules and the made-up camera video are made by a run.
+tests/private/
+tests/results/
+tests/node_modules/
+tests/package-lock.json
+tests/regression/v17/vid/
+# the folders a run unpacks or exports into (made again by each run)
+tests/regression/*/ud*_*/
+tests/regression/*/out_*/
+tests/regression/v226/out/

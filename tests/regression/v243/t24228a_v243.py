@@ -109,9 +109,9 @@ async def main():
             drawing: !document.getElementById('drawing').hidden, cards: [...document.querySelectorAll('#export .xcard')].filter((c) => c.offsetParent).length }; }""")
         await pg.screenshot(path=f'{OUT}/e1_export.png')
         check('E1. Export on the Drawing: Export the plan, a panel at the right of the plan (the Drawing still open); the DXF card only: the project and template, the 4 drawings, the names in one line, the PDF switch, Export 4 drawings',
-              rows4 == ['*:photo', 'ELEC:DLPC:num', 'PLDT:photo', 'PLDT:num'] and 'plan' in st['cls'] and 'side' in st['cls'] and st['body'] and st['title'] == 'Export' and st['w'] == 400 and st['left'] == 1040 and st['formats'] == 'none'
+              rows4 == ['*:photo', 'ELEC:DLPC:num', 'PLDT:photo', 'PLDT:num'] and 'plan' in st['cls'] and 'side' in st['cls'] and st['body'] and st['title'] == 'Export' and st['w'] >= 720 and abs(st['left'] + st['w'] - 1440) <= 1 and st['formats'] == 'none'
               and len(st['files']) == 4 and st['files'][1].startswith('2 DLPC poles 44') and 'Number' in st['files'][1] and 'RTA_SYN' in st['sum'] and '✓ On your company' in st['sum'] and 'Juan' not in st['names'] and not st['edit']
-              and st['btn'] == 'Make 4 plan drawings' and st['drawing'] and st['cards'] == 1, st)  # (beta 6.7, UX step 3: Export plan; the button worded like the row)
+              and st['btn'] == 'Make 4 plan drawings' and st['drawing'] and st['cards'] == 1, st)  # (beta 6.7, UX step 3: Export plan; the button worded like the row) ((beta 7.9, Plan style wide): the panel wide by default on a computer, 62 % of 1440; Narrower: 400 px)
         await pg.click('#sigChange'); await pg.fill('#sigDesign', 'Juan Dela Cruz'); await W(pg, 200); await pg.click('#sigChange'); await W(pg, 200)
         sig = await pg.evaluate("[document.getElementById('sigLine').innerText, __polecam.S.sig.design]")
         await pg.keyboard.press('Escape'); await W(pg, 500)
@@ -152,27 +152,28 @@ async def main():
         check('R2. Whole project: the numbers are one count along the cable (each once) and Table · CSV has the same number for every pole of every drawing (the PLDT drawing shows their project numbers)',
               nums == list(range(1, len(nums) + 1)) and len(nums) >= 54 and all(C2.get(i, {}).get('no') == str(n) for n, i in al + pl2) and sorted(n for n, _ in pl2) != list(range(1, 9)), (nums[:5], len(nums), pl2[:3]))
         # ---- Plan style (beta 6.7, UX step 4: Plan settings and Drawing style in one screen; was P1/P2 on Plan settings)
-        BASIC = ['Pole labels', 'Pole number colours', 'Photos on the plan', "Stamp on the plan's photos", 'Clamp types beside each pole', '20 m loops at boxes', 'BOQ table on each map sheet', 'Pole numbers in this project']
+        # (Plan style cards): the main rows (the Basic rows before) in their cards; the 7 cards and the 6 sections of More settings
+        BASIC = ['Pole numbers in this project', 'Pole number colours', 'Pole labels', 'Clamp types beside each pole', '20 m loops at boxes', 'Photos on the plan', "Stamp on the plan's photos", 'BOQ table on each map sheet']
         await pg.click('#drawBtn'); await W(pg, 2000); await pg.click('#drawSetBtn'); await W(pg, 600)
-        await pg.evaluate("() => { const t = document.getElementById('plTabB'); if (t.getAttribute('aria-selected') !== 'true') t.click(); }"); await W(pg, 300)
-        st = await pg.evaluate("""() => ({ cls: document.getElementById('drwStyle').className, w: Math.round(document.getElementById('drwStyle').getBoundingClientRect().width), rows: [...document.querySelectorAll('#plBasic [data-find]')].map((r) => r.dataset.find),
-          secs: [...document.querySelectorAll('#plAdv details.stsec')].map((d) => d.dataset.find),
+        await pg.click('#stPole > summary'); await W(pg, 400)  # (Pole details and span lengths: Clamp types beside each pole)
+        st = await pg.evaluate("""() => ({ cls: document.getElementById('drwStyle').className, w: Math.round(document.getElementById('drwStyle').getBoundingClientRect().width), rows: [...document.querySelectorAll('#plCards .plb[data-find]')].map((r) => r.dataset.find),
+          secs: [...document.querySelectorAll('#drwStyle details.stsec')].map((d) => d.dataset.find),
           ca: document.getElementById('psCA').checked, num: document.getElementById('numProject').checked, tpl: document.getElementById('psTplSum').textContent, kind: document.getElementById('psKindSum').textContent,
           inside: ['numProject', 'pmiLoops', 'dxfTplInfo', 'dxfTplLoad', 'dxfLogoSet', 'dxfMode', 'setZone'].every((i) => document.getElementById(i).closest('#drwStyle')) })""")
         await pg.screenshot(path=f'{OUT}/p1_settings.png')
         await pg.click('label[for="psCA"]'); await W(pg, 300); ca1 = await pg.evaluate("__polecam.S.exp.dxfClampType"); await pg.click('label[for="psCA"]'); await W(pg, 200); ca2 = await pg.evaluate("__polecam.S.exp.dxfClampType")
-        await pg.click('#plTabA'); await W(pg, 400); sty = await pg.evaluate("!document.getElementById('plAdv').hidden && document.getElementById('plBasic').hidden")
+        await pg.click('#plMore > summary'); await W(pg, 400); sty = await pg.evaluate("document.getElementById('plMore').open")
         await pg.keyboard.press('Escape'); await W(pg, 400); shut = await pg.evaluate("[document.getElementById('drwStyle').hidden, document.body.classList.contains('drwside')]")
-        check('P1. Plan style (its button on the Drawing): beside the plan on a computer; Basic: the 8 rows, Advanced: the 12 sections (template, logo, kind of drawing and zone in it); the clamp types switch; Esc closes',
-              'side' in st['cls'] and st['w'] == 400 and st['rows'] == BASIC and len(st['secs']) == 12 and st['ca'] and st['num']
+        check('P1. Plan style (its button on the Drawing): beside the plan on a computer; the 8 main rows in their cards, 7 cards and 6 sections in More settings (template, logo, kind of drawing and zone in it); the clamp types switch; Esc closes',
+              'side' in st['cls'] and st['w'] >= 720 and st['rows'] == BASIC and len(st['secs']) == 13 and st['ca'] and st['num']
               and st['tpl'].startswith('✓') and st['kind'] == 'Company plan' and st['inside'] and ca1 is False and ca2 is True and sty and shut == [True, False], (st, ca1, ca2, sty, shut))
         await close_sheets(pg); await pg.click('#drawBtn'); await W(pg, 1500); await pg.click('#drawSetBtn'); await W(pg, 500)
-        await pg.evaluate("document.getElementById('plTabB').click()"); await W(pg, 200); await pg.click('label[for="psCA"]'); await W(pg, 300)
-        await pg.click('#plTabA'); await W(pg, 300); await pg.evaluate("document.getElementById('stCl').open = true"); await W(pg, 300)
+        await pg.click('#stPole > summary'); await W(pg, 300); await pg.click('label[for="psCA"]'); await W(pg, 300)
+        await pg.evaluate("document.getElementById('plMore').open = true; document.getElementById('stCl').open = true"); await W(pg, 300)
         p2 = await pg.evaluate("() => { const w = document.querySelector('#stClPlace').closest('.strow').querySelector('.dimwhy'); return [document.getElementById('psCA').checked, document.getElementById('psCASum').textContent, __polecam.S.exp.dxfClampType, !!w && !w.hidden && w.textContent]; }")
         await pg.evaluate("document.querySelector('#stClPlace').closest('.strow').querySelector('.dimwhy button').click()"); await W(pg, 300)
         p2b = await pg.evaluate("[document.getElementById('psCA').checked, __polecam.S.exp.dxfClampType]")
-        check('P2. clamp types off (Basic): Advanced › Clamp types is greyed with its reason, and its Switch on turns them on again (Basic too)', p2[0] is False and p2[1].startswith('Off') and p2[2] is False and 'Only with Clamp types beside each pole' in (p2[3] or '') and p2b == [True, True], (p2, p2b))
+        check('P2. clamp types off (Pole details and span lengths): More settings › Clamp types is greyed with its reason, and its Switch on turns them on again', p2[0] is False and p2[1].startswith('Off') and p2[2] is False and 'Only with Clamp types beside each pole' in (p2[3] or '') and p2b == [True, True], (p2, p2b))
         await close_sheets(pg)
         # ---- a phone: What to export from the bar, Export the plan from below; the Export screen's DXF card is the same short card
         await close_sheets(pg); await pg.set_viewport_size({'width': 412, 'height': 860}); await W(pg, 600)
@@ -218,8 +219,8 @@ async def main():
         await pg.click('#tutorialBtn'); await W(pg, 300); await pg.click('#tutList .tuttopic[data-topic="plandxf"]'); await W(pg, 300)
         k = await pg.evaluate("GESAA_TUTORIAL.topics.find((t) => t.id === 'plandxf').steps.filter((x) => x.go || x.hl).findIndex((x) => x.hl === '#psNum')")
         await pg.locator('#tutSteps .show').nth(k).click(); await W(pg, 1500)
-        t2 = await pg.evaluate("() => ({ set: !document.getElementById('drwStyle').hidden && !document.getElementById('plBasic').hidden, spot: !!document.getElementById('tutSpot'), tip: !!document.getElementById('tutTip') })")
-        check('T2. the tutorial\'s Show me on Pole numbers opens Plan style (Basic) and rings it', t2['set'] and t2['tip'] and t2['spot'], t2)
+        t2 = await pg.evaluate("() => ({ set: !document.getElementById('drwStyle').hidden && document.getElementById('stNum').open, spot: !!document.getElementById('tutSpot'), tip: !!document.getElementById('tutTip') })")
+        check('T2. the tutorial\'s Show me on Pole numbers opens Plan style (its Pole numbers card) and rings it', t2['set'] and t2['tip'] and t2['spot'], t2)
         if t2['tip']: await pg.click('#tutTip button:has-text("Back to the tutorial")'); await W(pg, 300)
         await close_sheets(pg)
         # ---- the Projects pane: Open

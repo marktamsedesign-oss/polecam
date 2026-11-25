@@ -43,7 +43,7 @@ async def main():
             check('Q3 approved from the admin phone: the sheet says Yes', 'Approved' in rows[0] and any(r[1] == JUAN and 'Yes' in r for r in e2e('/rows?tab=Team')), rows)
             await open_team(A); await refresh(A); st = await team_state(A)
             check('Q4 at his next read Juan is Coordinator: his team and the mailbox set-up show', st['role'] == 'Coordinator' and st['ask'] == '' and st['co'] and st['setup'] and not st['wait'], st)
-            await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
+            await open_mbx(A); await A.click('#tmMbxSetup'); await W(A, 500); await A.fill('#mbxUrl', MBX_URL); await A.click('#mbxSave'); await idle(A, 40000); await W(A, 400)
             check('Q5 Juan sets up the mailbox', (await A.evaluate("() => __polecam.team.state()"))['mbx'] is not None)
             # ---------- Maria asks; Juan declines
             await open_team(M); await confirm_email(M, MARIA); await pick(M, 'Coordinator')
