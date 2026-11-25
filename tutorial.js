@@ -868,5 +868,5 @@
     }
     return null;
   }
-  root.GESAA_TUTORIAL = { version: '2.45.12', topics: T, search, query, settings, help }; // beta 6.7 (UX step 2): version = app.js APP_VER (no beta part, so main needs no change)
+  root.GESAA_TUTORIAL = { version: '2.45.13', topics: T, search, query, settings, help }; // beta 6.7 (UX step 2): version = app.js APP_VER (no beta part, so main needs no change)
 })(typeof self !== 'undefined' ? self : this);
