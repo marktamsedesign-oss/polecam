@@ -1675,7 +1675,9 @@
    *   anchor: a pole's or an OLT's, ODC's or ODF's surveyed place (job.pts E, N); a tower's details and name, its point; a tower: its point as drawn;
    *   a NAP, closure, guy, grounding, arm: its pole as drawn; a closure's label: its closure's middle; a loop: the loop's middle; a span's length:
    *   its cable's middle; a landmark: its place; a street's name: its GEO sheet's middle.
-   * job.pins { [id]: { at: [dE, dN], rot: deg, tip: 0..1 } }: at, the item's box middle at anchor + at (a pole, OLT, ODC, ODF: the point drawn there,
+   * A cable label also gives spanPts (its own line on its span as drawn, from span[0] to span[1]) and tip (where its arrow points, when it has one).
+   * job.pins { [id]: { at: [dE, dN], rot: deg, tip: 0..1 } }: tip (a cable label placed by hand, away from its line): its arrow's point that far along
+   *   spanPts by length; at, the item's box middle at anchor + at (a pole, OLT, ODC, ODF: the point drawn there,
    *   as poleAt; a tower: its model there, the point kept, with its line or arrow to it; a guy, grounding, arm: no at); rot, its box's angle after
    *   (a guy, grounding, arm turned about its pole's drawn centre to point that way); 7.10's kinds: ph / num / lbl / cab pins with at go where
    *   phPin / numPin / lblPin / cabPin go (pins win; details and cable labels take rot there; none: level, as 7.10); rot alone, or a photo's or
@@ -2575,12 +2577,17 @@
         cable beside it, else level, as the plan draws them). Beside its line (x, on the span g: geoOf; as near as the plan puts its labels, 2.5 m or
         twice its height): no arrow. Else the plan's own arrow, as where there is no room beside the cable: a shoulder from its end facing the span (along
         its text), a line to the nearest point of its span (inside its middle four fifths), a solid arrowhead there. Its box, rot, lead and its boxes. */
-    const cabPinGeo = (x, P, Q, g, q, h, rot0) => {
-      const tb = (a) => { const b0 = textBox(q[0], q[1], h, x.t, a, 1, 2); return TIDY ? realBox(b0, x.t, h) : b0; }, given = Number.isFinite(rot0), bA = tb(given ? rot0 : g.rd), off = x.r * g.sg;
-      const pth = FOLLOW ? spanPath.get(`${P.id}|${Q.id}`) : null, line = pth && pth.length > 1 ? pth.map((v, i) => { const t0 = unit(pth[Math.max(0, i - 1)], pth[Math.min(pth.length - 1, i + 1)]); return add2(v, [-t0[1], t0[0]], off); }) : [add2(g.a, g.nl, off), add2(g.b, g.nl, off)];
+    /** (beta 7.11, Drawing tools) a cable label's own line on its span as drawn (x: its line, on the span P → Q: geoOf g), from P to Q (report.movable spanPts) */
+    const cabLineOf = (x, P, Q, g) => { const off = x.r * g.sg, pth = FOLLOW ? spanPath.get(`${P.id}|${Q.id}`) : null; return pth && pth.length > 1 ? pth.map((v, i) => { const t0 = unit(pth[Math.max(0, i - 1)], pth[Math.min(pth.length - 1, i + 1)]); return add2(v, [-t0[1], t0[0]], off); }) : [add2(g.a, g.nl, off), add2(g.b, g.nl, off)]; };
+    /** (beta 7.11, Drawing tools) the point t (0..1) of the way along a line by its length */
+    const alongT = (line, t) => { const Ls = line.slice(1).map((v, i) => dist2(line[i], v)), Lt = Ls.reduce((a, v) => a + v, 0); let r = t * Lt; for (let i = 0; i < Ls.length; i++) { if (r <= Ls[i] || i === Ls.length - 1) { const f = Ls[i] > 1e-9 ? Math.min(1, r / Ls[i]) : 0; return [line[i][0] + (line[i + 1][0] - line[i][0]) * f, line[i][1] + (line[i + 1][1] - line[i][1]) * f]; } r -= Ls[i]; } return line[0].slice(); };
+    const cabPinGeo = (x, P, Q, g, q, h, rot0, tipT) => {
+      const tb = (a) => { const b0 = textBox(q[0], q[1], h, x.t, a, 1, 2); return TIDY ? realBox(b0, x.t, h) : b0; }, given = Number.isFinite(rot0), bA = tb(given ? rot0 : g.rd);
+      const line = cabLineOf(x, P, Q, g);
       const Ls = line.slice(1).map((v, i) => dist2(line[i], v)), Lt = Ls.reduce((s, v) => s + v, 0); // (the nearest point of its line, inside its middle four fifths: never at a pole)
       let tip = null, dTip = Infinity, acc = 0;
-      for (let i = 0; i < Ls.length; i++) { const A = line[i], B = line[i + 1], L = Ls[i]; if (L > 1e-9) { const f = Math.max((0.1 * Lt - acc) / L, 0, Math.min(1, ((q[0] - A[0]) * (B[0] - A[0]) + (q[1] - A[1]) * (B[1] - A[1])) / (L * L))), f2 = Math.min(f, (0.9 * Lt - acc) / L); if (f2 >= 0 && f2 <= 1) { const c = [A[0] + (B[0] - A[0]) * f2, A[1] + (B[1] - A[1]) * f2], dd = dist2(c, q); if (dd < dTip) { dTip = dd; tip = c; } } } acc += L; }
+      if (Number.isFinite(tipT)) tip = alongT(line, tipT); // ((beta 7.11, Drawing tools) the owner: "adjust arrow pointer along its cable": where it was put on its line, P → Q)
+      else for (let i = 0; i < Ls.length; i++) { const A = line[i], B = line[i + 1], L = Ls[i]; if (L > 1e-9) { const f = Math.max((0.1 * Lt - acc) / L, 0, Math.min(1, ((q[0] - A[0]) * (B[0] - A[0]) + (q[1] - A[1]) * (B[1] - A[1])) / (L * L))), f2 = Math.min(f, (0.9 * Lt - acc) / L); if (f2 >= 0 && f2 <= 1) { const c = [A[0] + (B[0] - A[0]) * f2, A[1] + (B[1] - A[1]) * f2], dd = dist2(c, q); if (dd < dTip) { dTip = dd; tip = c; } } } acc += L; }
       if (!tip) tip = [(line[0][0] + line[line.length - 1][0]) / 2, (line[0][1] + line[line.length - 1][1]) / 2];
       const gap = (() => { const u = [bA.ux, bA.uy], v = [bA.vx, bA.vy], dx = tip[0] - bA.cx, dy = tip[1] - bA.cy; return Math.hypot(Math.max(Math.abs(dx * u[0] + dy * u[1]) - bA.hw, 0), Math.max(Math.abs(dx * v[0] + dy * v[1]) - bA.hh, 0)); })();
       if (gap <= Math.max(2.5, 2 * h)) return { bx: bA, rot: given ? rot0 : g.rd, lead: null, segs: [] }; // (beside its line: no arrow)
@@ -2621,8 +2628,9 @@
         for (const [k, pin] of Object.entries(jCab)) {
           const at = pin && pinXY(pin.at), L = LA.get(k); if (!at || !L) continue;
           const g = geoOf(L.P, L.Q), q = [g.m[0] + at[0], g.m[1] + at[1]], rot = pin.rot != null && Number.isFinite(+pin.rot) ? +pin.rot : NaN;
-          const h0 = (TIDY ? TS.span(wMed) : +job.cabH > 0 ? Math.min(3, Math.max(0.8, +job.cabH)) : Math.max(1.0, 1.3 * kG)) / (TIDY ? kAt(g.m[0], g.m[1]) : 1), C = cabPinGeo(L.x, L.P, L.Q, g, q, h0, rot); // (Tidy: its size at the largest it can be)
-          const it = { kind: 'cable', key: k, x: L.x, P: L.P, Q: L.Q, a: L.a, b: L.b, q, rot, m: g.m, box: [q[0], q[1], 2 * C.bx.hw, 2 * C.bx.hh, C.rot], res: [] }; pinHold(it, [C.bx], 'label'); if (C.segs.length) pinHold(it, C.segs, 'leader');
+          const tipT = pin.tip != null && Number.isFinite(+pin.tip) ? Math.max(0, Math.min(1, +pin.tip)) : NaN; // ((beta 7.11, Drawing tools) where its arrow points, along its line)
+          const h0 = (TIDY ? TS.span(wMed) : +job.cabH > 0 ? Math.min(3, Math.max(0.8, +job.cabH)) : Math.max(1.0, 1.3 * kG)) / (TIDY ? kAt(g.m[0], g.m[1]) : 1), C = cabPinGeo(L.x, L.P, L.Q, g, q, h0, rot, tipT); // (Tidy: its size at the largest it can be)
+          const it = { kind: 'cable', key: k, x: L.x, P: L.P, Q: L.Q, a: L.a, b: L.b, q, rot, tipT, m: g.m, box: [q[0], q[1], 2 * C.bx.hw, 2 * C.bx.hh, C.rot], res: [] }; pinHold(it, [C.bx], 'label'); if (C.segs.length) pinHold(it, C.segs, 'leader');
           pinAt.set(`cab:${k}`, it);
         }
       } }
@@ -3492,7 +3500,7 @@
       const ks = cabKeys(lines, P.id, Q.id); // ((beta 7.10, Drawing labels) each label's key, for report.movable)
       for (const [side, arr] of [[-1, ls.slice(0, nP)], [1, ls.slice(nP).reverse()]]) arr.forEach((x) => {
         if (ok && !ok(x)) return; const j = cnt[side]; // (the labels already on that side of this span)
-        const mvC = (k0, bx, a, lead) => MV.push({ id: `cab:${ks[lines.indexOf(x)]}`, kind: 'cable', key: ks[lines.indexOf(x)], name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: bx.cx, cy: bx.cy, w: 2 * bx.hw, h: 2 * bx.hh, a }, anchor: m, how: 'auto', handles: hsOf(k0), lead, span: [String(P.id), String(Q.id)] }); // (beta 7.10, Drawing labels)
+        const mvC = (k0, bx, a, lead, tip) => MV.push({ id: `cab:${ks[lines.indexOf(x)]}`, kind: 'cable', key: ks[lines.indexOf(x)], name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: bx.cx, cy: bx.cy, w: 2 * bx.hw, h: 2 * bx.hh, a }, anchor: m, how: 'auto', handles: hsOf(k0), lead, span: [String(P.id), String(Q.id)], spanPts: cabLineOf(x, P, Q, geoOf(P, Q)), tip: tip || null }); // (beta 7.10, Drawing labels) ((beta 7.11, Drawing tools) its line on its span, P → Q, and where its arrow points)
         const col = x.ex ? 5 : (CABLE_STYLE[x.cab] || CABLE_STYLE['']).color;
         const beside = (hs) => { for (const h of hs) { const w = arialW(x.t, h, false); if (w > 0.96 * L) continue; const fm = (L - w) / 2 / L; // along its line, never past the span's ends
           for (const e of [0, 0.6]) for (const f0 of [0, 0.12, -0.12, 0.25, -0.25, 0.38, -0.38]) { const f = Math.max(-fm, Math.min(fm, f0)), rc = (side < 0 ? ext.pole : ext.road) + side * ((j ? 0.35 * h : CL_CLR - 0.75) + h / 2 + e * h), q = add2(add2(m, t, f * L), nl, rc * sg), bx = TIDY ? realBox(textBox(q[0], q[1], h, x.t, rd, 1, 2), x.t, h) : textBox(q[0], q[1], h, x.t, rd, 1, 2);
@@ -3514,7 +3522,7 @@
           else if (best && (!TIDY || best.cost < 1)) { // the label, its leader (on the label's layer, thin) and the arrow (a solid) (beta 4.8: Tidy: only where it covers nothing; else the next span)
             const k0 = o.model.length; o.text(cbLay, best.q[0], best.q[1], best.h, x.t, { ha: 1, va: 2, style: 'arial', color: col }); spots.add([best.bx], 'label'); spots.add(best.segs, 'leader');
             o.lwpoly(cbLay, [best.tip, best.kn, best.L0], { color: col, lwt: 18 }); const u = unit(best.kn, best.tip), aL = 1.4 * Math.max(0.6, kG), aW = 0.5 * Math.max(0.6, kG), base = add2(best.tip, u, -aL);
-            o.solid(cbLay, [best.tip, add2(base, [-u[1], u[0]], aW), add2(base, [u[1], -u[0]], aW)], { color: col }); leaders.push(best); nLeaders++; mvC(k0, best.bx, 0, true);
+            o.solid(cbLay, [best.tip, add2(base, [-u[1], u[0]], aW), add2(base, [u[1], -u[0]], aW)], { color: col }); leaders.push(best); nLeaders++; mvC(k0, best.bx, 0, true, best.tip);
             cnt[side]++; if (S0) S0.last = best.q; if (!x.ex) { cabDone.add(x.cab || ''); cabAt.push([x.cab || '', best.q]); } return;
           }
         }
@@ -3529,13 +3537,13 @@
         taken at the start, given back and taken again at this size), turned as it was; its arrow where it does not touch its line */
     const cabPinPut = (c) => {
       const it = c.pin, x = c.x, g = geoOf(c.P, c.Q), h = CL_TH / (TIDY ? kAt(g.m[0], g.m[1]) : 1); pinFree(it);
-      const C = cabPinGeo(x, c.P, c.Q, g, it.q, h, it.rot); pinHold(it, [C.bx], 'label'); if (C.segs.length) pinHold(it, C.segs, 'leader');
+      const C = cabPinGeo(x, c.P, c.Q, g, it.q, h, it.rot, it.tipT); pinHold(it, [C.bx], 'label'); if (C.segs.length) pinHold(it, C.segs, 'leader');
       if (!cbLay) { addLayer(d, S, 'G-ESAA CABLE LABEL', 7); cbLay = 'G-ESAA CABLE LABEL'; }
       const col = x.ex ? 5 : (CABLE_STYLE[x.cab] || CABLE_STYLE['']).color, k0 = o.model.length;
       o.text(cbLay, it.q[0], it.q[1], h, x.t, { rot: C.rot, ha: 1, va: 2, style: 'arial', color: col });
       if (C.lead) { const { tip, kn, L0 } = C.lead, u = unit(kn, tip), aL = 1.4 * Math.max(0.6, kG), aW = 0.5 * Math.max(0.6, kG), base = add2(tip, u, -aL); o.lwpoly(cbLay, [tip, kn, L0], { color: col, lwt: 18 }); o.solid(cbLay, [tip, add2(base, [-u[1], u[0]], aW), add2(base, [u[1], -u[0]], aW)], { color: col }); }
       if (!x.ex) { cabDone.add(x.cab || ''); cabAt.push([x.cab || '', it.q]); }
-      MV.push({ id: `cab:${it.key}`, kind: 'cable', key: it.key, name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: C.bx.cx, cy: C.bx.cy, w: 2 * C.bx.hw, h: 2 * C.bx.hh, a: C.rot }, anchor: g.m, how: 'by hand', handles: hsOf(k0), lead: !!C.lead, span: [c.a, c.b], line: C.lead ? [C.lead.tip, C.lead.kn, C.lead.L0] : null });
+      MV.push({ id: `cab:${it.key}`, kind: 'cable', key: it.key, name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: C.bx.cx, cy: C.bx.cy, w: 2 * C.bx.hw, h: 2 * C.bx.hh, a: C.rot }, anchor: g.m, how: 'by hand', handles: hsOf(k0), lead: !!C.lead, span: [c.a, c.b], line: C.lead ? [C.lead.tip, C.lead.kn, C.lead.L0] : null, spanPts: cabLineOf(x, c.P, c.Q, g), tip: C.lead ? C.lead.tip : null }); // ((beta 7.11, Drawing tools) its line on its span, span[0] → span[1], and where its arrow points)
     };
     const spSt = new Map(), cands = [], ALG = new Map();
     FIB.forEach((f) => { const M = new Map(); let dd = 0; f.path.forEach((id, i) => { if (!i) return; const p = byId.get(String(id)), q = byId.get(String(f.path[i - 1])), l = p && q && p.A && q.A ? dist2(q.A, p.A) : 0; M.set(K2(f.path[i - 1], id), dd + l / 2); dd += l; }); if (f.lbl && f.n != null) ALG.set(`R${f.n}`, M); else if (f.lbl && !ALG.has(f.lbl)) ALG.set(f.lbl, M); }) // (v2.42.26: by its RUN: two cables with the same words keep their own); // (each span's middle, along its cable)
