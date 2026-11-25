@@ -22316,6 +22316,38 @@
     for (const id of Array.from(ids || []).slice(0, 200)) { try { const ph = await dbGet('photos', String(id)); if (!ph || !ph.clean) continue; const im = await loadImage(ph.clean), { w, h } = dims(im); if (im.close) im.close(); if (w > 0 && h > 0) out[String(id)] = [w, h]; } catch (e) { /* its frame and file name only */ } }
     return out;
   }
+  /* (beta 7.15, CEF template) (the owner: "dxf for asplan and cef must be based from a template dxf. Context: client requires a different
+     template with a different text font style, drawing style size and thickness"): the CEF plan's sheets on the project's CEF template, a
+     client's sheet made in the app from the client's DXF (its "CEF seed": the sheet CEF, its frame, title block and fields; the look). The
+     editor asks for it when it makes its files (cefTpl: one can be megabytes, so not on every open), makes the DXF on it (vendor/cef/50_export.js)
+     with the plan builder's DXF reader (dxfLib: dxftpl.js), and has that DXF printed as its PDF by the As-Plan's printer (cefTplPdf: dxfpdf.js).
+     None: the editor's own frame, as before. */
+  /** The CEF template of the plan being edited or exported (job: a Drawing export's plan made out of sight). window.__gesaaCefTplTest
+      ({ name, text, look }, tests only) stands in for the project's own. fields: what the app knows for the client's fields the editor does
+      not (as the as-plan on a client's template fills them): the client (Project details' Client / Customer, else the template's), the
+      drawing number and the issue (Project details' DWG / Drawing no., Issue / Revision). */
+  async function cefTplOf(job) {
+    const c = (job && cefJobCtx[job]) || cefNow; if (!c) return null;
+    const t = window.__gesaaCefTplTest && typeof window.__gesaaCefTplTest === 'object' ? window.__gesaaCefTplTest : await tplCefText(c.name);
+    if (!t || typeof t.text !== 'string' || !t.text) return null;
+    const F = siteFieldsOf(c.name), iss = sfGet(F, /\b(issue|rev(ision)?)\b/i);
+    LOG.info('cef.tpl', { kb: Math.round(t.text.length / 1024), look: !!t.look });
+    return { name: String(t.name || ''), text: t.text, look: t.look || null, fields: { CLIENT: sfGet(F, /client|customer/i) || String(t.client || ''), DWG_NO: sfGet(F, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss } };
+  }
+  async function cefDxfLib() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); return window.GeDxfTpl; }
+  /** A DXF the editor made on the CEF template, printed as the plan's PDF (o.images: the photos and logos by file name, JPEG or PNG). */
+  async function cefTplPdf(text, o) {
+    if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeDxfPdf) await loadScript('dxfpdf.js');
+    const images = {};
+    for (const [k, v] of Object.entries((o && o.images) || {})) {
+      if (!ArrayBuffer.isView(v)) continue; const u = new Uint8Array(v.buffer, v.byteOffset, v.byteLength); // (the editor's frame's bytes)
+      if (u[0] === 0xFF && u[1] === 0xD8) images[k] = u; else { const j = await pngToJpeg(u); if (j) images[k] = j; } // (the printer takes JPEG pictures)
+    }
+    const deflate = 'CompressionStream' in window ? async (u) => new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer()) : null;
+    const pdf = await window.GeDxfPdf.toPdf(String(text), { images, title: String((o && o.title) || 'CEF plan').slice(0, 120), deflate });
+    LOG.info('cef.tplpdf', { sheets: pdf.report.sheets.length, pictures: pdf.report.pictures, missing: pdf.report.missing.length, mb: +(pdf.length / 1048576).toFixed(2) });
+    return pdf;
+  }
   /** The export's ZIP, made by the app: the editor's files, each photo as the photo store keeps it, and who exported it. */
   async function cefZip(files) {
     const out = [];
@@ -22381,6 +22413,7 @@
     close: () => { if (stack[stack.length - 1] === 'cefSheet') closeSheet(); }, exporter: () => exporterInfo(), gps: () => cefGps(), logo: (how) => cefLogo(how),
     mapPicture: (o) => cefMapPicture(o), setSign: (g) => cefSetSign(g), // beta 4.2
     photoDims: (ids) => cefPhotoDims(ids), // beta 4.3
+    cefTpl: (job) => cefTplOf(job), dxfLib: () => cefDxfLib(), cefPdf: (text, o) => cefTplPdf(text, o), // (beta 7.15, CEF template)
     pref: (k, v) => { if (k === 'guide') { S.cefGuide = v !== false; persist(); } else if (k === 'dxf') { const g = v && typeof v === 'object' ? v : {}; S.cefDxf = { det: !!g.det, ph: !!g.ph, old: !!g.old }; persist(); } } }; // (beta 4.3: the pages and the kind of the CEF DXF)
 
   /** A project that came in a file or through the team mailbox: its CEF plans. A plan is taken whole: the one saved later wins, and it
@@ -23079,7 +23112,8 @@
   window.__polecam.cef = { open: (n, o) => cefOpen(n, o), plans: (n) => JSON.parse(JSON.stringify(cefPlans(n || S.project))), of: (n) => JSON.parse(JSON.stringify(cefOf(n || S.project))), isCef: (n) => isCefProj(n), lock: () => cefLockText(S.project), now: () => (cefNow ? { ...cefNow } : null),
     frame: () => $('cefFrame').contentWindow, logos: () => cefLogos(), canLogo: () => cefCanLogo(), logoSet: (f) => cefLogoSet(f), logoRemove: () => cefLogoRemove(), changed: (n, t) => cefChanged(n || S.project, t), pids: (n, t) => cefPids(n || S.project, t), summary: (n) => projSummary(n || S.project),
     put: (n, id, sk, o) => { const G = cefOf(n), x = o || {}, i = G.plans.findIndex((p) => p.id === id), rec = { id, pin: x.pin || '', sk, at: x.at || new Date().toISOString(), by: x.by || (S.user && S.user.name) || '', o: x.o != null ? x.o : cefMe(), made: x.at || new Date().toISOString() }; if (i >= 0) G.plans[i] = rec; else G.plans.push(rec); cefPut(n, G); },
-    keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); } };
+    keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); },
+    planFiles: (n, only) => cefPlanFiles(n || S.project, only) }; // (beta 7.15, CEF template: the Drawing export's CEF files, for the tests)
   window.__polecam.jn = { att: (id) => { const j = points.find((p) => p.id === id); return j ? jnAtt(j).map((p) => p.id) : null; }, fit: (id) => { const j = points.find((p) => p.id === id); return j ? jnFit(j, jnAtt(j)) : null; }, msg: (id) => { const j = points.find((p) => p.id === id); return j ? jnMsgM(j) : null; }, // beta 6.9: a pull-off's or cross-over's poles, where it fits, its messenger
       pick: () => (jnPick ? { id: jnPick.id, need: jnPick.need, ch: jnPick.ch.slice(), fix: [...jnPick.fix], surf: jnPick.surf, bar: $('jnBarT').textContent, done: !$('jnBarDone').disabled } : null), tap: (id) => jnPickTap(id), done: () => jnPickDone(), start: (id, surf) => jnPickStart(id, surf), bar: () => ($('jnBar').hidden ? null : $('jnBarT').textContent), lbl: () => (drw && drw.jnLbl ? drw.jnLbl : null) };
   /* beta 4.6 (tests): the splicing details. frame(): the page's window; drwPt(id): where a record is on the Drawing (screen pixels) */
