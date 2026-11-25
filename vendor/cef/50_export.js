@@ -707,7 +707,7 @@ function cefFields(S, tb, o) {
   o = o || {}; tb = tb || {}; const si = S.site, up = v => String(v == null ? '' : v).trim().toUpperCase(), V = o.vals || {};
   const F = { DWG_NO: '', SHEET_NO: tb.n ? tb.n + ' OF ' + tb.N : '', DATE: isoDate(), ISSUE_NO: '', SCALE: up(tb.scale), LINK: up(si.link), SITE_ID: up(si.id), SITE_NAME: up(si.name), SERIAL: up(si.serial), SHEET_TITLE: up(tb.sheet),
     PLAN_KIND: PLAN_KIND, COORDINATES: coordText(S), PREPARED_BY: up(si.by), CHECKED_BY: up(si.chk), APPROVED_BY: up(si.apr), COMPANY_NAME: up(si.org), PROJECT_TYPE: up(si.link), LOCATION: [up(si.name), up(si.id)].filter(Boolean).join('_'), EXPORTED_BY: String(o.foot || '') };
-  return k => { let v = F[TPL_ALIAS[k] || k]; if ((v == null || v === '') && V[k] != null) v = String(V[k]); return v == null ? '' : String(v); };
+  return k => { const a = TPL_ALIAS[k] || k; let v = F[a]; if ((v == null || v === '') && (V[k] != null || V[a] != null)) v = String(V[k] != null ? V[k] : V[a]); return v == null ? '' : String(v); };
 }
 /* The CEF template read (seed) and the DXF made on it (write). The DXF records are read and written with the plan builder's (dxftpl.js: T, its
    Doc, structure and clean), handed in by the page (the app's copy). */
@@ -757,13 +757,14 @@ const CefTpl = (() => {
     /* the first viewport of a sheet is the sheet itself, as AutoCAD writes it (its number, 69, is 1 on the sheet that was open, 0 on the
        others) and as dxfpdf.js prints it; a sheet written without it (its first viewport the drawing area's, not as large as the paper):
        one is added to each sheet (pageVp) */
-    const u = unitsOf(L.rec), paper = fnum(L.rec, 44, 0) * fnum(L.rec, 45, 0) / u / u, recs = sheetRecs(d, S, L), V = recs.filter(r => typ(r) === 'VIEWPORT');
+    const lk = look && typeof look === 'object' ? look : lookOf(d) || {}, mm = lk.sheet && parseFloat(lk.sheet.mm);      /* (the look says its sheet's paper unit: look.sheet.mm, mm for one) */
+    const u = mm > 0 ? mm : unitsOf(L.rec), paper = fnum(L.rec, 44, 0) * fnum(L.rec, 45, 0) / u / u, recs = sheetRecs(d, S, L), V = recs.filter(r => typ(r) === 'VIEWPORT');
     const ok = r => inum(r, 69, 0) !== 1 && !(inum(r, 90, 0) & 131072) && fnum(r, 40, 0) > 0 && fnum(r, 41, 0) > 0, page = !!V[0] && (inum(V[0], 69, 0) === 1 || !(paper > 0) || fnum(V[0], 40, 0) * fnum(V[0], 41, 0) >= 0.9 * paper);
     const vp = (page ? V.slice(1) : V).filter(ok).sort((a, b) => fnum(b, 40, 0) * fnum(b, 41, 0) - fnum(a, 40, 0) * fnum(a, 41, 0))[0];
     if (!vp) throw new Error('its CEF sheet has no drawing area (a viewport)');
     const W = fnum(vp, 40, 0) * u, H = fnum(vp, 41, 0) * u;
     if (W < 200 || H < 120) throw new Error('its drawing area (' + Math.round(W) + ' x ' + Math.round(H) + ' mm) is too small for the CEF sheets');
-    const lk = look && typeof look === 'object' ? look : lookOf(d) || {}, tx = lk.text || {}, stU = new Map(); for (const s of S.styles) stU.set(String(s).toUpperCase(), s);
+    const tx = lk.text || {}, stU = new Map(); for (const s of S.styles) stU.set(String(s).toUpperCase(), s);
     const st = v => (v && stU.get(String(v).toUpperCase())) || null, sc = parseFloat(tx.scale);
     return { d, S, L, recs, vp, page, u, W, H, look: lk, style: st(tx.style), bold: st(tx.bold), txk: isFinite(sc) && sc > 0 ? clamp(sc, 0.5, 2) : 1, has: fieldsIn(S, recs), name: String(o.name || lk.name || ''), foot: o.foot || '', vals: o.vals || null };
   }

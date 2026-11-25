@@ -22083,13 +22083,16 @@
       DXF text), look } or null (none: the CEF's own frame). */
   async function tplCefText(proj) { void proj; return null; }
   /** The CEF template of the plan being edited or exported (job: a Drawing export's plan made out of sight). window.__gesaaCefTplTest
-      ({ name, text, look }, tests only) stands in for the project's own. */
+      ({ name, text, look }, tests only) stands in for the project's own. fields: what the app knows for the client's fields the editor does
+      not (as the as-plan on a client's template fills them): the client (Project details' Client / Customer, else the template's), the
+      drawing number and the issue (Project details' DWG / Drawing no., Issue / Revision). */
   async function cefTplOf(job) {
     const c = (job && cefJobCtx[job]) || cefNow; if (!c) return null;
     const t = window.__gesaaCefTplTest && typeof window.__gesaaCefTplTest === 'object' ? window.__gesaaCefTplTest : await tplCefText(c.name);
     if (!t || typeof t.text !== 'string' || !t.text) return null;
+    const F = siteFieldsOf(c.name), iss = sfGet(F, /\b(issue|rev(ision)?)\b/i);
     LOG.info('cef.tpl', { kb: Math.round(t.text.length / 1024), look: !!t.look });
-    return { name: String(t.name || ''), text: t.text, look: t.look || null, fields: t.fields || null };
+    return { name: String(t.name || ''), text: t.text, look: t.look || null, fields: { CLIENT: sfGet(F, /client|customer/i) || String(t.client || ''), DWG_NO: sfGet(F, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss } };
   }
   async function cefDxfLib() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); return window.GeDxfTpl; }
   /** A DXF the editor made on the CEF template, printed as the plan's PDF (o.images: the photos and logos by file name, JPEG or PNG). */
