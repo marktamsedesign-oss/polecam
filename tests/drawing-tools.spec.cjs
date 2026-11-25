@@ -167,7 +167,7 @@ async function see(page, id) {
 /** Tapped (on its middle, or on its point's centre: pt) until it is the one selected (a tap again on the same spot: the next one under it); how many taps it took. */
 async function select(page, id, pt) {
   const m = await see(page, id); const [x, y] = pt ? await page.evaluate((q) => window.__polecam.drwPt(q), pt) : [m.x, m.y];
-  for (let k = 1; k <= 6; k++) { await tap(page, x, y); await page.waitForTimeout(220); const s = (await mvOf(page)).sels; if (s.length === 1 && s[0] === id) return k; }
+  for (let k = 1; k <= 6; k++) { await tap(page, x, y); await page.waitForTimeout(360); const s = (await mvOf(page)).sels; if (s.length === 1 && s[0] === id) return k; } // ((beta 7.12) slower than a double-tap, which opens an item's text)
   throw new Error(`${id} not selected at ${x}, ${y}: ${JSON.stringify((await mvOf(page)).sels)}; under it: ${JSON.stringify(await page.evaluate(([X, Y]) => window.__polecam.drwCands(X, Y), [x, y]))}; it: ${JSON.stringify(await itemOf(page, id))}; tb: ${JSON.stringify((await tbOf(page)).rect)}; at: ${await page.evaluate(([X, Y]) => { const e = document.elementFromPoint(X, Y); return e ? `${e.tagName}#${e.id}.${e.className}` : 'none'; }, [x, y])} ask: ${await page.evaluate(() => `${document.getElementById('askTitle').textContent} | ${[...document.querySelectorAll('#askBox .row button')].map((b) => b.textContent).join(' / ')}`)}`);
 }
 const tbClick = (page, a, v) => page.evaluate(([a0, v0]) => { const g = document.querySelector(`#drawTb [data-a="${a0}"]`); const b = v0 != null ? g.querySelector(`button[data-v="${v0}"]`) : g; if (!b || b.hidden || b.closest('[hidden]')) throw new Error(`${a0} ${v0 || ''}: not on the toolbar`); b.click(); }, [a, v == null ? null : String(v)]);
@@ -202,7 +202,7 @@ test('a phone: a tap selects an item of any kind (tapped again on the same spot:
   }
   // a pole: its centre tapped (its record said, as before) selects its symbol; the guying and the grounding on it next, tapped again on the same spot
   await see(page, 'pole:s3'); const p3 = await page.evaluate(() => window.__polecam.drwPt('s3')), got = [];
-  for (let k = 0; k < 5; k++) { await tap(page, p3[0], p3[1]); await page.waitForTimeout(220); got.push((await mvOf(page)).sels.join(',')); }
+  for (let k = 0; k < 5; k++) { await tap(page, p3[0], p3[1]); await page.waitForTimeout(360); got.push((await mvOf(page)).sels.join(',')); } // ((beta 7.12) slower than a double-tap)
   assert.equal(got[0], 'pole:s3', `the pole first: ${got}`); assert.match((await mvOf(page)).info || '', /CC-9003|·/);
   assert.ok(got.some((x) => /^guy:s3/.test(x)) || got.some((x) => /^gnd:s3/.test(x)), `then what is under it: ${got}`);
   await select(page, 'pole:s4', 's4');

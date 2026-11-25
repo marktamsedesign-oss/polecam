@@ -245,34 +245,51 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 #drawInfo .btn{margin:4px 0 0 8px;vertical-align:middle;white-space:nowrap}@media (max-width:700px){#drawInfo .btn{display:block;margin:6px 0 0}}
 /* (beta 7.11, Drawing tools) the toolbar of what is selected on the plan: finger-sized, at the top of the plan (or at its bottom while the selection is under it),
    wrapping on a phone; its colour palette under it (above it at the bottom) */
-.drwtb{position:absolute;left:8px;right:14px;top:14px;z-index:7;display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:5px 22px 5px 5px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.2)}
+.drwtb{position:absolute;left:8px;right:14px;top:14px;z-index:7;display:flex;flex-wrap:wrap;align-items:stretch;gap:2px;padding:4px 6px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.2)}
 .drwtb[hidden],.drwtb [hidden]{display:none!important}
 .drwtb.bot{right:calc(var(--tap) + 24px)}
 @media (min-width:900px){.drwtb,.drwtb.bot{left:50%;right:auto;transform:translateX(-50%);width:max-content;max-width:calc(100% - 24px)}}
-.drwtbb{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:42px;height:42px;padding:0 6px;border:1px solid transparent;border-radius:10px;background:transparent;color:inherit;font:700 calc(13px * var(--fs)) system-ui,sans-serif;cursor:pointer;flex:none}
-.drwtbb:hover{background:var(--soft)}.drwtbb:focus-visible,.drwtbseg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.drwtbb[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}.drwtbb[disabled]{opacity:.4;cursor:default}.drwtbb[disabled]:hover{background:transparent}
-.drwtbb svg{width:20px;height:20px;flex:none}.drwtbb.wide{padding:0 8px}.drwtbb.wide span{white-space:nowrap}
-.drwtbb .tx{font:800 calc(15px * var(--fs))/1 Georgia,'Times New Roman',serif}.drwtbb .tx.big{font-size:calc(19px * var(--fs))}.drwtbb .tx.it{font-style:italic;font-weight:700}
-.drwtbb .pm{font:800 calc(14px * var(--fs))/1 system-ui,sans-serif;margin-left:1px}.drwtbb small{font:700 calc(10.5px * var(--fs))/1 system-ui,sans-serif}.drwtbb small.w{font-size:calc(13px * var(--fs))}
-.drwtbb .sw{width:22px;height:22px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1.5px var(--muted)}
-.drwtbsep{width:1px;align-self:stretch;margin:6px 2px;background:var(--line);flex:none}
-.drwtbseg{display:inline-flex;border:1.5px solid var(--line);border-radius:10px;overflow:hidden;flex:none;height:42px}
-.drwtbseg button{border:0;background:transparent;color:inherit;padding:0 8px;font:700 calc(12.5px * var(--fs)) system-ui,sans-serif;cursor:pointer;white-space:nowrap}
-.drwtbseg button+button{border-left:1.5px solid var(--line)}.drwtbseg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
-/* ✕: a round badge on the toolbar's corner (it takes no row of its own) */
-.drwtb .drwtbx{position:absolute;top:-10px;right:-10px;min-width:0;width:34px;height:34px;padding:0;border-radius:50%;background:var(--surface);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.2)}.drwtb .drwtbx svg{width:16px;height:16px}.drwtb .drwtbx:hover{background:var(--soft)}
-.drwtbn{font:800 calc(12px * var(--fs)) system-ui,sans-serif;color:var(--muted);padding:0 6px;white-space:nowrap}
+/* (beta 7.12, Drawing edit) the owner: "Use editing icons the as what you have done on the CEF plan drawing and edit": every tool of the Drawing as the CEF
+   plan editor draws its tools over its drawing (vendor/cef/cef.html .tb): an icon (svg.dpi, the editor's path data) over a short caption, 54 x 50, the one
+   pressed dark; a thin line between groups. Its name and what it does: aria-label and title. */
+svg.dpi{width:23px;height:23px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.drwtbb,.drwico button,.drwicopop button{position:relative;flex:none;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:54px;min-height:50px;padding:4px 6px;border:1px solid transparent;border-radius:9px;background:none;color:inherit;font:600 calc(10.5px * var(--fs))/1.1 var(--sans);white-space:nowrap;cursor:pointer}
+.drwtbb:hover,.drwico button:hover,.drwicopop button:hover{background:rgba(127,127,127,.12)}
+.drwtbb:focus-visible,.drwtbseg button:focus-visible,.drwico button:focus-visible,.drwicopop button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.drwtbb[aria-pressed=true],.drwico button[aria-pressed=true],.drwicopop button[aria-pressed=true]{background:var(--ink);color:var(--surface)}
+.drwtbb[disabled],.drwico button[disabled],.drwicopop button[disabled]{opacity:.35;cursor:default}.drwtbb[disabled]:hover,.drwico button[disabled]:hover,.drwicopop button[disabled]:hover{background:none}
+.drwtbb .sw{width:23px;height:23px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1.5px var(--muted);flex:none}
+.drwtbsep{width:1px;align-self:stretch;margin:6px 3px;background:var(--line);flex:none}
+.drwtbseg{display:inline-flex;align-self:center;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex:none}
+.drwtbseg button{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:54px;min-height:48px;border:0;background:transparent;color:inherit;padding:3px 7px;font:600 calc(10.5px * var(--fs))/1.1 var(--sans);cursor:pointer;white-space:nowrap}
+.drwtbseg button+button{border-left:1px solid var(--line)}.drwtbseg button[aria-pressed=true]{background:var(--ink);color:var(--surface)}
+.drwtbn{align-self:center;font:800 calc(12px * var(--fs)) system-ui,sans-serif;color:var(--muted);padding:0 6px;white-space:nowrap}
 .drwtbpal{position:absolute;left:6px;top:calc(100% + 6px);display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.2);max-width:calc(100vw - 40px)}
 .drwtb.bot .drwtbpal{top:auto;bottom:calc(100% + 6px)}
 .drwtbpal button{width:36px;height:36px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1.5px var(--line);cursor:pointer;padding:0}
 .drwtbpal button[aria-pressed=true]{box-shadow:0 0 0 3px var(--accent)}
 .drwtbpal button.asplan{background:conic-gradient(#e03131,#f59f00,#2f9e44,#1098ad,#1c7ed6,#ae3ec9,#e03131);position:relative}.drwtbpal button.asplan::after{content:'';position:absolute;inset:9px;border-radius:50%;background:var(--surface)}
-@media (pointer:fine){.drwtb{gap:3px}.drwtbb{min-width:36px;height:38px;padding:0 5px}.drwtbb.wide{padding:0 7px}.drwtbseg{height:38px}.drwtbseg button{padding:0 7px}} /* (a mouse: a little smaller, one row on a laptop) */
-@media (pointer:coarse){.drwtbb,.drwtbseg{min-width:44px;height:44px}.drwtbpal button{width:40px;height:40px}.drwtb .drwtbx{width:40px;height:40px;top:-12px;right:-12px}}
+@media (pointer:coarse){.drwtbpal button{width:40px;height:40px}}
+/* (beta 7.12, Drawing edit) on a phone the tools used less (bold, italic, turn back, the line, existing / proposed, arrow / bubble, the draw order, this one / all
+   like it, automatic, several) wait under More (xtra), as the CEF editor's strip keeps its few; a laptop has the room for all of them */
+.drwtbb[data-a="xtra"]{display:none}
+@media (max-width:699px){.drwtb:not(.xopen) .lo{display:none!important}.drwtbb[data-a="xtra"]{display:inline-flex}.drwtbb,.drwtbseg button{min-width:46px;padding:3px 3px;font-size:calc(10px * var(--fs))}.drwtb{gap:0;padding:3px 4px}.drwtb .drwtbsep{display:none}} /* (a phone: no lines between the groups, so that a label's tools fit one row) */
 #drawWrap.tbtop > .drwxhid{top:calc(var(--tbh, 64px) + 8px)}#drawWrap.tbtop:has(> #drawXHid:not([hidden])) > #drawPhAll{top:calc(var(--tbh, 64px) + 52px)} /* (the chips at the upper right, below the toolbar at the top) */
 @media (max-width:699px){#drawWrap.tbtop > .drwxhid{right:calc(var(--tap) + 24px)}} /* (a phone: below a tall toolbar, clear of the round tools) */
-@media (max-width:480px){.drwtbb[data-a="auto"] span{display:none}.drwtbb[data-a="auto"]{padding:0 6px}} /* (a narrow phone: Back to automatic by its icon, as the chip's; its name in its label) */
+/* (beta 7.12, Drawing edit) the Drawing's own tools in a row over the plan, as the CEF editor's strip: Select, Add text, Add photo, Undo, More (its tray); on a
+   computer above the plan, on a phone under it (over the Drawings bar, by the thumb), as the editor's. Shown while the plan's preview can be (the template plan). */
+.drwico{flex:none;order:-1;display:flex;align-items:stretch;gap:2px;padding:4px 6px;background:var(--surface);color:var(--ink);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.drwico[hidden]{display:none}.drwico i{flex:none;width:1px;margin:6px 4px;background:var(--line)}
+.drwico .drwicosay{flex:1 1 auto;min-width:0;align-self:center;padding:0 8px;font:600 calc(12.5px * var(--fs))/1.25 var(--sans);color:var(--muted);text-align:right;white-space:normal}
+@media (max-width:699px){.drwico{order:1;border-bottom:0;border-top:1px solid var(--line);padding:3px 4px;gap:0;justify-content:space-around}.drwico button{min-width:52px;min-height:48px;padding:3px 4px;font-size:calc(10px * var(--fs))}.drwcol > .drwbar{order:2}.drwico .drwicosay{display:none}}
+.drwicopop{position:absolute;z-index:9;left:8px;top:8px;display:flex;flex-direction:column;gap:6px;padding:8px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.2);max-width:calc(100% - 16px)}
+.drwicopop[hidden]{display:none}.drwicopop b{font:700 calc(12px * var(--fs)) var(--sans);color:var(--muted);padding:0 2px}.drwicopop .tiles{display:flex;flex-wrap:wrap;gap:4px}
+.drwicopop button{min-width:72px;border-color:var(--line)}.drwicopop .hint{margin:0;max-width:300px}
+@media (max-width:699px){.drwicopop{top:auto;bottom:8px}}
+#drawWrap.adding #drawCanvas{cursor:crosshair}
+/* (beta 7.12, Drawing edit) the text editor: a plan item's text (one line per line) or a note's */
+#drawTxtArea{width:100%;min-height:96px;resize:vertical;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:600 calc(15px * var(--fs))/1.35 var(--mono)}
+#drawTxtBox .row{display:flex;gap:8px;flex-wrap:wrap}#drawTxtBox .row .btn{flex:1 1 auto}
 .strow.sthl,.stgrp.sthl,.psrow.sthl{outline:2px solid #f08c00;outline-offset:3px;border-radius:8px;background:rgba(240,140,0,.09)}#stPrev [data-st]{cursor:pointer}.dscap .dspk{color:#e8590c;font-weight:600}
 .drwbar{align-items:center;gap:8px;flex-wrap:nowrap;position:relative}.drwbar select{min-height:44px;flex:0 1 128px;min-width:84px;padding:0 6px}
 .drwicon{flex:none;width:52px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);display:grid;place-items:center;padding:0}.drwicon svg{width:34px;height:26px}
@@ -1618,6 +1635,41 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <!-- (beta 7.8, Plan style cards): the cards' icons -->
   <symbol id="i-hash" viewBox="0 0 24 24"><path d="M9 4 7 20M17 4l-2 16M4 9h17M3 15h17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol><symbol id="i-pdet" viewBox="0 0 24 24"><circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7h9M12 12h6M12 17h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol><symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12l9-9h8v8l-9 9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="15.5" cy="8.5" r="1.5" fill="currentColor"/></symbol><symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4h11l-2 4 2 4H5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <!-- (beta 7.12, Drawing edit) the owner: "Use editing icons the as what you have done on the CEF plan drawing and edit": the Drawing's tools drawn as the CEF
+       plan editor's (vendor/cef/ui.js ICON: the same path data on its 20 x 20 grid, a line 1.5 wide, round ends: svg.dpi); the cef page keeps its own. ce-ptr,
+       undo, bin, ok, more, cam, img, pen, turn, copy are the editor's; the others are drawn the same way for the tools it has not. -->
+  <symbol id="ce-ptr" viewBox="0 0 20 20"><path d="M5 3l10 6.5-4.3 1.1 2.4 4.9-1.9.9-2.4-4.9L5 15z"/></symbol>
+  <symbol id="ce-undo" viewBox="0 0 20 20"><path d="M4.5 8h7.5a4 4 0 0 1 0 8H8M4.5 8l3-3M4.5 8l3 3"/></symbol>
+  <symbol id="ce-bin" viewBox="0 0 20 20"><path d="M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6M8.7 9v4.5M11.3 9v4.5"/></symbol>
+  <symbol id="ce-ok" viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"/></symbol>
+  <symbol id="ce-more" viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12M7 4.5v3M13 8.5v3M9 12.5v3"/></symbol>
+  <symbol id="ce-cam" viewBox="0 0 20 20"><path d="M2 6h4l1.5-2h5L14 6h4v10H2zM10 14a3 3 0 100-6 3 3 0 000 6z"/></symbol>
+  <symbol id="ce-img" viewBox="0 0 20 20"><path d="M2 4h16v12H2zM2 13l4-4 4 4 3-3 5 5M13.5 8a1 1 0 100-2 1 1 0 000 2z"/></symbol>
+  <symbol id="ce-pen" viewBox="0 0 20 20"><path d="M3.5 16.5l1-4 9-9 3 3-9 9zM11.5 5.5l3 3"/></symbol>
+  <symbol id="ce-turn" viewBox="0 0 20 20"><path d="M15.6 6.4A6.4 6.4 0 1 0 16.4 12M16.6 2.8v4.1h-4.1"/></symbol>
+  <symbol id="ce-turnl" viewBox="0 0 20 20"><path d="M4.4 6.4A6.4 6.4 0 1 1 3.6 12M3.4 2.8v4.1h4.1"/></symbol>
+  <symbol id="ce-turn0" viewBox="0 0 20 20"><path d="M2.5 16h15M3.5 16l9.5-8.5M8.6 16a5.3 5.3 0 0 0-1.6-3.6M15.5 4.5v4h-4"/></symbol>
+  <symbol id="ce-copy" viewBox="0 0 20 20"><path d="M7.5 7.5h9v9h-9zM4 12.5V3.5h9"/></symbol>
+  <symbol id="ce-one" viewBox="0 0 20 20"><path d="M5 5h10v10H5z"/></symbol>
+  <symbol id="ce-addtxt" viewBox="0 0 20 20"><path d="M2.5 3.5h9M7 3.5v12.5M15.5 10.5v7M12 14h7"/></symbol>
+  <symbol id="ce-addimg" viewBox="0 0 20 20"><path d="M1.5 4h12v9.5h-12zM1.5 11l3-3 3 3 2.3-2.3 3.7 3.7M10.5 7a.8.8 0 100-1.6.8.8 0 000 1.6zM16 11v7M12.5 14.5h7"/></symbol>
+  <symbol id="ce-txtm" viewBox="0 0 20 20"><path d="M1.5 16l4.2-11h1.1l4.2 11M3.2 12.2h6.1M13 10.5h5.5"/></symbol>
+  <symbol id="ce-txtp" viewBox="0 0 20 20"><path d="M1.5 16l4.2-11h1.1l4.2 11M3.2 12.2h6.1M15.75 7.75v5.5M13 10.5h5.5"/></symbol>
+  <symbol id="ce-bold" viewBox="0 0 20 20"><path d="M6 3.5h4.8a3 3 0 0 1 0 6H6zM6 9.5h5.6a3.25 3.25 0 0 1 0 6.5H6z" stroke-width="2.3"/></symbol>
+  <symbol id="ce-ital" viewBox="0 0 20 20"><path d="M9 3.5h6M5 16.5h6M12 3.5l-4 13" stroke-width="1.8"/></symbol>
+  <symbol id="ce-sizem" viewBox="0 0 20 20"><path d="M3 6h8v8H3zM13.5 10h5"/></symbol>
+  <symbol id="ce-sizep" viewBox="0 0 20 20"><path d="M1.5 4.5h11v11h-11zM16 7.25v5.5M13.25 10h5.5"/></symbol>
+  <symbol id="ce-lead" viewBox="0 0 20 20"><path d="M2 3h8v6H2zM10 9l4.8 5.6M14.4 16a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0"/></symbol>
+  <symbol id="ce-front" viewBox="0 0 20 20"><path d="M12 12v5H3V8h5"/><path d="M8 3h9v9H8z" fill="currentColor"/></symbol>
+  <symbol id="ce-back" viewBox="0 0 20 20"><path d="M3 8h5v4h4v5H3z" fill="currentColor"/><path d="M8 3h9v9H8z"/></symbol>
+  <symbol id="ce-fwd" viewBox="0 0 20 20"><path d="M3 9h8v8H3z" fill="currentColor"/><path d="M15.5 16V3.5M12.5 6.5l3-3 3 3"/></symbol>
+  <symbol id="ce-bwd" viewBox="0 0 20 20"><path d="M3 3h8v8H3z" fill="currentColor"/><path d="M15.5 4v12.5M12.5 13.5l3 3 3-3"/></symbol>
+  <symbol id="ce-auto" viewBox="0 0 20 20"><path d="M10 2.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM6.9 13.6l3.1-7.7 3.1 7.7M8 11h4"/></symbol>
+  <symbol id="ce-sel2" viewBox="0 0 20 20"><path d="M3 2.5l8.5 5.5-3.6.9 2 4.2-1.6.8-2-4.2L3 12.5zM15.5 11.5v6M12.5 14.5h6"/></symbol>
+  <symbol id="ce-arrow" viewBox="0 0 20 20"><path d="M3 17L15.5 4.5M9 4.5h6.5V11"/></symbol>
+  <symbol id="ce-bubble" viewBox="0 0 20 20"><path d="M8.5 2.5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM13 13l4.5 4.5M14.5 17.5h3v-3"/></symbol>
+  <symbol id="ce-exist" viewBox="0 0 20 20"><path d="M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM5 10h10M10 5v10"/></symbol>
+  <symbol id="ce-prop" viewBox="0 0 20 20"><path d="M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z" stroke-dasharray="3 2.2"/><path d="M10 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z" fill="currentColor"/></symbol>
 </svg>
 <div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">✎ Box · FOC · Text</button><button type="button" class="btn" id="pvPole">⊥ Model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
 <div id="app">
@@ -1926,14 +1978,28 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
   </header>
   <!-- v2.42.28: the plan and, beside it on a computer (below it on a phone), What to export -->
   <div class="drwrow"><div class="drwcol">
+  <!-- (beta 7.12, Drawing edit) the owner: "Use editing icons the as what you have done on the CEF plan drawing and edit"; "let the user also add a text or photo no
+       related with the capture on plans as needed": the Drawing's tools as the CEF editor's strip (an icon over its caption): Select, Add text, Add photo (the
+       camera or the gallery), Undo (was a round tool: beta 7.10), More (select several, the photos' lines, everything back to automatic). With the template plan. -->
+  <div class="drwico" id="drawIcons" role="toolbar" aria-label="Drawing tools" hidden>
+    <button type="button" data-a="sel" aria-pressed="true" title="Select: tap anything on the plan (tap it again: the next one under it)" aria-label="Select"><svg class="dpi" aria-hidden="true"><use href="#ce-ptr"/></svg><span>Select</span></button>
+    <i aria-hidden="true"></i>
+    <button type="button" data-a="addtext" aria-pressed="false" title="Add text: tap the plan where it goes, then type it" aria-label="Add text"><svg class="dpi" aria-hidden="true"><use href="#ce-addtxt"/></svg><span>Text</span></button>
+    <button type="button" data-a="addphoto" aria-pressed="false" aria-haspopup="true" aria-expanded="false" title="Add photo: take one or choose one from the gallery, then tap the plan where it goes" aria-label="Add photo"><svg class="dpi" aria-hidden="true"><use href="#ce-addimg"/></svg><span>Photo</span></button>
+    <i aria-hidden="true"></i>
+    <button type="button" id="drawUndo" data-a="undo" disabled aria-label="Undo: put back where things were on the plan before the last change" title="Undo"><svg class="dpi" aria-hidden="true"><use href="#ce-undo"/></svg><span>Undo</span></button>
+    <button type="button" data-a="more" aria-haspopup="true" aria-expanded="false" title="More tools" aria-label="More tools"><svg class="dpi" aria-hidden="true"><use href="#ce-more"/></svg><span>More</span></button>
+    <span class="drwicosay" id="drawIcoSay" aria-live="polite"></span>
+  </div>
   <div id="drawWrap"><canvas id="drawCanvas" aria-label="Drawing of the project: poles, route and spans"></canvas>
+    <!-- (beta 7.12, Drawing edit) the tray of Add photo (the camera, the gallery) and of More, over the plan by the row -->
+    <div class="drwicopop" id="drawIcoPop" role="group" aria-label="Drawing tools" hidden></div>
+    <input type="file" id="drawNoteCam" accept="image/*" capture="environment" hidden><input type="file" id="drawNotePick" accept="image/*" hidden>
     <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
     <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div><label class="drwgrid" id="drawGridRow" hidden><input type="checkbox" id="drawGrid" checked><span>Sheet grid: the plan's GEO sheets and their names</span></label></details>
     <div class="drwtools">
       <!-- (beta 7.9, Drawing preview) the plan preview made again now (busy: said beside it) -->
       <button class="round" id="drawRegen" type="button" hidden aria-busy="false" aria-label="Regenerate plan preview: make the plan as its PDF prints it again now" title="Regenerate plan preview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.4L4 8.5"/><path d="M4 4v4.5h4.5"/><path d="M4 13a8 8 0 0 0 14.6 4.4l1.4-1.9"/><path d="M20 20v-4.5h-4.5"/></svg><span class="drwbub" id="drawRegenT" role="status" aria-live="polite"></span></button>
-      <!-- (beta 7.10, Drawing labels) Undo: where things were on the plan before the last change (a drag, Back to automatic), while there is one to take back -->
-      <button class="round" id="drawUndo" type="button" hidden aria-label="Undo: put back where things were on the plan before the last change" title="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
       <button class="round" id="drawEdit" type="button" aria-pressed="false" aria-label="Edit route on the Drawing: draw cables, put poles on or off, place proposed poles, place and move towers, OLTs and ODCs" title="Edit route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="m13.5 7 3 3"/></svg></button>
       <button class="round" id="drawCef" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="CEF plans of the tower sites" title="CEF plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16"/></svg><i class="pdot" aria-hidden="true"></i></button>
       <button class="round" id="drawSpl" type="button" hidden aria-label="Splicing details of this project" title="Splicing details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h6l4 4 4-4h6M2 16h6l4-4 4 4h6"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg><i class="pdot" aria-hidden="true"></i></button>
@@ -1959,27 +2025,37 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
          that only appears when something is selected. Either it will edit all related or just the specific selections." Shown only while something on the plan is
          selected; the tools it can't take are hidden; at the top of the plan, or at its bottom while the selection is under it. -->
     <div class="drwtb" id="drawTb" role="toolbar" aria-label="Tools for what is selected on the plan" hidden>
+      <!-- (beta 7.12, Drawing edit) as icons, the CEF plan editor's look: each with its caption, its name (aria-label) and a tip (title); class lo: under More on a phone -->
       <span class="drwtbn" id="drawTbN" hidden></span>
-      <button type="button" class="drwtbb" data-a="h-" title="Smaller text" aria-label="Font size: smaller"><span class="tx">A</span><span class="pm">&minus;</span></button>
-      <button type="button" class="drwtbb" data-a="h+" title="Larger text" aria-label="Font size: larger"><span class="tx big">A</span><span class="pm">+</span></button>
-      <button type="button" class="drwtbb" data-a="bold" aria-pressed="false" title="Bold" aria-label="Bold"><b class="tx">B</b></button>
-      <button type="button" class="drwtbb" data-a="italic" aria-pressed="false" title="Italic" aria-label="Italic"><i class="tx it">I</i></button>
-      <button type="button" class="drwtbb" data-a="color" aria-haspopup="true" aria-expanded="false" title="Colour" aria-label="Colour"><span class="sw" id="drawTbSw"></span></button>
+      <button type="button" class="drwtbb" data-a="h-" title="Smaller text" aria-label="Font size: smaller"><svg class="dpi" aria-hidden="true"><use href="#ce-txtm"/></svg><span>Text −</span></button>
+      <button type="button" class="drwtbb" data-a="h+" title="Larger text" aria-label="Font size: larger"><svg class="dpi" aria-hidden="true"><use href="#ce-txtp"/></svg><span>Text +</span></button>
+      <button type="button" class="drwtbb lo" data-a="bold" aria-pressed="false" title="Bold" aria-label="Bold"><svg class="dpi" aria-hidden="true"><use href="#ce-bold"/></svg><span>Bold</span></button>
+      <button type="button" class="drwtbb lo" data-a="italic" aria-pressed="false" title="Italic" aria-label="Italic"><svg class="dpi" aria-hidden="true"><use href="#ce-ital"/></svg><span>Italic</span></button>
+      <button type="button" class="drwtbb" data-a="color" aria-haspopup="true" aria-expanded="false" title="Colour" aria-label="Colour"><span class="sw" id="drawTbSw"></span><span>Colour</span></button>
+      <button type="button" class="drwtbb" data-a="text" title="Edit its text, one line per line (or double-tap it)" aria-label="Edit text"><svg class="dpi" aria-hidden="true"><use href="#ce-pen"/></svg><span>Edit text</span></button>
       <span class="drwtbsep" data-a="sep1" aria-hidden="true"></span>
-      <button type="button" class="drwtbb" data-a="rot+" title="Turn 15° anticlockwise (or drag its round handle)" aria-label="Turn 15 degrees anticlockwise"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12a7 7 0 1 0 2.1-5"/><path d="M4 3.5v4.5h4.5"/></svg><small>15°</small></button>
-      <button type="button" class="drwtbb" data-a="rot-" title="Turn 15° clockwise (or drag its round handle)" aria-label="Turn 15 degrees clockwise"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M20 3.5v4.5h-4.5"/></svg><small>15°</small></button>
-      <button type="button" class="drwtbb" data-a="rot0" title="Turn back as the plan puts it" aria-label="Turn back as the plan puts it"><small class="w">0°</small></button>
+      <button type="button" class="drwtbb" data-a="rot+" title="Turn 15° anticlockwise (or drag its round handle)" aria-label="Turn 15 degrees anticlockwise"><svg class="dpi" aria-hidden="true"><use href="#ce-turnl"/></svg><span>Turn ↺</span></button>
+      <button type="button" class="drwtbb" data-a="rot-" title="Turn 15° clockwise (or drag its round handle)" aria-label="Turn 15 degrees clockwise"><svg class="dpi" aria-hidden="true"><use href="#ce-turn"/></svg><span>Turn ↻</span></button>
+      <button type="button" class="drwtbb lo" data-a="rot0" title="Turn back as the plan puts it" aria-label="Turn back as the plan puts it"><svg class="dpi" aria-hidden="true"><use href="#ce-turn0"/></svg><span>Turn back</span></button>
       <span class="drwtbsep" data-a="sep2" aria-hidden="true"></span>
-      <button type="button" class="drwtbb" data-a="s-" title="Smaller symbol" aria-label="Size: smaller"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg><span class="pm">&minus;</span></button>
-      <button type="button" class="drwtbb" data-a="s+" title="Larger symbol" aria-label="Size: larger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/></svg><span class="pm">+</span></button>
+      <button type="button" class="drwtbb" data-a="s-" title="Smaller symbol" aria-label="Size: smaller"><svg class="dpi" aria-hidden="true"><use href="#ce-sizem"/></svg><span>Size −</span></button>
+      <button type="button" class="drwtbb" data-a="s+" title="Larger symbol" aria-label="Size: larger"><svg class="dpi" aria-hidden="true"><use href="#ce-sizep"/></svg><span>Size +</span></button>
       <span class="drwtbsep" data-a="sep3" aria-hidden="true"></span>
-      <div class="drwtbseg" data-a="status" role="group" aria-label="Existing or proposed: changes its record"><button type="button" data-v="existing" aria-pressed="false">Existing</button><button type="button" data-v="proposed" aria-pressed="false">Proposed</button></div>
-      <div class="drwtbseg" data-a="callout" role="group" aria-label="Closure label: arrow or bubble"><button type="button" data-v="arrow" aria-pressed="false">Arrow</button><button type="button" data-v="bubble" aria-pressed="false">Bubble</button></div>
-      <button type="button" class="drwtbb wide" data-a="lead" aria-pressed="true" title="Line to its pole: on or off" aria-label="Line to its pole">Line</button>
-      <div class="drwtbseg" data-a="scope" role="group" aria-label="Style this one or all like it"><button type="button" data-v="one" aria-pressed="true">This one</button><button type="button" data-v="kind" aria-pressed="false">All like it</button></div>
-      <button type="button" class="drwtbb wide" data-a="auto" title="Back to automatic: where and how the plan puts it" aria-label="Back to automatic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span>Automatic</span></button>
-      <button type="button" class="drwtbb wide" data-a="more" aria-pressed="false" title="Select more: each tap adds an item or takes it off (on a computer: Shift or Ctrl + click)" aria-label="Select more">Select more</button>
-      <button type="button" class="drwtbb drwtbx" data-a="done" title="Done (Esc)" aria-label="Done: nothing selected"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <div class="drwtbseg lo" data-a="status" role="group" aria-label="Existing or proposed: changes its record"><button type="button" data-v="existing" aria-pressed="false" title="Existing: changes its record"><svg class="dpi" aria-hidden="true"><use href="#ce-exist"/></svg><span>Existing</span></button><button type="button" data-v="proposed" aria-pressed="false" title="Proposed: changes its record"><svg class="dpi" aria-hidden="true"><use href="#ce-prop"/></svg><span>Proposed</span></button></div>
+      <div class="drwtbseg lo" data-a="callout" role="group" aria-label="Closure label: arrow or bubble"><button type="button" data-v="arrow" aria-pressed="false" title="The closure's label with an arrow"><svg class="dpi" aria-hidden="true"><use href="#ce-arrow"/></svg><span>Arrow</span></button><button type="button" data-v="bubble" aria-pressed="false" title="The closure's label in a bubble"><svg class="dpi" aria-hidden="true"><use href="#ce-bubble"/></svg><span>Bubble</span></button></div>
+      <button type="button" class="drwtbb lo" data-a="lead" aria-pressed="true" title="Line to its pole: on or off" aria-label="Line to its pole"><svg class="dpi" aria-hidden="true"><use href="#ce-lead"/></svg><span>Line</span></button>
+      <span class="drwtbsep lo" data-a="sep4" aria-hidden="true"></span>
+      <button type="button" class="drwtbb lo" data-a="front" title="Bring to front: drawn over everything" aria-label="Bring to front"><svg class="dpi" aria-hidden="true"><use href="#ce-front"/></svg><span>To front</span></button>
+      <button type="button" class="drwtbb lo" data-a="forward" title="Bring forward: over the next thing it overlaps" aria-label="Bring forward"><svg class="dpi" aria-hidden="true"><use href="#ce-fwd"/></svg><span>Forward</span></button>
+      <button type="button" class="drwtbb lo" data-a="backward" title="Send backward: under the thing it overlaps" aria-label="Send backward"><svg class="dpi" aria-hidden="true"><use href="#ce-bwd"/></svg><span>Backward</span></button>
+      <button type="button" class="drwtbb lo" data-a="back" title="Send to back: drawn under everything" aria-label="Send to back"><svg class="dpi" aria-hidden="true"><use href="#ce-back"/></svg><span>To back</span></button>
+      <span class="drwtbsep lo" data-a="sep5" aria-hidden="true"></span>
+      <div class="drwtbseg lo" data-a="scope" role="group" aria-label="Style this one or all like it"><button type="button" data-v="one" aria-pressed="true" title="The style for this one only"><svg class="dpi" aria-hidden="true"><use href="#ce-one"/></svg><span>This one</span></button><button type="button" data-v="kind" aria-pressed="false" title="The style for every item like it"><svg class="dpi" aria-hidden="true"><use href="#ce-copy"/></svg><span>All like it</span></button></div>
+      <button type="button" class="drwtbb lo" data-a="auto" title="Back to automatic: where and how the plan puts it" aria-label="Back to automatic"><svg class="dpi" aria-hidden="true"><use href="#ce-auto"/></svg><span>Automatic</span></button>
+      <button type="button" class="drwtbb" data-a="del" title="Delete this note (↶ Undo brings it back)" aria-label="Delete"><svg class="dpi" aria-hidden="true"><use href="#ce-bin"/></svg><span>Delete</span></button>
+      <button type="button" class="drwtbb lo" data-a="more" aria-pressed="false" title="Select more: each tap adds an item or takes it off (on a computer: Shift or Ctrl + click)" aria-label="Select more"><svg class="dpi" aria-hidden="true"><use href="#ce-sel2"/></svg><span>Several</span></button>
+      <button type="button" class="drwtbb" data-a="xtra" aria-expanded="false" title="More tools" aria-label="More tools"><svg class="dpi" aria-hidden="true"><use href="#ce-more"/></svg><span>More</span></button>
+      <button type="button" class="drwtbb" data-a="done" title="Done (Esc)" aria-label="Done: nothing selected"><svg class="dpi" aria-hidden="true"><use href="#ce-ok"/></svg><span>Done</span></button>
       <div class="drwtbpal" id="drawTbPal" data-a="pal" role="group" aria-label="Colour" hidden></div>
     </div>
     <!-- v2.42.28: the drawing of the export shown here; ‹ › go through them -->
@@ -2110,6 +2186,11 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
           <div class="seg" id="stPhStamp" role="radiogroup" aria-label="Stamp on the plan's photos"><button type="button" class="chip small" data-v="off">Off</button><button type="button" class="chip small" data-v="ll">Lat-long</button><button type="button" class="chip small" data-v="addr">Lat-long + address</button></div>
           <small class="sthint">Written on each photo on the plan, its PDF and its ZIP.</small>
           <small class="sthint" id="stPhStampGeo" hidden>Using the geotag photo stamp instead (Export › Photos with their locations › Same stamp on the plan's photos). <button type="button" class="linkbtn" id="stPhStampGeoGo">Change ›</button></small></div>
+        <!-- (beta 7.12, Drawing edit) the owner: "photo1 shows images on the plan that has a line pointing to its pole. i want to remove that if the users does not want it":
+             here too, where the photos are set (the same setting as Pole details and span lengths › Lines to the pole › Photos; the two kept in step) -->
+        <div class="strow" id="plPhLeadRow" data-find="Line to its pole"><span class="lbl">Line to its pole <output id="stPhLeadO"></output></span>
+          <div class="seg" id="stPhLead" role="radiogroup" aria-label="Line from each photo to its pole"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div>
+          <small class="sthint">The thin line from each photo to its pole where the photo stands away from it. Off: no line from any photo, stamped or not, on the plan, its PDF and the Drawing. The same as Pole details and span lengths › Lines to the pole › Photos. One photo: select it on the Drawing, then <b>Line</b>.</small></div>
         <div class="strow" data-find="Your own size"><label class="lbl" for="stPhL">Your own size: long side <output>6 to 53 m at 1:1100</output></label><input type="number" id="stPhL" min="6" max="53" step="1" inputmode="decimal" enterkeyhint="done"><small class="sthint">Small, Normal, Large and Extra large: Photos on the plan, above.</small></div>
         <div class="strow" data-dim="tidy" data-find="Photo near its pole (Tidy)"><label class="lbl" for="stPhNear">Photo near its pole (Tidy) <output id="stPhNearO"></output></label><input type="range" id="stPhNear" min="8" max="40" step="1"></div>
         <details class="help"><summary>Help</summary><p class="hint" id="stPhHint" style="margin:0"></p></details></div></details>
@@ -3214,6 +3295,9 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
 <div class="overlay" id="pickMBox" hidden><div class="panel"><h3 id="pickMTitle"></h3><p class="hint" id="pickMText" style="margin:0"></p><div class="pickmlist" id="pickMList" role="group"></div><div class="row"><button class="btn grow" id="pickMNo" type="button">Cancel</button><button class="btn primary grow" id="pickMYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="pickBox" hidden><div class="panel"><h3 id="pickTitle"></h3><p class="hint" id="pickText" style="margin:0"></p><select id="pickSel" aria-label="Choose"></select><div class="row"><button class="btn grow" id="pickNo" type="button">Cancel</button><button class="btn primary grow" id="pickYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="askBox" hidden><div class="panel" role="dialog" aria-modal="true" aria-labelledby="askTitle" aria-describedby="askText"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
+<!-- (beta 7.12, Drawing edit) the owner: "allow also the user to edit the text if needed. just to make everything correct before exporting": the text of an item of the
+     plan (the plan only: its record stays) or of a text note, one line per line; Automatic: the plan's own text back -->
+<div class="overlay" id="drawTxtBox" hidden><div class="panel" role="dialog" aria-modal="true" aria-labelledby="drawTxtTitle" aria-describedby="drawTxtSub"><h3 id="drawTxtTitle">Edit text</h3><p class="hint" id="drawTxtSub" style="margin:0"></p><textarea id="drawTxtArea" rows="4" spellcheck="false" autocomplete="off" aria-label="The text, one line per line"></textarea><div class="row"><button class="btn" id="drawTxtAuto" type="button" hidden>Automatic</button><button class="btn" id="drawTxtNo" type="button">Cancel</button><button class="btn primary" id="drawTxtYes" type="button">Save</button></div></div></div>
 <div class="overlay" id="sendBox" hidden><div class="panel"><h3 id="sendTitle">Ready to send</h3><p id="sendName" style="margin:0;overflow-wrap:anywhere;font-weight:600"></p><p class="hint" id="sendNote" style="margin:0;white-space:pre-line"></p>
   <ol class="sendsteps" id="sendSteps" hidden>
     <li id="sendStep1"><span><b>Save it on the phone.</b> It goes to Downloads.</span><button class="btn primary" id="sendSave2" type="button">Save to phone</button></li>

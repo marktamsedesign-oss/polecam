@@ -118,6 +118,9 @@ const LINES = [
   // (beta 7.11, Drawing tools): select anything on the plan, its toolbar (font size, bold, italic, colour, turn, size, Existing / Proposed, This one / All like it), poles moved on the plan, a cable label's arrow tip; Plan style › Lines to the pole, Closure labels
   ['Drawing tools', '!select more · !drawing toolbar · font size on the drawing · rotate label · turn a label · move pole on the drawing · !arrow tip · arrow pointer · all like it', 'drawing'],
   ['Drawing tools', '!lines to the pole · closure labels · !closure bubble', 'planstyle drawing'],
+  // (beta 7.12, Drawing edit): the Drawing's tools as icons (the CEF editor's look), an item's text edited, texts and photos added on the plan (notes), the draw order; Plan style › Photos › Line to its pole
+  ['Drawing edit', '!edit text on the drawing · !add text on the plan · !add a photo to the drawing · !photo note · !draw order · bring to front · send to back · bring forward · send backward · double tap to edit · !drawing icons · delete note', 'drawing'],
+  ['Drawing edit', '!line to its pole · photo lines · remove photo line', 'planstyle drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];
