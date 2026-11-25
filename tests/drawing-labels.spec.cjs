@@ -5,7 +5,7 @@
      the item where it was put (its box's middle = its anchor + the pin), first: an automatic item on that place moves aside; a cable label away
      from its cable gets the plan's arrow (shoulder, line, solid arrowhead), a number or pole details away from the pole a thin line; a cable label
      placed by hand is that cable's label there (no other beside it). Tidy: at every grid the same place; a pole's number is in its block and moves
-     with it (no number of its own to move; a numPin of a pole left out). (beta 7.10, Plan kept) a cell holding an item placed by hand (its box, its line
+     with it ((beta 7.11, Drawing tools) an item of its own, num:…, carried with its block; placed by hand, drawn on its own there, its block without it). (beta 7.10, Plan kept) a cell holding an item placed by hand (its box, its line
      or arrow) that no sheet prints becomes a printed GEO sheet; one across a sheet's edge says the sheets it is cut on (cut), and the notes.
    - Byte for byte: with no pin (none, empty, pins that name nothing) the DXF and its PDF as beta 7.9 made them (their SHA-256): a made-up job of
      12 poles with photos, numbers and its cable labelled, Standard, Tidy and numbers only, on both made-up templates; 300 poles.
@@ -76,15 +76,17 @@ const partsOf = (m) => (m.parts && m.parts.length ? m.parts : [m.box]);
 
 /* ---------- the builder, in Node ---------- */
 test('report.movable: every cable label, number, pole\'s details and photo the plan writes, its box, its anchor and its own entities (Standard and Tidy)', () => {
-  for (const [v, kinds] of [[{}, { details: 12, number: 12, photo: 12, cable: 1 }], [{ labels: 'tidy' }, { details: 12, photo: 12 }]]) {
+  // ((beta 7.11, Drawing tools) Tidy: a pole's number in its block is an item of its own (block: true), carried with its block (with); the plan's other elements
+  // are listed too (see drawing-tools.test.cjs): here beta 7.10's four kinds, and every entity one item's only)
+  for (const [v, kinds] of [[{}, { details: 12, number: 12, photo: 12, cable: 1 }], [{ labels: 'tidy' }, { details: 12, photo: 12, number: 12 }]]) {
     const out = T.build(SEED_SQ, madeUpJob(v)), M = out.report.movable, E = entsOf(out.text), seen = new Set();
     const n = {}; M.forEach((m) => { n[m.kind] = (n[m.kind] || 0) + 1; });
     for (const [k, c] of Object.entries(kinds)) assert.equal(n[k], c, `${JSON.stringify(v)}: ${k}s ${JSON.stringify(n)}`);
-    if (v.labels) { assert.ok(!n.number, 'Tidy: a pole\'s number is in its block'); assert.ok(n.cable >= 1); assert.ok(M.filter((m) => m.kind === 'details').every((m) => m.number && m.seq), 'each block with its number'); }
-    for (const m of M) {
+    if (v.labels) { assert.ok(M.filter((m) => m.kind === 'number').every((m) => m.block && by(M, `lbl:${m.point}`).with.includes(m.id)), 'Tidy: each number in its block, carried with it'); assert.ok(n.cable >= 1); assert.ok(M.filter((m) => m.kind === 'details').every((m) => m.number && m.seq), 'each block with its number'); }
+    for (const m of M) for (const h of m.handles) { assert.ok(E.has(h), `${m.id}: ${h} in the DXF`); assert.ok(!seen.has(h), `${h} drawn by one item only`); seen.add(h); }
+    for (const m of M.filter((x) => ['number', 'details', 'photo', 'cable'].includes(x.kind))) {
       assert.match(m.id, /^(num|lbl|ph):s\d+$|^cab:PROPOSED 12C FIG-8 AE\|s\d+\|s\d+$/, m.id); assert.equal(m.how, 'auto');
       assert.ok(m.box.length === 5 && m.box[2] > 0.5 && m.box[3] > 0.5 && m.handles.length > 0, JSON.stringify(m));
-      for (const h of m.handles) { assert.ok(E.has(h), `${m.id}: ${h} in the DXF`); assert.ok(!seen.has(h), `${h} drawn by one item only`); seen.add(h); }
       if (m.kind !== 'cable') assert.deepEqual(m.anchor, out.report.drawnAt[m.point], `${m.id}: measured from its pole as drawn`);
       const types = m.handles.map((h) => E.get(h).type);
       if (m.kind === 'number') assert.ok(types.includes('CIRCLE') && types.includes('TEXT') && E.get(m.handles[types.lastIndexOf('TEXT')]).text === m.seq, `${m.id}: ${types}`);
@@ -136,21 +138,23 @@ test('the builder: a number, a pole\'s details and a cable label placed by hand 
   assert.ok(!C4.cut, 'inside its sheet');
 });
 
-test('the builder, Tidy: a pole\'s block placed by hand (its number in it) is where it was put at every grid; a number of a pole is not moved on its own', () => {
+test('the builder, Tidy: a pole\'s block placed by hand (its number in it) is where it was put at every grid; (beta 7.11) a pole\'s number placed by hand is drawn on its own', () => {
   const r0 = T.build(SEED_SQ, madeUpJob({ labels: 'tidy' })), M0 = r0.report.movable, l3 = by(M0, 'lbl:s3'), cab = M0.find((m) => m.kind === 'cable');
   const pin = [l3.box[0] - l3.anchor[0] + 25, l3.box[1] - l3.anchor[1] + 30];
   for (const split of [1, 2, 3, 4]) {
     const r = T.build(SEED_SQ, madeUpJob({ labels: 'tidy', gridStyle: { split }, lblPin: { s3: pin }, cabPin: { [cab.key]: { at: [-20, 25], rot: 0 } } })), M = r.report.movable, L = by(M, 'lbl:s3'), C = by(M, cab.id), E = entsOf(r.text);
     assert.equal(r.report.tidy.grid.n, split, 'the grid asked');
     assert.equal(L.how, 'by hand', `grid ${split}`); near(L.box[0] - L.anchor[0], pin[0], 1e-6, `grid ${split}: E`); near(L.box[1] - L.anchor[1], pin[1], 1e-6, `grid ${split}: N`);
-    assert.equal(L.number, true, 'its number in it'); assert.ok(L.handles.some((h) => E.get(h).type === 'CIRCLE' && E.get(h).layer === 'p-pole') || L.handles.some((h) => E.get(h).text === '3'), 'its number drawn with it');
+    assert.equal(L.number, true, 'its number in it'); const Nb = by(M, 'num:s3'); assert.ok(L.with.includes('num:s3') && Nb && Nb.block && Nb.handles.some((h) => E.get(h).text === '3'), 'its number drawn with it (an item of its own, (beta 7.11) carried with its block)');
     assert.ok(L.handles.some((h) => E.get(h).type === 'LWPOLYLINE'), 'its line to the pole');
     assert.equal(C.how, 'by hand'); near(C.box[0] - C.anchor[0], -20, 1e-6, 'the cable label'); near(C.box[1] - C.anchor[1], 25, 1e-6, 'the cable label');
-    const hits = M.filter((x) => x.how === 'auto' && (over(x.box, L.box) || over(x.box, C.box))).map((x) => x.id); assert.deepEqual(hits, [], `grid ${split}: nothing over them`);
+    const hits = M.filter((x) => x.how === 'auto' && !L.with.includes(x.id) && (over(x.box, L.box) || over(x.box, C.box))).map((x) => x.id); assert.deepEqual(hits, [], `grid ${split}: nothing over them`); // ((beta 7.11) its number, its own item, carried in it)
   }
-  // Tidy: a pole's number moves with its block: a numPin of a pole changes nothing
+  // (beta 7.11, Drawing tools) Tidy: a pole's number placed by hand is drawn on its own where it was put (its line to its pole), its block made without it
   const a = T.build(SEED_SQ, madeUpJob({ labels: 'tidy', gridStyle: { split: 2 } })), b = T.build(SEED_SQ, madeUpJob({ labels: 'tidy', gridStyle: { split: 2 }, numPin: { s3: [10, 10] } }));
-  assert.ok(a.text === b.text, 'the same DXF');
+  const Nb = by(b.report.movable, 'num:s3'), Lb = by(b.report.movable, 'lbl:s3');
+  assert.ok(a.text !== b.text); assert.equal(Nb.how, 'by hand'); assert.ok(!Nb.block, 'on its own'); near(Nb.box[0] - Nb.anchor[0], 10, 1e-6, 'E'); near(Nb.box[1] - Nb.anchor[1], 10, 1e-6, 'N');
+  assert.equal(Lb.number, false, 'its block without it'); assert.ok(!Lb.with.includes('num:s3'));
 });
 
 test('byte for byte: with no pin (none, empty, naming nothing) the DXF and its PDF as beta 7.9 made them', async () => {
@@ -393,7 +397,7 @@ test('a computer, Tidy: a pole\'s block dragged with its number and its photo; b
   const { ctx, page, errors } = await open({ desk: true, exp: { dxfMarks: 'both', dxfLabels: 'tidy' } });
   await drawing(page); await shown(page, (x) => x.count && x.count.pictures === 8);
   let mv = await mvOf(page); const vw = await page.evaluate(() => document.getElementById('drawCanvas').getBoundingClientRect().right);
-  assert.ok(!mv.items.some((m) => /^num:/.test(m.id)), 'Tidy: no number on its own (each in its block)');
+  assert.ok(mv.items.filter((m) => /^num:/.test(m.id)).every((m) => mv.items.some((x) => x.kind === 'details' && x.with.includes(m.id))), 'Tidy: each number in its block ((beta 7.11) an item of its own, carried with it)');
   const b = mv.items.find((m) => m.kind === 'details' && m.with.length && m.x > 60 && m.x < vw - 160 && m.y > 140 && m.y < 700);
   assert.ok(b, `a block with its photo beside it, on the screen: ${JSON.stringify(mv.items.filter((m) => m.kind === 'details').map((m) => [m.id, Math.round(m.x), Math.round(m.y), m.with]))}`);
   await page.mouse.click(b.x, b.y); await page.waitForTimeout(250);
@@ -406,8 +410,7 @@ test('a computer, Tidy: a pole\'s block dragged with its number and its photo; b
   assert.equal(it.how, 'by hand'); near(it.x, b.x + 90, 1, 'there x'); near(it.y, b.y - 60, 1, 'there y');
   const e = await exportPlan(page), m = by(e.movable, b.id), E = entsOf(e.text);
   assert.equal(m.how, 'by hand'); near(m.box[0] - m.anchor[0], pin[0], 1e-6, 'E'); near(m.box[1] - m.anchor[1], pin[1], 1e-6, 'N');
-  assert.equal(m.number, true); assert.ok(m.handles.some((h) => E.get(h).text === b.id.slice(5)), 'its number written with it');
-  assert.ok(!e.movable.some((x) => x.id === `num:${b.id.slice(4)}`), 'no number of its own');
+  assert.equal(m.number, true); const mn = by(e.movable, `num:${b.id.slice(4)}`); assert.ok(m.with.includes(mn.id) && mn.block && mn.handles.some((h) => E.get(h).text === b.id.slice(5)), 'its number written with it ((beta 7.11) its own item, in its block)');
   // Edit route: a drag on a block moves nothing
   await drawing(page); await shown(page); await page.evaluate(() => window.__polecam.drwEdit(true)); await page.waitForTimeout(500);
   assert.equal(await page.evaluate(() => window.__polecam.drwEd().on), true, 'Edit route on');
