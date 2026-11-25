@@ -158,6 +158,8 @@ test('edited text: report.movable text; TEXT, MTEXT and attribute lines replaced
     assert.deepEqual(shad.map((e) => e.text), ['FACING X', '7.1%%d, 125.6%%d', 'ADDED LINE'], 'the shadows with their lines');
     near(+g1(main[3], 21) - +g1(main[4], 21), +g1(main[2], 21) - +g1(main[3], 21), 1e-6, 'the line added: the spacing of the last two'); assert.equal(g1(main[4], 11), g1(main[3], 11));
     assert.deepEqual(r1.report.closureLabels.bubbles.find((b) => b.cid === 'CL-01').lines, TX['clolbl:s2'], 'report.closureLabels: its lines as written');
+    { const sol = es('clolbl:s2').find((e) => e.type === 'SOLID'), circ = es('clolbl:s2').find((e) => e.type === 'CIRCLE'), tip = [+g1(sol, 10), +g1(sol, 20)], c0 = [+g1(circ, 10), +g1(circ, 20)], v = [tip[0] - c0[0], tip[1] - c0[1]], th = +g1(main[0], 40), side = Math.abs(v[0]) >= 0.5 * Math.hypot(v[0], v[1]);
+      if (side) near(+g1(main[0], 21), tip[1], 1e-6, 'beside its pointer: its first line level with the tip'); else if (v[1] > 0) near(+g1(main[4], 21) - th / 2, tip[1] + 0.8 * th, 1e-6, 'above its pointer: its last line just above the tip'); else near(+g1(main[0], 21) + th / 2, tip[1] - 0.8 * th, 1e-6, 'below: its first line just below the tip'); } // (laid out again as the plan lays a bubble's lines)
     // the number and its shadow; the span's length left off (nothing of it drawn: its box kept)
     assert.deepEqual(es('num:s3').filter((e) => e.type === 'TEXT').map((e) => e.text), ['3A', '3A']);
     const sp = by(M, 'span:s1|s2'); assert.deepEqual(sp.handles, []); assert.equal(sp.empty, true); assert.deepEqual(sp.box, by(M0, 'span:s1|s2').box, 'its box where it was'); assert.equal(sp.can.text, true, 'it can be written again');
@@ -171,9 +173,16 @@ test('edited text: report.movable text; TEXT, MTEXT and attribute lines replaced
   for (const v of [{}, { labels: 'tidy' }]) {
     const base = { ...v, lblPin: { s3: [10, -25, 0] } }, a = T.build(SEED_SQ, madeUpJob(base)), b = T.build(SEED_SQ, madeUpJob({ ...base, text: { 'lbl:s3': ['A MUCH LONGER FIRST LINE HERE', 'X'] } }));
     const ma = by(a.report.movable, 'lbl:s3'), mb = by(b.report.movable, 'lbl:s3'); near(mb.box[0], ma.box[0], 1e-6, `${JSON.stringify(v)}: by hand, its middle E`); near(mb.box[1], ma.box[1], 1e-6, 'N'); assert.ok(mb.box[2] > ma.box[2], 'wider');
+    if (v.labels) { const na = by(a.report.movable, 'num:s3'), nb = by(b.report.movable, 'num:s3'); near(nb.box[0] - (mb.box[0] - mb.box[2] / 2), na.box[0] - (ma.box[0] - ma.box[2] / 2), 0.05, 'a Tidy block\'s number with its edited text'); }
+    const ln = (out) => { const E = entsOf(out.text), m = by(out.report.movable, 'lbl:s3'), e = m.handles.map((h) => E.get(h)).find((x) => x.type === 'LWPOLYLINE' && !(+g1(x, 70) & 1)); return e ? gAll(e, 10).map((x, i) => [+x, +gAll(e, 20)[i]]) : null; };
+    const la = ln(a), lb = ln(b); if (la && lb) { const d = (P, B) => Math.min(...[P[0], P[P.length - 1]].map((q) => Math.hypot(Math.max(0, Math.abs(q[0] - B[0]) - B[2] / 2), Math.max(0, Math.abs(q[1] - B[1]) - B[3] / 2)))); near(d(lb, mb.box), d(la, ma.box), 0.05, 'its line to its pole still at its edge'); }
     const c = T.build(SEED_SQ, madeUpJob({ ...base, text: { 'lbl:s3': ['EDITED'] }, style: { 'lbl:s3': { h: 1.5, bold: true } } })), mc = by(c.report.movable, 'lbl:s3'), Ec = entsOf(c.text), tx = mc.handles.map((h) => Ec.get(h)).filter((e) => e.type === 'TEXT' || e.type === 'MTEXT');
     assert.deepEqual(mc.text, ['EDITED']); assert.equal(tx.length, 1); near(mc.box[0], ma.box[0], 1e-6, 'still there'); assert.ok(v.labels ? /\|b1/.test(mtOf(tx[0])) : g1(tx[0], 7) === 'G-ESAA ARIAL B', 'bold on top');
   }
+  // a cable label placed by hand away from its cable: its arrow's shoulder from the end of its edited text
+  { const r0 = T.build(SEED_SQ, madeUpJob({})), cab = r0.report.movable.find((m) => m.kind === 'cable'), job = (x) => madeUpJob({ pins: { [cab.id]: { at: [-15, 25], rot: 0, tip: 0.4 } }, ...x });
+    const a = T.build(SEED_SQ, job({})), b = T.build(SEED_SQ, job({ text: { [cab.id]: ['PROPOSED 12C FIG-8 AE (2 RUNS)'] } })), sh = (out) => { const m = by(out.report.movable, cab.id), E = entsOf(out.text), e = m.handles.map((h) => E.get(h)).find((x) => x.type === 'LWPOLYLINE'), X = gAll(e, 10).map(Number); return [X[X.length - 1] - (m.box[0] + m.box[2] / 2), m.box]; };
+    const [ga, ba] = sh(a), [gb, bb] = sh(b); assert.ok(bb[2] > ba[2] + 5, 'the label wider'); near(gb, ga, 1e-3, 'its arrow from just past its text, as before'); }
   // a pin on an edited element: its edited box's middle at anchor + at; a line added after an attribute: a TEXT after the block's attributes
   const E0 = 787300, N0 = 786100, more = (j) => { j.pts.push({ id: 'c1', poleId: 'CL-PIN', el: 'Closure', status: 'Proposed', E: E0 + 90, N: N0 - 70, lat: 7.1 - 70 / 110574, lon: 125.6 + 90 / 110400 }); return j; };
   for (const v of [{}, { labels: 'tidy' }]) {
