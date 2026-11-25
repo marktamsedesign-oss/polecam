@@ -22073,7 +22073,7 @@
     for (const id of Array.from(ids || []).slice(0, 200)) { try { const ph = await dbGet('photos', String(id)); if (!ph || !ph.clean) continue; const im = await loadImage(ph.clean), { w, h } = dims(im); if (im.close) im.close(); if (w > 0 && h > 0) out[String(id)] = [w, h]; } catch (e) { /* its frame and file name only */ } }
     return out;
   }
-  /* beta 7.15 (CEF template) (the owner: "dxf for asplan and cef must be based from a template dxf. Context: client requires a different
+  /* (beta 7.15, CEF template) (the owner: "dxf for asplan and cef must be based from a template dxf. Context: client requires a different
      template with a different text font style, drawing style size and thickness"): the CEF plan's sheets on the project's CEF template, a
      client's sheet made in the app from the client's DXF (its "CEF seed": the sheet CEF, its frame, title block and fields; the look). The
      editor asks for it when it makes its files (cefTpl: one can be megabytes, so not on every open), makes the DXF on it (vendor/cef/50_export.js)
@@ -22173,7 +22173,7 @@
     close: () => { if (stack[stack.length - 1] === 'cefSheet') closeSheet(); }, exporter: () => exporterInfo(), gps: () => cefGps(), logo: (how) => cefLogo(how),
     mapPicture: (o) => cefMapPicture(o), setSign: (g) => cefSetSign(g), // beta 4.2
     photoDims: (ids) => cefPhotoDims(ids), // beta 4.3
-    cefTpl: (job) => cefTplOf(job), dxfLib: () => cefDxfLib(), cefPdf: (text, o) => cefTplPdf(text, o), // beta 7.15 (CEF template)
+    cefTpl: (job) => cefTplOf(job), dxfLib: () => cefDxfLib(), cefPdf: (text, o) => cefTplPdf(text, o), // (beta 7.15, CEF template)
     pref: (k, v) => { if (k === 'guide') { S.cefGuide = v !== false; persist(); } else if (k === 'dxf') { const g = v && typeof v === 'object' ? v : {}; S.cefDxf = { det: !!g.det, ph: !!g.ph, old: !!g.old }; persist(); } } }; // (beta 4.3: the pages and the kind of the CEF DXF)
 
   /** A project that came in a file or through the team mailbox: its CEF plans. A plan is taken whole: the one saved later wins, and it

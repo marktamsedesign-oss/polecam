@@ -69,7 +69,7 @@ function placeView(G, v, box) { const t = viewAt(v, box), P = xfPrims(v.prims, v
 function fitTx(G, p, s, h, maxW, lay, al, b) { const w = textW(s, h) * (b ? 1.08 : 1); if (w > maxW && w > 0) h *= maxW / w; G.tx(p, s, h, lay, al, 0, b); }
 const picFile = n => 'photos/photo_' + String(n).padStart(2, '0') + '.jpg';      /* beta 4.1 */
 function sheetFrame(S, G, o) {
-  if (TPL) return tplFrame(S, G, o);      /* beta 7.15 (CEF template): on a client's sheet its own frame and title block, filled per sheet */
+  if (TPL) return tplFrame(S, G, o);      /* (beta 7.15, CEF template) on a client's sheet its own frame and title block, filled per sheet */
   const si = S.site, x0 = FR.x0, x1 = FR.x1, y0 = FR.y0, y1 = FR.y1, s0 = FR.sx0, s1 = FR.sx1, up = v => String(v || '').trim().toUpperCase();
   G.pl([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], 'fr', 1); G.pl([[s0, y0], [s1, y0], [s1, y1], [s0, y1]], 'fr', 1);
   /* the title block, from the foot of the strip upward */
@@ -107,7 +107,7 @@ function para(G, x, y, lines, h, maxW, lay, bold) { const n = Math.max(8, Math.f
 function heading(G, x, y, s, w, h) { h = h || 2.3; G.tx([x, y - h * 1.3], s, h, 'tx', 'l', 0, true); G.pl([[x, y - h * 1.9], [x + (w || 116), y - h * 1.9]], 'fr'); return y - h * 2.2; }
 function legend(G, x, y, S, w, h) {
   h = h || 1.9; y = heading(G, x, y, 'LEGEND', w, h * 1.2);
-  for (const [lay, s] of [['bl', 'FENCE / BUILDING LINE'], ['tw', 'TOWER'], ['eq', 'EXISTING EQUIPMENT'], ['ld', 'CABLE LADDER'], ['pp', 'PROPOSED ITEM'], ['ae', 'FOC AE (AERIAL)'], ['ug', 'FOC UG (UNDERGROUND, LADDER)'], ['fh', 'FOC BEHIND SOMETHING'], ['hp', 'BELOW GROUND (CONDUIT, PIT, ELBOW), WHERE ITS DEPTH IS DRAWN'], ['ln', 'LENGTH OF A LEG OF THE CABLE']].concat(S && S.els.some(e => e.t === 'cabin' && e.inside && (e.inside.els || []).some(q => q.t === 'rack' || q.t === 'odf')) ? [['nd', (k => k.c && k.t ? 'INSIDE A CABIN OR TELCO ROOM (RACK, ODF)' : k.t ? 'INSIDE A TELCO ROOM (RACK, ODF)' : 'INSIDE A CABIN (RACK, ODF)')({ c: S.els.some(e => e.t === 'cabin' && !e.tr && e.inside), t: S.els.some(e => e.t === 'cabin' && e.tr && e.inside) })]] : [], [['ph', 'PHOTO POSITION AND DIRECTION'], ['lot', 'PART DETAIL: ITS FRAME AND WHERE IT IS ON THE VIEW']])) { y -= h * 2.4; G.pl([[x + 1, y + h * 0.45], [x + 15, y + h * 0.45]], lay); if (lay === 'ln') G.tx([x + 8, y + h * 0.9], '10.0m', h * 0.9, 'ln', 'c'); if (TPL) fitTx(G, [x + 19, y], s, h, w - 19, 'tx', 'l'); else G.tx([x + 19, y], s, h, 'tx'); }      /* (beta 7.15: on a client's sheet its text size may be larger: each line kept to its column) */
+  for (const [lay, s] of [['bl', 'FENCE / BUILDING LINE'], ['tw', 'TOWER'], ['eq', 'EXISTING EQUIPMENT'], ['ld', 'CABLE LADDER'], ['pp', 'PROPOSED ITEM'], ['ae', 'FOC AE (AERIAL)'], ['ug', 'FOC UG (UNDERGROUND, LADDER)'], ['fh', 'FOC BEHIND SOMETHING'], ['hp', 'BELOW GROUND (CONDUIT, PIT, ELBOW), WHERE ITS DEPTH IS DRAWN'], ['ln', 'LENGTH OF A LEG OF THE CABLE']].concat(S && S.els.some(e => e.t === 'cabin' && e.inside && (e.inside.els || []).some(q => q.t === 'rack' || q.t === 'odf')) ? [['nd', (k => k.c && k.t ? 'INSIDE A CABIN OR TELCO ROOM (RACK, ODF)' : k.t ? 'INSIDE A TELCO ROOM (RACK, ODF)' : 'INSIDE A CABIN (RACK, ODF)')({ c: S.els.some(e => e.t === 'cabin' && !e.tr && e.inside), t: S.els.some(e => e.t === 'cabin' && e.tr && e.inside) })]] : [], [['ph', 'PHOTO POSITION AND DIRECTION'], ['lot', 'PART DETAIL: ITS FRAME AND WHERE IT IS ON THE VIEW']])) { y -= h * 2.4; G.pl([[x + 1, y + h * 0.45], [x + 15, y + h * 0.45]], lay); if (lay === 'ln') G.tx([x + 8, y + h * 0.9], '10.0m', h * 0.9, 'ln', 'c'); if (TPL) fitTx(G, [x + 19, y], s, h, w - 19, 'tx', 'l'); else G.tx([x + 19, y], s, h, 'tx'); }      /* (beta 7.15, CEF template: on a client's sheet its text size may be larger: each line kept to its column) */
   return y;
 }
 /* The detail drawings of a plan, laid out in pages. Each one has its title and its place on the page: x from the left, y from the top, w and h, all as parts of the drawing area.
@@ -340,13 +340,13 @@ function buildSheets(S, opt) {      /* (14 Nov) opt.details === false: no detail
   let n = 0; const push = (name, G, v, images) => out.push({ name, s: v ? v.s : 1, N: v ? v.N : 0, prims: G.p, images: images || [] });
   { /* 1. the cover page */
     const G = new Gfx(), x0 = SH.M, x1 = SH.W - SH.M, y0 = SH.M, y1 = SH.H - SH.M, cx = SH.W / 2; n++;
-    if (TPL) G.p.tb = { sheet: 'COVER PAGE', scale: '', n: 1, N: total };      /* beta 7.15 (CEF template): the client's frame, not the app's */
+    if (TPL) G.p.tb = { sheet: 'COVER PAGE', scale: '', n: 1, N: total };      /* (beta 7.15, CEF template) the client's frame, not the app's */
     else for (const k of [0, 1.6]) G.pl([[x0 + k, y0 + k], [x1 - k, y0 + k], [x1 - k, y1 - k], [x0 + k, y1 - k]], 'fr', 1);
     const cim = [], lc = logoAt(cim, 'client', cx - 150, 212, 110, 52), lv = logoAt(cim, 'vendor', cx + 40, 212, 110, 52);      /* beta 4.1: the two logos side by side at the top, the client's on the left, as on the plan drawings */
     const L = [[lv ? '' : up(si.org), lv || lc ? 5 : 7, 0, lv || lc ? 200 : 232], ['CABLE ENTRANCE FACILITY', 16, 1, lv || lc ? 166 : 176], [up(si.link), 14, 1, lv || lc ? 140 : 150], [[up(si.id), up(si.name)].filter(Boolean).join(' - '), 13, 1, lv || lc ? 100 : 104], [up(si.serial), 9, 1, lv || lc ? 84 : 88] /* beta 7.6 / 2.45.8: the serial number, when known (AS-PLAN lower) */, [PLAN_KIND, 11, 0, (lv || lc ? 70 : 72) - (si.serial ? 10 : 0)]];
     for (const q of L) if (q[0]) fitTx(G, [cx, q[3]], q[0], q[1], x1 - x0 - 40, 'tx', 'c', !!q[2]);
     { const ct = coordText(S); if (ct) fitTx(G, [cx, 38], ct, 3, x1 - x0 - 40, 'tx', 'c'); }      /* (beta 4.2, 22:24: no date and no "prepared by" on the cover; the title block of every sheet has them) */
-    if (!TPL) G.tx([x1, y0 - 2.6], 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE', 1, 'dm', 'r');      /* (22:24) very small, under the frame at the lower right; the app writes who exported here (beta 7.15: on a client's sheet, tplFit) */ if (S.sample) G.tx([cx, 52], 'SAMPLE DATA - NOT A REAL SITE', 4, 'tp', 'c', 0, true);
+    if (!TPL) G.tx([x1, y0 - 2.6], 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE', 1, 'dm', 'r');      /* (22:24) very small, under the frame at the lower right; the app writes who exported here (beta 7.15, CEF template: on a client's sheet, tplFit) */ if (S.sample) G.tx([cx, 52], 'SAMPLE DATA - NOT A REAL SITE', 4, 'tp', 'c', 0, true);
     push('COVER', G, null, cim);
   }
   const toc = new Gfx(); n++; out.push(null);                                           /* 2. the table of contents: filled in when the other sheets are known */
@@ -642,7 +642,7 @@ function sheetsDXF(sheets, o) {
   }
   return toDXF2K(all, lay, imgs);
 }
-/* ---------- beta 7.15 (CEF template): the CEF plan on a client's own sheet ----------
+/* ---------- (beta 7.15, CEF template) the CEF plan on a client's own sheet ----------
    The owner: "dxf for asplan and cef must be based from a template dxf. Context: client requires a different template with a different text
    font style, drawing style size and thickness. By changing the template dxf, the app can now accomodate plan creation from different clients
    using its template."

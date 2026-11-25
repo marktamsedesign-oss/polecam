@@ -27,7 +27,7 @@ const r3 = v => Math.round(v * 1000) / 1000;
 const num = (v, d) => { const n = parseFloat(v); return isFinite(n) ? n : d; };
 const HELV = [278,278,355,556,556,889,667,222,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,222,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
 const CAP = 0.718;
-/* beta 7.15 (CEF template): the client's text size factor (its template's look, text.scale) while the sheets are laid out on its sheet
+/* (beta 7.15, CEF template) the client's text size factor (its template's look, text.scale) while the sheets are laid out on its sheet
    (50_export.js, tplSheets): every text is drawn that much larger and measured so, so that a text fitted to its room still fits. 1 otherwise. */
 let TXK = 1;
 /* width of a text whose capital letters are h high */

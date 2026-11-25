@@ -87,7 +87,7 @@ async function dxfText(X, tp) {      /* (beta 7.15, CEF template) tp: the projec
   const d = dxfSet();
   if (tp && !d.old) { const r = tplTry(() => tplDxf(X, tp, { details: d.det, photos: d.ph })); if (r) { const dims = await picDims(X), t = tplTry(() => CefTpl.write(r.sheets, r.sd, tp.T, { dims, fields: r.fields })); if (t) { TPLON.dxf = true; return t; } } }
   return sheetsDXF(dxfSheets(X), d.old ? { old: true } : { dims: await picDims(X) }); }
-/* ---------- beta 7.15 (CEF template): the CEF plan on the project's CEF template ----------
+/* ---------- (beta 7.15, CEF template) the CEF plan on the project's CEF template ----------
    The owner: "dxf for asplan and cef must be based from a template dxf … By changing the template dxf, the app can now accomodate plan creation
    from different clients using its template." A project with a client's CEF template (the app's Plan style › Template) has its CEF sheets on
    that client's sheet: the DXF made on the template (50_export.js: tplSheets, CefTpl), the PDF that DXF printed by the app (dxfpdf.js, the
@@ -1660,7 +1660,7 @@ function openSketch(file) {
 }
 /* beta 4.1: the same files as Save ZIP, handed to the app (its Drawing export puts them in a folder of its own ZIP) */
 async function planFiles() {
-  const X = appSketch(ROOT), base = baseName(X), tp = await tplNow(), tq = tp ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)), g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X, tp) }, { name: base + '_CEF.pdf', data: pdf }];      /* (beta 7.15: tp, the project's CEF template) */
+  const X = appSketch(ROOT), base = baseName(X), tp = await tplNow(), tq = tp ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)), g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X, tp) }, { name: base + '_CEF.pdf', data: pdf }];      /* (beta 7.15, CEF template: tp, the project's CEF template) */
   if (g) files.push({ name: base + '_CEF.kml', data: toKML(X, g) });      /* (14 Nov) one DXF: the top view alone on its map position is no longer made */
   for (const k in LOGO) files.push({ name: 'logos/' + k + '_logo.png', data: b64bytes(LOGO[k].src) });
   X.photos.forEach((p, i) => { const src = IMG[p.id]; if (src) files.push({ name: 'photos/photo_' + String(i + 1).padStart(2, '0') + '.jpg', data: b64bytes(src), pid: p.id }); });
@@ -1672,7 +1672,7 @@ async function doExport(kind) {
   if (busy || !dl) return; busy = true; note('Building the files…', 'note');
   try {
     saveNow();
-    const X = appSketch(ROOT), base = baseName(X), tp = await tplNow(), tq = tp && kind !== 'dxf' ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = kind === 'dxf' ? null : await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)); let name, data;      /* (beta 7.15: tp, the project's CEF template) */
+    const X = appSketch(ROOT), base = baseName(X), tp = await tplNow(), tq = tp && kind !== 'dxf' ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = kind === 'dxf' ? null : await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)); let name, data;      /* (beta 7.15, CEF template: tp, the project's CEF template) */
     if (kind === 'dxf') { name = base + '_CEF_sheets.dxf'; data = new Blob([await dxfText(X, tp)], { type: 'application/dxf' }); }      /* (19:25) the DXF alone */
     else if (kind === 'pdf') { name = base + '_CEF.pdf'; data = new Blob([pdf], { type: 'application/pdf' }); }
     else {
