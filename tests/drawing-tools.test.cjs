@@ -12,6 +12,9 @@
      pointer, its lines, proposed and existing), its pointer facing its label placed by hand.
    - Byte for byte: with none of the new fields (or them empty, or at their defaults) the DXF as beta 7.10 made it (its SHA-256, Standard and Tidy,
      the made-up templates).
+   - (beta 7.13, Drawing fixes) a pole's number placed by hand keeps the size it had where the plan put it (Tidy: its block's; Standard: its own), its dark
+     shadow under it as far off as its own size makes it (the owner: "Pole Numbering when moved generates a shadow and sometimes automaticall reduce"); with
+     no number placed by hand the DXF as beta 7.12 made it.
    Every name, number and place is made up; tests/fixtures/plan-seed-made-up-blocks.dxf is the made-up template with plain made-up symbols under the
    template's block names (fixtures/mkseed.py --square --blocks), so guys, groundings, arms, loops, closures and NAPs are drawn. */
 'use strict';
@@ -302,4 +305,33 @@ test('byte for byte: with none of the new fields, empty, or at their defaults, t
     got.push([sn, jn, vn, sha(out.text)]);
   }
   assert.deepEqual(got, WANT, 'as beta 7.10 made them');
+});
+
+test('(beta 7.13) a pole\'s number placed by hand: the size it had where the plan put it, its shadow under it in proportion; without one, the DXF as beta 7.12 made it', () => {
+  /** a number item's look in a DXF: its text's height, its circle's diameter (0: none), its dark shadow's offset from it (null: none) */
+  const look = (r, id) => { const E = entsOf(r.text), m = by(r.report.movable, id), es = m.handles.map((h) => E.get(h)), dark = (e) => +g1(e, 62) === 250;
+    const t = es.find((e) => e.type === 'TEXT' && !dark(e)), ts = es.find((e) => e.type === 'TEXT' && dark(e)), c = es.find((e) => e.type === 'CIRCLE' && !dark(e)), cs = es.find((e) => e.type === 'CIRCLE' && dark(e));
+    return { m, h: +g1(t, 40), d: c ? 2 * +g1(c, 40) : 0, dc: cs ? 2 * +g1(cs, 40) : null, so: ts ? [+g1(ts, 10) - +g1(t, 10), +g1(ts, 20) - +g1(t, 20)] : null, soC: c && cs ? [+g1(cs, 10) - +g1(c, 10), +g1(cs, 20) - +g1(c, 20)] : null }; };
+  // Tidy (in its block, then on its own) and Standard, the number styles the owner may set (its height and circle in Plan style), a light colour (with its shadow)
+  for (const v of [{ labels: 'tidy' }, { labels: 'tidy', numStyle: { color: 3, h: 4, d: 7 } }, { labels: 'tidy', numStyle: { color: 3, h: 2, d: 7 } }, { labels: 'tidy', numStyle: { color: 4, h: 3, d: 0 } }, {}, { numStyle: { color: 3, h: 4, d: 5 } }]) {
+    const a = T.build(SEED_SQ, madeUpJob(v));
+    for (const [pid, at] of [['s3', [9, 12]], ['s8', [-14, 6]]]) {
+      const id = `num:${pid}`, A = look(a, id), b = T.build(SEED_SQ, madeUpJob({ ...v, pins: { [id]: { at } } })), B = look(b, id), w = `${JSON.stringify(v)} ${id}`;
+      assert.equal(B.m.how, 'by hand', w); assert.ok(!B.m.block, `${w}: on its own`); near(B.m.box[0] - B.m.anchor[0], at[0], 1e-6, `${w}: E`); near(B.m.box[1] - B.m.anchor[1], at[1], 1e-6, `${w}: N`);
+      near(B.h, A.h, 1e-9, `${w}: its text as high as where the plan put it`); near(B.d, A.d, 1e-9, `${w}: its circle as large`); if (A.d) near(B.m.box[2], A.m.box[2], 1e-9, `${w}: its box as large`); // (no circle: on its own its box has a margin round its text, as before)
+      for (const X of [A, B]) { assert.ok(X.so, `${w}: a light number over a dark shadow`); near(X.so[0], 0.08 * X.h, 1e-9, `${w}: its shadow 0.08 of its height right`); near(X.so[1], -0.08 * X.h, 1e-9, `${w}: and down`);
+        if (X.d) { near(X.dc, X.d, 1e-9, `${w}: its circle's shadow as large`); near(X.soC[0], 0.08 * X.h, 1e-9, `${w}: under it`); } }
+      assert.deepEqual(B.m.text, [String(B.m.seq)], `${w}: one line to edit (its shadow is not a second one)`);
+    }
+  }
+  // the same with Text + on it (job.style h): its unmoved size times h, its shadow still in proportion
+  { const v = { labels: 'tidy', numStyle: { color: 3 } }, A = look(T.build(SEED_SQ, madeUpJob(v)), 'num:s3'), B = look(T.build(SEED_SQ, madeUpJob({ ...v, pins: { 'num:s3': { at: [9, 12] } }, style: { 'num:s3': { h: 1.5 } } })), 'num:s3');
+    near(B.h, 1.5 * A.h, 1e-9, 'Text +: half as high again'); near(B.d, 1.5 * A.d, 1e-9, 'its circle too'); near(B.so[0], 0.08 * B.h, 1e-9, 'its shadow in proportion'); }
+  // no number placed by hand (nothing, other items placed by hand and styled; Standard: a number placed by hand): the DXF as beta 7.12 made it (its SHA-256's first 16)
+  const WANT = [['blocks', 'rich', 'tidy', 'none', '3a862dc17942f1df'], ['blocks', 'rich', 'tidy', 'other', 'e213767ec1a48e4e'], ['square', '12', 'tidy', 'other', '25c77cf9e9440fb0'],
+    ['blocks', 'rich', 'std', 'num', '4507e7bd291f9104'], ['square', '12', 'std', 'num', 'd2e0594b498480a0'], ['square', '12', 'tnum', 'other', 'f9fab3a8a8751f16']];
+  const V = { std: {}, tidy: { labels: 'tidy' }, tnum: { labels: 'tidy', markMode: 'num', markNum: true } }, S = { blocks: SEED_BL, square: SEED_SQ };
+  const P = { none: {}, other: { pins: { 'lbl:s3': { at: [4, 9] }, 'ph:s4': { at: [10, 14] }, 'span:s5|s6': { at: [0, -12] } }, style: { 'num:s5': { h: 1.4 } } }, num: { pins: { 'num:s3': { at: [9, 12] } }, numPin: { s7: [-8, 10] } } };
+  const got = WANT.map(([sn, jn, vn, pn]) => [sn, jn, vn, pn, sha(T.build(S[sn], (jn === 'rich' ? richJob : madeUpJob)({ ...V[vn], ...P[pn] })).text)]);
+  assert.deepEqual(got, WANT, 'as beta 7.12 made them');
 });

@@ -2325,6 +2325,7 @@
        window fitted to its paper, as the PDF and a plot to fit print it). The street names stay as the template draws them. */
     const TIDY = job.labels === 'tidy', tidySym = [], tidyBadged = new Set(), tidyCard = new Set(); // (beta 4.8: the poles whose number / photo is in their Tidy label) // (tidySym: the IDs, loop lengths and closure names, level labels placed with the pole labels)
     const tidyPhAt = new Map(); // (beta 7.8, Drawing photos) where each photo in a Tidy pole block went (report.photoAt)
+    const tidyNumPin = new Map(); // ((beta 7.13, Drawing fixes) the poles whose number in their Tidy block was placed by hand: their block (the number's size there, numBlk))
     const wMed = (() => { const ws = polesOnly.filter((p) => p.near && p.near.r.w > 0).map((p) => p.near.r.w).sort((a, b) => a - b); return ws.length ? ws[Math.floor(ws.length / 2)] : 0; })();
     const streetAt = (q) => { // [W, the street's direction or null] (inside a road: the narrowest road there (at a junction, the side street); outside: the nearest road)
       if (!wMed) return [0, null]; let w = 0, dir = null;
@@ -2787,7 +2788,9 @@
         const v = pinXY(jNum[String(p.id)]); if (!v || p.onPole || p.el === 'Site' || !(markIdsP ? markIdsP.has(String(p.id)) : p.el === 'Pole')) continue; // (none on a tower or site) ((beta 7.11, Drawing tools) Tidy: a pole's number placed by hand is drawn on its own there, its block made without it)
         const ph = phP[p.id] || phP[String(p.id)]; if (mModeP === 'photo' && ph && ph.px > 0 && ph.py > 0) continue; // (its photo, not its number)
         const sq = job.seqOf && job.seqOf[String(p.id)] != null && job.seqOf[String(p.id)] !== '' ? String(job.seqOf[String(p.id)]) : '0000', nd0 = Math.max(NS.d, sq.length * NS.h * CHW + NS.h * 0.6);
-        const nF0 = TIDY ? Math.min(TS.l1 / NS.h / kAt(p.dp[0], p.dp[1]), Math.min(streetW(p.dp), 0.85 * wMed) / nd0 || 1) : 1, N0 = numPinGeo(p, [p.dp[0] + v[0], p.dp[1] + v[1]], nd0 * nF0); // (Tidy: as numF, at the largest size)
+        const nF0 = TIDY ? Math.min(TS.l1 / NS.h / kAt(p.dp[0], p.dp[1]), Math.min(streetW(p.dp), 0.85 * wMed) / nd0 || 1) : 1; // (Tidy: as numF, at the largest size)
+        const h0 = TIDY && p.el === 'Pole' && p.sym ? TS.l1 / kAt(p.dp[0], p.dp[1]) : 0, wl0 = h0 ? streetW(p.dp) : 0, b0 = h0 ? Math.max(sq.length * h0 * CHW + h0 * 0.6, NS.d > 0 ? 2.1 * h0 : 0) : 0; // ((beta 7.13, Drawing fixes) Tidy, a pole: at its block's size (numBlk), the largest)
+        const N0 = numPinGeo(p, [p.dp[0] + v[0], p.dp[1] + v[1]], h0 ? (wl0 > 0 ? Math.min(b0, wl0) : b0) : nd0 * nF0);
         const it = { kind: 'number', p, v, q: N0.q, box: [N0.q[0], N0.q[1], N0.nd, N0.nd, 0], res: [] }; pinHold(it, N0.boxes, 'num'); if (N0.lead) { const n1 = spots.list.length; spots.line(N0.lead, 0.4); spots.list.slice(n1).forEach((b) => { b.pw = PIN_W; if (TIDY) b.tag = 'lead'; }); it.res.push(...spots.list.slice(n1)); }
         pinAt.set(`num:${p.id}`, it);
       }
@@ -3374,6 +3377,7 @@
         const seqT = new Map(); mOrd.forEach((p, i) => { const g = job.seqOf && job.seqOf[String(p.id)]; seqT.set(p, g != null && g !== '' ? g : i + 1); });
         for (const T of tidyTodo) {
           const p = T.p, ph = seqT.has(p) ? mPh[p.id] || mPh[String(p.id)] : null; if (ph && ph.px > 0 && ph.py > 0 && !pinPl.has(p)) { T.photo = ph; tidyCard.add(p); } // (its photo at the end of its label, away from the pole; (beta 7.8, Drawing photos) not one placed by hand)
+          if (seqT.has(p) && !(mMode === 'photo' && ph) && pinAt.has(`num:${p.id}`)) tidyNumPin.set(p, T); // ((beta 7.13, Drawing fixes) drawn on its own at the size it has in this block: numBlk)
           if (!seqT.has(p) || (mMode === 'photo' && ph) || pinAt.has(`num:${p.id}`)) continue; // ((beta 7.11, Drawing tools) its number placed by hand: drawn on its own, the block without it)
           T.badge = { sq: String(seqT.get(p)), wl: streetW(p.dp) }; tidyBadged.add(p);
         } }
@@ -3927,6 +3931,17 @@
     const ANG_OUT = [0, 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90, 120, -120, 150, -150, 180]; // straight out from the road first
     const numD = (p) => Math.max(NS.d, String(p.seq).length * NS.h * CHW + NS.h * 0.6); // the number's circle (wider for a long number)
     const numF = (p) => (TIDY ? Math.min(TS.l1 / NS.h / kAt(p.dp[0], p.dp[1]), (p.el === 'Pole' ? streetW(p.dp) : Math.min(streetW(p.dp), 0.85 * wMed)) / numD(p) || 1) : 1); // (beta 4.8: as a pole's number in its label, at most as wide as the street) // (and on a finer grid, as much smaller) // beta 4.8: Tidy: the circle at most as wide as the street, its number as much smaller
+    /* (beta 7.13, Drawing fixes) the owner (after beta 7.12): "Pole Numbering when moved generates a shadow and sometimes automaticall reduce. this should not be".
+       In Tidy a pole's number placed by hand was drawn on its own at numF's size: its circle from the number style (NS.d over NS.h, e.g. 2.33 or 1.75 times its
+       height) where its block makes it 2.1 times its block's first line, so it came out smaller (or larger) once moved; and its dark shadow kept the full
+       number's offset (NS.h × 0.08) under a number a third as high: a dark copy beside it. Now it keeps the size it has in its block (as badgeSize makes it:
+       as high as the block's first line, the circle at most as wide as the street) and its shadow sits under it, 0.08 of its own height off, as in the block.
+       null: no block (Standard; a point that is not a pole): numF's size, as before. */
+    const numBlk = (p) => {
+      const T = TIDY ? tidyNumPin.get(p) : null; if (!T) return null; const sq = String(p.seq), wl = streetW(p.dp);
+      let hn = T.h, d = NS.d > 0 ? Math.max(sq.length * hn * CHW + hn * 0.6, 2.1 * hn) : sq.length * hn * CHW; if (wl > 0 && d > wl) { hn *= wl / d; d = wl; }
+      return { h: hn, d: NS.d > 0 ? d : 0, nd: NS.d > 0 ? d : sq.length * hn * CHW + hn * 0.6 }; // (h: its text's height, d: its circle (0: none), nd: its box)
+    };
     const RING = []; for (let a = 0; a < 360; a += 30) RING.push([Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)]); RING.push([0, 0]);
     // Drawing style › Photos (job.photoStyle.size): the long side of every photo in metres where the poles stand 25 m apart or more
     // (none set: 18 m, as before); where they stand closer, smaller as before (to two thirds), and smaller again where too many find no room
@@ -3937,7 +3952,7 @@
     const placePhotos = (Lp) => {
       const mark = spots.list.length, out = [], left = [], shrunk = []; let miss = 0, drop = 0; nNoRoom = 0; /* (beta 6.7: shrunk, the photos drawn smaller) */ // (beta 4.1: drop = photos left out in photo + number; beta 4.8: left, Tidy's photos with no free place)
       for (const it of pinAt.values()) if (it.kind === 'number') { // ((beta 7.10, Drawing labels) the numbers placed by hand first, at their size: their places were taken at the start, as large as they could be)
-        pinFree(it); const N = numPinGeo(it.p, it.q, numD(it.p) * numF(it.p)); pinHold(it, N.boxes, 'num'); it.N = N;
+        pinFree(it); const Z = numBlk(it.p), N = numPinGeo(it.p, it.q, Z ? Z.nd : numD(it.p) * numF(it.p)); pinHold(it, N.boxes, 'num'); it.N = N; // ((beta 7.13, Drawing fixes) Tidy: at its block's size)
         if (N.lead) { const n1 = spots.list.length; spots.line(N.lead, 0.4); spots.list.slice(n1).forEach((b) => { b.pw = PIN_W; if (TIDY) b.tag = 'lead'; }); it.res.push(...spots.list.slice(n1)); }
       }
       const setup = (p, noPh) => {
@@ -4178,15 +4193,16 @@
         // (beta 4.1: with photo + number the number is no longer written on the photo: it has its own place beside the pole, drawn below)
         MV.push({ id: `ph:${p.id}`, kind: 'photo', p, box: { cx: q[0], cy: q[1], w, h, a: 0 }, how: how === 'by hand' ? 'by hand' : 'auto', handles: hsOf(k0) }); // (beta 7.10, Drawing labels)
       } else {
-        const nF = numF(p), D = NS.d > 0 ? numD(p) * nF : 0, NL = how === 'by hand' ? !!nLead : NS.leader; // ((beta 7.10, Drawing labels) NL: placed by hand: its line where it stands away from its point)
-        const la = NL ? add2(p.dp, u, rOf(p) + 0.2) : null, lb = NL ? add2(q, u, -(D || NS.h * nF) / 2 - 0.2) : null, lead = la && dist2(la, lb) > 0.5;
+        const nF = numF(p), D0 = NS.d > 0 ? numD(p) * nF : 0, NL = how === 'by hand' ? !!nLead : NS.leader; // ((beta 7.10, Drawing labels) NL: placed by hand: its line where it stands away from its point)
+        const Z = how === 'by hand' ? numBlk(p) : null, hT = Z ? Z.h : NS.h * nF, D = Z ? Z.d : D0, nd = Z ? Z.nd : numD(p) * nF, so1 = how === 'by hand' ? hT * 0.08 : so; // ((beta 7.13, Drawing fixes) placed by hand: Tidy, its block's size; its shadow under it as far off as its own size makes it)
+        const la = NL ? add2(p.dp, u, rOf(p) + 0.2) : null, lb = NL ? add2(q, u, -(D || hT) / 2 - 0.2) : null, lead = la && dist2(la, lb) > 0.5;
         const rc = p.numCol != null && +p.numCol > 0, nC = rc ? +p.numCol : nCol, bC = rc ? +p.numCol : bCol, sN1 = rc ? litCol(nC) : shN, sB1 = rc ? litCol(bC) : shB; // (beta 6.5: its RTA/JPA category's colour, number and circle)
-        if (sB1) { if (D) o.circle(nLay, q[0] + so, q[1] - so, D / 2, { color: SH }); if (lead) o.lwpoly(nLay, [[la[0] + so, la[1] - so], [lb[0] + so, lb[1] - so]], { color: SH }); } // the shadows first (drawn under)
-        if (sN1) o.text(nLay, q[0] + so, q[1] - so, NS.h * nF, String(p.seq), { ha: 1, va: 2, style: 'arial', color: SH });
+        if (sB1) { if (D) o.circle(nLay, q[0] + so1, q[1] - so1, D / 2, { color: SH }); if (lead) o.lwpoly(nLay, [[la[0] + so1, la[1] - so1], [lb[0] + so1, lb[1] - so1]], { color: SH }); } // the shadows first (drawn under)
+        if (sN1) o.text(nLay, q[0] + so1, q[1] - so1, hT, String(p.seq), { ha: 1, va: 2, style: 'arial', color: SH });
         if (D) o.circle(nLay, q[0], q[1], D / 2, { color: bC });
-        o.text(nLay, q[0], q[1], NS.h * nF, String(p.seq), { ha: 1, va: 2, style: 'arial', color: nC });
+        o.text(nLay, q[0], q[1], hT, String(p.seq), { ha: 1, va: 2, style: 'arial', color: nC });
         if (lead) o.lwpoly(nLay, [la, lb], { color: bC });
-        MV.push({ id: `num:${p.id}`, kind: 'number', p, box: { cx: q[0], cy: q[1], w: numD(p) * nF, h: numD(p) * nF, a: 0 }, how: how === 'by hand' ? 'by hand' : 'auto', handles: hsOf(k0), seq: p.seq, line: how === 'by hand' && lead ? [la, lb] : null }); // (beta 7.10, Drawing labels)
+        MV.push({ id: `num:${p.id}`, kind: 'number', p, box: { cx: q[0], cy: q[1], w: nd, h: nd, a: 0 }, how: how === 'by hand' ? 'by hand' : 'auto', handles: hsOf(k0), seq: p.seq, line: how === 'by hand' && lead ? [la, lb] : null }); // (beta 7.10, Drawing labels)
       }
     }
     /* (beta 7.8, Drawing photos) where each photo went, for the app's Drawing (always, not only with debug), in the points' UTM metres: its centre, size
