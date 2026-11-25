@@ -483,7 +483,7 @@
       this.n[t] = (this.n[t] || 0) + 1;
       return r;
     }
-    add(r) { this.model.push(r); return r; }
+    add(r) { this.model.push(r); if (this.own) this.own.push(r); return r; } // ((beta 7.11, Drawing tools) own: the list of the element being drawn, see OWN)
     lwpoly(layer, pts, o) {
       const r = this.base('LWPOLYLINE', layer, o); r.push([100, 'AcDbPolyline'], [90, I(pts.length)], [70, I((o && o.closed ? 1 : 0) | (o && o.gen ? 128 : 0))], [43, F(o && o.w ? o.w : 0)]);
       pts.forEach(([x, y, b]) => { r.push([10, F(x)], [20, F(y)]); if (b) r.push([42, F(b)]); }); // b: bulge of the arc to the next point
@@ -642,6 +642,21 @@
     if (!tb || !src) return null;
     const h = d.newHandle(), r = src.map(([c, v]) => [c, c === 5 ? h : c === 2 ? name : c === 3 ? 'arialbd.ttf' : c === 1071 ? I(33554466) : c === 70 ? I(0) : v]); // 1071: Arial, bold (0x2000000) + pitch and family 34
     const last = T.reduce((k, x, i) => (typ(x) === 'STYLE' ? i : k), -1); T.splice(last + 1, 0, r);
+    setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
+    d.index(); S.styles.add(name);
+    return name;
+  }
+  /** (beta 7.11, Drawing tools) an Arial text style bold and / or italic (Drawing tools › Style: B, I): its TrueType file (arialbd, ariali, arialbi) and
+      its font flags (1071: bold 0x2000000, italic 0x1000000, + pitch and family 34), as addBoldStyle's, so AutoCAD and the PDF (dxfpdf.js: Helvetica-Bold,
+      -Oblique, -BoldOblique) both show it; plain: the template's arial. Its name, or null. */
+  function addFontStyle(d, S, b, i) {
+    if (!b && !i && S.styles.has('arial')) return 'arial';
+    const name = `G-ESAA ARIAL${b || i ? ' ' : ''}${b ? 'B' : ''}${i ? 'I' : ''}`; if (S.styles.has(name)) return name;
+    const T = d.sec('TABLES').recs, tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'STYLE'), src = T.find((r) => typ(r) === 'STYLE' && /^arial$/i.test(get(r, 2) || '')) || T.find((r) => typ(r) === 'STYLE');
+    if (!tb || !src) return null;
+    const h = d.newHandle(), file = b && i ? 'arialbi.ttf' : b ? 'arialbd.ttf' : i ? 'ariali.ttf' : 'arial.ttf', fl = 34 + (b ? 0x2000000 : 0) + (i ? 0x1000000 : 0);
+    const r = src.map(([c, v]) => [c, c === 5 ? h : c === 2 ? name : c === 3 ? file : c === 1071 ? I(fl) : c === 70 ? I(0) : v]);
+    const last = T.reduce((k, x, j) => (typ(x) === 'STYLE' ? j : k), -1); T.splice(last + 1, 0, r);
     setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
     d.index(); S.styles.add(name);
     return name;
@@ -1487,6 +1502,105 @@
   /** v2.39: a pole's clamp label: its clamp types (the app's, picked from the route when the record left them blank) and its clamp
       size, e.g. "DEG+GCA 8-9" (v2.38 and before wrote CA for every pole: CA is only one of the types). */
   const clampText = (p) => [p.clampType, p.clamp].filter(Boolean).join(' ');
+  /* ---------------- (beta 7.11, Drawing tools) the plan's elements as records: their outline, moved, turned, sized ---------------- */
+  /** (beta 7.11, Drawing tools) an MTEXT's text as it reads (its formatting codes out, \P a new line, %%d a degree sign) */
+  const mtPlain = (s) => String(s).replace(/\\P/g, '\n').replace(/\\[A-Za-z][^;\\{}]*;/g, '').replace(/[{}]/g, '').replace(/%%[dD]/g, '°');
+  /** (beta 7.11, Drawing tools) the outline of a model record as drawn, [[x, y], …]: a text's four corners (its alignment, its width in Arial), an INSERT its
+      block's box (arcs too) as inserted, an IMAGE its frame, a circle 8 points round it; nothing for an attribute that is hidden, an empty text or an end of block. */
+  function recOutline(S, r) {
+    const t = typ(r), out = [], P = (x, y) => { if (Number.isFinite(x) && Number.isFinite(y)) out.push([x, y]); };
+    const frame = (x, y, a, x0, y0, w, h) => { const c = Math.cos(a), s = Math.sin(a); for (const [u, v] of [[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]]) P(x + u * c - v * s, y + u * s + v * c); };
+    if (t === 'TEXT' || t === 'ATTRIB') {
+      if (t === 'ATTRIB' && (parseInt(get(r, 70, '0'), 10) & 1)) return out;
+      const s = String(get(r, 1, '')); if (!s.trim()) return out;
+      const h = num(r, 40, 0), w = arialW(s, h) * (num(r, 41, 1) || 1), ha = parseInt(get(r, 72, '0'), 10) || 0, va = parseInt(get(r, t === 'ATTRIB' ? 74 : 73, '0'), 10) || 0, al = ha || va;
+      frame(num(r, al ? 11 : 10, 0), num(r, al ? 21 : 20, 0), num(r, 50, 0) * Math.PI / 180, ha === 1 || ha === 4 ? -w / 2 : ha === 2 ? -w : 0, va === 2 || ha === 4 ? -h / 2 : va === 3 ? -h : 0, w, h);
+    } else if (t === 'MTEXT') {
+      const h = num(r, 40, 0), L = mtPlain(all(r, 3).join('') + (get(r, 1) || '')).split('\n'), w = Math.max(0, ...L.map((x) => arialW(x, h))), H = h + (L.length - 1) * h * 5 / 3 * (num(r, 44, 1) || 1);
+      const at = parseInt(get(r, 71, '1'), 10) || 1, cl = (at - 1) % 3, rw = Math.floor((at - 1) / 3), k = r.findIndex((q) => q[0] === 11), a = k > 0 ? Math.atan2(num(r, 21, 0), num(r, 11, 1)) : num(r, 50, 0) * Math.PI / 180;
+      if (w > 0) frame(num(r, 10, 0), num(r, 20, 0), a, cl === 0 ? 0 : cl === 1 ? -w / 2 : -w, rw === 0 ? -H : rw === 1 ? -H / 2 : 0, w, H);
+    } else if (t === 'INSERT') {
+      const blk = S.blocks.get(get(r, 2)), bb = blk ? blockBoxA(S, get(r, 2), 0) || blockFillBox(blk) : null, ix = num(r, 10, 0), iy = num(r, 20, 0);
+      if (!bb) P(ix, iy);
+      else { const bx = num(blk.begin, 10, 0), by = num(blk.begin, 20, 0), sx = num(r, 41, 1), sy = num(r, 42, 1), a = num(r, 50, 0) * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a);
+        for (const [u, v] of [[bb[0], bb[1]], [bb[2], bb[1]], [bb[2], bb[3]], [bb[0], bb[3]]]) { const X = (u - bx) * sx, Y = (v - by) * sy; P(ix + X * c - Y * sn, iy + X * sn + Y * c); } }
+    } else if (t === 'LWPOLYLINE') { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); X.forEach((x, i) => P(x, Y[i])); }
+    else if (t === 'CIRCLE') { const x = num(r, 10, 0), y = num(r, 20, 0), q = num(r, 40, 0); for (let k = 0; k < 8; k++) P(x + q * Math.cos(k * Math.PI / 4), y + q * Math.sin(k * Math.PI / 4)); }
+    else if (t === 'SOLID') { for (const c of [10, 11, 12, 13]) P(num(r, c, NaN), num(r, c + 10, NaN)); }
+    else if (t === 'IMAGE') { const x = num(r, 10, 0), y = num(r, 20, 0), ux = num(r, 11, 0) * num(r, 13, 0), uy = num(r, 21, 0) * num(r, 13, 0), vx = num(r, 12, 0) * num(r, 23, 0), vy = num(r, 22, 0) * num(r, 23, 0); P(x, y); P(x + ux, y + uy); P(x + ux + vx, y + uy + vy); P(x + vx, y + vy); }
+    return out;
+  }
+  /** (beta 7.11, Drawing tools) the box of a block drawn only in fills (a landmark's icon, the blue disc of an existing GT pole): its hatches' and solids' points */
+  function blockFillBox(b) {
+    const xs = [], ys = [];
+    for (const e of b.ents) { const t = typ(e); if (t !== 'HATCH' && t !== 'SOLID') continue; const X = [...all(e, 10), ...(t === 'SOLID' ? [...all(e, 11), ...all(e, 12), ...all(e, 13)] : [])].map(Number), Y = [...all(e, 20), ...(t === 'SOLID' ? [...all(e, 21), ...all(e, 22), ...all(e, 23)] : [])].map(Number); X.forEach((x, i) => { if (Number.isFinite(x) && Number.isFinite(Y[i])) { xs.push(x); ys.push(Y[i]); } }); }
+    return xs.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] : null;
+  }
+  /** (beta 7.11, Drawing tools) points as one box in the frame turned a degrees: { cx, cy, w, h, a } (null: none) */
+  const ptsBox = (P, a) => {
+    if (!P.length) return null; const c = Math.cos(a * Math.PI / 180), s = Math.sin(a * Math.PI / 180); let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const [x, y] of P) { const u = x * c + y * s, v = -x * s + y * c; x0 = Math.min(x0, u); x1 = Math.max(x1, u); y0 = Math.min(y0, v); y1 = Math.max(y1, v); }
+    const mu = (x0 + x1) / 2, mv = (y0 + y1) / 2; return { cx: mu * c - mv * s, cy: mu * s + mv * c, w: x1 - x0, h: y1 - y0, a };
+  };
+  /** (beta 7.11, Drawing tools) moves a model record in place: each point x to c + t + R(a)·(s·(x − c)), its directions turned, its sizes times s and its
+      text's height times hs (none: s); a text, block or picture turned a degrees more. */
+  function xformRec(r, X) {
+    const c = X.c || [0, 0], t = X.t || [0, 0], s = X.s == null ? 1 : X.s, hs = X.hs == null ? s : X.hs, a = X.a || 0, A = a * Math.PI / 180, ca = Math.cos(A), sa = Math.sin(A), ty = typ(r);
+    const pt = (x, y) => { const dx = (x - c[0]) * s, dy = (y - c[1]) * s; return [c[0] + t[0] + dx * ca - dy * sa, c[1] + t[1] + dx * sa + dy * ca]; };
+    const pairsAt = (cx, f) => { for (let i = 1; i + 1 < r.length; i++) if (r[i][0] === cx && r[i + 1][0] === cx + 10) f(i); };
+    const movePt = (cx) => pairsAt(cx, (i) => { const q = pt(+r[i][1], +r[i + 1][1]); r[i][1] = F(q[0]); r[i + 1][1] = F(q[1]); });
+    const turnVec = (cx, k, fmt) => pairsAt(cx, (i) => { const x = +r[i][1], y = +r[i + 1][1]; r[i][1] = fmt((x * ca - y * sa) * k); r[i + 1][1] = fmt((x * sa + y * ca) * k); });
+    const times = (code, k) => { if (k === 1) return; for (let i = 1; i < r.length; i++) if (r[i][0] === code) r[i][1] = F(+r[i][1] * k); };
+    const turn = (at) => { if (!a) return; const k = r.findIndex((q, i) => i > 0 && q[0] === 50); if (k > 0) r[k][1] = F(+r[k][1] + a); else r.splice(at(), 0, [50, F(a)]); }; // (none yet: where the builder writes it)
+    const idx = (code, d0) => { const k = r.findIndex((q, i) => i > 0 && q[0] === code); return k > 0 ? k : d0; };
+    if (ty === 'TEXT' || ty === 'ATTRIB') { movePt(10); movePt(11); times(40, hs); turn(() => idx(51, idx(7, r.length))); }
+    else if (ty === 'MTEXT') {
+      movePt(10); times(40, hs); times(41, s);
+      if (a) { if (r.some((q, i) => i > 0 && q[0] === 11)) turnVec(11, 1, F); else { const k = r.findIndex((q, i) => i > 0 && q[0] === 72); r.splice(k > 0 ? k + 1 : r.length, 0, [11, F(ca)], [21, F(sa)], [31, '0.0']); } }
+    } else if (ty === 'INSERT') { movePt(10); times(41, s); times(42, s); times(43, s); turn(() => idx(43, r.length - 1) + 1); }
+    else if (ty === 'LWPOLYLINE') { movePt(10); times(43, s); }
+    else if (ty === 'CIRCLE') { movePt(10); times(40, s); }
+    else if (ty === 'SOLID') { for (const cx of [10, 11, 12, 13]) movePt(cx); }
+    else if (ty === 'IMAGE') { movePt(10); const P12 = (v) => String((+v).toPrecision(12)); turnVec(11, s, P12); turnVec(12, s, P12); }
+    return r;
+  }
+  /** (beta 7.11, Drawing tools) a block in an AutoCAD colour of the user's: a copy of it with every entity in that colour (so an INSERT's colour shows
+      whatever its block's entities say), as the existing arm's blue copy (blueBlock); its name, or null */
+  function tintBlock(d, S, src, aci) {
+    const name = `${src} C${aci}`; if (S.blocks.has(name)) return name; if (!copyBlock(d, S, src, name, () => true)) return null;
+    for (const e of (S.blocks.get(name) || { ents: [] }).ents) { for (let i = e.length - 1; i > 0; i--) if (e[i][0] === 420) e.splice(i, 1);
+      const k = e.findIndex(([c], i) => i > 0 && c === 62); if (k > 0) e[k][1] = I(aci); else { const l8 = e.findIndex(([c], i) => i > 0 && c === 8); e.splice(l8 > 0 ? l8 + 1 : e.length, 0, [62, I(aci)]); } }
+    return name;
+  }
+  /** (beta 7.11, Drawing tools) job.pins as given, each one checked: id → { at: [dE, dN] | null, rot: deg | null, tip: 0..1 | null } (a pin with none of them left out) */
+  function pinsOf(job) {
+    const out = new Map(), P = job && job.pins; if (!P || typeof P !== 'object') return out;
+    for (const [id, v] of Object.entries(P)) {
+      if (!v || typeof v !== 'object') continue;
+      const at = Array.isArray(v.at) && v.at.length >= 2 && Number.isFinite(+v.at[0]) && Number.isFinite(+v.at[1]) ? [+v.at[0], +v.at[1]] : null;
+      const rot = v.rot != null && v.rot !== '' && Number.isFinite(+v.rot) ? +v.rot : null, tip = v.tip != null && v.tip !== '' && Number.isFinite(+v.tip) ? Math.max(0, Math.min(1, +v.tip)) : null;
+      if (at || rot != null || tip != null) out.set(String(id), { at, rot, tip });
+    }
+    return out;
+  }
+  /** (beta 7.11, Drawing tools) one of beta 7.10's pin maps (phPin, numPin, lblPin, cabPin) with job.pins of its kind put in (pins win): the map given
+      when there are none, so a job without them is read as before. f: a pin as that map has it (only pins with at). */
+  function pinMerge(m, PINS, kind, f) {
+    let out = null; for (const [id, v] of PINS) { if (!v.at || !id.startsWith(kind + ':')) continue; out = out || { ...(m && typeof m === 'object' ? m : {}) }; out[id.slice(kind.length + 1)] = f(v); }
+    return out || m;
+  }
+  /** (beta 7.11, Drawing tools) where a point is drawn by hand: job.poleAt { [pointId]: [E, N] }, else pins['pole:<id>' | 'site:<id>'].at from its
+      surveyed place (a tower's pin moves its model only: not here); pointId → [E, N] */
+  function handAtOf(job, PINS) {
+    const out = new Map(), PA = job && job.poleAt && typeof job.poleAt === 'object' ? job.poleAt : {};
+    for (const p of (job && job.pts) || []) {
+      const id = String(p.id), v = PA[id];
+      if (Array.isArray(v) && v.length >= 2 && Number.isFinite(+v[0]) && Number.isFinite(+v[1])) { out.set(id, [+v[0], +v[1]]); continue; }
+      const pn = PINS.get(`pole:${id}`) || (p.el === 'Site' && !/olt/i.test(p.siteKind || '') ? null : PINS.get(`site:${id}`));
+      if (pn && pn.at && Number.isFinite(+p.E) && Number.isFinite(+p.N)) out.set(id, [+p.E + pn.at[0], +p.N + pn.at[1]]);
+    }
+    return out;
+  }
   /* ---------------- the build ---------------- */
   // v2.32: new fiber red, existing fiber blue (the drafting rule); aerial dashed, underground solid
   const AE_ = (lw) => ({ layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true, lw }), UG_ = (lw) => ({ layer: 'Proposed foc duct', color: 3, w: 0.7776, aerial: false, lw }); // v2.42.24: lw, the line weight by size (Balanced, 1/100 mm)
@@ -1556,6 +1670,42 @@
    *        (beta 7.10, Drawing labels) report.movable: [{ id: 'num:<pointId>' | 'lbl:<pointId>' | 'cab:<key>' | 'ph:<pointId>', kind: 'number' | 'details' |
    *        'cable' | 'photo', box: [cx, cy, w, h, deg], anchor: [E, N], how: 'auto' | 'by hand', handles: [the DXF entities that draw it], … }]:
    *        every item the Drawing may move, where it is)
+   *
+   * (beta 7.11, Drawing tools; the contract with the app: the scratchpad's stage4-contract.md) every element of the plan, not only 7.10's four kinds:
+   *   report.movable lists (always) the other elements first, in the order drawn, then 7.10's items (a parent before what it carries): pole:<pid> (a
+   *   point's symbol: a pole, a pull-off or cross-over with its name, a handhole / manhole / service box with its ID and lat / long), site:<pid> (a
+   *   tower and its line or arrow to its point, an OLT, the ODC, an ODF), sitelbl:<pid> (sitedetails: a tower's name and PLA ID beside it and its
+   *   lat / long; the ODC's ID and lat / long; an ODF's label; an OLT's lat / long), sitename:<pid> (an OLT's name; a tower's name on the tower),
+   *   nap:<pid> (its box or boxes and its ID), clo:<pid> (closure: its pentagon, crowded its line to its pole), clolbl:<pid> (closurelabel: PROPOSED
+   *   CLOSURE and its arrow, an existing closure's ID), loop:<pid> (its "15m LOOP" text), span:<a>|<b> (a span's length; a, b its point ids sorted as
+   *   strings), guy:<pid>[:n], gnd:<pid>[:n] (ground), arm:<pid>[:n] (an arm, the telco arm and its name, a riser; n from 2, in the order drawn),
+   *   lm:<NAME>@<E>,<N> (landmark: its icon and name; E, N its place in whole metres), road:<NAME>#<n> (a street's name on the n-th GEO sheet, from
+   *   1: once a sheet). Each DXF entity is one item's only; the cable, the roads, the grid, the loops' symbols and clamp tags are none's. Tidy: a pole's
+   *   number is num:<pid> (block: true), its block's with lists it. Each item: { id, kind, box: [cx, cy, w, h, deg] (deg its own angle: a text's, a
+   *   block's turn; a guy, grounding or arm: from its pole's drawn centre to its middle; a label's box its texts, not its line or arrow), anchor,
+   *   how, handles, can: { move, rotate, about? (guy / ground / arm: its pole's drawn centre), scale, text, color, callout? (closurelabel),
+   *   lead? (photo, details, number, cable, span, loop, closurelabel), status? { now: 'existing' | 'proposed', field: the job.pts field (status;
+   *   on a pole: napOld, closureOld; an arm: armType (proposed) or armText (existing)), point } }, pole? (what hangs on a pole), with? (a pole:
+   *   everything hanging on it; a site: its details and name; a Tidy block: its photo and number), span? ([a, b]), cut?, point?, name? }.
+   *   anchor: a pole's or an OLT's, ODC's or ODF's surveyed place (job.pts E, N); a tower's details and name, its point; a tower: its point as drawn;
+   *   a NAP, closure, guy, grounding, arm: its pole as drawn; a closure's label: its closure's middle; a loop: the loop's middle; a span's length:
+   *   its cable's middle; a landmark: its place; a street's name: its GEO sheet's middle.
+   * A cable label also gives spanPts (its own line on its span as drawn, from span[0] to span[1]) and tip (where its arrow points, when it has one).
+   * job.pins { [id]: { at: [dE, dN], rot: deg, tip: 0..1 } }: tip (a cable label placed by hand, away from its line): its arrow's point that far along
+   *   spanPts by length; at, the item's box middle at anchor + at (a pole, OLT, ODC, ODF: the point drawn there,
+   *   as poleAt; a tower: its model there, the point kept, with its line or arrow to it; a guy, grounding, arm: no at); rot, its box's angle after
+   *   (a guy, grounding, arm turned about its pole's drawn centre to point that way); 7.10's kinds: ph / num / lbl / cab pins with at go where
+   *   phPin / numPin / lblPin / cabPin go (pins win; details and cable labels take rot there; none: level, as 7.10); rot alone, or a photo's or
+   *   number's: turned where it is. Moved away from what it names: a span's length and a loop's text keep a thin line to it, a closure's label its
+   *   arrow (drawn again). job.poleAt { [pointId]: [E, N] }: the point drawn exactly there (a pole within 6 m of a road edge: its cable in that
+   *   road's lane), its spans, cable, labels, photo, number and attachments with it; report.drawnAt says so; the lat / long and the lengths written
+   *   stay the record's (a copy of the point is drawn, the job is not changed).
+   * job.style { [id]: { h, scale, bold, italic, color, lead, callout } }, job.styleKind { [kind]: the same } (the item's own wins, field by field): h its
+   *   texts' size (a label from its middle; a symbol's texts each where it stands), scale a symbol's size (a guy, grounding, arm from where it meets
+   *   its pole; a closure's bubble callout: its circle and pointer), bold / italic (an Arial style made for it, an MTEXT's own codes), color an AutoCAD colour for the whole item (a block: a copy of it in
+   *   that colour), lead false: no line or arrow to what it names; job.leaders { photo, details, number }: false, none for every one of them.
+   * job.cloStyle 'bubble' (or a closure label's own callout, or its kind's): each closure, proposed and existing, labelled with the owner's CAD callout
+   *   (see bubDraw); 'arrow' or none: PROPOSED CLOSURE and its arrow, as before. job.pts cloSize (e.g. '72C') and cloFacing (a site's name): its lines.
    */
   /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
       every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
@@ -1605,6 +1755,12 @@
   }
   function buildOne(seedText, job) {
     centerCache.clear();
+    /* (beta 7.11, Drawing tools) job.pins { [id]: { at, rot, tip } } (see the job above): the ones of beta 7.10's kinds go where 7.10's pins go (pins win), the
+       others are taken at the end of the build (DT). job.poleAt { [pointId]: [E, N] } and pins['pole:<id>' | 'site:<id>'].at (from its surveyed place;
+       a tower's: its model only, see towerAt): the point drawn there, from a copy of it (and of its spans), so the job given is not changed. */
+    const PINS = pinsOf(job), H0 = handAtOf(job, PINS);
+    if (H0.size) job = { ...job, pts: job.pts.map((p) => (H0.has(String(p.id)) ? { ...p, E: H0.get(String(p.id))[0], N: H0.get(String(p.id))[1], handAt: [+p.E, +p.N] } : p)), spans: (job.spans || []).map((s) => (H0.has(String(s.ia)) || H0.has(String(s.ib)) ? { ...s, a: H0.has(String(s.ia)) ? H0.get(String(s.ia)).slice() : s.a, b: H0.has(String(s.ib)) ? H0.get(String(s.ib)).slice() : s.b } : s)) };
+    const jPh = pinMerge(job.phPin, PINS, 'ph', (v) => v.at), jNum = pinMerge(job.numPin, PINS, 'num', (v) => v.at), jLbl = pinMerge(job.lblPin, PINS, 'lbl', (v) => [v.at[0], v.at[1], ...(v.rot != null ? [v.rot] : [])]), jCab = pinMerge(job.cabPin, PINS, 'cab', (v) => ({ at: v.at, ...(v.rot != null ? { rot: v.rot } : {}), ...(v.tip != null ? { tip: v.tip } : {}) }));
     const d = new Doc(seedText);
     d.keepRaster = true; const clean0 = clean(d); d.keepRaster = false; // v2.42.8: the template repaired before it is filled (its picture settings kept for the photos)
     const oldBlocks = purgeOld(d);
@@ -1715,7 +1871,7 @@
          next sheet may not be made, and its name went with it) is placed again inside it; the others stay where they are */
       towerFit = (Wof) => {
         const ins = (T) => { const b = towerAt.get(T).box, W = Wof(T.E, T.N); return b[0] >= W[0] - 1e-6 && b[1] >= W[1] - 1e-6 && b[2] <= W[2] + 1e-6 && b[3] <= W[3] + 1e-6; };
-        const out = list.filter((T) => !ins(T)), done = list.filter((T) => !out.includes(T)).map((T) => towerAt.get(T).box);
+        const out = list.filter((T) => !ins(T) && !towerAt.get(T).byHand), done = list.filter((T) => !out.includes(T)).map((T) => towerAt.get(T).box); // ((beta 7.11, Drawing tools) one placed by hand: where it was put)
         for (const T of out) {
           const b0 = towerAt.get(T), { best } = placeT(T, Wof(T.E, T.N), !b0.moved, done);
           done.push(best.box); towerAt.set(T, best);
@@ -1725,6 +1881,11 @@
       };
     }
     const tw = (T) => { const w = towerAt.get(T) || { ax: T.E, ay: T.N, k: 1 / NU, moved: false }; if (NU > 1) w.nu = NU; return w; }; // (beta 4.8: nu: Tidy's finer grid, for the name on the tower)
+    /* (beta 7.11, Drawing tools) a tower whose model was placed by hand on the Drawing (pins['site:<id>'].at): its model's middle at its point + at, at its
+       full size, its line or arrow to its point and its name with it; never moved again (into its sheet: towerFit) */
+    for (const T of pts) { if (T.el !== 'Site' || /olt/i.test(T.siteKind || '')) continue; const pn = PINS.get(`site:${T.id}`); if (!pn || !pn.at) continue;
+      const k = 1 / NU, bb = blockBoxA(S, 'X-BTS', 0), sc = 2.4 * k, cx = bb ? (bb[0] + bb[2]) / 2 * sc : 0, cy = bb ? (bb[1] + bb[3]) / 2 * sc : 24 * k, ax = T.E + pn.at[0] - cx, ay = T.N + pn.at[1] - cy;
+      towerAt.set(T, { ax, ay, k, moved: Math.hypot(ax - T.E, ay - T.N) > 0.5, box: [ax - 12.4 * k, ay, ax + 12.4 * k, ay + 48 * k], byHand: true }); }
     /** beta 7.4 / 2.45.6 (the owner's GEO sheet as a drafter finished it): a tower's name, its PLA ID and its lat / long are one group,
         under the tower (Plan style › Site name and ID: Bottom, the default; Top: above it; Side: beside it; On the tower: the name on its
         body, its lat / long under it), never apart nor on another sheet. Sizes: Tidy, the pole blocks' (the name as their first line, the
@@ -1742,7 +1903,7 @@
     { const byId0 = new Map(pts.map((p) => [String(p.id), p])), towers = pts.filter((p) => p.el === 'Site' && !/olt/i.test(p.siteKind || '')), nAt = new Map();
       for (const od of pts) { if (od.el !== 'ODF') continue;
         let T = null, dT = 45; towers.forEach((t) => { const dd = Math.hypot(t.E - od.E, t.N - od.N); if (dd < dT) { dT = dd; T = t; } }); if (!T) continue;
-        if (tw(T).moved) continue; // beta 3.7: the tower is drawn beside its point: the ODF stays where it was surveyed
+        if (tw(T).moved || od.handAt) continue; // beta 3.7: the tower is drawn beside its point: the ODF stays where it was surveyed ((beta 7.11, Drawing tools) one placed by hand: there)
         let side = ['left', 'right', 'below'].includes(job.odfPlace) ? job.odfPlace : 'auto';
         if (side === 'auto') { const nb = spans.map((sp) => (String(sp.ia) === String(od.id) ? sp.ib : String(sp.ib) === String(od.id) ? sp.ia : null)).filter((x) => x != null).map((x) => byId0.get(String(x))).find((q) => q && q !== T && q.el !== 'Site');
           const tE = tw(T).ax, tN = tw(T).ay; side = !nb ? 'left' : nb.E < tE - 13 ? 'left' : nb.E > tE + 13 ? 'right' : nb.N < tN ? 'below' : nb.E <= tE ? 'left' : 'right'; } // (beta 3.7: from where the tower is drawn)
@@ -1949,6 +2110,7 @@
       const out = (nr, side) => [-nr.dir[1] * side, nr.dir[0] * side], n = out(p.near, p.side);
       // an ODC is always set in line with the road (v2.37); the others keep a hand-placed pin that is well off the road
       if (p.keep && p.near.edge > KEEP_EDGE && p.el !== 'ODC') { p.td = [-n[0], -n[1]]; p.moved = 0; p.kept = true; continue; }
+      if (p.handAt) { p.td = [-n[0], -n[1]]; p.moved = 0; p.kept = true; if (p.el === 'Pole' && p.near.edge > 0.3 && p.near.edge <= KEEP_EDGE) p.cab = p.near.edge + CABLE_IN; continue; } // ((beta 7.11, Drawing tools) a point placed by hand on the Drawing: exactly there; a pole beside a road, its cable in that road's lane)
       const off = p.el === 'Pole' ? Math.max(POLE_OUT, p.rp + 0.6) : -CABLE_IN; // a pole beside the road, the cable's line inside it; the others on that line
       let q = add2(p.near.c, n, p.near.r.hw + off);
       if (off > 0) for (let it = 0; it < 4; it++) { const o2 = nearestRoad(R.roads, q, off - 0.1); if (!o2) break; q = add2(o2.c, out(o2, o2.side), o2.r.hw + off); } // a corner: out of the other road too
@@ -1992,7 +2154,7 @@
       //        cable meeting its end (v2.39 to v2.41 drew it only from the pole to the cable's usual line, 2 m or so, too small to read).
       //        On a narrow road the pole is set back from the road (3 m at most) so the cable stays in the road, 1 m from its far side;
       //        only beyond that is the arm drawn shorter.
-      if (p.arm && p.cab && p.near) {
+      if (p.arm && p.cab && p.near && !p.handAt) {
         const want = p.rp + p.arm.reach, maxDepth = Math.max(CABLE_IN, 2 * p.near.r.hw - 1.0); let dE = p.cab - CABLE_IN; // pole centre → road edge
         const over = want - dE - maxDepth;
         if (over > 0) { const back = Math.min(3, over); p.dp = add2(p.dp, p.td, -back); dE += back; p.moved = dist2(p.dp, [p.E, p.N]); }
@@ -2060,6 +2222,11 @@
       Manhole: ['PROPOSED MAN HOLE', 'PROPOSED MH', 0.7803353843555049, 'MH', 'EXISTING MH', 1.749630906627053],
       'Service box': ['proposed service box', 'PROPOSED SERVICE BOX', 0.7803353843555049, 'SB', 'EXISTING SERVICE BOX', 1.749630906627053] };
     const inl = new Map(), cloLate = []; let nCloOff = 0; // (2.44.12: the crowded closures drawn away from their pole)
+    /** (beta 7.11, Drawing tools) a closure's label: 'arrow' (PROPOSED CLOSURE and a red arrow, as before) or 'bubble' (the owner's CAD callout: a dashed
+        circle round the closure, a pointer, its lines beside it; an existing closure gets one too): its own (style['clolbl:<id>'].callout), its kind's,
+        Plan style's (job.cloStyle) */
+    const cloCall = (p) => { const k = p ? `clolbl:${p.id}` : '', a = p && job.style && job.style[k] && job.style[k].callout, b = job.styleKind && job.styleKind.closurelabel && job.styleKind.closurelabel.callout, v = a || b || job.cloStyle; return v === 'bubble' ? 'bubble' : 'arrow'; };
+    const BUB = (p) => cloCall(p) === 'bubble';
     /* 2.44.12: a closure in proportion to the drawing: its pentagon about a third of its street's width round (2.2 to 4.35 m, the
        template's size; 7 m streets where the roads are not known), its PROPOSED and ID as large as the other IDs. Where its pole is
        crowded (another point, or the riser's place toward a manhole, within a few metres) it is drawn on its cable a little away from
@@ -2306,11 +2473,11 @@
        as a photo further out has. Its box and its line are taken first, before the symbols' texts, the pole labels, the cable labels, the span
        lengths and the other photos, which keep off it. Across a sheet's edge, or off the sheets: said in the notes. */
     const pinPl = new Map(); // (each point's photo placed by hand: { q, w, h, u, lead })
-    if (job.phPin && typeof job.phPin === 'object') {
+    if (jPh && typeof jPh === 'object') {
       const mIds = Array.isArray(job.marks) ? new Set(job.marks.map(String)) : null, mMode = job.markMode || (job.markNum ? 'num' : 'photo'), mPh = mMode === 'num' ? {} : job.photos || {};
       const Lp0 = TIDY ? phMmOf(job) / (printK || 0.62) : phMmOf(job) * 1.1, cut = [], off = []; // (the size placePhotos gives every photo, below)
       for (const p of pts) {
-        const v = job.phPin[String(p.id)], ph = mPh[p.id] || mPh[String(p.id)];
+        const v = jPh[String(p.id)], ph = mPh[p.id] || mPh[String(p.id)];
         if (!Array.isArray(v) || !Number.isFinite(+v[0]) || !Number.isFinite(+v[1]) || p.onPole || !(mIds ? mIds.has(String(p.id)) : p.el === 'Pole') || !ph || !(ph.px > 0 && ph.py > 0)) continue;
         const LpK = TIDY ? Lp0 / kAt(p.dp[0], p.dp[1]) : Lp0, w = ph.px >= ph.py ? LpK : LpK * ph.px / ph.py, h = ph.px >= ph.py ? LpK * ph.py / ph.px : LpK;
         const q = [p.dp[0] + +v[0], p.dp[1] + +v[1]], u = unit(p.dp, q), r = rOf(p), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9);
@@ -2392,7 +2559,30 @@
        their pole. Across a sheet's edge, or on no sheet: said in the notes and on the item (report.movable). */
     const pinAt = new Map(); // (beta 7.10, Drawing labels) id ('num:' / 'lbl:' + point id, 'cab:' + key) → { kind, p | key, q: its middle [E, N], box: [cx, cy, w, h, deg] (as large as it can be), res: the boxes it holds, … }
     const MV = [], hsOf = (k0, k1) => o.model.slice(k0, k1).map((r) => r[1][1]); // (beta 7.10, Drawing labels) every item the Drawing may move, as written (report.movable); the handles of the records written from k0 (to k1)
-    const pinHs = () => new Set(MV.filter((m) => m.how === 'by hand').flatMap((m) => m.handles)); // (the records of the items placed by hand, written so far)
+    /* (beta 7.11, Drawing tools) every other element the Drawing may select (the contract's kinds: pole, site, sitedetails, sitename, nap, closure,
+       closurelabel, loop, span, guy, ground, arm, landmark, road): the records each one writes, gathered while it is drawn (o.own: its id's list), each
+       record one element's only (some taken over by another after, e.g. a tower's name attributes by its details: retag); placed, turned and styled
+       at the end of the build (DT, below). Nothing written changes: a job without pins, styles or the rest is drawn as before. */
+    const OWN = new Map(), attN = new Map(), LEAD = new Set(), BUBC = new Set(); // (LEAD: the records of an element that go to what it names: a line or arrow whose far end stays there; BUBC: a closure's bubble circle)
+    /* (beta 7.11, Drawing tools) the bubble callout as the owner's CAD drawing measures (owner-shots/latest-3: its circle 210 px round, the pointer's tip 50 px
+       out from the circle, 1.24 times its radius from its middle, its corners on the circle 27° each side, a chord 0.91 of the radius; the lines' capitals
+       18.5 px high, 28 px apart, starting 16 px past the tip, the first one level with it); the circle 6 times the text's height round (the owner's is
+       about 11: a little smaller on the plan, where it is crowded; Drawing tools › Size makes the whole bubble larger or smaller) */
+    const BUB_A = 27, BUB_TIP = 1.24, BUB_R = 6, BUB_LS = 1.5;
+    /** the pointer: 9 points on its circle (at, radius rb), BUB_A each side of the way v to its label */
+    const bubArc = (at, rb, v) => { const a0 = Math.atan2(v[1], v[0]), al = BUB_A * Math.PI / 180, arc = []; for (let k = 0; k <= 8; k++) { const a = a0 - al + 2 * al * k / 8; arc.push([at[0] + rb * Math.cos(a), at[1] + rb * Math.sin(a)]); } return arc; };
+    /** the label's place for a pointer facing v (its lines W wide, H high, th their height): the tip; its lines' alignment (xa, ha: beside a pointer to the
+        right they start just past the tip, left-aligned, as the owner's; to the left, its mirror: they end just before it, right-aligned; above or below,
+        left-aligned, the block centred on the tip) and its first line's middle (y1); its box; pv, the point of it nearest the tip (it grows from there) */
+    const bubGeo = (at, rb, th, v, W, H) => { const tip = add2(at, v, rb * BUB_TIP), gap = 0.8 * th, side = Math.abs(v[0]) >= 0.5, ha = side && v[0] < 0 ? 2 : 0, xa = side ? (v[0] >= 0 ? tip[0] + gap : tip[0] - gap) : tip[0] - W / 2;
+      const y1 = side ? tip[1] : v[1] > 0 ? tip[1] + gap + H - th / 2 : tip[1] - gap - th / 2, cy = y1 + th / 2 - H / 2, x0 = ha === 2 ? xa - W : xa, pv = side ? [xa, y1] : [tip[0], v[1] > 0 ? cy - H / 2 : cy + H / 2];
+      return { tip, xa, ha, y1, pv, bx: Spots.box(x0 + W / 2, cy, W + th * 0.4, H + th * 0.3, 0) }; };
+    const own = (id, kind, p, info) => { let g = OWN.get(id); if (!g) { g = { id, kind, p: p || null, recs: [], ...(info || {}) }; OWN.set(id, g); } return g; };
+    const owning = (id, kind, p, info, f) => { const g = own(id, kind, p, info), prev = o.own; o.own = g.recs; try { return f(); } finally { o.own = prev; } };
+    const attId = (k, p) => { const key = `${k}:${p.id}`, n = (attN.get(key) || 0) + 1; attN.set(key, n); return n > 1 ? `${key}:${n}` : key; }; // (guy:s3, then guy:s3:2 …: in the order drawn)
+    const retag = (id, toId, kind, p, pred, info) => { const g0 = OWN.get(id); if (!g0) return; const g = own(toId, kind, p, info); for (let i = 0; i < g0.recs.length; i++) if (pred(g0.recs[i])) { g.recs.push(g0.recs[i]); g0.recs.splice(i--, 1); } };
+    const visAtt = (r) => typ(r) === 'ATTRIB' && !(parseInt(get(r, 70, '0'), 10) & 1) && String(get(r, 1, '')).trim() !== ''; // (an attribute that shows)
+    const pinHs = () => new Set([...MV.filter((m) => m.how === 'by hand').flatMap((m) => m.handles), ...[...OWN.values()].filter((g) => PINS.has(g.id)).flatMap((g) => g.recs.map((r) => r[1][1]))]); // (the records of the items placed by hand, written so far; (beta 7.11, Drawing tools) and of the other elements with a pin)
     const pinXY = (v) => (Array.isArray(v) && Number.isFinite(+v[0]) && Number.isFinite(+v[1]) ? [+v[0], +v[1]] : null);
     const PIN_W = 5; // (where nothing is free, an automatic label covers a road line, the cable or another label before one placed by hand: its boxes count 5 times)
     const pinHold = (it, boxes, tag) => { spots.add(boxes, tag); for (const b of boxes) b.pw = PIN_W; it.res.push(...boxes); }, pinFree = (it) => { for (const b of it.res) b._k--; it.res = []; };
@@ -2426,12 +2616,17 @@
         cable beside it, else level, as the plan draws them). Beside its line (x, on the span g: geoOf; as near as the plan puts its labels, 2.5 m or
         twice its height): no arrow. Else the plan's own arrow, as where there is no room beside the cable: a shoulder from its end facing the span (along
         its text), a line to the nearest point of its span (inside its middle four fifths), a solid arrowhead there. Its box, rot, lead and its boxes. */
-    const cabPinGeo = (x, P, Q, g, q, h, rot0) => {
-      const tb = (a) => { const b0 = textBox(q[0], q[1], h, x.t, a, 1, 2); return TIDY ? realBox(b0, x.t, h) : b0; }, given = Number.isFinite(rot0), bA = tb(given ? rot0 : g.rd), off = x.r * g.sg;
-      const pth = FOLLOW ? spanPath.get(`${P.id}|${Q.id}`) : null, line = pth && pth.length > 1 ? pth.map((v, i) => { const t0 = unit(pth[Math.max(0, i - 1)], pth[Math.min(pth.length - 1, i + 1)]); return add2(v, [-t0[1], t0[0]], off); }) : [add2(g.a, g.nl, off), add2(g.b, g.nl, off)];
+    /** (beta 7.11, Drawing tools) a cable label's own line on its span as drawn (x: its line, on the span P → Q: geoOf g), from P to Q (report.movable spanPts) */
+    const cabLineOf = (x, P, Q, g) => { const off = x.r * g.sg, pth = FOLLOW ? spanPath.get(`${P.id}|${Q.id}`) : null; return pth && pth.length > 1 ? pth.map((v, i) => { const t0 = unit(pth[Math.max(0, i - 1)], pth[Math.min(pth.length - 1, i + 1)]); return add2(v, [-t0[1], t0[0]], off); }) : [add2(g.a, g.nl, off), add2(g.b, g.nl, off)]; };
+    /** (beta 7.11, Drawing tools) the point t (0..1) of the way along a line by its length */
+    const alongT = (line, t) => { const Ls = line.slice(1).map((v, i) => dist2(line[i], v)), Lt = Ls.reduce((a, v) => a + v, 0); let r = t * Lt; for (let i = 0; i < Ls.length; i++) { if (r <= Ls[i] || i === Ls.length - 1) { const f = Ls[i] > 1e-9 ? Math.min(1, r / Ls[i]) : 0; return [line[i][0] + (line[i + 1][0] - line[i][0]) * f, line[i][1] + (line[i + 1][1] - line[i][1]) * f]; } r -= Ls[i]; } return line[0].slice(); };
+    const cabPinGeo = (x, P, Q, g, q, h, rot0, tipT) => {
+      const tb = (a) => { const b0 = textBox(q[0], q[1], h, x.t, a, 1, 2); return TIDY ? realBox(b0, x.t, h) : b0; }, given = Number.isFinite(rot0), bA = tb(given ? rot0 : g.rd);
+      const line = cabLineOf(x, P, Q, g);
       const Ls = line.slice(1).map((v, i) => dist2(line[i], v)), Lt = Ls.reduce((s, v) => s + v, 0); // (the nearest point of its line, inside its middle four fifths: never at a pole)
       let tip = null, dTip = Infinity, acc = 0;
-      for (let i = 0; i < Ls.length; i++) { const A = line[i], B = line[i + 1], L = Ls[i]; if (L > 1e-9) { const f = Math.max((0.1 * Lt - acc) / L, 0, Math.min(1, ((q[0] - A[0]) * (B[0] - A[0]) + (q[1] - A[1]) * (B[1] - A[1])) / (L * L))), f2 = Math.min(f, (0.9 * Lt - acc) / L); if (f2 >= 0 && f2 <= 1) { const c = [A[0] + (B[0] - A[0]) * f2, A[1] + (B[1] - A[1]) * f2], dd = dist2(c, q); if (dd < dTip) { dTip = dd; tip = c; } } } acc += L; }
+      if (Number.isFinite(tipT)) tip = alongT(line, tipT); // ((beta 7.11, Drawing tools) the owner: "adjust arrow pointer along its cable": where it was put on its line, P → Q)
+      else for (let i = 0; i < Ls.length; i++) { const A = line[i], B = line[i + 1], L = Ls[i]; if (L > 1e-9) { const f = Math.max((0.1 * Lt - acc) / L, 0, Math.min(1, ((q[0] - A[0]) * (B[0] - A[0]) + (q[1] - A[1]) * (B[1] - A[1])) / (L * L))), f2 = Math.min(f, (0.9 * Lt - acc) / L); if (f2 >= 0 && f2 <= 1) { const c = [A[0] + (B[0] - A[0]) * f2, A[1] + (B[1] - A[1]) * f2], dd = dist2(c, q); if (dd < dTip) { dTip = dd; tip = c; } } } acc += L; }
       if (!tip) tip = [(line[0][0] + line[line.length - 1][0]) / 2, (line[0][1] + line[line.length - 1][1]) / 2];
       const gap = (() => { const u = [bA.ux, bA.uy], v = [bA.vx, bA.vy], dx = tip[0] - bA.cx, dy = tip[1] - bA.cy; return Math.hypot(Math.max(Math.abs(dx * u[0] + dy * u[1]) - bA.hw, 0), Math.max(Math.abs(dx * v[0] + dy * v[1]) - bA.hh, 0)); })();
       if (gap <= Math.max(2.5, 2 * h)) return { bx: bA, rot: given ? rot0 : g.rd, lead: null, segs: [] }; // (beside its line: no arrow)
@@ -2453,27 +2648,28 @@
       return { w: (Math.max(W1, W2) + d) * 1.15, h: (2 * 1.45 * h + 0.4 * h + 4 * 1.45 * hs) * 1.15 };
     };
     { const markIdsP = Array.isArray(job.marks) ? new Set(job.marks.map(String)) : null, mModeP = job.markMode || (job.markNum ? 'num' : 'photo'), phP = mModeP === 'num' ? {} : job.photos || {};
-      if (job.numPin && typeof job.numPin === 'object') for (const p of pts) { // the numbers
-        const v = pinXY(job.numPin[String(p.id)]); if (!v || p.onPole || p.el === 'Site' || !(markIdsP ? markIdsP.has(String(p.id)) : p.el === 'Pole') || (TIDY && p.el === 'Pole')) continue; // (none on a tower or site; Tidy: a pole's number is in its block)
+      if (jNum && typeof jNum === 'object') for (const p of pts) { // the numbers
+        const v = pinXY(jNum[String(p.id)]); if (!v || p.onPole || p.el === 'Site' || !(markIdsP ? markIdsP.has(String(p.id)) : p.el === 'Pole')) continue; // (none on a tower or site) ((beta 7.11, Drawing tools) Tidy: a pole's number placed by hand is drawn on its own there, its block made without it)
         const ph = phP[p.id] || phP[String(p.id)]; if (mModeP === 'photo' && ph && ph.px > 0 && ph.py > 0) continue; // (its photo, not its number)
         const sq = job.seqOf && job.seqOf[String(p.id)] != null && job.seqOf[String(p.id)] !== '' ? String(job.seqOf[String(p.id)]) : '0000', nd0 = Math.max(NS.d, sq.length * NS.h * CHW + NS.h * 0.6);
         const nF0 = TIDY ? Math.min(TS.l1 / NS.h / kAt(p.dp[0], p.dp[1]), Math.min(streetW(p.dp), 0.85 * wMed) / nd0 || 1) : 1, N0 = numPinGeo(p, [p.dp[0] + v[0], p.dp[1] + v[1]], nd0 * nF0); // (Tidy: as numF, at the largest size)
         const it = { kind: 'number', p, v, q: N0.q, box: [N0.q[0], N0.q[1], N0.nd, N0.nd, 0], res: [] }; pinHold(it, N0.boxes, 'num'); if (N0.lead) { const n1 = spots.list.length; spots.line(N0.lead, 0.4); spots.list.slice(n1).forEach((b) => { b.pw = PIN_W; if (TIDY) b.tag = 'lead'; }); it.res.push(...spots.list.slice(n1)); }
         pinAt.set(`num:${p.id}`, it);
       }
-      if (job.lblPin && typeof job.lblPin === 'object') for (const p of pts) { // the pole details
-        const v0 = job.lblPin[String(p.id)], v = pinXY(v0); if (!v || p.el !== 'Pole' || p.onPole || !p.sym) continue;
+      if (jLbl && typeof jLbl === 'object') for (const p of pts) { // the pole details
+        const v0 = jLbl[String(p.id)], v = pinXY(v0); if (!v || p.el !== 'Pole' || p.onPole || !p.sym) continue;
         const Q = [p.dp[0] + v[0], p.dp[1] + v[1]], it = { kind: 'details', p, v, q: Q, res: [] };
         if (TIDY) { const E = tidyEst(p); it.box = [Q[0], Q[1], E.w, E.h, 0]; pinHold(it, [Spots.box(Q[0], Q[1], E.w, E.h, 0)], 'label:pin'); } // (its block is made with the others: taken there first, at its size)
         else { const rr = readable(Number.isFinite(+v0[2]) ? +v0[2] : 0), G = stackPin(p, Q, rr); it.rr = rr; it.G = G; it.box = [G.B.cx, G.B.cy, G.B.w, G.B.h, rr]; pinHold(it, G.boxes, `label:${p.poleId}`); if (G.lead) { const n1 = spots.list.length; spots.line(G.lead, 0.3); spots.list.slice(n1).forEach((b) => { b.tag = 'leader'; b.pw = PIN_W; }); it.res.push(...spots.list.slice(n1)); } }
         pinAt.set(`lbl:${p.id}`, it);
       }
-      if (job.cabLabels && job.cabPin && typeof job.cabPin === 'object' && Object.keys(job.cabPin).length) { const LA = cabLineAt(); // the cable labels
-        for (const [k, pin] of Object.entries(job.cabPin)) {
+      if (job.cabLabels && jCab && typeof jCab === 'object' && Object.keys(jCab).length) { const LA = cabLineAt(); // the cable labels
+        for (const [k, pin] of Object.entries(jCab)) {
           const at = pin && pinXY(pin.at), L = LA.get(k); if (!at || !L) continue;
           const g = geoOf(L.P, L.Q), q = [g.m[0] + at[0], g.m[1] + at[1]], rot = pin.rot != null && Number.isFinite(+pin.rot) ? +pin.rot : NaN;
-          const h0 = (TIDY ? TS.span(wMed) : +job.cabH > 0 ? Math.min(3, Math.max(0.8, +job.cabH)) : Math.max(1.0, 1.3 * kG)) / (TIDY ? kAt(g.m[0], g.m[1]) : 1), C = cabPinGeo(L.x, L.P, L.Q, g, q, h0, rot); // (Tidy: its size at the largest it can be)
-          const it = { kind: 'cable', key: k, x: L.x, P: L.P, Q: L.Q, a: L.a, b: L.b, q, rot, m: g.m, box: [q[0], q[1], 2 * C.bx.hw, 2 * C.bx.hh, C.rot], res: [] }; pinHold(it, [C.bx], 'label'); if (C.segs.length) pinHold(it, C.segs, 'leader');
+          const tipT = pin.tip != null && Number.isFinite(+pin.tip) ? Math.max(0, Math.min(1, +pin.tip)) : NaN; // ((beta 7.11, Drawing tools) where its arrow points, along its line)
+          const h0 = (TIDY ? TS.span(wMed) : +job.cabH > 0 ? Math.min(3, Math.max(0.8, +job.cabH)) : Math.max(1.0, 1.3 * kG)) / (TIDY ? kAt(g.m[0], g.m[1]) : 1), C = cabPinGeo(L.x, L.P, L.Q, g, q, h0, rot, tipT); // (Tidy: its size at the largest it can be)
+          const it = { kind: 'cable', key: k, x: L.x, P: L.P, Q: L.Q, a: L.a, b: L.b, q, rot, tipT, m: g.m, box: [q[0], q[1], 2 * C.bx.hw, 2 * C.bx.hh, C.rot], res: [] }; pinHold(it, [C.bx], 'label'); if (C.segs.length) pinHold(it, C.segs, 'leader');
           pinAt.set(`cab:${k}`, it);
         }
       } }
@@ -2488,25 +2684,26 @@
           const reach = p.armLen || p.arm.reach, bb = blockBox(S, p.arm.b, 0), along = p.arm.dir[0] ? bb[2] - bb[0] : bb[3] - bb[1], sc = reach / (along || 1), top = topVertex(S, p.arm.b);
           const end = p.arm.dir[0] ? [bb[0], (bb[1] + bb[3]) / 2] : [top ? top[0] : (bb[0] + bb[2]) / 2, bb[3]], rot = deg(p.td) - deg(p.arm.dir), at = add2(p.dp, p.td, p.rp), e = rotv([end[0] * sc, end[1] * sc], rot);
           const exB = (A) => { const nm = blueBlock(d, S, A.b), ly = A.layer.replace(/^PROPOSED/, 'EXISTING'); if (!S.layers.has(ly)) addLayer(d, S, ly, 5); return [ly, nm]; }; // (beta 6.7)
-          const [aL, aB] = p.arm.ex ? exB(p.arm) : [lay(p.arm.layer), p.arm.b];
-          o.insert(aL, aB || p.arm.b, at[0] - e[0], at[1] - e[1], { scale: sc, rot });
+          const [aL, aB] = p.arm.ex ? exB(p.arm) : [lay(p.arm.layer), p.arm.b], armId = attId('arm', p); // ((beta 7.11, Drawing tools) each arm its own element)
+          owning(armId, 'arm', p, { status: { now: p.arm.ex ? 'existing' : 'proposed', field: p.arm.ex ? 'armText' : 'armType' } }, () => o.insert(aL, aB || p.arm.b, at[0] - e[0], at[1] - e[1], { scale: sc, rot }));
+          let arm2Id = null;
           const m = add2(p.dp, p.td, p.rp + reach / 2); spots.add(Spots.box(m[0], m[1], reach, 4, deg(p.td)));
           if (p.arm2 && S.blocks.has(p.arm2.b)) { // beta 6.7: an existing arm beside the new one, the same way, blue
             const b2 = blockBox(S, p.arm2.b, 0), al2 = p.arm2.dir[0] ? b2[2] - b2[0] : b2[3] - b2[1], sc2 = reach / (al2 || 1), top2 = topVertex(S, p.arm2.b), end2 = p.arm2.dir[0] ? [b2[0], (b2[1] + b2[3]) / 2] : [top2 ? top2[0] : (b2[0] + b2[2]) / 2, b2[3]];
             const rot2 = deg(p.td) - deg(p.arm2.dir), at2 = add2(at, rotv(p.td, 90), 1.2), e2 = rotv([end2[0] * sc2, end2[1] * sc2], rot2), [l2, n2] = exB(p.arm2);
-            o.insert(l2, n2 || p.arm2.b, at2[0] - e2[0], at2[1] - e2[1], { scale: sc2, rot: rot2 }); }
+            arm2Id = attId('arm', p); owning(arm2Id, 'arm', p, { status: { now: 'existing', field: 'armText' } }, () => o.insert(l2, n2 || p.arm2.b, at2[0] - e2[0], at2[1] - e2[1], { scale: sc2, rot: rot2 })); }
           if (p.arm.ex || p.arm2) { // (beta 6.7: its name along it, as before, blue)
             const txt = p.armText, h = 0.8 * Math.min(1, p.k || 1), side = rotv(p.td, 90), rr = readable(deg(p.td)), from = add2(p.dp, p.td, -p.rp), span = p.rp * 2 + reach, cands = [];
             for (const sd of [1, -1]) for (const g of [0, 0.6, 1.4, 2.4]) for (const a of [0, -0.6, 0.6]) { const q = add2(add2(from, p.td, span / 2 + a), side, sd * (p.rp * 1.05 + (p.arm2 ? 1.2 : 0.6) + h / 2 + 0.25 + g)); cands.push({ q, rr, cost: g * 0.6 + Math.abs(a) * 0.3, boxes: [textBox(q[0], q[1], h, txt, rr, 1, 2)] }); }
             const c = pickC(spots, cands, ROADLINE_W), ly = (p.arm2 || p.arm).layer.replace(/^PROPOSED/, 'EXISTING');
-            o.text(S.layers.has(ly) ? ly : lay(p.arm.layer), c.q[0], c.q[1], h, txt, { rot: c.rr, ha: 1, va: 2, style: 'arial', color: 5 }); spots.add(c.boxes, 'telco'); nExArm++; }
+            owning(p.arm2 && arm2Id ? arm2Id : armId, 'arm', p, null, () => o.text(S.layers.has(ly) ? ly : lay(p.arm.layer), c.q[0], c.q[1], h, txt, { rot: c.rr, ha: 1, va: 2, style: 'arial', color: 5 })); spots.add(c.boxes, 'telco'); nExArm++; }
         }
         if (p.telcoArm && !(p.arm && p.arm.ex) && !p.arm2) { // (beta 6.7: an existing extension / alley arm: its model, above) v2.42.1: the telco arm (from above): from the pole's face to the cable, the clamp where the cable passes; TELCO ARM beside it (v2.42.2: design H1, along the pole and the arm)
           if (!taDef) { addLayer(d, S, 'G-ESAA TELCO ARM', 7); const bs = addBoldStyle(d, S, 'G-ESAA BOLD'); [false, true].forEach((f) => { const B = telcoArmTop(f, bs); defineBlock(d, S, TA_BLOCK + (f ? ' R' : ''), B.polys, B.texts, B.solids); }); taDef = true; }
           const side = rotv(p.td, 90), off = p.arm ? 1.2 : 0, face = add2(add2(p.dp, p.td, p.rp), side, off); // beside a new arm when the pole has one too
           const hhN = inl.has(p) ? inl.get(p).hh : 0, L = Math.max(1.5, dist2(face, add2(p.A, side, off)) - hhN), sc = L / taBlk.clampX, rot = deg(p.td);
           const up = Math.abs(((readable(rot) - rot) % 360 + 360) % 360) < 1; // TELCO reads the right way up
-          o.insert(lay('G-ESAA TELCO ARM'), TA_BLOCK + (up ? '' : ' R'), face[0], face[1], { scale: sc, rot }); nTelco++;
+          const taId = attId('arm', p); owning(taId, 'arm', p, null, () => o.insert(lay('G-ESAA TELCO ARM'), TA_BLOCK + (up ? '' : ' R'), face[0], face[1], { scale: sc, rot })); nTelco++; // ((beta 7.11, Drawing tools) the telco arm and its name one element)
           const mid = add2(face, p.td, (taBlk.end * sc) / 2); spots.add(Spots.box(mid[0], mid[1], taBlk.end * sc * 1.05, 1.7 * sc, rot));
           // its name along the pole and the arm (0.8 m high): from the pole's back to the arm's end, clear of the pole symbol
           const txt = p.armText || 'TELCO ARM', h = 0.8 * Math.min(1, p.k || 1), /* (beta 6.3: an extension arm or 10-pin alley arm by its own name) */ cands = [], rr = readable(rot), from = add2(p.dp, p.td, -p.rp), span = p.rp * 2 + taBlk.end * sc;
@@ -2515,15 +2712,15 @@
             cands.push({ q, rr, cost: (sd < 0 ? 0.4 : 0) + g * 0.6 + Math.abs(a) * 0.3, boxes: [textBox(q[0], q[1], h, txt, rr, 1, 2)] });
           }
           const c = pickC(spots, cands, ROADLINE_W);
-          o.text(lay('G-ESAA TELCO ARM'), c.q[0], c.q[1], h, txt, { rot: c.rr, ha: 1, va: 2, style: 'arial' }); spots.add(c.boxes, 'telco');
+          owning(taId, 'arm', p, null, () => o.text(lay('G-ESAA TELCO ARM'), c.q[0], c.q[1], h, txt, { rot: c.rr, ha: 1, va: 2, style: 'arial' })); spots.add(c.boxes, 'telco');
         }
       } else if (p.el === 'Site' && /olt/i.test(p.siteKind || '')) { // v2.37: an OLT site: the OLT model (yellow when new, blue existing), its name above
         const nb0 = isNew && S.blocks.has('7') ? ['7', 'PORPOSED OLT', 0.0001060994181900193] : ['OLT1', 'EXISTING OLT', 1.749630906627053];
-        if (S.blocks.has(nb0[0])) { o.insert(lay(nb0[1], 'X-BTS'), nb0[0], p.E, p.N, { scale: nb0[2], center: true }); spots.add(Spots.box(p.E, p.N, 13, 15, 0)); nOlt++; }
+        if (S.blocks.has(nb0[0])) { owning(`site:${p.id}`, 'site', p, null, () => o.insert(lay(nb0[1], 'X-BTS'), nb0[0], p.E, p.N, { scale: nb0[2], center: true })); spots.add(Spots.box(p.E, p.N, 13, 15, 0)); nOlt++; }
         const nm = p.siteName || p.poleId || ''; if (nm) {
           const all4 = [[0, 10.5], [0, -10.5], [12, 0], [-12, 0], [-12, 10.5], [12, 10.5], [-12, -10.5], [12, -10.5]].map(([dx, dy]) => { const q = [p.E + dx, p.N + dy]; return { q, boxes: [textBox(q[0], q[1], 3, nm, 0, dx > 0 ? 0 : dx < 0 ? 2 : 1, 2)], ha: dx > 0 ? 0 : dx < 0 ? 2 : 1 }; });
           const inC = all4.filter((x) => cellHolds(x.boxes[0], p.E, p.N)), c = pick(spots, inC.length ? inC : all4.slice(0, 4)); // v2.42.10: inside its GEO sheet first
-          o.text(lay('X-BTS'), c.q[0], c.q[1], 3, nm, { ha: c.ha, va: 2, style: 'arial', color: pinColor(p) != null ? pinColor(p) : isNew ? 1 : 5 }); spots.add(c.boxes); }
+          owning(`sitename:${p.id}`, 'sitename', p, null, () => o.text(lay('X-BTS'), c.q[0], c.q[1], 3, nm, { ha: c.ha, va: 2, style: 'arial', color: pinColor(p) != null ? pinColor(p) : isNew ? 1 : 5 })); spots.add(c.boxes); }
       } else if (p.el === 'Site') { // v2.36: a pin's name in its colour (a pin placed on the map has one). v2.37: a new tower red
         let bn = 'X-BTS';
         if (isNew && copyBlock(d, S, 'X-BTS', 'G-ESAA P-BTS', () => true)) {
@@ -2539,12 +2736,13 @@
         spots.add(Spots.box(p.E, p.N, 10, 10, 0)); odfLate.push({ p, isNew }); // v2.42.26: the block and its label after the towers' names (step 9)
       } else if (p.el === 'NAP') { // a NAP pin away from every pole of the route: where it is
         const fN = TIDY ? fitW(8.5, [p.E, p.N]) / kAt(p.E, p.N) : 1; // (beta 4.8: Tidy: 0.7 W at most, its ID a level label beside it)
-        o.insert(isNew ? lay('PROPOSED NAP') : lay('EXISTING NAP'), isNew ? 'proposed NAP' : 'existing NAP', p.E, p.N, { scale: 0.7803353843555049 * fN, center: true }); const nbx = spots.add(Spots.box(p.E, p.N, 20 * fN, 9 * fN, 0));
-        if (p.poleId && TIDY) tidySym.push({ kind: 'id', at: [p.E, p.N], r: 10 * fN, box: nbx, ov: [0, -1], lines: [p.poleId], layer: lay('Proposed NAP ID', 'MISC'), style: idStyle, color: IDS.color || null, pole: null });
-        else if (p.poleId) { idText(lay('Proposed NAP ID', 'MISC'), p.E, p.N - 7, IDS.h, p.poleId, 0, null); spots.add(textBox(p.E, p.N - 7, IDS.h, p.poleId, 0, 1, 2)); }
+        owning(`nap:${p.id}`, 'nap', p, null, () => o.insert(isNew ? lay('PROPOSED NAP') : lay('EXISTING NAP'), isNew ? 'proposed NAP' : 'existing NAP', p.E, p.N, { scale: 0.7803353843555049 * fN, center: true })); const nbx = spots.add(Spots.box(p.E, p.N, 20 * fN, 9 * fN, 0));
+        if (p.poleId && TIDY) tidySym.push({ kind: 'id', at: [p.E, p.N], r: 10 * fN, box: nbx, ov: [0, -1], lines: [p.poleId], layer: lay('Proposed NAP ID', 'MISC'), style: idStyle, color: IDS.color || null, pole: null, own: [`nap:${p.id}`, 'nap', p, null] });
+        else if (p.poleId) { owning(`nap:${p.id}`, 'nap', p, null, () => idText(lay('Proposed NAP ID', 'MISC'), p.E, p.N - 7, IDS.h, p.poleId, 0, null)); spots.add(textBox(p.E, p.N - 7, IDS.h, p.poleId, 0, 1, 2)); }
       } else if (p.el === 'Closure') {
-        { const Rq = cloR([p.E, p.N]), m0 = o.model.length; o.insert(lay('P-JOINT'), 'P-Joint', p.E, p.N, { scale: Rq, attrs: { JT_ID: p.poleId || p.closureId || '', JOINT: 'JT' } }); spots.add(Spots.box(p.E, p.N, 2 * Rq, 2 * Rq, 0)); // (2.44.12: its size)
-          if (TIDY) for (const r of o.model.slice(m0)) { if (r[0][1] !== 'ATTRIB') continue; const g = (c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; }, h = +g(40, 0), tx = String(g(1, '')); if (!(h > 0) || !tx.trim()) continue; const al = +g(72, 0) || +g(74, 0), x = al ? +g(11, 0) : +g(10, 0), y = al ? +g(21, 0) : +g(20, 0); spots.add(textBox(x, y, h, tx, +g(50, 0), +g(72, 0), +g(74, 0) === 2 ? 2 : +g(74, 0) === 3 ? 3 : 0), 'label'); } } // (beta 6.0: Tidy: its ID and JT where the block puts them: nothing over them)
+        { const Rq = cloR([p.E, p.N]), m0 = o.model.length, bub = BUB(p); owning(`clo:${p.id}`, 'closure', p, null, () => o.insert(lay('P-JOINT'), 'P-Joint', p.E, p.N, { scale: Rq, attrs: bub ? { JT_ID: '', JOINT: '' } : { JT_ID: p.poleId || p.closureId || '', JOINT: 'JT' } })); retag(`clo:${p.id}`, `clolbl:${p.id}`, 'closurelabel', p, visAtt); spots.add(Spots.box(p.E, p.N, 2 * Rq, 2 * Rq, 0)); // (2.44.12: its size) ((beta 7.11, Drawing tools) its texts its label)
+          if (bub) cloLbl.push({ at: [p.E, p.N], R: Rq * 0.9, cid: p.poleId || p.closureId || 'CLOSURE', p, old: !isNew }); // ((beta 7.11) its bubble callout, with the others: its own texts left off)
+          if (TIDY && !bub) for (const r of o.model.slice(m0)) { if (r[0][1] !== 'ATTRIB') continue; const g = (c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; }, h = +g(40, 0), tx = String(g(1, '')); if (!(h > 0) || !tx.trim()) continue; const al = +g(72, 0) || +g(74, 0), x = al ? +g(11, 0) : +g(10, 0), y = al ? +g(21, 0) : +g(20, 0); spots.add(textBox(x, y, h, tx, +g(50, 0), +g(72, 0), +g(74, 0) === 2 ? 2 : +g(74, 0) === 3 ? 3 : 0), 'label'); } } // (beta 6.0: Tidy: its ID and JT where the block puts them: nothing over them)
       } else if (JNW[p.el]) { // beta 6.9: a pull-off (square) or cross-over (circle), and a thin line for each of its extended messengers
         const J = JNW[p.el], at = p.A || [p.E, p.N], sz = 3 * kG, P = (p.att || []).map((id) => byId.get(String(id))).filter((q) => q && (q.A || q.dp));
         if (!S.layers.has('MESSENGER')) addLayer(d, S, 'MESSENGER', 1);
@@ -2558,23 +2756,25 @@
         const arms = P.map((q) => { const foc = jnSpans.has(K2(p.id, q.id)), e = foc ? q.A || q.dp : add2(q.dp, unit(q.dp, at), q.rp || 0), ln = [at, e];
           o.lwpoly('MESSENGER', ln, { color: 1, lt: 'Continuous', lwt: 18 }); spots.line(ln, 0.6);
           return { id: String(q.id), foc, dp: q.dp.map((v) => +v.toFixed(3)), rp: +(q.rp || 0).toFixed(3), A: (q.A || q.dp).map((v) => +v.toFixed(3)), end: e.map((v) => +v.toFixed(3)) }; });
-        o.insert(J.b, J.b, at[0], at[1], { scale: sz, color: 1 }); const sb = spots.add(Spots.box(at[0], at[1], sz * 1.2, sz * 1.2, 0));
+        owning(`pole:${p.id}`, 'pole', p, null, () => o.insert(J.b, J.b, at[0], at[1], { scale: sz, color: 1 })); const sb = spots.add(Spots.box(at[0], at[1], sz * 1.2, sz * 1.2, 0));
         jnDone.push({ p, at, sz, P, J, sb, arms });
-      } else if (!inl.has(p) && !INLINE_EL.has(p.el)) o.circle(lay('MISC'), p.E, p.N, 2);
+      } else if (!inl.has(p) && !INLINE_EL.has(p.el)) owning(`pole:${p.id}`, 'pole', p, null, () => o.circle(lay('MISC'), p.E, p.N, 2));
     }
+    /** (beta 7.11, Drawing tools) the element a block on the cable and its ID belong to: [id, kind, point, info] (a NAP: the pole's boxes; the ODC: its site's) */
+    const inlOwn = (it) => (it.kind === 'nap' ? [`nap:${it.p.id}`, 'nap', it.p, { status: { now: it.p.napOld ? 'existing' : 'proposed', field: 'napOld' } }] : it.kind === 'ODC' ? [`sitelbl:${it.p.id}`, 'sitedetails', it.p, null] : [`pole:${it.p.id}`, 'pole', it.p, null]);
     let nOdc = 0;
     for (const it of inl.values()) { // the blocks on the cable, then their IDs below them (above when that place is taken)
       if (it.odc) { // v2.41: the ODC block (isometric cabinet), upright; red when new, blue existing (or the pin's colour)
         const { w, h, isNew, sc } = it.odc, col = it.col != null ? it.col : isNew ? 1 : 5;
-        o.insert(it.layer, ODC_BLOCK, it.at[0], it.at[1], { scale: sc, color: col }); it.sbox = spots.add(Spots.box(it.at[0], it.at[1], w, h, 0)); nInline++; nOdc++; continue;
+        owning(`site:${it.p.id}`, 'site', it.p, null, () => o.insert(it.layer, ODC_BLOCK, it.at[0], it.at[1], { scale: sc, color: col })); it.sbox = spots.add(Spots.box(it.at[0], it.at[1], w, h, 0)); nInline++; nOdc++; continue;
       }
       if (it.kind === 'clo') { it.sbox = spots.add(Spots.box(it.at[0], it.at[1], it.hh * 2, it.hh * 2, 0)); continue; } // v2.42.24: drawn with its texts, below
-      for (const x of it.parts || [it]) { o.insert(x.layer, x.b, x.at[0], x.at[1], { scale: x.sc, rot: x.rot, center: true }); x.sbox = spots.add(Spots.box(x.at[0], x.at[1], x.hl * 2, x.hh * 2, x.rot)); nInline++; }
+      for (const x of it.parts || [it]) { owning(...inlOwn(it), () => o.insert(x.layer, x.b, x.at[0], x.at[1], { scale: x.sc, rot: x.rot, center: true })); x.sbox = spots.add(Spots.box(x.at[0], x.at[1], x.hl * 2, x.hh * 2, x.rot)); nInline++; } // ((beta 7.11, Drawing tools) a NAP's boxes one element; a handhole, manhole, service box: its point's)
     }
     let nAutoIds = 0; const idLeadOf = new Map(); const placeIds = () => { // (idLeadOf: an ID's text -> its thin line back to its block, beta 4.7: the line follows the ID when Tidy slides it) // (beta 3.8: with Crowded places Auto, after the pole labels: they keep their place first)
     for (const it of [...inl.values()].flatMap((x) => (x.parts ? x.parts.map((y) => ({ ...y, kind: x.kind })) : [x]))) { // (v2.42: each box's own ID)
       if (!it.label || it.kind === 'clo') continue;
-      if (TIDY) { const pl = it.p && it.p.el === 'Pole' && it.p.td ? it.p : null; tidySym.push({ kind: 'id', at: it.at, r: Math.max(it.hl || 0, it.hh || 0), box: it.sbox, ov: pl ? pl.td : [0, -1], lines: [it.label], layer: it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? it.layer : lay('MISC'), style: idStyle, color: it.col != null ? it.col : IDS.color || null, pole: pl }); continue; } // beta 4.8: Tidy: a level label beside its block (end of step 8)
+      if (TIDY) { const pl = it.p && it.p.el === 'Pole' && it.p.td ? it.p : null; tidySym.push({ kind: 'id', at: it.at, r: Math.max(it.hl || 0, it.hh || 0), box: it.sbox, ov: pl ? pl.td : [0, -1], lines: [it.label], layer: it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? it.layer : lay('MISC'), style: idStyle, color: it.col != null ? it.col : IDS.color || null, pole: pl, own: inlOwn(it) }); continue; } // beta 4.8: Tidy: a level label beside its block (end of step 8)
       const rr = it.odc ? 0 : readable(it.rot), ux = [Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], dn = [ux[1], -ux[0]], th0 = IDS.h; // (the ODC's picture is upright: its ID level under it)
       // v2.39.1: on the side away from its pole first (the pole's own label goes on the pole's side), then a little further out or
       // along the cable; crossing a road edge line rather than covering a label or a symbol. v2.41: where every place is taken at the
@@ -2590,10 +2790,10 @@
         const c2 = xs.find((x) => x.boxes.reduce((t, b) => t + spots.hitsW(b, ROADLINE_W), 0) === 0); if (c2) { c = c2; nAutoIds++; }
       }
       const ly = it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? it.layer : lay('MISC');
-      const idR = idText(ly, c.q[0], c.q[1], c.th, it.label, rr, it.col); spots.add(c.boxes);
+      const IO = inlOwn(it), idR = owning(IO[0], IO[1], IO[2], IO[3], () => idText(ly, c.q[0], c.q[1], c.th, it.label, rr, it.col)); spots.add(c.boxes);
       if (c.far > 3 && job.crowd && job.crowd.leader !== false) { // (a thin line back to its block)
         const b = c.boxes[0], d0 = [c.q[0] - it.at[0], c.q[1] - it.at[1]], dl = Math.hypot(d0[0], d0[1]) || 1, u = [d0[0] / dl, d0[1] / dl], ext = Math.abs(u[0] * b.ux + u[1] * b.uy) * b.hw + Math.abs(u[0] * b.vx + u[1] * b.vy) * b.hh;
-        const a = add2(it.at, u, (it.hl || it.hh) + 0.3), e = add2(c.q, u, -(ext + 0.3)); if (dist2(a, e) > 0.8) { idLeadOf.set(idR, o.lwpoly(lay('MISC'), [a, e], { color: 8 })); spots.line([a, e], 0.3); }
+        const a = add2(it.at, u, (it.hl || it.hh) + 0.3), e = add2(c.q, u, -(ext + 0.3)); if (dist2(a, e) > 0.8) { idLeadOf.set(idR, owning(IO[0], IO[1], IO[2], IO[3], () => o.lwpoly(lay('MISC'), [a, e], { color: 8 }))); spots.line([a, e], 0.3); }
       }
     }
     };
@@ -2607,11 +2807,12 @@
       if (!copyBlock(d, S, g.b, name, (e) => typ(e) !== 'MTEXT' && typ(e) !== 'TEXT')) return false;
       const ends = lineEnds(S, name); if (!ends) return false;
       const L0 = ends[1][0] - ends[0][0], sc = len ? len / L0 : g.len ? g.len / L0 : g.sc, rot = deg(v), at = add2(p.dp, v, p.rp), e = rotv([ends[0][0] * sc, ends[0][1] * sc], rot);
+      const gId = attId('guy', p), prevOwn = o.own; o.own = own(gId, 'guy', p).recs; // ((beta 7.11, Drawing tools) each guy, its symbol and its code, one element)
       o.insert(lay(g.layer), name, at[0] - e[0], at[1] - e[1], { scale: sc, rot });
       const rr = readable(rot), flip = Math.abs(((rot - rr) % 360 + 360) % 360 - 180) < 1, nl = rotv([Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], 90);
       const tip = labelMid ? add2(add2(at, v, (L0 * sc) / 2), nl, 2.2) : add2(at, v, L0 * sc + 1.2);
       const gk = TIDY ? kAt(p.dp[0], p.dp[1]) : 1, gh = TIDY ? TS.sm / gk : 2.33; // (beta 4.8: Tidy: the size of the small texts, on its sheet)
-      const gr = o.text(lay(g.layer), tip[0], tip[1], gh, g.code, { rot: rr, ha: labelMid ? 1 : flip ? 2 : 0, va: 2, style: 'arial', color: 1 }); if (TIDY) TS.guys.push([gr, gk]);
+      const gr = o.text(lay(g.layer), tip[0], tip[1], gh, g.code, { rot: rr, ha: labelMid ? 1 : flip ? 2 : 0, va: 2, style: 'arial', color: 1 }); if (TIDY) TS.guys.push([gr, gk]); o.own = prevOwn;
       const m = add2(at, v, (L0 * sc) / 2); spots.add(Spots.box(m[0], m[1], L0 * sc, 4, rot)); spots.add(textBox(tip[0], tip[1], gh, g.code, rr, labelMid ? 1 : flip ? 2 : 0, 2));
       (dirsOf.get(p) || dirsOf.set(p, []).get(p)).push(v);
       return true;
@@ -2658,7 +2859,7 @@
         const ends = lineEnds(S, gb);
         if (ends) {
           const sc = 0.7803353843555049 / 2, v = free(p, [-p.td[0], -p.td[1]]), rot = deg(v), at = add2(p.dp, v, p.rp), e = rotv([ends[0][0] * sc, ends[0][1] * sc], rot), L = (ends[1][0] - ends[0][0]) * sc;
-          o.insert(lay('PROPOSED GROUNDING', 'MISC'), gb, at[0] - e[0], at[1] - e[1], { scale: sc, rot }); const m = add2(at, v, L / 2); spots.add(Spots.box(m[0], m[1], L, 3, rot)); (dirsOf.get(p) || dirsOf.set(p, []).get(p)).push(v); nGround++;
+          owning(attId('gnd', p), 'ground', p, null, () => o.insert(lay('PROPOSED GROUNDING', 'MISC'), gb, at[0] - e[0], at[1] - e[1], { scale: sc, rot })); const m = add2(at, v, L / 2); spots.add(Spots.box(m[0], m[1], L, 3, rot)); (dirsOf.get(p) || dirsOf.set(p, []).get(p)).push(v); nGround++;
         }
       }
       const ms = methodAt.get(p);
@@ -2674,7 +2875,7 @@
           for (const [w, f] of tries) { const r = rR * f, c = add2(o0, w, (p.rp || 1.2) * 1.1 + r + 0.4), n = spots.hitsW(Spots.box(c[0], c[1], 1.8 * r, 1.8 * r, 0), W_R) + (dist2(c, o0) < r + (p.rp || 1.2) * 1.1 + 0.2 ? 1 : 0);
             if (!bestR || n < bestR.n - 1e-9) bestR = { c, f, n }; if (!n) break; }
           q = bestR.c; rs *= bestR.f; p.riserAt = { c: q, r: rR * bestR.f }; }
-        if (S.blocks.has(rb)) { o.insert(lay('PROPOSED RISER', 'MISC'), rb, q[0], q[1], { scale: rs, center: true }); spots.add(Spots.box(q[0], q[1], inl.has(p) ? 6 * fR : 2 * rR * rs / (0.7803353843555049 * fR), inl.has(p) ? 6 * fR : 2 * rR * rs / (0.7803353843555049 * fR), 0)); nRiser++; }
+        if (S.blocks.has(rb)) { owning(attId('arm', p), 'arm', p, null, () => o.insert(lay('PROPOSED RISER', 'MISC'), rb, q[0], q[1], { scale: rs, center: true })); /* ((beta 7.11, Drawing tools) a riser: an attachment of its pole) */ spots.add(Spots.box(q[0], q[1], inl.has(p) ? 6 * fR : 2 * rR * rs / (0.7803353843555049 * fR), inl.has(p) ? 6 * fR : 2 * rR * rs / (0.7803353843555049 * fR), 0)); nRiser++; }
       }
     }
     // v2.37: directional boring (HDD) wherever an underground cable crosses a road, centred on the road, along the cable
@@ -2739,7 +2940,7 @@
         const mR2 = mL && Array.isArray(p.mloopR) && p.mloopR.length === mL.length ? p.mloopR : null;
         const rows = mR2 ? mL.map((v, i) => [+mR2[i] || 0, `${+(+v).toFixed(1)}m LOOP (RUN ${mR2[i]})`]).sort((a, b) => a[0] - b[0]).map((r) => r[1])
           : [mL ? (mL.every((v) => +v === +mL[0]) ? `${+(+mL[0]).toFixed(1)}m LOOP x${mL.length}` : `${mL.map((v) => `${+(+v).toFixed(1)}m`).join('+')} LOOP`) : `${+(+(p.mloopM || job.mloopLen || 15)).toFixed(1)}m LOOP`];
-        tidySym.push({ kind: 'loop', at: c0, r: Math.max(lw, lh) / 2, box: lbx, ov: side, lines: rows, layer: lay('PROPOSED LOOP'), style: null, color: null, pole: p });
+        tidySym.push({ kind: 'loop', at: c0, r: Math.max(lw, lh) / 2, box: lbx, ov: side, lines: rows, layer: lay('PROPOSED LOOP'), style: null, color: null, pole: p, own: [`loop:${p.id}`, 'loop', p, { at: c0 }] });
         nLoop++; return;
       }
       const txt = mL ? (mL.every((v) => +v === +mL[0]) ? `${+(+mL[0]).toFixed(1)}m LOOP x${mL.length}` : `${mL.map((v) => `${+(+v).toFixed(1)}m`).join('+')} LOOP`) : `${+(+(p.mloopM || job.mloopLen || 15)).toFixed(1)}m LOOP`, cs = []; // v2.42.18: each loop its own length // v2.39: 15m LOOP (15.0m before), as the company's plans
@@ -2754,11 +2955,11 @@
         for (const j of [lh + 0.9 + H / 2, -(1.2 + H / 2), lh + 3 + H / 2, -(3.5 + H / 2), lh + 6.5 + H / 2, -(7 + H / 2), lh + 11 + H / 2, -(11 + H / 2)]) for (const k of [0, 4, -4, 8, -8, 13, -13]) {
           const q = add2(add2(Q0, side, j), dir, k), Qs = at(q); cs2.push({ q, Qs, boxes: Qs.map((qi, i) => TB(qi[0], qi[1], th, rows[i], rd, 1, 2)) }); }
         const c2 = pick(spots, cs2);
-        c2.Qs.forEach((qi, i) => o.text(lay('PROPOSED LOOP'), qi[0], qi[1], th, rows[i], { rot: rd, ha: 1, va: 2 })); spots.add(c2.boxes, 'loop'); nLoop++;
+        owning(`loop:${p.id}`, 'loop', p, { at: c0 }, () => c2.Qs.forEach((qi, i) => o.text(lay('PROPOSED LOOP'), qi[0], qi[1], th, rows[i], { rot: rd, ha: 1, va: 2 }))); spots.add(c2.boxes, 'loop'); nLoop++;
         return;
       }
       const c = pick(spots, cs);
-      o.text(lay('PROPOSED LOOP'), c.q[0], c.q[1], 2.8125, txt, { rot: rd, ha: 1, va: 2 }); spots.add(c.boxes, 'loop'); nLoop++;
+      owning(`loop:${p.id}`, 'loop', p, { at: c0 }, () => o.text(lay('PROPOSED LOOP'), c.q[0], c.q[1], 2.8125, txt, { rot: rd, ha: 1, va: 2 })); spots.add(c.boxes, 'loop'); nLoop++; // ((beta 7.11, Drawing tools) at: the loop's middle, what its text names)
     };
     for (const p of polesOnly) {
       if (p.onPole) continue;
@@ -2772,24 +2973,26 @@
           cands.push({ q, lx, ty: tq[1], boxes: [textBox(lx - 1.5, tq[1] + IDS.h * 0.6, IDS.h, 'PROPOSED  ', 0, 0, 2), textBox(lx - 1.5, tq[1] - IDS.h * 0.85, IDS.h, cid + '  ', 0, 0, 2), Spots.box(q[0], q[1], 2 * Rq, 2 * Rq * 0.45, rd)] }); } // (a little room round the texts)
         if (TIDY) { // beta 4.8: Tidy: 0.7 W at most, its texts a level label beside it (end of step 8)
           const fC = fitW(1.9 * 4.35, base) / kAt(base[0], base[1]), c2 = pick(spots, cands.map((x) => ({ ...x, boxes: [Spots.box(x.q[0], x.q[1], 9 * fC, 4 * fC, rd)] }))), sb = spots.add(c2.boxes[0]), v0 = p.closureOld ? 'EXISTING' : 'PROPOSED';
-          if (!p.closureOld) { o.insert(lay('P-JOINT'), 'P-Joint', c2.q[0], c2.q[1], { scale: 4.35 * fC, rot: rd, attrs: { JT_ID: '', JOINT: '' } }); cloLbl.push({ at: c2.q, R: 4.35 * fC * 0.9, cid, p }); continue; } // (beta 6.7: its red label and arrow after everything else)
-          tidySym.push({ kind: 'clo', at: c2.q, r: 4.35 * fC, box: sb, ov: p.td, lines: [v0, cid], layer: lay('P-JOINT'), style: 'arial', color: null, pole: p,
+          if (!p.closureOld || BUB(p)) { owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', c2.q[0], c2.q[1], { scale: 4.35 * fC, rot: rd, attrs: { JT_ID: '', JOINT: '' } })); cloLbl.push({ at: c2.q, R: 4.35 * fC * 0.9, cid, p, ...(p.closureOld ? { old: true } : {}) }); continue; } // ((beta 7.11, Drawing tools) an existing one with a bubble callout: as a proposed one, its own texts left off) // (beta 6.7: its red label and arrow after everything else)
+          tidySym.push({ kind: 'clo', at: c2.q, r: 4.35 * fC, box: sb, ov: p.td, lines: [v0, cid], layer: lay('P-JOINT'), style: 'arial', color: null, pole: p, own: [`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }],
             write: (P) => o.insert(lay('P-JOINT'), 'P-Joint', c2.q[0], c2.q[1], { scale: 4.35 * fC, rot: rd, attrs: { JT_ID: { v: v0, x: P[0].x, y: P[0].y, h: P[0].h, ha: P[0].ha, va: 3 }, JOINT: { v: cid, x: P[1].x, y: P[1].y, h: P[1].h, ha: P[1].ha, va: 3 } } }) });
           continue;
         }
-        if (!p.closureOld) { const c = pick(spots, cands.map((x) => ({ ...x, boxes: x.boxes.slice(2) }))); o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: Rq, rot: rd, attrs: { JT_ID: '', JOINT: '' } }); spots.add(c.boxes); cloLbl.push({ at: c.q, R: Rq * 0.9, cid, p }); continue; } // (beta 6.7: its red label and arrow after everything else)
+        if (!p.closureOld || BUB(p)) { const c = pick(spots, cands.map((x) => ({ ...x, boxes: x.boxes.slice(2) }))); owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: Rq, rot: rd, attrs: { JT_ID: '', JOINT: '' } })); spots.add(c.boxes); cloLbl.push({ at: c.q, R: Rq * 0.9, cid, p, ...(p.closureOld ? { old: true } : {}) }); continue; } // ((beta 7.11, Drawing tools) as above) // (beta 6.7: its red label and arrow after everything else)
         const c = pick(spots, cands);
         const jt = { JT_ID: { v: p.closureOld ? 'EXISTING' : 'PROPOSED', x: c.lx, y: c.ty + IDS.h * 0.6, h: IDS.h, ha: 0, va: 2 }, JOINT: { v: cid, x: c.lx, y: c.ty - IDS.h * 0.85, h: IDS.h, ha: 0, va: 2 } }; // v2.41: an existing hybrid closure says so
-        o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: Rq, rot: rd, attrs: jt }); spots.add(c.boxes);
+        owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: Rq, rot: rd, attrs: jt })); retag(`clo:${p.id}`, `clolbl:${p.id}`, 'closurelabel', p, visAtt); spots.add(c.boxes); // ((beta 7.11, Drawing tools) its texts its label)
       }
     }
     let nCloInl = 0;
     for (const it of inl.values()) { // v2.42.24: each closure on the cable: its pentagon at its pole (v2.42.25: its texts after the loops and guys, so they cover none); PROPOSED and its ID (an existing one: its ID) where they cover nothing, smaller as needed
       if (it.kind !== 'clo') continue;
-      if (!it.old) { o.insert(it.layer, 'P-Joint', it.at[0], it.at[1], { scale: it.sc, attrs: { JT_ID: '', JOINT: '' } }); cloLbl.push({ at: it.at, R: it.hh, cid: it.cid, p: it.p }); nInline++; nCloInl++; continue; } // (beta 6.7: a proposed one: its red label and arrow after everything else)
+      if (it.old && BUB(it.p)) { const at = it.at, R = it.hh, pts5 = [...Array(5)].map((_, i) => { const a = (90 + i * 72) * Math.PI / 180; return [at[0] + R * Math.cos(a), at[1] + R * Math.sin(a)]; }); // ((beta 7.11, Drawing tools) an existing one with a bubble callout: its blue pentagon, the callout with the others)
+        owning(`clo:${it.p.id}`, 'closure', it.p, { status: { now: 'existing', field: 'closureOld' } }, () => o.lwpoly(it.layer, pts5, { closed: true, color: 5, lwt: 35 })); cloLbl.push({ at, R, cid: it.cid, p: it.p, old: true }); nInline++; nCloInl++; continue; }
+      if (!it.old) { owning(`clo:${it.p.id}`, 'closure', it.p, { status: { now: it.old ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(it.layer, 'P-Joint', it.at[0], it.at[1], { scale: it.sc, attrs: { JT_ID: '', JOINT: '' } })); cloLbl.push({ at: it.at, R: it.hh, cid: it.cid, p: it.p }); nInline++; nCloInl++; continue; } // (beta 6.7: a proposed one: its red label and arrow after everything else)
       if (TIDY) { // beta 4.8: Tidy: PROPOSED and its ID a level label beside it, placed with the pole labels (end of step 8), and the pentagon then
         const at = it.at, R = it.hh;
-        tidySym.push({ kind: 'clo', at, r: R, box: it.sbox, ov: it.p.td || [0, 1], lines: it.old ? [it.cid] : ['PROPOSED', it.cid], layer: it.layer, style: 'arial', color: it.old ? 5 : null, pole: it.p, write: (P) => {
+        tidySym.push({ kind: 'clo', at, r: R, box: it.sbox, ov: it.p.td || [0, 1], lines: it.old ? [it.cid] : ['PROPOSED', it.cid], layer: it.layer, style: 'arial', color: it.old ? 5 : null, pole: it.p, own: [`clo:${it.p.id}`, 'closure', it.p, { status: { now: it.old ? 'existing' : 'proposed', field: 'closureOld' } }], write: (P) => {
           if (it.old) { const pts = [...Array(5)].map((_, i) => { const a = (90 + i * 72) * Math.PI / 180; return [at[0] + R * Math.cos(a), at[1] + R * Math.sin(a)]; });
             o.lwpoly(it.layer, pts, { closed: true, color: 5, lwt: 35 }); o.text(it.layer, P[0].x, P[0].y, P[0].h, it.cid, { ha: P[0].ha, va: 3, style: 'arial', color: 5 }); }
           else o.insert(it.layer, 'P-Joint', at[0], at[1], { scale: it.sc, attrs: { JT_ID: { v: 'PROPOSED', x: P[0].x, y: P[0].y, h: P[0].h, ha: P[0].ha, va: 3 }, JOINT: { v: it.cid, x: P[1].x, y: P[1].y, h: P[1].h, ha: P[1].ha, va: 3 } } });
@@ -2804,8 +3007,8 @@
           if (!best || n < best.n) best = { lx, ys, th, boxes, n }; if (n < 0.45) break; }
         if (best.n < 0.45) break; }
       if (it.old) { const pts = [...Array(5)].map((_, i) => { const a = (90 + i * 72) * Math.PI / 180; return [at[0] + R * Math.cos(a), at[1] + R * Math.sin(a)]; });
-        o.lwpoly(it.layer, pts, { closed: true, color: 5, lwt: 35 }); o.text(it.layer, best.lx, best.ys[0], best.th, it.cid, { ha: 0, va: 2, style: 'arial', color: 5 }); }
-      else o.insert(it.layer, 'P-Joint', at[0], at[1], { scale: it.sc, attrs: { JT_ID: { v: 'PROPOSED', x: best.lx, y: best.ys[0], h: best.th, ha: 0, va: 2 }, JOINT: { v: it.cid, x: best.lx, y: best.ys[1], h: best.th, ha: 0, va: 2 } } });
+        owning(`clo:${it.p.id}`, 'closure', it.p, { status: { now: it.old ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.lwpoly(it.layer, pts, { closed: true, color: 5, lwt: 35 })); owning(`clolbl:${it.p.id}`, 'closurelabel', it.p, null, () => o.text(it.layer, best.lx, best.ys[0], best.th, it.cid, { ha: 0, va: 2, style: 'arial', color: 5 })); }
+      else { owning(`clo:${it.p.id}`, 'closure', it.p, { status: { now: it.old ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(it.layer, 'P-Joint', at[0], at[1], { scale: it.sc, attrs: { JT_ID: { v: 'PROPOSED', x: best.lx, y: best.ys[0], h: best.th, ha: 0, va: 2 }, JOINT: { v: it.cid, x: best.lx, y: best.ys[1], h: best.th, ha: 0, va: 2 } } })); retag(`clo:${it.p.id}`, `clolbl:${it.p.id}`, 'closurelabel', it.p, visAtt); }
       spots.add(best.boxes, 'label'); nInline++; nCloInl++;
     }
     // 8. the pole labels (the template's attributes: proposed pole / height / clamp, material / pole tag), the coordinates and
@@ -2877,8 +3080,9 @@
       /* beta 6.7 (the owner: "For existing Globe pole or bayantel pole, can you let the drawing block to plan a circle + fill blue? so that we
          can easily distinguish it with other telco poles"): an existing Globe (GT) or Bayantel (BT) pole: a circle filled blue, the size of
          the telecom pole's model, its values kept in its (hidden) attributes; other telco poles keep the template's model */
-      if (gtFill(p) && fillBlocks(d, S, [{ name: GT_DISC, icon: GT_DISC_ICON }]) >= 0 && S.blocks.has(GT_DISC)) o.insert(lay(p.sym.layer), GT_DISC, p.dp[0], p.dp[1], { scale: 2 * p.rp, attrs });
-      else if (p.sym.b) o.insert(lay(p.sym.layer), p.sym.b, p.dp[0], p.dp[1], { scale: p.sym.sc * p.k, center: true, attrs }); else o.circle(lay(p.sym.layer), p.dp[0], p.dp[1], p.rp);
+      owning(`pole:${p.id}`, 'pole', p, null, () => { // ((beta 7.11, Drawing tools) its symbol, an element of its own)
+        if (gtFill(p) && fillBlocks(d, S, [{ name: GT_DISC, icon: GT_DISC_ICON }]) >= 0 && S.blocks.has(GT_DISC)) o.insert(lay(p.sym.layer), GT_DISC, p.dp[0], p.dp[1], { scale: 2 * p.rp, attrs });
+        else if (p.sym.b) o.insert(lay(p.sym.layer), p.sym.b, p.dp[0], p.dp[1], { scale: p.sym.sc * p.k, center: true, attrs }); else o.circle(lay(p.sym.layer), p.dp[0], p.dp[1], p.rp); });
       const look = p.sym.b ? attrLook(S, p.sym.b) : new Map(), kL = o.model.length; // ((beta 7.10, Drawing labels) kL: its stack's records from here)
       if (!tidy) c.place.forEach(([t, v, q, hq]) => { const lk = look.get(t) || {}, isCl = clIn && v && (t === 'POLE_CLAMP' || t === 'B' || (t === '' && v === stackSz && v !== p.ownerName)), own = isOwn([t, v]), prop = p.sym.r === POLE_SYM.prop.r, sc = prop ? 0 : own ? +PST.ownColor || +PST.idColor || 0 : isCl ? 0 : +PST.idColor || 0; // (beta 4.3: the ID lines and the owner's name in the style's colour; none set, or a proposed pole: the template's)
         o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], hq, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: isCl && CS.color ? +CS.color : sc ? sc : lk.color != null ? +lk.color : null }); }); // (v2.42.21: the clamp types in the style's colour)
@@ -2931,20 +3135,20 @@
         let c = null; for (const x of cands) { const n = x.boxes.reduce((t2, b) => t2 + spots.hitsW(b, x.lead ? W_CLO : W_ON), 0) + x.tb.reduce((t2, b) => t2 + spots.hitsW(b, W_CLO), 0) + x.room.reduce((t2, b) => t2 + spots.hitsW(b, W_ON), 0); /* (its loop's room: over a road's edge line or the cable is fine) */ if (n < 0.5) { c = { ...x, n: 0 }; break; } if (!c || n < c.n) c = { ...x, n }; } // (the first that covers nothing: a road's edge line or a cable under it counts little)
         if (c && (!best || c.n < best.n)) best = c; if (best && !best.n) break;
       }
-      if (best && !p.closureOld) { // beta 6.7: a proposed one: its pentagon (and its line to the pole) here, its red label and arrow after everything else
-        const at = best.c; o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: '', JOINT: '' } }); spots.add(sym(at)); cloLbl.push({ at, R: Rc * 0.9, cid, p });
-        if (best.lead) { o.lwpoly(lay('P-JOINT'), best.lead, { color: 8 }); spots.line(best.lead, 0.5); } nCloOff++;
+      if (best && (!p.closureOld || BUB(p))) { // beta 6.7: a proposed one: its pentagon (and its line to the pole) here, its red label and arrow after everything else ((beta 7.11, Drawing tools) an existing one with a bubble callout too: its blue pentagon)
+        const at = best.c; owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => (p.closureOld ? o.lwpoly(lay('P-JOINT'), [...Array(5)].map((_, i) => { const a5 = (90 + i * 72) * Math.PI / 180; return [at[0] + Rc * Math.cos(a5), at[1] + Rc * Math.sin(a5)]; }), { closed: true, color: 5, lwt: 35 }) : o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: '', JOINT: '' } }))); spots.add(sym(at)); cloLbl.push({ at, R: Rc * 0.9, cid, p, ...(p.closureOld ? { old: true } : {}) });
+        if (best.lead) { LEAD.add(owning(`clo:${p.id}`, 'closure', p, null, () => o.lwpoly(lay('P-JOINT'), best.lead, { color: 8 }))); spots.line(best.lead, 0.5); } nCloOff++;
         { const u = unit(p.A, at), a = pastPole(p, u), e = add2(at, u, -(Rc + 0.4)); if (dist2(p.A, e) > dist2(p.A, a)) p.cloAt = [a, e]; }
       } else if (best) {
         const at = best.c;
-        if (TIDY) { const sb = spots.add(sym(at)); tidySym.push({ kind: 'clo', at, r: Rc, box: sb, ov: unit(p.A, at), lines, layer: lay('P-JOINT'), style: 'arial', color: p.closureOld ? 5 : null, pole: p, write: (P) => { // (Tidy: its texts a level label beside it)
+        if (TIDY) { const sb = spots.add(sym(at)); tidySym.push({ kind: 'clo', at, r: Rc, box: sb, ov: unit(p.A, at), lines, layer: lay('P-JOINT'), style: 'arial', color: p.closureOld ? 5 : null, pole: p, own: [`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }], write: (P) => { // (Tidy: its texts a level label beside it)
           if (p.closureOld) { const P5 = [...Array(5)].map((_, i) => { const a5 = (90 + i * 72) * Math.PI / 180; return [at[0] + Rc * Math.cos(a5), at[1] + Rc * Math.sin(a5)]; }); o.lwpoly(lay('P-JOINT'), P5, { closed: true, color: 5, lwt: 35 }); o.text(lay('P-JOINT'), P[0].x, P[0].y, P[0].h, cid, { ha: P[0].ha, va: 3, style: 'arial', color: 5 }); }
           else o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: { v: 'PROPOSED', x: P[0].x, y: P[0].y, h: P[0].h, ha: P[0].ha, va: 3 }, JOINT: { v: cid, x: P[1].x, y: P[1].y, h: P[1].h, ha: P[1].ha, va: 3 } } }); } }); }
         else {
-          if (p.closureOld) { const P5 = [...Array(5)].map((_, i) => { const a5 = (90 + i * 72) * Math.PI / 180; return [at[0] + Rc * Math.cos(a5), at[1] + Rc * Math.sin(a5)]; }); o.lwpoly(lay('P-JOINT'), P5, { closed: true, color: 5, lwt: 35 }); o.text(lay('P-JOINT'), best.lx, best.ys[0], best.th, cid, { ha: 0, va: 2, style: 'arial', color: 5 }); }
-          else o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: { v: 'PROPOSED', x: best.lx, y: best.ys[0], h: best.th, ha: 0, va: 2 }, JOINT: { v: cid, x: best.lx, y: best.ys[1], h: best.th, ha: 0, va: 2 } } });
+          if (p.closureOld) { const P5 = [...Array(5)].map((_, i) => { const a5 = (90 + i * 72) * Math.PI / 180; return [at[0] + Rc * Math.cos(a5), at[1] + Rc * Math.sin(a5)]; }); owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.lwpoly(lay('P-JOINT'), P5, { closed: true, color: 5, lwt: 35 })); owning(`clolbl:${p.id}`, 'closurelabel', p, null, () => o.text(lay('P-JOINT'), best.lx, best.ys[0], best.th, cid, { ha: 0, va: 2, style: 'arial', color: 5 })); }
+          else { owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: { v: 'PROPOSED', x: best.lx, y: best.ys[0], h: best.th, ha: 0, va: 2 }, JOINT: { v: cid, x: best.lx, y: best.ys[1], h: best.th, ha: 0, va: 2 } } })); retag(`clo:${p.id}`, `clolbl:${p.id}`, 'closurelabel', p, visAtt); }
         }
-        if (best.lead) { o.lwpoly(lay('P-JOINT'), best.lead, { color: 8 }); spots.line(best.lead, 0.5); }
+        if (best.lead) { LEAD.add(owning(`clo:${p.id}`, 'closure', p, null, () => o.lwpoly(lay('P-JOINT'), best.lead, { color: 8 }))); spots.line(best.lead, 0.5); }
         if (!TIDY) spots.add(best.keep, 'label'); nCloOff++; // (the room kept for its loop: free for the loop, below)
         { const u = unit(p.A, at), a = pastPole(p, u), e = add2(at, u, -(Rc + 0.4)); if (dist2(p.A, e) > dist2(p.A, a)) p.cloAt = [a, e]; } // (its loop between the pole and it, see loopAt)
       }
@@ -3034,7 +3238,7 @@
         const seqT = new Map(); mOrd.forEach((p, i) => { const g = job.seqOf && job.seqOf[String(p.id)]; seqT.set(p, g != null && g !== '' ? g : i + 1); });
         for (const T of tidyTodo) {
           const p = T.p, ph = seqT.has(p) ? mPh[p.id] || mPh[String(p.id)] : null; if (ph && ph.px > 0 && ph.py > 0 && !pinPl.has(p)) { T.photo = ph; tidyCard.add(p); } // (its photo at the end of its label, away from the pole; (beta 7.8, Drawing photos) not one placed by hand)
-          if (!seqT.has(p) || (mMode === 'photo' && ph)) continue;
+          if (!seqT.has(p) || (mMode === 'photo' && ph) || pinAt.has(`num:${p.id}`)) continue; // ((beta 7.11, Drawing tools) its number placed by hand: drawn on its own, the block without it)
           T.badge = { sq: String(seqT.get(p)), wl: streetW(p.dp) }; tidyBadged.add(p);
         } }
       // beta 4.8: each pole's block turned along the cable that serves it (the span towards the homing; a pole with no cable: along its
@@ -3280,7 +3484,8 @@
         if (Y) { // beta 4.8: an ID, a loop's length, a closure's name: its lines as texts (a closure: its block's attributes), top-aligned
           const P = [{ s: T.l1, x: G.W(ax, ty)[0], y: G.W(ax, ty)[1], h, ha: att - 1 }]; lineBox(W1, ty, h); ty -= 1.4 * h;
           for (const m of T.sm) for (const l of m.lines) { const q = G.W(ax, ty); P.push({ s: l, x: q[0], y: q[1], h: hs, ha: att - 1 }); lineBox(wOf(l, hs), ty, hs); ty -= 1.45 * hs; }
-          if (Y.write) Y.write(P); else P.forEach((q) => tidyOwn.add(o.text(Y.layer, q.x, q.y, q.h, q.s, { ha: q.ha, va: 3, style: Y.style, color: Y.color })));
+          const yw = () => { if (Y.write) Y.write(P); else P.forEach((q) => tidyOwn.add(o.text(Y.layer, q.x, q.y, q.h, q.s, { ha: q.ha, va: 3, style: Y.style, color: Y.color }))); };
+          if (Y.own) { owning(Y.own[0], Y.own[1], Y.own[2], Y.own[3], yw); if (Y.kind === 'clo') retag(Y.own[0], `clolbl:${Y.own[2].id}`, 'closurelabel', Y.own[2], (r) => visAtt(r) || typ(r) === 'TEXT'); } else yw(); // ((beta 7.11, Drawing tools) its element's: an ID its block's, a loop's length its loop's, a closure's name its label)
           T7.syms = (T7.syms || 0) + 1; continue;
         }
         const kP = o.model.length; // ((beta 7.10, Drawing labels) its photo's records from here)
@@ -3298,10 +3503,12 @@
           if (sN) o.text(nL, ccx + so2, ccy - so2, B.hn, B.sq, { ha: 1, va: 2, style: 'arial', color: 250, rot: an });
           if (NS.d > 0) o.circle(nL, ccx, ccy, dd / 2, { color: bCo });
           o.text(nL, ccx, ccy, B.hn, B.sq, { ha: 1, va: 2, style: 'arial', color: nCo, rot: an }); txR.add(Spots.box(ccx, ccy, dd, dd, an)); T7.numbers = (T7.numbers || 0) + 1;
+          MV.push({ id: `num:${p.id}`, kind: 'number', p, box: { cx: ccx, cy: ccy, w: dd, h: dd, a: an }, how: 'auto', handles: hsOf(kP2), seq: B.sq, block: true }); // ((beta 7.11, Drawing tools) Tidy: the number in a pole's block an item of its own, carried with its block (its with))
         }
+        const kN1 = o.model.length; // ((beta 7.11, Drawing tools) its number's records end here)
         { const q = G.W(ax, ty), F1 = T.forms ? T.forms[T.form] : { lines: [T.l1], text: T.text }; o.mtext(T.layer, q[0], q[1], h, F1.text, { style: 'arial', att, color: T.color, ls: 0.87, dir }); F1.lines.forEach((l, i) => lineBox(wOf(l, h), ty - i * 1.45 * h, h)); ty -= (F1.lines.length - 1) * 1.45 * h; } T7.labels++; ty -= 1.4 * h; // (beta 6.2: the ID stacked or on one line)
         for (const m of T.sm) { const q = G.W(ax, ty); o.mtext(m.layer || clLay || T.layer, q[0], q[1], hs, m.mt || m.lines.map(mtextEsc).join('\\P'), { style: 'arial', att, color: m.color, ls: 0.87, dir }); m.lines.forEach((l, i) => lineBox(wOf(l, hs), ty - i * 1.45 * hs, hs)); ty -= m.lines.length * 1.45 * hs; }
-        MV.push({ id: `lbl:${p.id}`, kind: 'details', p, box: { cx: best.cx, cy: best.cy, w: T.Wt, h: T.Ht, a: an }, how: T.pin ? 'by hand' : 'auto', handles: [...hsOf(kB, kP), ...hsOf(kP2)], line: T.pin && best.lead ? best.lead : null, number: !!(T.badge && G.circ), seq: T.badge ? T.badge.sq : null, with: kP2 > kP && !best.phPole ? [`ph:${p.id}`] : [] }); // ((beta 7.10, Drawing labels) Tidy: the whole block, its number in it; its photo beside it (not one by its pole) moves with it) // (each smaller line its own text, on its own layer: the PDF draws it at its height)
+        MV.push({ id: `lbl:${p.id}`, kind: 'details', p, box: { cx: best.cx, cy: best.cy, w: T.Wt, h: T.Ht, a: an }, how: T.pin ? 'by hand' : 'auto', handles: [...hsOf(kB, kP), ...hsOf(kN1)], line: T.pin && best.lead ? best.lead : null, number: !!(T.badge && G.circ), seq: T.badge ? T.badge.sq : null, with: [...(kP2 > kP && !best.phPole ? [`ph:${p.id}`] : []), ...(kN1 > kP2 ? [`num:${p.id}`] : [])] }); // ((beta 7.10, Drawing labels) Tidy: the whole block, its number in it; its photo beside it (not one by its pole) moves with it) // (each smaller line its own text, on its own layer: the PDF draws it at its height)
       }
       gFlush();
       if (toCheck.length) rep.notes.push(`Tidy labels with no free place near their pole (they cover something: check them in CAD): ${toCheck.join(', ')}`);
@@ -3335,7 +3542,7 @@
       const ks = cabKeys(lines, P.id, Q.id); // ((beta 7.10, Drawing labels) each label's key, for report.movable)
       for (const [side, arr] of [[-1, ls.slice(0, nP)], [1, ls.slice(nP).reverse()]]) arr.forEach((x) => {
         if (ok && !ok(x)) return; const j = cnt[side]; // (the labels already on that side of this span)
-        const mvC = (k0, bx, a, lead) => MV.push({ id: `cab:${ks[lines.indexOf(x)]}`, kind: 'cable', key: ks[lines.indexOf(x)], name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: bx.cx, cy: bx.cy, w: 2 * bx.hw, h: 2 * bx.hh, a }, anchor: m, how: 'auto', handles: hsOf(k0), lead, span: [String(P.id), String(Q.id)] }); // (beta 7.10, Drawing labels)
+        const mvC = (k0, bx, a, lead, tip) => MV.push({ id: `cab:${ks[lines.indexOf(x)]}`, kind: 'cable', key: ks[lines.indexOf(x)], name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: bx.cx, cy: bx.cy, w: 2 * bx.hw, h: 2 * bx.hh, a }, anchor: m, how: 'auto', handles: hsOf(k0), lead, span: [String(P.id), String(Q.id)], spanPts: cabLineOf(x, P, Q, geoOf(P, Q)), tip: tip || null }); // (beta 7.10, Drawing labels) ((beta 7.11, Drawing tools) its line on its span, P → Q, and where its arrow points)
         const col = x.ex ? 5 : (CABLE_STYLE[x.cab] || CABLE_STYLE['']).color;
         const beside = (hs) => { for (const h of hs) { const w = arialW(x.t, h, false); if (w > 0.96 * L) continue; const fm = (L - w) / 2 / L; // along its line, never past the span's ends
           for (const e of [0, 0.6]) for (const f0 of [0, 0.12, -0.12, 0.25, -0.25, 0.38, -0.38]) { const f = Math.max(-fm, Math.min(fm, f0)), rc = (side < 0 ? ext.pole : ext.road) + side * ((j ? 0.35 * h : CL_CLR - 0.75) + h / 2 + e * h), q = add2(add2(m, t, f * L), nl, rc * sg), bx = TIDY ? realBox(textBox(q[0], q[1], h, x.t, rd, 1, 2), x.t, h) : textBox(q[0], q[1], h, x.t, rd, 1, 2);
@@ -3357,7 +3564,7 @@
           else if (best && (!TIDY || best.cost < 1)) { // the label, its leader (on the label's layer, thin) and the arrow (a solid) (beta 4.8: Tidy: only where it covers nothing; else the next span)
             const k0 = o.model.length; o.text(cbLay, best.q[0], best.q[1], best.h, x.t, { ha: 1, va: 2, style: 'arial', color: col }); spots.add([best.bx], 'label'); spots.add(best.segs, 'leader');
             o.lwpoly(cbLay, [best.tip, best.kn, best.L0], { color: col, lwt: 18 }); const u = unit(best.kn, best.tip), aL = 1.4 * Math.max(0.6, kG), aW = 0.5 * Math.max(0.6, kG), base = add2(best.tip, u, -aL);
-            o.solid(cbLay, [best.tip, add2(base, [-u[1], u[0]], aW), add2(base, [u[1], -u[0]], aW)], { color: col }); leaders.push(best); nLeaders++; mvC(k0, best.bx, 0, true);
+            o.solid(cbLay, [best.tip, add2(base, [-u[1], u[0]], aW), add2(base, [u[1], -u[0]], aW)], { color: col }); leaders.push(best); nLeaders++; mvC(k0, best.bx, 0, true, best.tip);
             cnt[side]++; if (S0) S0.last = best.q; if (!x.ex) { cabDone.add(x.cab || ''); cabAt.push([x.cab || '', best.q]); } return;
           }
         }
@@ -3372,13 +3579,13 @@
         taken at the start, given back and taken again at this size), turned as it was; its arrow where it does not touch its line */
     const cabPinPut = (c) => {
       const it = c.pin, x = c.x, g = geoOf(c.P, c.Q), h = CL_TH / (TIDY ? kAt(g.m[0], g.m[1]) : 1); pinFree(it);
-      const C = cabPinGeo(x, c.P, c.Q, g, it.q, h, it.rot); pinHold(it, [C.bx], 'label'); if (C.segs.length) pinHold(it, C.segs, 'leader');
+      const C = cabPinGeo(x, c.P, c.Q, g, it.q, h, it.rot, it.tipT); pinHold(it, [C.bx], 'label'); if (C.segs.length) pinHold(it, C.segs, 'leader');
       if (!cbLay) { addLayer(d, S, 'G-ESAA CABLE LABEL', 7); cbLay = 'G-ESAA CABLE LABEL'; }
       const col = x.ex ? 5 : (CABLE_STYLE[x.cab] || CABLE_STYLE['']).color, k0 = o.model.length;
       o.text(cbLay, it.q[0], it.q[1], h, x.t, { rot: C.rot, ha: 1, va: 2, style: 'arial', color: col });
       if (C.lead) { const { tip, kn, L0 } = C.lead, u = unit(kn, tip), aL = 1.4 * Math.max(0.6, kG), aW = 0.5 * Math.max(0.6, kG), base = add2(tip, u, -aL); o.lwpoly(cbLay, [tip, kn, L0], { color: col, lwt: 18 }); o.solid(cbLay, [tip, add2(base, [-u[1], u[0]], aW), add2(base, [u[1], -u[0]], aW)], { color: col }); }
       if (!x.ex) { cabDone.add(x.cab || ''); cabAt.push([x.cab || '', it.q]); }
-      MV.push({ id: `cab:${it.key}`, kind: 'cable', key: it.key, name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: C.bx.cx, cy: C.bx.cy, w: 2 * C.bx.hw, h: 2 * C.bx.hh, a: C.rot }, anchor: g.m, how: 'by hand', handles: hsOf(k0), lead: !!C.lead, span: [c.a, c.b], line: C.lead ? [C.lead.tip, C.lead.kn, C.lead.L0] : null });
+      MV.push({ id: `cab:${it.key}`, kind: 'cable', key: it.key, name: x.n != null ? `RUN ${x.n}` : String(x.t), box: { cx: C.bx.cx, cy: C.bx.cy, w: 2 * C.bx.hw, h: 2 * C.bx.hh, a: C.rot }, anchor: g.m, how: 'by hand', handles: hsOf(k0), lead: !!C.lead, span: [c.a, c.b], line: C.lead ? [C.lead.tip, C.lead.kn, C.lead.L0] : null, spanPts: cabLineOf(x, c.P, c.Q, g), tip: C.lead ? C.lead.tip : null }); // ((beta 7.11, Drawing tools) its line on its span, span[0] → span[1], and where its arrow points)
     };
     const spSt = new Map(), cands = [], ALG = new Map();
     FIB.forEach((f) => { const M = new Map(); let dd = 0; f.path.forEach((id, i) => { if (!i) return; const p = byId.get(String(id)), q = byId.get(String(f.path[i - 1])), l = p && q && p.A && q.A ? dist2(q.A, p.A) : 0; M.set(K2(f.path[i - 1], id), dd + l / 2); dd += l; }); if (f.lbl && f.n != null) ALG.set(`R${f.n}`, M); else if (f.lbl && !ALG.has(f.lbl)) ALG.set(f.lbl, M); }) // (v2.42.26: by its RUN: two cables with the same words keep their own); // (each span's middle, along its cable)
@@ -3415,7 +3622,7 @@
         for (const rr of [1, 1.5, 2.2, 3, 4]) { for (let k = 0; k < 16; k++) { const a = k * Math.PI / 8, ux = Math.cos(a), uy = Math.sin(a), q = [at[0] + ux * (r0 * rr + Math.abs(ux) * w / 2), at[1] + uy * (r0 * rr + Math.abs(uy) * th * 0.65)], bx = Spots.box(q[0], q[1], w + th * 0.3, th * 1.3, 0);
             if (TIDY && !cellHolds(bx, p.E, p.N)) continue; const n = spots.hitsW(bx, W_IN) + rr * 0.001; if (!best || n < best.n) best = { q, bx, n }; if (n < 0.45) break; }
           if (best && best.n < 0.45) break; }
-        if (!best) continue; o.text(lay('PROPOSED LOOP'), best.q[0], best.q[1], th, txt, { ha: 1, va: 2, style: 'arial' }); spots.add([best.bx]); nBL++;
+        if (!best) continue; owning(`loop:${p.id}`, 'loop', p, { at }, () => o.text(lay('PROPOSED LOOP'), best.q[0], best.q[1], th, txt, { ha: 1, va: 2, style: 'arial' })); spots.add([best.bx]); nBL++; // ((beta 7.11, Drawing tools) a loop at a box: its point's loop text)
       }
       if (BLp.length) rep.boxLoops = { written: nBL, of: BLp.length }; }
     const tight = (s) => { const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q || !P.A || !Q.A) return 0; const ls = linesOf(s, laneInfo.get(K2(s.ia, s.ib))).filter((x) => x.t); return ls.reduce((t, x) => t + arialW(x.t, CL_TH, false), 0) / Math.max(4, geoOf(P, Q).L); };
@@ -3440,7 +3647,7 @@
           if (c) break; }
         if (c) break; }
       c = c || best; if (ownC) { const w = sheetW(c.bx, c.th), SL = rep.spanLabels || (rep.spanLabels = { ownSheet: 0, otherSheet: 0, acrossLine: 0 }); SL[w === 0 ? 'ownSheet' : w < 1 ? 'otherSheet' : 'acrossLine']++; } // (beta 6.4)
-      o.text(lay('Distance Data'), c.q[0], c.q[1], c.th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : +SST.color || null }); spots.add([c.bx]); spanLblAt.set(K2(s.ia, s.ib), c.q);
+      owning(`span:${K2(s.ia, s.ib)}`, 'span', null, { sp: [P, Q], key: K2(s.ia, s.ib) }, () => o.text(lay('Distance Data'), c.q[0], c.q[1], c.th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : +SST.color || null })); spots.add([c.bx]); spanLblAt.set(K2(s.ia, s.ib), c.q); // ((beta 7.11, Drawing tools) each span's length an element: span:<a>|<b>, its ids sorted)
     }
     /* beta 6.9 (the owner: "pull-off and cross-over labels must be small enough to read.. just a name above the drawing block is ok"):
        its name (PULL-OFF / CROSS-OVER, no number) in red, level, inside a dashed red bubble above its block, a short dashed tail from the
@@ -3470,7 +3677,7 @@
           [0.3, 0.8, 1.6, 2.8, 4.5].forEach((gg, i) => { const g = gg * ts; [[r0 + g, 0, 0], [-(r0 + g), 0, 2], [r0 + g, r0 + ts * 0.65, 0], [r0 + g, -(r0 + ts * 0.65), 0], [-(r0 + g), r0 + ts * 0.65, 2], [-(r0 + g), -(r0 + ts * 0.65), 2], [0, r0 + g + ts * 0.65, 1], [0, -(r0 + g + ts * 0.65), 1]].forEach(([dx, dy, ha], k) => {
             const x = at[0] + dx, y = at[1] + dy, bx = Spots.box(x + (ha === 0 ? w / 2 : ha === 2 ? -w / 2 : 0), y, w + ts * 0.3, ts * 1.25, 0); cands.push({ x, y, ha, boxes: [bx], cost: i * 10 + k + (cellHolds(bx, at[0], at[1]) ? 0 : 100) }); }); });
           const c = pickC(spots, cands, W_LBL);
-          o.text(J.b, c.x, c.y, ts, txt, { ha: c.ha, va: 2, style: 'arial', color: 1 }); spots.add(c.boxes, 'label'); extAll();
+          owning(`pole:${p.id}`, 'pole', p, null, () => o.text(J.b, c.x, c.y, ts, txt, { ha: c.ha, va: 2, style: 'arial', color: 1 })); spots.add(c.boxes, 'label'); extAll(); // ((beta 7.11, Drawing tools) its name with its block)
           (rep.jn || (rep.jn = [])).push({ id: String(p.id), el: p.el, text: txt, mode: 'text', h: +ts.toFixed(3), hLL: +hLL.toFixed(3), at: [c.x, c.y].map((v) => +v.toFixed(2)), ha: c.ha, poles: (p.att || []).map(String), arms, ext, over: (c.n || 0) >= 1 });
           continue;
         }
@@ -3481,9 +3688,10 @@
           const tl = dist2(m, T.e) - 1.5 * th, tq = add2(m, unit(m, T.e), Math.max(0, tl)); // (its tail up to near the block: where it meets the block, the cable and the messengers are there anyway)
           cands.push({ c, T, cost: up * 0.02 + Math.abs(f) * 0.01 + (cellHolds(bx, at[0], at[1]) ? 0 : 5), boxes: [bx, ...(tl > 0.2 ? [Spots.box((m[0] + tq[0]) / 2, (m[1] + tq[1]) / 2, tl, 0.3, deg([T.e[0] - m[0], T.e[1] - m[1]]))] : [])] }); }
         const c = pickC(spots, cands, W_LBL), dash = { color: 1, lwt: 18, ...(JLT ? { lt: JLT, lts: +(th * 1.2).toFixed(3), gen: true } : {}) };
-        o.lwpoly(J.b, Array.from({ length: 48 }, (_, k) => [c.c[0] + ea * Math.cos(k * Math.PI / 24), c.c[1] + eb * Math.sin(k * Math.PI / 24)]), { ...dash, closed: true }); // the bubble
-        o.lwpoly(J.b, [c.T.s[0], c.T.e, c.T.s[1]], dash); // its tail, to the block's edge
-        o.text(J.b, c.c[0], c.c[1], th, txt, { ha: 1, va: 2, style: 'arial', color: 1 }); spots.add(c.boxes, 'label'); extAll();
+        owning(`pole:${p.id}`, 'pole', p, null, () => { // ((beta 7.11, Drawing tools) its bubble with its block)
+          o.lwpoly(J.b, Array.from({ length: 48 }, (_, k) => [c.c[0] + ea * Math.cos(k * Math.PI / 24), c.c[1] + eb * Math.sin(k * Math.PI / 24)]), { ...dash, closed: true }); // the bubble
+          o.lwpoly(J.b, [c.T.s[0], c.T.e, c.T.s[1]], dash); // its tail, to the block's edge
+          o.text(J.b, c.c[0], c.c[1], th, txt, { ha: 1, va: 2, style: 'arial', color: 1 }); }); spots.add(c.boxes, 'label'); extAll();
         (rep.jn || (rep.jn = [])).push({ id: String(p.id), el: p.el, text: txt, mode: 'bubble', h: +th.toFixed(3), hClo: +hClo.toFixed(3), hPole: +hPole.toFixed(3), at: c.c.map((v) => +v.toFixed(2)), ea: +ea.toFixed(2), eb: +eb.toFixed(2), lt: JLT, poles: (p.att || []).map(String), arms, ext, over: (c.n || 0) >= 1 });
       } }
     // v2.42.11: each tower, its name beside the tower where it covers nothing (the cable, the road lines, the poles, their labels,
@@ -3532,17 +3740,18 @@
         const at2 = (c.ha === 0 ? 1 : c.ha === 2 ? 3 : 2), rowY = []; { let y = c.y; for (const r of c.G.rows) { rowY.push(y); y -= r.h * 1.45; } }
         const ri = (k) => c.G.rows.findIndex((r) => r.k === k), iN = ri('name'), iP = ri('pla'), iL = ri('lat');
         if (!c.G.onT) attrs = { BTS_NAME: iN >= 0 ? { v: nm, x: c.x, y: rowY[iN] - c.G.rows[iN].h * 0.725, h: c.G.rows[iN].h, ha: c.ha, va: 2 } : '', PLA_ID: iP >= 0 ? { v: pla, x: c.x, y: rowY[iP] - c.G.rows[iP].h * 0.725, h: c.G.rows[iP].h, ha: c.ha, va: 2 } : '' };
-        o.mtext(lay('LATLONG'), c.x, rowY[iL], c.G.rows[iL].h, `{\\fSimSun|b0|i0|c134|p2;${(+p0.lat).toFixed(6)}%%D\\P${(+p0.lon).toFixed(6)}%%D}`, { style: '样式 1', att: at2, ls: 0.87, color: +(job.poleStyle || {}).llColor || null });
+        owning(`sitelbl:${p0.id}`, 'sitedetails', p0, null, () => o.mtext(lay('LATLONG'), c.x, rowY[iL], c.G.rows[iL].h, `{\\fSimSun|b0|i0|c134|p2;${(+p0.lat).toFixed(6)}%%D\\P${(+p0.lon).toFixed(6)}%%D}`, { style: '样式 1', att: at2, ls: 0.87, color: +(job.poleStyle || {}).llColor || null }));
         (rep.siteGroups || (rep.siteGroups = [])).push({ id: String(p0.id), place: c.fm, x: +c.x.toFixed(2), top: +c.y.toFixed(2), h: c.G.rows.map((r) => +r.h.toFixed(2)), tower: [+p.E.toFixed(2), +p.N.toFixed(2), +K.toFixed(4)], over: c.n || 0 });
       }
-      o.insert(lay('X-BTS'), bn, p.E, p.N, { scale: 2.4 * K, attrs, attrColor: pinColor(p) }); if (onTower) onTower(); // (beta 3.8: the name on it, after it)
-      if (W0.moved) { // beta 3.7: a thin line from the site's point to its tower, and a small mark at the point (in the tower's colour)
+      owning(`site:${p0.id}`, 'site', p0, { status: { now: (p0.status === 'Proposed' || p0.status === 'New') ? 'proposed' : 'existing', field: 'status' } }, () => o.insert(lay('X-BTS'), bn, p.E, p.N, { scale: 2.4 * K, attrs, attrColor: pinColor(p) })); retag(`site:${p0.id}`, `sitelbl:${p0.id}`, 'sitedetails', p0, visAtt); if (onTower) owning(`sitename:${p0.id}`, 'sitename', p0, null, onTower); // (beta 3.8: the name on it, after it) ((beta 7.11, Drawing tools) the tower, its details (its name and PLA ID beside it, its lat / long) and its name on it: three elements)
+      const kTL = o.model.length; if (W0.moved) owning(`site:${p0.id}`, 'site', p0, null, () => { // beta 3.7: a thin line from the site's point to its tower, and a small mark at the point (in the tower's colour)
         const col = pinColor(p0) != null ? pinColor(p0) : (p0.status === 'Proposed' || p0.status === 'New') ? 1 : 5, AG = arrowOf.get(p0);
         if (AG) { const ac = job.towerArrowColor === 0 ? col : Number.isInteger(job.towerArrowColor) && job.towerArrowColor > 0 && (job.towerArrowColor < 256 || job.towerArrowColor >= TC0) ? job.towerArrowColor : 7; // beta 3.8: the curved arrow, filled (7: white in CAD, black on the PDF)
           AG.quads.forEach((q) => o.solid(lay('X-BTS'), q, { color: ac })); o.solid(lay('X-BTS'), AG.head, { color: ac }); (rep.towerArrows = rep.towerArrows || []).push({ id: String(p0.id), color: ac, pieces: AG.quads.length + 1, from: AG.from.map((v) => +v.toFixed(2)) }); }
         else o.lwpoly(lay('X-BTS'), towerLead(p0, W0), { color: 8 });
         o.circle(lay('X-BTS'), p0.E, p0.N, 0.9, { color: col });
-      }
+      });
+      o.model.slice(kTL).forEach((r) => LEAD.add(r)); // ((beta 7.11, Drawing tools) its line or arrow to its point: stays at the point)
     }
     // v2.42.26: each ODF, its label beside it (outside the tower) where it covers nothing: its ID, with its size (job.odfLbl 'size', the
     //           default) and connector ('conn'); 'id': the ID only
@@ -3555,7 +3764,8 @@
       for (const dd of [4, 8]) { add(p.E, p.N - r - 0.8 - th * 0.6 - dd, 1, 4 + dd); if (out) add(p.E + out * (r + 0.8 + dd), p.N + (sz ? th * 0.75 : 0), out > 0 ? 0 : 2, 4 + dd); }
       const c = id || sz ? pickC(spots, cand, SITE_W) : null; if (c) spots.add(c.boxes, 'label:odf');
       const attrs = c ? { HST_NAM: { v: id, x: c.q[0], y: c.q[1], h: th, ha: c.ha, va: 2 }, HST_COD: { v: sz, x: c.q[0], y: c.q[1] - th * 1.5, h: th, ha: c.ha, va: 2 }, HST_LET: 'H' } : { HST_NAM: id, HST_COD: '', HST_LET: 'H' };
-      o.insert(isNew ? lay('P-HOST') : lay('X-HOST'), isNew ? 'P-HOST' : 'X-HOST', p.E, p.N, { scale: 0.28, attrs, attrColor: pinColor(p) });
+      owning(`site:${p.id}`, 'site', p, { status: { now: isNew ? 'proposed' : 'existing', field: 'status' } }, () => o.insert(isNew ? lay('P-HOST') : lay('X-HOST'), isNew ? 'P-HOST' : 'X-HOST', p.E, p.N, { scale: 0.28, attrs, attrColor: pinColor(p) }));
+      retag(`site:${p.id}`, `sitelbl:${p.id}`, 'sitedetails', p, (r) => visAtt(r) && ['HST_NAM', 'HST_COD'].includes(get(r, 2))); // ((beta 7.11, Drawing tools) the ODF and its label: two elements)
       if (job.debug) (rep.odfLabels = rep.odfLabels || []).push({ id, sz, at: c ? c.q : null, boxes: c ? c.boxes.map((b) => [b.cx, b.cy, b.hw, b.hh]) : [] });
     }
     // 10. the cable's name: after the street names (v2.39.1), see below
@@ -3764,8 +3974,41 @@
       /* beta 7.4 / 2.45.6 (the owner's GEO sheet as a drafter finished it): one line, PROPOSED CLOSURE, with the closure's own ID after
          it where it has one (PROPOSED CLOSURE · CL-01), never the default "CLOSURE" under it; beside the road, clear of its edge lines
          and the cable (a line through it read as struck through) wherever such a place is free, else as before */
-      const W_CLR = (t) => (t === 'road' || t === 'cable' ? 1 : 0);
-      for (const { at, R: Rp, cid, p: cp } of cloLbl) { // (Rp: the pentagon's reach)
+      const W_CLR = (t) => (t === 'road' || t === 'cable' ? 1 : 0); let nBub = 0;
+      /* (beta 7.11, Drawing tools) the owner: "proposed closure Arrow, photo3, can you add also this kind of arrow poiting to closure as option?" (the owner's CAD
+         callout): a dashed yellow-green circle round the closure, a solid pointer on its edge toward the label (its inner side the circle's, its tip out
+         from it), the label's lines left-aligned beside the tip: a proposed closure PROPOSE <size> and HYBRID CLOSURE in red, an existing one PROPOSE
+         INSERTION in red and @EXISTING CLOSURE in green; then FACING <its site> (the nearest tower or ODF along its cable, else the ODC; job.pts cloFacing
+         when the app gives one) and its lat / long (6 decimals) in green. Its size: the job's (pts cloSize, e.g. 72C), else its cable's (F72: 72C, the
+         largest at its pole), else PROPOSE alone. On white paper (the PDF, the Drawing) the circle and the pointer have a dark edge and the green lines a
+         dark shadow, as the numbers in light colours. The label's place: the first free one round the circle, the right side first (as the owner's), its
+         lines and pointer covering nothing (the circle, a thin dashed line, may cross what is there); placed by hand, the pointer turns to face it (DT,
+         bubTurn). Its proportions: see BUB_R, BUB_TIP, BUB_A (Drawing tools › Size: the whole bubble larger or smaller). */
+      const BUBG = 60, BUBK = 250, BLT = ['DASHED', 'DASHED2', 'AERCA'].find((n) => S.ltypes.has(n)) || null;
+      const cloSize = (p) => { if (p && p.cloSize) return String(p.cloSize); let n = 0; for (const s0 of spans) { if (String(s0.ia) !== String(p.id) && String(s0.ib) !== String(p.id)) continue; const m = /(\d+)\s*$/.exec(String(s0.cable || '')); if (m) n = Math.max(n, +m[1]); } return n ? `${n}C` : ''; };
+      const facing = (p0) => { if (p0 && p0.cloFacing) return String(p0.cloFacing); for (const kinds of [['Site', 'ODF'], ['ODC']]) { const dd = new Map([[p0, 0]]), Q = [p0], done = new Set();
+        while (Q.length) { let bi = 0; for (let i = 1; i < Q.length; i++) if (dd.get(Q[i]) < dd.get(Q[bi])) bi = i; const q = Q.splice(bi, 1)[0]; if (done.has(q)) continue; done.add(q); if (q !== p0 && kinds.includes(q.el)) return String(q.siteName || q.poleId || '');
+          for (const r of nb.get(q) || []) { const v = dd.get(q) + dist2(q.dp || [q.E, q.N], r.dp || [r.E, r.N]); if (!dd.has(r) || v < dd.get(r) - 1e-9) { dd.set(r, v); Q.push(r); } } } } return ''; };
+      const bubLines = (p, old) => { const sz = cloSize(p), f = facing(p), ll = Number.isFinite(+p.lat) && Number.isFinite(+p.lon) && p.lat !== '' && p.lon !== '' ? `${(+p.lat).toFixed(6)}%%d, ${(+p.lon).toFixed(6)}%%d` : '';
+        return [...(old ? [{ s: 'PROPOSE INSERTION', c: 1 }, { s: '@EXISTING CLOSURE', c: 3 }] : [{ s: sz ? `PROPOSE ${sz}` : 'PROPOSE', c: 1 }, { s: 'HYBRID CLOSURE', c: 1 }]), ...(f ? [{ s: `FACING ${f}`, c: 3 }] : []), ...(ll ? [{ s: ll, c: 3 }] : [])]; };
+      const LTS0 = (() => { const v = d.headerVar('$LTSCALE'), lt = BLT ? d.sec('TABLES').recs.find((r) => typ(r) === 'LTYPE' && get(r, 2) === BLT) : null, pl = lt ? num(lt, 40, 0.75) : 0.75; return (v && +v[1] > 0 ? +v[1] : 1) * (pl > 0 ? pl : 0.75); })(); // (the drawing's own line type scale and its dashes' pattern: about 24 dashes round, as the owner's, whatever they are)
+      const bubDraw = (at, Rp, cid, cp, old) => {
+        const th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, rb = Math.max(2.6 * Rp, BUB_R * th), L = bubLines(cp, old), W = Math.max(...L.map((l) => arialW(l.s.replace(/%%d/g, '°'), th))), H = th + (L.length - 1) * BUB_LS * th;
+        let best = null; // (its lines where they cover nothing, the right side first; the circle, a thin dashed line, may cross what is there; the pointer rather not)
+        [0, 25, -25, 50, -50, 180, 155, -155, 130, -130, 90, -90, 75, -75, 105, -105].forEach((a, k) => { const v = rotv([1, 0], a), G = bubGeo(at, rb, th, v, W, H), ca = Math.cos(BUB_A * Math.PI / 180), m = add2(at, v, rb * (ca + BUB_TIP) / 2), tb = Spots.box(m[0], m[1], rb * (BUB_TIP - ca), 2 * rb * Math.sin(BUB_A * Math.PI / 180), a);
+          const n = spots.hitsW(G.bx, W_CL) * 10 + spots.hitsW(tb, W_AR) * 3 + k * 0.05 + (cellHolds(G.bx, at[0], at[1]) ? 0 : 50); if (!best || n < best.n) best = { v, G, tb, n }; });
+        const B = { at, rb, th, W, H, v: best.v, parts: [], circles: [] }, so = th * 0.08;
+        owning(`clolbl:${cp.id}`, 'closurelabel', cp, { at, R: Rp, th, bub: B }, () => {
+          for (const [c, w] of [[BUBK, 50], [BUBG, 25]]) { const r = o.circle(CLY, at[0], at[1], rb, { color: c, lwt: w, ...(BLT ? { lt: BLT, lts: +(2 * Math.PI * rb / 24 / LTS0).toFixed(3) } : {}) }); LEAD.add(r); BUBC.add(r); B.circles.push(r); } // (its dark edge, then the yellow-green; about 24 dashes round, as the owner's)
+          const arc = bubArc(at, rb, best.v), tip = best.G.tip; for (let k = 0; k < 8; k++) { const r = o.solid(CLY, [tip, arc[k], arc[k + 1]], { color: BUBG }); LEAD.add(r); B.parts.push(r); }
+          const ol = o.lwpoly(CLY, [tip, ...arc.slice().reverse()], { closed: true, color: BUBK, lwt: 13 }); LEAD.add(ol); B.edge = ol;
+          L.forEach((l, i) => { const y = best.G.y1 - i * BUB_LS * th, ha = best.G.ha; if (l.c === 3) o.text(CLY, best.G.xa + so, y - so, th, l.s, { ha, va: 2, style: 'arial', color: BUBK }); o.text(CLY, best.G.xa, y, th, l.s, { ha, va: 2, style: 'arial', color: l.c }); });
+        });
+        spots.add([best.G.bx], 'label'); spots.add([best.tb]);
+        nBub++; (rep._cloB || (rep._cloB = [])).push({ cid: String(cid), old: !!old, lines: L.map((l) => l.s.replace(/%%d/g, '°')), r: +rb.toFixed(2), at: at.map((x) => +x.toFixed(2)), side: +deg(best.v).toFixed(1), clear: best.n < 1 });
+      };
+      for (const { at, R: Rp, cid, p: cp, old } of cloLbl) { // (Rp: the pentagon's reach)
+        if (BUB(cp)) { bubDraw(at, Rp, cid, cp, old); continue; } // ((beta 7.11, Drawing tools) the bubble callout)
         const own = String((cp && cp.closureId) || (cid !== 'CLOSURE' ? cid : '') || '').trim(), th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, L2 = [own ? `PROPOSED CLOSURE · ${own}` : 'PROPOSED CLOSURE'], w = Math.max(...L2.map((x) => arialW(x, th))) * 1.08, h = th * 1.3; let best = null;
         for (const g of [2.2, 3.5, 5, 7, 10, 14, 19, 25]) { for (let k = 0; k < 16; k++) { const v = rotv([1, 0], k * 22.5 + (g > 5 ? 11.25 : 0)), ex = Math.abs(v[0]) * w / 2 + Math.abs(v[1]) * h / 2, c = add2(at, v, Rp + g * th + ex), bx = Spots.box(c[0], c[1], w + th * 0.4, h + th * 0.3, 0);
             if (!cellHolds(bx, at[0], at[1])) continue; // (inside the closure's own sheet)
@@ -3775,12 +4018,13 @@
           if (best && best.ok === 2) break; }
         if (!best) continue;
         const { c, v, a0, a1 } = best, ah = 0.9 * th, aw = 0.38 * th, pv = [-v[1], v[0]], b0 = add2(a1, v, ah);
-        L2.forEach((x) => o.text(CLY, c[0], c[1], th, x, { ha: 1, va: 2, style: 'arial', color: 1 }));
-        if (dist2(a0, a1) > ah * 1.05) o.lwpoly(CLY, [a0, b0], { color: 1 });
-        o.solid(CLY, [a1, add2(b0, pv, aw), add2(b0, pv, -aw)], { color: 1 });
+        owning(`clolbl:${cp.id}`, 'closurelabel', cp, { at, R: Rp, th }, () => { // ((beta 7.11, Drawing tools) the label and its arrow, an element; at: the closure it points to)
+          L2.forEach((x) => o.text(CLY, c[0], c[1], th, x, { ha: 1, va: 2, style: 'arial', color: 1 }));
+          if (dist2(a0, a1) > ah * 1.05) LEAD.add(o.lwpoly(CLY, [a0, b0], { color: 1 }));
+          LEAD.add(o.solid(CLY, [a1, add2(b0, pv, aw), add2(b0, pv, -aw)], { color: 1 })); });
         spots.add([best.bx], 'label'); if (best.ab) spots.line([a0, a1], 0.3); if (!best.ok) nOver++; nCL++; (rep._cloL || (rep._cloL = [])).push({ cid: own, text: L2[0], g: best.g, box: +best.nb.toFixed(2), arrow: +best.na.toFixed(2), clear: best.ok === 2, at: c.map((x) => +x.toFixed(2)) }); if (best.g > 7) nFar++;
       }
-      if (cloLbl.length) { rep.closureLabels = { proposed: cloLbl.length, labelled: nCL, further: nFar, notFree: nOver, each: rep._cloL || [] }; delete rep._cloL; if (nOver) rep.notes.push(`PROPOSED CLOSURE labels with no free place (placed where they cover least): ${nOver}`); } }
+      if (cloLbl.length) { rep.closureLabels = { proposed: cloLbl.filter((x) => !x.old).length, labelled: nCL, further: nFar, notFree: nOver, each: rep._cloL || [], ...(nBub ? { bubbles: rep._cloB } : {}) }; delete rep._cloL; delete rep._cloB; if (nOver) rep.notes.push(`PROPOSED CLOSURE labels with no free place (placed where they cover least): ${nOver}`); } }
     let Lp = TIDY ? PHMM / (printK || 0.62) : PHMM * 1.1, photoPl = placePhotos(Lp); /* (beta 6.7: Standard too: the size set, in metres at 1:1100; no longer smaller where the poles stand close, nor again below) */ // (beta 6.4: Tidy: the photo size as set, printed) // (beta 4.8: Tidy: about 1.4 times the street's width, at most; 2.44.10: Drawing style's photo size)
     // (beta 6.7: no second and third round at 0.8 and 0.64 of the size: a photo with no room near its pole goes further with its line)
     const nCol = NS.color || null, bCol = NS.bcolor || NS.color || null, nLay = lay('p-pole');
@@ -3820,7 +4064,7 @@
        the plan draws it (a pole beside its road can be drawn over the edge of its pin's cell); the ones no GEO sheet prints go to rep._offCells
        ([E, N, place] inside each), for build to add. A photo across a sheet's edge says the sheets it is cut on (photoAt[id].cut: their names as
        the plan writes them), for the Drawing to outline it. */
-    { const off = new Map(), IN = 0.05, offAt = (i, j, lk) => { const k = key(i, j); if (!used.has(k) && !off.has(k)) off.set(k, [gox + (i + 0.5) * cell, goy + (j + 0.5) * cell, lk]); };
+    let OFFC = null; { const off = new Map(), IN = 0.05, offAt = (i, j, lk) => { const k = key(i, j); if (!used.has(k) && !off.has(k)) off.set(k, [gox + (i + 0.5) * cell, goy + (j + 0.5) * cell, lk]); };
       const frameCells = (a) => {
         const t = (+a.rot || 0) * Math.PI / 180, c = Math.cos(t), s = Math.sin(t), hw = Math.max(0, a.w / 2 - IN), hh = Math.max(0, a.h / 2 - IN), C = new Map(), at = (i, j) => C.set(key(i, j), [i, j]);
         const P = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => [a.x + u * hw * c - v * hh * s, a.y + u * hw * s + v * hh * c]); P.forEach((q) => at(ci(q[0]), cj(q[1])));
@@ -3835,32 +4079,8 @@
         if (a.how === 'by hand' && a.line) for (let s = 0; s + 1 < a.line.length; s++) { const u = a.line[s], v = a.line[s + 1], n = Math.max(1, Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]))); for (let k = 0; k <= n; k++) offAt(ci(u[0] + (v[0] - u[0]) * k / n), cj(u[1] + (v[1] - u[1]) * k / n), lk); }
         if (C.length > 1) a.cut = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort();
       }
-      /* (beta 7.10, Drawing labels) as a photo placed by hand: a label, number or pole's details placed by hand, its box (turned with it) and its line or arrow;
-         across a sheet's edge, the sheets it prints cut on (cut, report.movable) */
-      for (const m of MV) {
-        if (m.how !== 'by hand' || m.kind === 'photo') continue;
-        const lk = (m.p && locOfPt.get(m.p)) || (m.kind === 'cable' && byId.get(String(m.span[0])) ? locOfPt.get(byId.get(String(m.span[0]))) || 0 : 0), C = frameCells({ x: m.box.cx, y: m.box.cy, w: m.box.w, h: m.box.h, rot: m.box.a });
-        C.forEach(([i, j]) => offAt(i, j, lk)); m.cells = C;
-        const L = m.line; if (L) for (let s2 = 0; s2 + 1 < L.length; s2++) { const u = L[s2], v = L[s2 + 1], n = Math.max(1, Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]))); for (let k = 0; k <= n; k++) offAt(ci(u[0] + (v[0] - u[0]) * k / n), cj(u[1] + (v[1] - u[1]) * k / n), lk); }
-      }
-      if (off.size) rep._offCells = [...off.values()]; }
-    /* (beta 7.10, Drawing labels) every item the Drawing may move, always (not only with debug), as written: its box [cx, cy, w, h, deg] in the points' metres (the
-       middle of a pin is the middle of this box), what its pin is measured from (anchor: its point as drawn, or the middle of the cable label's span),
-       placed by hand or by the plan, the DXF entities that draw it (handles); placed by hand across a sheet's edge: cut, the sheets it prints cut
-       on (as a photo's photoAt[id].cut; the notes say so); a cell it is in that no sheet printed is a GEO sheet (build, _offCells, as a photo's).
-       Tidy: a pole's number is in its block (lbl:…, number: true), which carries its photo beside it (with). */
-    { const cut = [], off = [], nm = (m) => (m.kind === 'cable' ? `${m.name} label` : m.kind === 'number' ? `No. ${m.seq}` : `${m.p.poleId || m.p.id} details`);
-      rep.movable = MV.map((m) => {
-        const B = m.box;
-        let cutOn = null; if (m.how === 'by hand' && m.kind !== 'photo') { const C = m.cells || [[ci(B.cx), cj(B.cy)]]; if (C.length > 1) { cutOn = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort(); cut.push(nm(m)); } if (C.some(([i, j]) => !used.has(key(i, j)))) off.push(nm(m)); } // ((beta 7.10, Plan kept) as a photo's photoAt[id].cut; on no sheet: build adds the sheet, see its _offCells)
-        const o2 = { id: m.id, kind: m.kind, box: [B.cx, B.cy, B.w, B.h, B.a || 0], anchor: m.anchor ? [m.anchor[0], m.anchor[1]] : [m.p.dp[0], m.p.dp[1]], how: m.how, handles: m.handles };
-        if (job.debug) o2.parts = (m.parts || []).map((b) => [b.cx, b.cy, 2 * b.hw, 2 * b.hh, Math.atan2(b.uy, b.ux) * 180 / Math.PI]); // (with debug: the boxes a Standard stack is made of, its lines')
-        if (m.p) Object.assign(o2, { point: String(m.p.id), name: String(m.p.poleId || m.p.id) }); else Object.assign(o2, { key: m.key, name: m.name, span: m.span, lead: !!m.lead });
-        if (m.kind === 'number' || m.number) o2.seq = m.seq != null ? String(m.seq) : null; if (m.kind === 'details') { o2.number = !!m.number; o2.with = m.with || []; } if (m.block) o2.block = true; if (cutOn) o2.cut = cutOn;
-        return o2;
-      });
-      if (cut.length) rep.notes.push(`Labels, numbers or pole details placed by hand across a sheet's edge (each sheet shows only its part; move them on the Drawing): ${cut.join(', ')}`);
-      if (off.length) rep.notes.push(`Labels, numbers or pole details placed by hand partly off the plan's sheets (on no GEO sheet; move them on the Drawing): ${off.join(', ')}`); }
+      OFFC = { off, offAt, frameCells }; } // ((beta 7.11, Drawing tools) the labels, numbers, details and other elements placed by hand: at the end of the build (DT), once each is where it goes)
+    const notesAt = rep.notes.length; // ((beta 7.11, Drawing tools) where the notes of the items placed by hand go (DT), as before)
     rep.drawnAt = Object.fromEntries(pts.map((p) => [String(p.id), p.dp ? [p.dp[0], p.dp[1]] : [p.E, p.N]])); // (beta 7.9, Drawing preview) where the plan draws each point (beside its road), for the Drawing
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
     if (photoPl.shrunk.length) { const sz = (x) => `${x.p.poleId || x.p.id} ${+(PHMM * x.k).toFixed(1)} mm${x.over ? ' (covering least)' : ''}`; rep.notes.push(`Photos drawn smaller: no place at their size (${+PHMM.toFixed(1)} mm) near their pole, nor further out with a line; the pole first, then its details, then its photo (${photoPl.shrunk.length}): ${photoPl.shrunk.slice(0, 20).map(sz).join(', ')}${photoPl.shrunk.length > 20 ? '…' : ''}`); } // beta 6.7
@@ -3868,16 +4088,18 @@
     if (TIDY && photoPl.left.length) rep.notes.push(`Photos with no free place near their pole (left out: the point's number is on the plan; its photo is in the folder): ${photoPl.left.map((p) => p.poleId || p.id).join(', ')}`); // beta 4.8
     rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.photosAsNumber = nNoRoom; rep.markMode = markMode;
     const withPh = new Set([...photoPl.out.filter((x) => x.ph).map((x) => String(x.p.id)), ...[...tidyCard].map((p) => String(p.id))]); /* (beta 4.8: with Tidy's photos in their labels) */ /* (v2.42.26: no room for its photo: its number; beta 4.1: by the photos placed) */ rep.marks = markOrder.filter((p) => p.el !== 'Site' || withPh.has(String(p.id))).map((p) => [p.seq, String(p.id), withPh.has(String(p.id)) ? (markMode === 'both' && p.el !== 'Site' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan (beta 7.3: none for a site)
+    /** (beta 7.11, Drawing tools) the element a point's lat / long belongs to: [id, kind, point, info] */
+    const llOwn = (p) => (p.el === 'ODC' || p.el === 'ODF' || p.el === 'Site' ? [`sitelbl:${p.id}`, 'sitedetails', p, null] : p.el === 'NAP' ? [`nap:${p.id}`, 'nap', p, null] : p.el === 'Closure' ? [`clolbl:${p.id}`, 'closurelabel', p, null] : [`pole:${p.id}`, 'pole', p, null]);
     // 11. coordinates of the points that are not poles
     // v2.37: smaller, where they cover nothing (none for a NAP or closure drawn on its pole)
     for (const p of pts) {
       if (p.el === 'Pole' || p.onPole) continue;
-      if (JNW[p.el] || (p.el === 'Site' && !/olt/i.test(p.siteKind || ''))) continue; // beta 7.4 / 2.45.6: none for a pull-off or cross-over (the drafter took it off); a tower's is under its name (see its name group)
+      if (JNW[p.el] || (p.el === 'Site' && !/olt/i.test(p.siteKind || '')) || (p.el === 'Closure' && BUB(p))) continue; // beta 7.4 / 2.45.6: none for a pull-off or cross-over (the drafter took it off); a tower's is under its name (see its name group) ((beta 7.11, Drawing tools) a closure with a bubble callout: in it)
       const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], ext = inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : 3, hL = TIDY ? TS.sm / kAt(q0[0], q0[1]) : +(job.poleStyle || {}).llH > 0 ? +job.poleStyle.llH : 1.2, w = 10 * hL * CHW, h = 2 * 1.67 * hL; // (beta 4.3: the lat/long height of the drawing style)
       // v2.41: where every place is taken, over a road edge line or the cable rather than over an ID, a number or a photo
       const kq = TIDY ? kAt(q0[0], q0[1]) : 1, cs = []; for (const r of [ext + 1.5 / kq, ext + 5 / kq, ext + 9 / kq, ext + 13 / kq, ext + 18 / kq]) for (const a of [-45, 45, -135, 135, -90, 90, 0, 180]) { /* (beta 4.8: on a finer grid, as much nearer) */ const u = rotv([1, 0], a), c = add2(q0, u, r + w / 2 * Math.abs(u[0]) + h / 2 * Math.abs(u[1])); cs.push({ q: [c[0] - w / 2, c[1] + h / 2], boxes: [Spots.box(c[0], c[1], w * 1.1, h, 0)] }); }
       const csIn = TIDY ? [...cs.filter((x) => inCellBox(x.boxes[0], q0[0], q0[1])), ...cs.filter((x) => !inCellBox(x.boxes[0], q0[0], q0[1]))] : cs, c = pickW(spots, csIn, LL_W); spots.add(c.boxes); // (beta 4.8: Tidy: a free place wholly on its sheet first)
-      o.mtext(lay('LATLONG'), c.q[0], c.q[1], hL, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1', color: +(job.poleStyle || {}).llColor || null });
+      owning(...llOwn(p), () => o.mtext(lay('LATLONG'), c.q[0], c.q[1], hL, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1', color: +(job.poleStyle || {}).llColor || null })); // ((beta 7.11, Drawing tools) with its element: a site's details, a NAP, a closure's label, a box)
     }
     // 12. v2.34: the name of every named road on every GEO sheet it crosses (once per sheet), on the road where it covers no label;
     //     then buildings and places nearby (named in OpenStreetMap), turned along their road, wholly inside a sheet
@@ -3902,7 +4124,8 @@
           for (const f of FS) for (const dd of [0, 0.4, -0.4, 0.6, -0.6]) {
             const q = add2(add2(sg.a, u, f * sg.L), nv, dd * sg.hw), b0 = textBox(q[0], q[1], h, txt, rd, 1, 2), b = { ...b0, hw: b0.hw + h * 1.2, hh: b0.hh + 0.35 }; // room at its ends and sides
             if (!inside(b0, W, 1) || spots.hits(b)) continue;
-            o.text(lay('STREET NAME'), q[0], q[1], h, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: 7, obl: 15 }); spots.add(b, 'street'); nStreets++; done = true; break look; // v2.42.11: black, slanted 15° (the yellow could not be read on paper)
+            const rn = wins.indexOf(W) + 1; // ((beta 7.11, Drawing tools) road:<its name>#<n>: n the number of the GEO sheet it is written on (a name once a sheet), so its id stays when another of its labels finds no room; measured from its sheet's middle)
+            owning(`road:${txt}#${rn}`, 'road', null, { at: [(W[0] + W[2]) / 2, (W[1] + W[3]) / 2] }, () => o.text(lay('STREET NAME'), q[0], q[1], h, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: 7, obl: 15 })); spots.add(b, 'street'); nStreets++; done = true; break look; // v2.42.11: black, slanted 15° (the yellow could not be read on paper)
           }
         }
       }
@@ -3971,7 +4194,8 @@
       if (!W) { poiSkip.outside++; continue; } if (placed.some((x) => x.name === name && dist2(x.q, q0) < 60)) { poiSkip.dup++; continue; }
       const ic = job.lmIcons !== false && Number.isInteger(poi.icon) && poi.icon >= 0 && S.blocks.has(iconName(poi.icon)) ? iconName(poi.icon) : null; // (beta 6.7: Drawing style › Landmarks › Icons: Off, none)
       const ib = ic ? Spots.box(q0[0], q0[1], ICON * 1.1, ICON * 1.1, 0) : null, useIcon = !!(ib && !spots.hits(ib) && !R.idx.inside(q0, -1, -1));
-      if (lmMode === 'hide') { if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; } poiSkip.hidden++; placed.push({ name, q: q0 }); continue; } // (beta 3.8: hidden names: their icons only)
+      const lmId = `lm:${name}@${Math.round(poi.E)},${Math.round(poi.N)}`, lmIn = { at: q0 }; // ((beta 7.11, Drawing tools) a landmark, its icon and its name: lm:<its name>@<E>,<N> (whole metres); measured from its place)
+      if (lmMode === 'hide') { if (useIcon) { owning(lmId, 'landmark', null, lmIn, () => o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON })); spots.add(ib); nIcons++; } poiSkip.hidden++; placed.push({ name, q: q0 }); continue; } // (beta 3.8: hidden names: their icons only)
       // beta 6.1 (the owner: "wrap the text so that we can squeeze even more space or we can shorten the name example from elementary to
       // elem only"): Tidy: a name with no room even at 1.3 mm is tried again wrapped onto two, then three lines, then shortened with
       // standard abbreviations (whole words), then both, each from 1.6 mm down to 1.3 mm; the least change that fits wins and a name is
@@ -3998,9 +4222,9 @@
         if (c) { used = vr; if (vr.kind) lmStat[vr.kind === 'wrap' ? 'wrapped' : vr.kind === 'abbr' ? 'abbreviated' : 'abbrWrapped']++; break; }
       }
       if (!c && lmMode === 'always' && allC.length) { c = allC.map((x) => ({ ...x, n: x.boxes.reduce((t, bb) => t + spots.hits(bb), 0) + (x.th < 2 ? 0.1 : 0) })).sort((a, b) => a.n - b.n)[0]; poisAlways++; } // (beta 3.8: Always: where it covers least)
-      if (!c) { poiSkip.noRoom++; if (TIDY && useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; } continue; } // (beta 6.0: Tidy: its icon kept where it fits)
-      if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; }
-      o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], c.th, used.lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
+      if (!c) { poiSkip.noRoom++; if (TIDY && useIcon) { owning(lmId, 'landmark', null, lmIn, () => o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON })); spots.add(ib); nIcons++; } continue; } // (beta 6.0: Tidy: its icon kept where it fits)
+      if (useIcon) { owning(lmId, 'landmark', null, lmIn, () => o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON })); spots.add(ib); nIcons++; }
+      owning(lmId, 'landmark', null, lmIn, () => o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], c.th, used.lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru })); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
     }
     /* beta 4.7: Tidy: a loop's length, an ID or a span length the steps before left over another text (their place was worked out
        narrower than AutoCAD draws capitals, e.g. a loop's length over a dummy NAP's ID): slid a little along its line or out from it
@@ -4096,6 +4320,192 @@
       if (vicNames.includes(L.name)) vpFreeze(vp, offInVic); else if (/^GEO( \(\d+\))?$/.test(L.name) || kmNames.includes(L.name)) vpFreeze(vp, vicOnly); // v2.38: every place's sheets
       // v2.42.10: the keymap's own cell names on the keymap only; there, not the small corner names
       if (kmNames.includes(L.name)) vpFreeze(vp, [layerH(lay('GRIDNO.', 'GRIDNO'))].filter(Boolean)); else if (layerH(KMLAY)) vpFreeze(vp, [layerH(KMLAY)]);
+    }
+    /* (beta 7.11, Drawing tools) DT, the end of the build: every element the Drawing may select, as written (beta 7.10's photos, numbers, pole details and
+       cable labels, MV; the others, OWN), placed by hand and turned (job.pins), then report.movable: each one's id and kind, the DXF entities that draw
+       it (handles: each entity one item's only), where it is (box [cx, cy, w, h, deg]: its middle the reference point a pin moves; a label's box its
+       texts only, not its line or arrow), what its pin is measured from (anchor), what the Drawing may do to it (can), the pole it hangs on (pole),
+       what is carried with it when it is dragged (with). A pin: its box's middle at anchor + at, turned to rot degrees (its box's angle; guys,
+       groundings and arms swing round their pole's drawn centre, can.about, to point rot degrees from it). A label moved away from what it names
+       keeps a thin line to it (a span's length, a loop's text) or its arrow (a closure's label, drawn again from where it now is). */
+    {
+      const ix = new Map(o.model.map((r, i) => [r, i])), taken = new Set(MV.flatMap((m) => m.handles)), EL = [];
+      for (const g of OWN.values()) { const recs = g.recs.filter((r) => !taken.has(r[1][1])).sort((x, y) => ix.get(x) - ix.get(y)); if (!recs.length) continue; recs.forEach((r) => taken.add(r[1][1])); EL.push({ ...g, recs }); }
+      const isTxt = (r) => typ(r) === 'TEXT' || typ(r) === 'MTEXT' || visAtt(r);
+      const angOf = (r) => (typ(r) === 'MTEXT' ? (r.some((q, i) => i > 0 && q[0] === 11) ? deg([num(r, 11, 1), num(r, 21, 0)]) : num(r, 50, 0)) : num(r, 50, 0));
+      const norm = (a) => { let x = ((a % 360) + 360) % 360; if (x > 180) x -= 360; return Math.abs(x) < 1e-9 ? 0 : +x.toFixed(9); };
+      const ATTK = new Set(['guy', 'ground', 'arm']), SYMK = new Set(['pole', 'site', 'nap', 'closure']), SCALEK = new Set(['pole', 'site', 'nap', 'closure', 'guy', 'ground', 'arm', 'landmark']);
+      const bodyOf = (E) => E.recs.filter((r) => !LEAD.has(r)), outl = (recs) => recs.flatMap((r) => recOutline(S, r));
+      const onPoleOf = (p) => (p && p.el === 'Pole' ? p : null);
+      const boxOf = (E) => { const P = outl(bodyOf(E).length ? bodyOf(E) : E.recs); if (ATTK.has(E.kind)) { const B0 = ptsBox(P, 0); E.a = B0 ? norm(deg([B0.cx - E.about[0], B0.cy - E.about[1]])) : 0; } return ptsBox(P, E.a) || { cx: E.anchor[0], cy: E.anchor[1], w: 0, h: 0, a: E.a }; };
+      for (const E of EL) {
+        const p = E.p, k = E.kind, pl = onPoleOf(p);
+        E.anchor = k === 'pole' || (k === 'site' && !(p.el === 'Site' && !/olt/i.test(p.siteKind || ''))) ? (p.handAt || [p.E, p.N]) : k === 'site' || k === 'sitedetails' || k === 'sitename' ? [p.E, p.N]
+          : k === 'span' ? geoOf(E.sp[0], E.sp[1]).m : (k === 'loop' || k === 'landmark' || k === 'road') && E.at ? E.at : k === 'closurelabel' && E.at ? E.at : p && p.dp ? p.dp : p ? [p.E, p.N] : [0, 0];
+        E.anchor = [E.anchor[0], E.anchor[1]];
+        if (ATTK.has(k)) E.about = [p.dp[0], p.dp[1]];
+        if (k === 'guy' || k === 'ground' || k === 'arm' || k === 'loop' || ((k === 'nap' || k === 'closure' || k === 'closurelabel') && pl)) E.pole = String(pl.id);
+        if (!E.status && p && (k === 'pole' || k === 'site') && (p.el === 'Pole' || p.el === 'Site' || p.el === 'ODC' || p.el === 'ODF' || INLINE_EL.has(p.el) || JNW[p.el])) E.status = { now: p.status === 'Proposed' || p.status === 'New' ? 'proposed' : 'existing', field: 'status' };
+        if (!E.status && p && (k === 'nap' || k === 'closure' || k === 'closurelabel') && !pl) E.status = { now: p.status === 'Proposed' || p.status === 'New' ? 'proposed' : 'existing', field: 'status' };
+        if (k === 'closurelabel' && !E.status && pl) E.status = { now: pl.closureOld ? 'existing' : 'proposed', field: 'closureOld' };
+        if (E.status) E.status = { ...E.status, point: String(p.id) };
+        E.a = ATTK.has(k) ? 0 : SYMK.has(k) ? (() => { const r = E.recs.find((x) => typ(x) === 'INSERT'); return norm(r ? num(r, 50, 0) : 0); })() : (() => { const r = E.recs.find(isTxt); return norm(r ? angOf(r) : 0); })();
+        E.box = boxOf(E);
+        E.how = (p && p.handAt && (k === 'pole' || k === 'site')) || (k === 'site' && p && (towerAt.get(p) || {}).byHand) ? 'by hand' : 'auto';
+      }
+      /** an element's records moved (X: xformRec's): its lines to what it names keep their far end there (the first point; a tower's arrow and mark stay) */
+      const xformEl = (E, X) => { for (const r of E.recs) { if (!LEAD.has(r)) { xformRec(r, X); continue; } if (typ(r) !== 'LWPOLYLINE') continue; const k0 = r.findIndex((q, i) => i > 0 && q[0] === 10), x0 = r[k0][1], y0 = r[k0 + 1][1]; xformRec(r, X); r[k0][1] = x0; r[k0 + 1][1] = y0; } };
+      /** a closure label's arrow drawn again from where its label now is to its closure (as drawn first: a line from its text and a solid head) */
+      const cloArrow = (E) => {
+        const th = E.th || IDS.h, B = E.box, c = [B.cx, B.cy], v = unit(E.at, c), u = [Math.cos(B.a * Math.PI / 180), Math.sin(B.a * Math.PI / 180)], ex = Math.abs(v[0] * u[0] + v[1] * u[1]) * B.w / 2 + Math.abs(-v[0] * u[1] + v[1] * u[0]) * B.h / 2;
+        const a0 = add2(c, v, -(ex + 0.25 * th)), a1 = add2(E.at, v, (E.R || 0) + 0.15 * th), ah = 0.9 * th, aw = 0.38 * th, pv = [-v[1], v[0]], b0 = add2(a1, v, ah), far = dist2(a0, a1) > ah * 1.05 && (a0[0] - a1[0]) * v[0] + (a0[1] - a1[1]) * v[1] > 0;
+        let ln = E.recs.find((r) => LEAD.has(r) && typ(r) === 'LWPOLYLINE'); const hd = E.recs.find((r) => LEAD.has(r) && typ(r) === 'SOLID');
+        if (far && !ln) { const prev = o.own; o.own = null; ln = o.lwpoly(lay('P-JOINT'), [a0, b0], { color: hd ? +get(hd, 62, '1') || 1 : 1 }); o.own = prev; LEAD.add(ln); E.recs.push(ln); }
+        if (ln) { const P = far ? [a0, b0] : [b0, b0], ks = ln.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((kk, j) => { ln[kk][1] = F(P[Math.min(j, 1)][0]); ln[kk + 1][1] = F(P[Math.min(j, 1)][1]); }); }
+        if (hd) { const Q = [a1, add2(b0, pv, aw), add2(b0, pv, -aw), add2(b0, pv, -aw)]; [10, 11, 12, 13].forEach((cx, j) => { const kk = hd.findIndex((q, i) => i > 0 && q[0] === cx); if (kk > 0) { hd[kk][1] = F(Q[j][0]); hd[kk + 1][1] = F(Q[j][1]); } }); }
+      };
+      /** a closure's bubble callout: its pointer turned to face its label where it now is (its circle stays round the closure); its tip BUB_TIP times its radius out */
+      const bubTurn = (E) => {
+        const B = E.bub, c = [E.box.cx, E.box.cy], v = E.how === 'by hand' && dist2(c, B.at) > 1e-6 ? unit(B.at, c) : B.v, /* (where the plan put it: the way it was drawn) */ tip = add2(B.at, v, B.rb * BUB_TIP), arc = bubArc(B.at, B.rb, v), put = (r, P) => { const ks = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((kk, j) => { r[kk][1] = F(P[j][0]); r[kk + 1][1] = F(P[j][1]); }); };
+        B.parts.forEach((r, k) => { const Q = [tip, arc[k], arc[k + 1], arc[k + 1]]; [10, 11, 12, 13].forEach((cx, j) => { const kk = r.findIndex((q, i) => i > 0 && q[0] === cx); if (kk > 0) { r[kk][1] = F(Q[j][0]); r[kk + 1][1] = F(Q[j][1]); } }); });
+        if (B.edge) put(B.edge, [tip, ...arc.slice().reverse()]); B.v = v;
+      };
+      /** a thin line from a label moved away from what it names (q: a point; or a line [a, b]: its nearest point) to it, where its box is further than gap from it */
+      const thinTo = (E, tgt, gap) => {
+        const B = E.box, near = (q) => nearBox(B, q), tp = Array.isArray(tgt[0]) ? (() => { const [a, b] = tgt, c = [B.cx, B.cy], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-9, t = Math.max(0, Math.min(1, ((c[0] - a[0]) * dx + (c[1] - a[1]) * dy) / L2)); return [a[0] + t * dx, a[1] + t * dy]; })() : tgt;
+        const e = near(tp); if (dist2(e, tp) <= gap) return;
+        const u = unit(tp, e), prev = o.own; o.own = null; const r = o.lwpoly(lay(E.kind === 'span' ? 'Distance Data' : 'PROPOSED LOOP'), [add2(tp, u, 0.3), add2(e, u, -0.3)], { color: 8 }); o.own = prev; LEAD.add(r); E.recs.push(r);
+      };
+      /* (beta 7.11, Drawing tools) styles (job.style { id: {…} }, job.styleKind { kind: {…} }: the item's own wins, field by field) and the lines to what an
+         item names (Plan style › job.leaders { photo, details, number }, an item's own lead). h: its texts' size (a label, a number, a span's length…, the
+         whole of it from its middle; a symbol's texts each where it is); scale: a symbol's size (pole, site, NAP, closure, guy, grounding, arm, landmark
+         icon; its texts move with it at their size; a guy, grounding or arm from where it meets its pole); bold, italic: its texts (an Arial style
+         bold / italic, an MTEXT's own font codes); color: the whole item in that AutoCAD colour (its blocks drawn in it: a copy of each); lead false: no
+         line or arrow from it to what it names. With none of them the plan is as before, byte for byte. */
+      const STK = job.styleKind && typeof job.styleKind === 'object' ? job.styleKind : null, STI = job.style && typeof job.style === 'object' ? job.style : null, LDS = job.leaders && typeof job.leaders === 'object' ? job.leaders : null;
+      const stOf = (id, kind) => { const a = STK && STK[kind] && typeof STK[kind] === 'object' ? STK[kind] : null, b = STI && STI[id] && typeof STI[id] === 'object' ? STI[id] : null; if (!a && !b) return null; const o3 = { ...(a || {}), ...(b || {}) }, f = (v, lo, hi) => (v != null && v !== '' && Number.isFinite(+v) && +v > 0 ? Math.max(lo, Math.min(hi, +v)) : null);
+        const st = { h: f(o3.h, 0.2, 5), scale: f(o3.scale, 0.2, 5), bold: typeof o3.bold === 'boolean' ? o3.bold : null, italic: typeof o3.italic === 'boolean' ? o3.italic : null, color: Number.isInteger(+o3.color) && +o3.color >= 1 && +o3.color <= 255 ? +o3.color : null, lead: typeof o3.lead === 'boolean' ? o3.lead : null, callout: o3.callout === 'bubble' || o3.callout === 'arrow' ? o3.callout : null };
+        return Object.values(st).some((v) => v != null) ? st : null; };
+      const recOfH = new Map(o.model.map((r) => [r[1][1], r])), TXTK = new Set(['span', 'loop', 'road', 'sitename', 'sitedetails', 'closurelabel', 'details', 'number', 'cable']);
+      const isTxtR = (r) => typ(r) === 'TEXT' || typ(r) === 'MTEXT' || (typ(r) === 'ATTRIB' && !(parseInt(get(r, 70, '0'), 10) & 1));
+      /** an MTEXT's text, written again (its 250-letter pieces) */
+      const setMt = (r, s2) => { const k = r.findIndex((q, i) => i > 0 && (q[0] === 3 || q[0] === 1)); for (let i = r.length - 1; i > 0; i--) if (r[i][0] === 3 || r[i][0] === 1) r.splice(i, 1); const ch = []; for (let i = 0; i < s2.length; i += 250) ch.push(s2.slice(i, i + 250)); if (!ch.length) ch.push(''); r.splice(k > 0 ? k : r.length, 0, ...ch.slice(0, -1).map((c) => [3, c]), [1, ch[ch.length - 1]]); };
+      const mtOf = (r) => all(r, 3).join('') + (get(r, 1) || '');
+      const boldSt = (nm) => /^G-ESAA (BOLD|ARIAL BI?)$/.test(nm || ''), italSt = (nm) => /^G-ESAA ARIAL B?I$/.test(nm || '');
+      /** the item's texts bold / italic as asked (null: as they are) */
+      const fontOn = (recs, b, i) => { if (b == null && i == null) return; for (const r of recs) { if (!isTxtR(r)) continue;
+        if (typ(r) === 'MTEXT') { let t = mtOf(r); if (/\\f[^;]*;/i.test(t)) t = t.replace(/\\f([^;|]*)((?:\|[^;|]*)*);/gi, (m0, nm, fl) => `\\f${nm}${fl.replace(/\|b[01]/, b == null ? (x) => x : `|b${b ? 1 : 0}`).replace(/\|i[01]/, i == null ? (x) => x : `|i${i ? 1 : 0}`)}${/\|b[01]/.test(fl) || b == null ? '' : `|b${b ? 1 : 0}`}${/\|i[01]/.test(fl) || i == null ? '' : `|i${i ? 1 : 0}`};`); else t = `{\\fArial|b${b ? 1 : 0}|i${i ? 1 : 0}|c0|p34;${t}}`; setMt(r, t); continue; }
+        const k = r.findIndex((q, j) => j > 0 && q[0] === 7), cur = k > 0 ? r[k][1] : 'Standard', nb = b == null ? boldSt(cur) : b, ni = i == null ? italSt(cur) : i; if (nb === boldSt(cur) && ni === italSt(cur)) continue;
+        const nm = addFontStyle(d, S, nb, ni); if (nm && k > 0) r[k][1] = nm; } };
+      /** the whole item in an AutoCAD colour: each record's own colour (a block: a copy of it in that colour; an MTEXT: its own colour codes out); its dark shadows (250) kept */
+      const colorOn = (recs, c) => { for (const r of recs) { const t = typ(r); if (t === 'SEQEND' || t === 'IMAGE' || get(r, 62) === I(250)) continue;
+        for (let i = r.length - 1; i > 0; i--) if (r[i][0] === 420) r.splice(i, 1);
+        const k = r.findIndex((q, i) => i > 0 && q[0] === 62); if (k > 0) r[k][1] = I(c); else { const l8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(l8 > 0 ? l8 + 1 : r.length, 0, [62, I(c)]); }
+        if (t === 'INSERT') { const bn = get(r, 2), nb = tintBlock(d, S, bn, c); if (nb) setFirst(r, 2, nb); }
+        if (t === 'MTEXT') setMt(r, mtOf(r).replace(/\\[Cc]\d+;/g, '')); } };
+      /** scaled about c: its geometry s times, its texts' heights times hs (an attribute of a block with its block) */
+      const scaleRecs = (recs, lead, c, s, hsT) => { for (const r of recs) { if (lead(r)) { if (typ(r) !== 'LWPOLYLINE') continue; const k0 = r.findIndex((q, i) => i > 0 && q[0] === 10), x0 = r[k0][1], y0 = r[k0 + 1][1]; xformRec(r, { c, s }); r[k0][1] = x0; r[k0 + 1][1] = y0; continue; } xformRec(r, { c, s, hs: typ(r) === 'TEXT' || typ(r) === 'MTEXT' ? hsT : s }); } };
+      /** each text's height times h where it stands (its own alignment point) */
+      const hEach = (recs, h) => { for (const r of recs) { if (!isTxtR(r)) continue; const al = typ(r) !== 'MTEXT' && (+get(r, 72, '0') || +get(r, typ(r) === 'ATTRIB' ? 74 : 73, '0')); xformRec(r, { c: [num(r, al ? 11 : 10, 0), num(r, al ? 21 : 20, 0)], s: 1, hs: h }); } };
+      const drop = new Set(); // (lines taken off: lead false)
+      const ld7 = (r) => typ(r) === 'SOLID' || (typ(r) === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1)); // (7.10's items: their open lines and arrowheads go to what they name)
+      const LEADK = { photo: 'photo', details: 'details', number: 'number' };
+      for (const m of MV) {
+        const st = stOf(m.id, m.kind); if (!st) continue;
+        const recs = m.handles.map((h) => recOfH.get(h)).filter(Boolean);
+        if (st.h && m.kind !== 'photo' && Math.abs(st.h - 1) > 1e-9) { const c0 = [m.box.cx, m.box.cy]; scaleRecs(recs, ld7, c0, st.h, st.h); m.box = { ...m.box, w: m.box.w * st.h, h: m.box.h * st.h }; m.styled = true;
+          for (const w of m.kind === 'details' ? m.with || [] : []) { const n2 = MV.find((x) => x.id === w && x.kind === 'number'); if (!n2) continue; scaleRecs(n2.handles.map((h) => recOfH.get(h)).filter(Boolean), ld7, c0, st.h, st.h); n2.box = { ...n2.box, cx: c0[0] + (n2.box.cx - c0[0]) * st.h, cy: c0[1] + (n2.box.cy - c0[1]) * st.h, w: n2.box.w * st.h, h: n2.box.h * st.h }; } } // (a Tidy block's number in it, as large)
+        if (m.kind !== 'photo') fontOn(recs, st.bold, st.italic);
+        if (st.color && m.kind !== 'photo') colorOn(recs, st.color);
+      }
+      for (const E of EL) {
+        const st = stOf(E.id, E.kind); if (!st) continue; const k = E.kind;
+        if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const ins = (k === 'guy' || k === 'ground') && E.recs.find((r) => typ(r) === 'INSERT'), da = ins ? num(ins, 50, 0) : E.a, c = ATTK.has(k) ? add2(E.about, [Math.cos(da * Math.PI / 180), Math.sin(da * Math.PI / 180)], (E.p && E.p.rp) || 0) : [E.box.cx, E.box.cy]; /* (a guy's or grounding's block is drawn along its way) */ scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); } // (a guy, grounding, arm: from where it meets its pole, its symbol's edge that way)
+        if (E.bub && st.scale && Math.abs(st.scale - 1) > 1e-9) { // (a bubble callout's size: its circle and pointer; its lines, where the plan put them, follow its tip)
+          const B = E.bub, rb1 = B.rb * st.scale, G0 = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H), G1 = bubGeo(B.at, rb1, B.th, B.v, B.W, B.H);
+          for (const r of B.circles) { setFirst(r, 40, F(rb1)); const kk = r.findIndex((q, i) => i > 0 && q[0] === 48); if (kk > 0) r[kk][1] = F(+r[kk][1] * st.scale); }
+          for (const r of E.recs) if (!LEAD.has(r)) xformRec(r, { t: [G1.xa - G0.xa, G1.y1 - G0.y1] }); B.rb = rb1; E.box = boxOf(E); }
+        if (st.h && Math.abs(st.h - 1) > 1e-9) { if (E.bub) { const B = E.bub, G = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H); scaleRecs(E.recs, (r) => LEAD.has(r), G.pv, st.h, st.h); } /* (a bubble's lines grow away from its tip) */ else if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
+        fontOn(E.recs, st.bold, st.italic);
+        if (st.color) colorOn(E.recs, st.color);
+        E.box = boxOf(E); E.styled = true;
+        if (k === 'closurelabel' && E.bub && (E.how === 'by hand' || st.h || st.scale)) bubTurn(E);
+        else if (k === 'closurelabel' && E.at && (E.how === 'by hand' || st.h)) cloArrow(E);
+      }
+      for (const E of EL) {
+        const pn = PINS.get(E.id); if (!pn) continue;
+        const k = E.kind, rot = pn.rot != null ? norm(pn.rot - E.a) : 0, mv = pn.at && !ATTK.has(k) && k !== 'pole' && k !== 'site', c0 = ATTK.has(k) ? E.about : [E.box.cx, E.box.cy];
+        if (!rot && !mv) continue;
+        const t = mv ? [E.anchor[0] + pn.at[0] - E.box.cx, E.anchor[1] + pn.at[1] - E.box.cy] : [0, 0];
+        xformEl(E, { c: c0, a: rot, t }); E.a = norm(E.a + rot); E.box = boxOf(E); E.how = 'by hand';
+        if (k === 'closurelabel' && E.bub) bubTurn(E);
+        else if (k === 'closurelabel' && E.at) cloArrow(E);
+        else if (mv && k === 'span') { const g = geoOf(E.sp[0], E.sp[1]); thinTo(E, [g.a, g.b], Math.max(2.5, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1))); }
+        else if (mv && k === 'loop' && E.at) thinTo(E, E.at, Math.max(3, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1)));
+      }
+      /* beta 7.10's items turned by hand (pins' rot) where their pin has no place (at) for 7.10's own (their details and cable labels take rot there), and
+         photos and numbers: about their middle; their lines to their point stay (an open line, an arrow's head) */
+      for (const m of MV) {
+        const pn = PINS.get(m.id); if (!pn || pn.rot == null || ((m.kind === 'details' || m.kind === 'cable') && pn.at)) continue;
+        const rot = norm(pn.rot - (m.box.a || 0)); if (!rot) continue;
+        const hs = new Set(m.handles), c0 = [m.box.cx, m.box.cy];
+        for (const r of o.model) { if (!hs.has(r[1][1])) continue; const ty = typ(r); if (ty === 'SOLID' || (ty === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1))) continue; xformRec(r, { c: c0, a: rot }); }
+        m.box = { ...m.box, a: norm((m.box.a || 0) + rot) }; m.how = 'by hand';
+        if (m.kind === 'photo' && m.p && rep.photoAt[String(m.p.id)]) Object.assign(rep.photoAt[String(m.p.id)], { rot: m.box.a, how: 'by hand' }); // (the Drawing's photo turned with it)
+      }
+      /* the lines and arrows to what an item names left off (lead false; Plan style's job.leaders), after every item is where it goes */
+      for (const m of MV) { const st = stOf(m.id, m.kind), lp = LDS && LEADK[m.kind] && LDS[LEADK[m.kind]] === false; if ((st && st.lead === false) || (lp && !(st && st.lead === true))) { m.handles.forEach((h) => { const r = recOfH.get(h); if (r && ld7(r)) drop.add(r); }); if (m.kind === 'photo' && m.p && rep.photoAt[String(m.p.id)]) rep.photoAt[String(m.p.id)].line = null; } } // (a photo's line in photoAt too)
+      for (const E of EL) { const st = stOf(E.id, E.kind), k = E.kind; if (st && st.lead === false && (k === 'span' || k === 'loop' || k === 'closurelabel')) E.recs.forEach((r) => { if (LEAD.has(r) && !BUBC.has(r)) drop.add(r); }); } // (a bubble keeps its circle: its pointer goes)
+      if (drop.size) { o.model = o.model.filter((r) => !drop.has(r)); for (const m of MV) m.handles = m.handles.filter((h) => !drop.has(recOfH.get(h))); for (const E of EL) E.recs = E.recs.filter((r) => !drop.has(r)); for (const m of MV) if (m.line && m.handles.every((h) => !ld7(recOfH.get(h)))) m.line = null; }
+      /* (beta 7.10, Plan kept) as a photo placed by hand: a label, number, pole's details or (beta 7.11) other element placed by hand, its box (turned with it)
+         and its line or arrow; across a sheet's edge, the sheets it prints cut on (cut, report.movable); in a cell no sheet prints: that sheet added (build) */
+      const { off: offM, offAt, frameCells } = OFFC, lineCells = (L, lk) => { if (L) for (let s2 = 0; s2 + 1 < L.length; s2++) { const u = L[s2], v = L[s2 + 1], n = Math.max(1, Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]))); for (let k = 0; k <= n; k++) offAt(ci(u[0] + (v[0] - u[0]) * k / n), cj(u[1] + (v[1] - u[1]) * k / n), lk); } };
+      for (const m of MV) {
+        if (m.how !== 'by hand' || m.kind === 'photo') continue;
+        const lk = (m.p && locOfPt.get(m.p)) || (m.kind === 'cable' && byId.get(String(m.span[0])) ? locOfPt.get(byId.get(String(m.span[0]))) || 0 : 0), C = frameCells({ x: m.box.cx, y: m.box.cy, w: m.box.w, h: m.box.h, rot: m.box.a });
+        C.forEach(([i, j]) => offAt(i, j, lk)); m.cells = C; lineCells(m.line, lk);
+      }
+      for (const E of EL) {
+        if (E.how !== 'by hand') continue;
+        const lk = (E.p && locOfPt.get(E.p)) || (E.sp ? locOfPt.get(E.sp[0]) || 0 : 0), C = frameCells({ x: E.box.cx, y: E.box.cy, w: E.box.w, h: E.box.h, rot: E.box.a });
+        C.forEach(([i, j]) => offAt(i, j, lk)); E.cells = C; for (const r of E.recs) if (LEAD.has(r) && typ(r) === 'LWPOLYLINE') { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); lineCells(X.map((x, i) => [x, Y[i]]), lk); }
+      }
+      if (offM.size) rep._offCells = [...offM.values()];
+      /* (beta 7.10, Drawing labels) every item the Drawing may move, always (not only with debug), as written: its box [cx, cy, w, h, deg] in the points' metres (the
+         middle of a pin is the middle of this box), what its pin is measured from (anchor: its point as drawn, or the middle of the cable label's span),
+         placed by hand or by the plan, the DXF entities that draw it (handles); placed by hand across a sheet's edge: cut, the sheets it prints cut
+         on (as a photo's photoAt[id].cut; the notes say so); a cell it is in that no sheet printed is a GEO sheet (build, _offCells, as a photo's).
+         (beta 7.11) Tidy: a pole's number in its block is an item of its own (num:…, block: true), carried with its block (with), as its photo beside it. */
+      const cut = [], off = [], NAME = { pole: 'symbol', site: 'symbol', sitedetails: 'details', sitename: 'name', nap: 'NAP', closure: 'closure', closurelabel: 'closure label', loop: 'loop', guy: 'guy', ground: 'grounding', arm: 'arm' };
+      const nm = (m) => (m.kind === 'cable' ? `${m.name} label` : m.kind === 'number' ? `No. ${m.seq}` : m.kind === 'details' ? `${m.p.poleId || m.p.id} details` : m.kind === 'span' ? `${m.recs.find(isTxt) ? get(m.recs.find(isTxt), 1, '') : ''} span length` : m.kind === 'road' || m.kind === 'landmark' ? String(m.id.slice(m.id.indexOf(':') + 1)) : `${m.p ? m.p.poleId || m.p.id : m.id} ${NAME[m.kind] || m.kind}`);
+      const cutOf = (m, B) => { if (m.how !== 'by hand' || m.kind === 'photo') return null; const C = m.cells || [[ci(B.cx), cj(B.cy)]]; let cutOn = null; if (C.length > 1) { cutOn = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort(); cut.push(nm(m)); } if (C.some(([i, j]) => !used.has(key(i, j)))) off.push(nm(m)); return cutOn; }; // ((beta 7.10, Plan kept) as a photo's photoAt[id].cut; on no sheet: build adds the sheet, see its _offCells)
+      const CAN0 = { photo: { move: true, rotate: true, scale: false, text: false, color: false, lead: true }, number: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, details: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, cable: { move: true, rotate: true, scale: false, text: true, color: true, lead: true } };
+      const out = MV.map((m) => {
+        const B = m.box, cutOn = cutOf(m, B);
+        const o2 = { id: m.id, kind: m.kind, box: [B.cx, B.cy, B.w, B.h, B.a || 0], anchor: m.anchor ? [m.anchor[0], m.anchor[1]] : [m.p.dp[0], m.p.dp[1]], how: m.how, handles: m.handles };
+        if (job.debug) o2.parts = (m.parts || []).map((b) => [b.cx, b.cy, 2 * b.hw, 2 * b.hh, Math.atan2(b.uy, b.ux) * 180 / Math.PI]); // (with debug: the boxes a Standard stack is made of, its lines')
+        if (m.p) Object.assign(o2, { point: String(m.p.id), name: String(m.p.poleId || m.p.id) }); else Object.assign(o2, { key: m.key, name: m.name, span: m.span, lead: !!m.lead });
+        if (m.kind === 'number' || m.number) o2.seq = m.seq != null ? String(m.seq) : null; if (m.kind === 'details') { o2.number = !!m.number; o2.with = m.with || []; } if (m.block) o2.block = true; if (cutOn) o2.cut = cutOn;
+        o2.can = { ...CAN0[m.kind] }; if (m.p && m.p.el === 'Pole') o2.pole = String(m.p.id);
+        if (m.kind === 'cable' && m.spanPts) { o2.spanPts = m.spanPts.map((q) => [q[0], q[1]]); if (m.tip) o2.tip = [m.tip[0], m.tip[1]]; }
+        return o2;
+      });
+      const kidsOf = new Map(), outE = []; for (const x of [...out, ...EL]) { const pid = x.pole; if (pid) (kidsOf.get(pid) || kidsOf.set(pid, []).get(pid)).push(x.id); }
+      for (const E of EL) {
+        const B = E.box, cutOn = cutOf(E, B), k = E.kind, p = E.p;
+        const o2 = { id: E.id, kind: k, box: [B.cx, B.cy, B.w, B.h, B.a || 0], anchor: E.anchor, how: E.how, handles: E.recs.map((r) => r[1][1]) };
+        if (p) Object.assign(o2, { point: String(p.id), name: String(p.poleId || p.id) }); else o2.name = nm(E);
+        if (E.pole) o2.pole = E.pole; if (k === 'span') o2.span = E.key.split('|');
+        o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k) || !!E.bub, /* (a bubble callout: its circle and pointer) */ text: E.recs.some(isTxt), color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) };
+        const w = k === 'pole' && p ? (kidsOf.get(String(p.id)) || []).filter((id) => id !== E.id) : k === 'site' && p ? [`sitelbl:${p.id}`, `sitename:${p.id}`].filter((id) => EL.some((x) => x.id === id)) : null; if (w && w.length) o2.with = w;
+        if (cutOn) o2.cut = cutOn;
+        outE.push(o2);
+      }
+      rep.movable = [...outE, ...out]; // (the other elements first: a pole before its number, details and photo, which it carries (with) and which may have pins of their own)
+      const nts = []; if (cut.length) nts.push(`Labels, numbers or pole details placed by hand across a sheet's edge (each sheet shows only its part; move them on the Drawing): ${cut.join(', ')}`);
+      if (off.length) nts.push(`Labels, numbers or pole details placed by hand partly off the plan's sheets (on no GEO sheet; move them on the Drawing): ${off.join(', ')}`);
+      if (nts.length) rep.notes.splice(notesAt, 0, ...nts);
+      for (const E of EL) if (E.kind === 'span' && E.how === 'by hand') spanLblAt.set(E.key, [E.box.cx, E.box.cy]); // (a span's length placed by hand: its BOQ on the sheet it is now on)
     }
     const ents = d.sec('ENTITIES').recs; ents.push(...o.model);
     d.index();
