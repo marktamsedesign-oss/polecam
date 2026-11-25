@@ -3345,6 +3345,7 @@
     if (k || e.key === 'Home' || e.key === 'End') { e.preventDefault(); e.stopPropagation(); if (B.length) B[e.key === 'Home' ? 0 : e.key === 'End' ? B.length - 1 : i < 0 ? 0 : (i + k + B.length) % B.length].focus({ preventScroll: true }); }
   });
   document.addEventListener('pointerdown', (e) => { if (!$('drawCtx').hidden && !(e.target instanceof Element && e.target.closest('#drawCtx'))) drwCtxClose(); }, true); // (a click elsewhere: put away, before what it does)
+  $('drawCtx').addEventListener('contextmenu', (e) => e.preventDefault()); // (a right-click on the menu itself: not the browser's over it)
   window.addEventListener('resize', () => drwCtxClose()); window.addEventListener('blur', () => drwCtxClose());
   /* (beta 7.12, Drawing edit) The text of an item of the plan edited (the owner: "allow also the user to edit the text if needed. just to make everything correct before
      exporting"): Edit text on the toolbar, or a double-tap (a double-click) on it, opens a small editor with its text as the plan writes it (report.movable text: one

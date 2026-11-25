@@ -1736,7 +1736,8 @@
    *        values: { TOKEN: text | { sheet: text } }, maxSpan, mloopLen, cell (m, 440), date (Date),
    *        phPin: { [pointId]: [dE, dN] } (Drawing photos: a photo placed by hand, its centre that far in metres from its point as drawn),
    *        gridKeep: { origin: [E, N], n } ((beta 7.10, Plan kept) the grid kept with a plan edited on the Drawing: its GEO cells' origin, Tidy's split),
-   *        (beta 7.10, Drawing labels) numPin: { [pointId]: [dE, dN] } (a number placed by hand: its centre from its point as drawn),
+   *        (beta 7.10, Drawing labels) numPin: { [pointId]: [dE, dN] } (a number placed by hand: its centre from its point as drawn; (beta 7.13) Tidy: drawn
+   *          on its own at the size it has in its pole's block, its dark shadow under it 0.08 of its own height off, as in the block),
    *        lblPin: { [pointId]: [dE, dN, deg] } (a pole's details placed by hand, the middle of their box from the pole as drawn: Standard its
    *          label stack at deg (none: level), Tidy its block (its number in it) as the block reads),
    *        cabPin: { [key]: { at: [dE, dN], rot } } (a cable's label placed by hand, key 'RUN n|a|b' or 'its words|a|b', a and b the ids of the

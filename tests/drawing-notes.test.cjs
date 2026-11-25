@@ -279,10 +279,12 @@ test('draw order: front, back, forward, backward move an item\'s entities; z; th
 });
 
 test('byte for byte: without job.text, job.notes and job.order (or them empty), the DXF as beta 7.11 made it (with 7.11\'s own fields too)', () => {
-  // [template, labels, beta 7.11's fields, SHA-256 (first 16) of beta 7.11's DXF (dxftpl.js of 72bd50f)]
-  const WANT = [['blocks', 'std', 'tools', '6fb978e0b69800ce'], ['blocks', 'std', 'lines', '72d7af12b1eff23f'], ['blocks', 'std', 'bubble', 'c6233c476caf5915'], ['blocks', 'tidy', 'tools', 'e16a139826e3e705'],
+  // [template, labels, beta 7.11's fields, SHA-256 (first 16) of beta 7.11's DXF (dxftpl.js of 72bd50f)] ((beta 7.13, Drawing fixes) Tidy with 'tools': its number placed by
+  // hand (num:s3) now keeps its block's size and its shadow under it (the owner: "Pole Numbering when moved generates a shadow and sometimes automaticall reduce"): only that
+  // number's own entities differ from 7.11's (and 7.12's: e16a139826e3e705, 906e8693334ff396), so these two are as 7.13 makes them)
+  const WANT = [['blocks', 'std', 'tools', '6fb978e0b69800ce'], ['blocks', 'std', 'lines', '72d7af12b1eff23f'], ['blocks', 'std', 'bubble', 'c6233c476caf5915'], ['blocks', 'tidy', 'tools', 'fc5729e8d29e8a2d'],
     ['blocks', 'tidy', 'lines', '028e88fc640c1438'], ['blocks', 'tidy', 'bubble', '4193fe5e5825a3c9'], ['square', 'std', 'tools', 'a99c1ee1162c0618'], ['square', 'std', 'lines', 'bbb3f85dbe141f35'],
-    ['square', 'std', 'bubble', 'c6690bb804ba961a'], ['square', 'tidy', 'tools', '906e8693334ff396'], ['square', 'tidy', 'lines', '231a48cd949a26f6'], ['square', 'tidy', 'bubble', '4ac241e93d6272ef']];
+    ['square', 'std', 'bubble', 'c6690bb804ba961a'], ['square', 'tidy', 'tools', '892b706506278590'], ['square', 'tidy', 'lines', '231a48cd949a26f6'], ['square', 'tidy', 'bubble', '4ac241e93d6272ef']];
   const X = { tools: { pins: { 'span:s1|s2': { at: [0, -14] }, 'clolbl:s2': { at: [-10, -22] }, 'nap:s4': { rot: 30 }, 'num:s3': { at: [12, 14] }, 'ph:s7': { at: [-40, 15] } }, style: { 'lbl:s3': { h: 1.5, bold: true, color: 3 }, 'span:s3|s4': { italic: true } }, styleKind: { loop: { color: 4 } }, poleAt: { s5: [787446, 786113] } },
     lines: { leaders: { photo: false, details: false, number: false }, lblPin: { s5: [12, -22, 0] }, phPin: { s9: [-30, 20] } }, bubble: { cloStyle: 'bubble', pins: { 'clolbl:s8': { at: [-52, -14] } }, style: { 'clolbl:s2': { scale: 0.7 } } } };
   const S = { blocks: SEED_BL, square: SEED_SQ }, got = [];
