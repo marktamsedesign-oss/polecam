@@ -79,8 +79,10 @@ body.visiting #legendBtn,body.visiting #legend{top:calc(env(safe-area-inset-top,
 /* (beta 7.9, Add Pin) the owner: "MAP add Pin is not found": Add Pin in words, at the top of the map's buttons. It reaches to the left of them; the
    column stays one button wide (width, flex-end), so the map beside the buttons stays the map */
 .mapbtns{width:var(--tap);align-items:flex-end}
-.round.pinadd{width:auto;border-radius:999px;display:flex;align-items:center;gap:6px;padding:0 16px 0 11px;font-weight:800;font-size:calc(15px * var(--fs));white-space:nowrap;box-shadow:var(--shadow),inset 0 0 0 2px var(--pin)}
-.round.pinadd svg{color:var(--pin);flex:none}
+/* (beta 7.12, Drawing edit) the owner: "photo add pin: can you remove the text add pin?": its pink pin alone, round like the other tools (its name: aria-label, title) */
+.round.pinadd{box-shadow:var(--shadow),inset 0 0 0 2px var(--pin)}
+.round.pinadd svg{color:var(--pin);flex:none;width:24px;height:24px}
+.ib.pinadd{color:var(--pin);border-color:var(--pin);border-width:2px;min-width:44px;padding:0 8px}.ib.pinadd svg{width:22px;height:22px}
 .round{width:var(--tap);height:var(--tap);border-radius:50%;border:0;background:var(--surface);color:var(--ink);box-shadow:var(--shadow);display:grid;place-items:center}
 .round svg{width:22px;height:22px}
 #refBtn{position:relative}#refBtn .refdot{position:absolute;top:6px;right:6px;width:9px;height:9px;border-radius:50%;background:var(--bad);border:2px solid var(--surface);display:none}#refBtn.partial .refdot{display:block}
@@ -1640,6 +1642,7 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
        undo, bin, ok, more, cam, img, pen, turn, copy are the editor's; the others are drawn the same way for the tools it has not. -->
   <symbol id="ce-ptr" viewBox="0 0 20 20"><path d="M5 3l10 6.5-4.3 1.1 2.4 4.9-1.9.9-2.4-4.9L5 15z"/></symbol>
   <symbol id="ce-undo" viewBox="0 0 20 20"><path d="M4.5 8h7.5a4 4 0 0 1 0 8H8M4.5 8l3-3M4.5 8l3 3"/></symbol>
+  <symbol id="ce-redo" viewBox="0 0 20 20"><path d="M15.5 8H8a4 4 0 0 0 0 8h4M15.5 8l-3-3M15.5 8l-3 3"/></symbol>
   <symbol id="ce-bin" viewBox="0 0 20 20"><path d="M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6M8.7 9v4.5M11.3 9v4.5"/></symbol>
   <symbol id="ce-ok" viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"/></symbol>
   <symbol id="ce-more" viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12M7 4.5v3M13 8.5v3M9 12.5v3"/></symbol>
@@ -1684,7 +1687,7 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
   <div id="legend" hidden role="note" aria-label="Map legend"></div>
   <div id="hlChip" hidden role="group" aria-label="The pole you found"><button type="button" id="hlGo" title="Show it again"><span aria-hidden="true">◎</span> <b id="hlChipId"></b></button><button type="button" id="hlEdit" class="ed">Edit</button><button type="button" id="hlList" title="The list, with your search">List</button><button type="button" id="hlX" aria-label="Stop marking it" title="Stop marking it">✕</button></div>
   <div class="mapbtns">
-    <button class="round pinadd" id="pinAddBtn" type="button" hidden aria-label="Add Pin: pick what it is (a pole, pull-off, cross-over, closure, dummy NAP box, LCP, handhole, manhole, service box, tower, ODC or OLT), then place it on the map" title="Add Pin: pick what it is, then place it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.8-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21Z"/><path d="M12 6.8v6M9 9.8h6"/></svg><span>Add Pin</span></button>
+    <button class="round pinadd" id="pinAddBtn" type="button" hidden aria-label="Add Pin: pick what it is (a pole, pull-off, cross-over, closure, dummy NAP box, LCP, handhole, manhole, service box, tower, ODC or OLT), then place it on the map" title="Add Pin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.8-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21Z"/><path d="M12 6.8v6M9 9.8h6"/></svg></button>
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
     <button class="round" id="routeFitBtn" type="button" hidden aria-label="Show the whole route" title="Show the whole route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button class="round" id="offlineBtn" hidden aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
@@ -1987,7 +1990,8 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
     <button type="button" data-a="addtext" aria-pressed="false" title="Add text: tap the plan where it goes, then type it" aria-label="Add text"><svg class="dpi" aria-hidden="true"><use href="#ce-addtxt"/></svg><span>Text</span></button>
     <button type="button" data-a="addphoto" aria-pressed="false" aria-haspopup="true" aria-expanded="false" title="Add photo: take one or choose one from the gallery, then tap the plan where it goes" aria-label="Add photo"><svg class="dpi" aria-hidden="true"><use href="#ce-addimg"/></svg><span>Photo</span></button>
     <i aria-hidden="true"></i>
-    <button type="button" id="drawUndo" data-a="undo" disabled aria-label="Undo: put back where things were on the plan before the last change" title="Undo"><svg class="dpi" aria-hidden="true"><use href="#ce-undo"/></svg><span>Undo</span></button>
+    <button type="button" id="drawUndo" data-a="undo" disabled aria-label="Undo: put back where things were on the plan before the last change (Ctrl + Z)" title="Undo (Ctrl + Z)"><svg class="dpi" aria-hidden="true"><use href="#ce-undo"/></svg><span>Undo</span></button>
+    <button type="button" id="drawRedo" data-a="redo" disabled aria-label="Redo: make the change taken back again (Ctrl + Y)" title="Redo (Ctrl + Y)"><svg class="dpi" aria-hidden="true"><use href="#ce-redo"/></svg><span>Redo</span></button>
     <button type="button" data-a="more" aria-haspopup="true" aria-expanded="false" title="More tools" aria-label="More tools"><svg class="dpi" aria-hidden="true"><use href="#ce-more"/></svg><span>More</span></button>
     <span class="drwicosay" id="drawIcoSay" aria-live="polite"></span>
   </div>

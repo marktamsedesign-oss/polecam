@@ -4,15 +4,16 @@
    navigation and ease of view on the settings. side bar on a laptop browser is very small".
    Run: node --test tests/add-pin.spec.cjs (or python3 tests/run_all.py --only add-pin).
    A made-up As-Plan project (6 poles along a made-up street, one proposed 12C cable, RUN 1), in the browser:
-   - Add Pin, in words, on the map, on a phone (390x844) and a computer (1440x900): on the screen, not covered, at the top of the round
-     buttons and lined up with them, and the map beside the buttons is still the map;
+   - Add Pin on the map, on a phone (390x844) and a computer (1440x900): (beta 7.12, the owner: "can you remove the text add pin?") its pin
+     alone, round like the other buttons, its name and tip kept; on the screen, not covered, at the top of the round buttons and lined up
+     with them, and the map beside the buttons is still the map;
    - "Add Pin: what is it?": the approved demo's groups (Poles and corners, On the cable, Boxes underground, Sites), each kind with its
      symbol, NEW on the kinds the map had no pin for (until one is picked); each kind places a record of its element, status and kind
      (a pole Proposed and a Globe pole, with no PP- number: the generic P-0001; on the cable's span it goes onto RUN 1 when asked; a pull-off
      and a cross-over Proposed; a closure, a dummy NAP box and an LCP (NAP pins of the kinds Dummy NAP and LCP 1x4), a handhole, a manhole
      and a service box Proposed; a tower and an OLT site, an ODC); the camera's own status choices are not changed by them;
    - an As-Built's pole is New; an Audit lists no pole, corner, dummy NAP box or LCP, and its closure is Existing; Esc closes the list;
-   - the Drawing's ＋ Add Pin (✎) opens the same list, and a handhole tapped there is a handhole record;
+   - the Drawing's Add Pin (✎; its pin alone) opens the same list, and a handhole tapped there is a handhole record;
    - a computer (1280x800, 1440x900, 1920x1080, light and dark): Plan style and Export beside the Drawing are wide (Plan style: its preview
      beside the cards), at the window's right, the Drawing still there (its chip beside its open legend); no page sideways, nothing cut
      off; Narrower gives 400 px back, kept on this computer (a reload), Wider the room again;
@@ -101,18 +102,18 @@ async function addPin(page, k, lat, lon, before) {
 }
 
 for (const size of ['phone', 'desk']) {
-  test(`${size}: Add Pin in words on the map, above the round buttons and lined up with them, not covered; the map beside them is the map`, async () => {
+  test(`${size}: Add Pin on the map (beta 7.12: its pin alone, round, its name and tip kept), above the round buttons and lined up with them, not covered; the map beside them is the map`, async () => {
     const { ctx, page, errors } = await open(size);
     try {
       const r = await page.evaluate(() => {
         const b = document.getElementById('pinAddBtn'), q = b.getBoundingClientRect(), rt = document.getElementById('routeBtn').getBoundingClientRect(), hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
-        const beside = document.elementFromPoint(q.left + 6, rt.top + rt.height / 2); // (left of the round buttons, under Add Pin: the map, not the buttons' column)
-        return { shown: !b.hidden && q.width > 0, text: b.textContent.trim(), name: b.getAttribute('aria-label'), inView: q.left >= 0 && q.right <= innerWidth && q.top >= 0 && q.bottom <= innerHeight,
-          top: q.bottom <= rt.top, right: Math.abs(q.right - rt.right) < 1.5, wide: q.width > rt.width + 30, hit: !!hit && b.contains(hit), map: !!beside && !!beside.closest('#map') && !beside.closest('.mapbtns') };
+        const beside = document.elementFromPoint(q.left - 8, rt.top + rt.height / 2); // (left of the round buttons, beside Add Pin: the map, not the buttons' column; (beta 7.12) round now, as wide as they are)
+        return { shown: !b.hidden && q.width > 0, text: b.textContent.trim(), name: b.getAttribute('aria-label'), tip: b.title, icon: !!b.querySelector('svg'), inView: q.left >= 0 && q.right <= innerWidth && q.top >= 0 && q.bottom <= innerHeight,
+          top: q.bottom <= rt.top, right: Math.abs(q.right - rt.right) < 1.5, round: Math.abs(q.width - rt.width) < 1.5 && Math.abs(q.height - rt.height) < 1.5, hit: !!hit && b.contains(hit), map: !!beside && !!beside.closest('#map') && !beside.closest('.mapbtns') };
       });
-      assert.equal(r.text, 'Add Pin');
+      assert.equal(r.text, '', 'the owner (beta 7.12): "can you remove the text add pin?": its pin alone'); assert.equal(r.tip, 'Add Pin'); assert.ok(r.icon, 'its pin');
       assert.match(r.name, /^Add Pin: pick what it is/);
-      for (const k of ['shown', 'inView', 'top', 'right', 'wide', 'hit', 'map']) assert.ok(r[k], `${k}: ${JSON.stringify(r)}`);
+      for (const k of ['shown', 'inView', 'top', 'right', 'round', 'hit', 'map']) assert.ok(r[k], `${k}: ${JSON.stringify(r)}`);
       assert.deepEqual(errors, []);
     } finally { await ctx.close(); }
   });
@@ -184,12 +185,12 @@ test('As-Built and Audit (computer): an As-Built\'s pole is New (no PP- number);
   }
 });
 
-test('the Drawing (phone): ✎ then ＋ Add Pin opens the same list; a handhole tapped on the Drawing is a handhole record', async () => {
+test('the Drawing (phone): ✎ then Add Pin (its pin) opens the same list; a handhole tapped on the Drawing is a handhole record', async () => {
   const { ctx, page, errors } = await open('phone'); page.__phone = true;
   try {
     await page.evaluate(() => document.getElementById('drawBtn').click()); await page.waitForTimeout(1500); await noAsk(page);
     await page.evaluate(() => document.getElementById('drawEdit').click()); await page.waitForTimeout(900);
-    assert.equal((await page.textContent('#rtDrwSite')).trim(), '＋ Add Pin');
+    assert.equal((await page.textContent('#rtDrwSite')).trim(), '', 'its pin alone (beta 7.12)'); assert.equal(await page.getAttribute('#rtDrwSite', 'title'), 'Add Pin'); assert.match(await page.getAttribute('#rtDrwSite', 'aria-label'), /^Add Pin/);
     await page.evaluate(() => document.getElementById('rtDrwSite').click()); await page.waitForTimeout(400);
     const p = await picker(page);
     assert.equal(p.title, 'Add Pin: what is it?'); assert.deepEqual(p.groups.flatMap((g) => g[1]), KINDS);

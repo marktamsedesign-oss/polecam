@@ -2891,30 +2891,76 @@
     drwMvShowPins(); drwPlanUi(); if (L.length === 1 && !ids) drwMvTap(id); else { drwSelSay(); drwTbRender(); drawDrawing(); } drwPhSoon(0);
   }
   /** Undo: the pins as they were before the last change of where things are on this project's plan (kept: a drag, Back to automatic, all of them back)
-   *  ((beta 7.11, Drawing tools) and the turns, tips, styles and poles moved; recs: the records as they were before Existing ↔ Proposed). */
-  function drwUndoPush(what, recs) {
+   *  ((beta 7.11, Drawing tools) and the turns, tips, styles and poles moved; recs: the records as they were before Existing ↔ Proposed).
+   *  (beta 7.12, Drawing edit) The owner: "allow also a cntrl+z or cmd+z to trigger undo and cmd+Y to redo": every change on the Drawing has its step, the plan's
+   *  own (kept on this phone) and the records' (a pole moved, a field deleted, a text written into its record, a point deleted: recs, the records as they were;
+   *  more.ph: the photos of a record to come back; more.route: the spans and cables as they were). Undo puts the step back and keeps the change for Redo; a new
+   *  change drops the steps to redo. */
+  const drwRedoStack = [];
+  const drwPinsSnap = (M) => Object.fromEntries([...MV_KEYS, 'planGrid'].map((k) => [k, M[k] ? JSON.parse(JSON.stringify(M[k])) : null])); // ((beta 7.10, Plan kept) the grid kept with them, as it was)
+  function drwUndoPush(what, recs, more) {
     if (!drw) return; const M = pmeta(drw.project);
-    drwUndoStack.push({ project: drw.project, what, pins: Object.fromEntries([...MV_KEYS, 'planGrid'].map((k) => [k, M[k] ? JSON.parse(JSON.stringify(M[k])) : null])), ...(recs ? { recs } : {}) }); // ((beta 7.10, Plan kept) the grid kept with them, as it was)
+    drwUndoStack.push({ project: drw.project, what, pins: drwPinsSnap(M), ...(recs ? { recs } : {}), ...(more && more.ph && more.ph.length ? { ph: more.ph } : {}), ...(more && more.route ? { route: more.route } : {}) });
     if (drwUndoStack.length > 60) drwUndoStack.shift();
+    for (let k = drwRedoStack.length - 1; k >= 0; k--) if (drwRedoStack[k].project === drw.project) drwRedoStack.splice(k, 1); // ((beta 7.12) a new change: nothing to redo)
   }
-  async function drwUndo() {
-    if (!drw) return; const proj = drw.project; let j = drwUndoStack.length - 1; while (j >= 0 && drwUndoStack[j].project !== proj) j--; if (j < 0) return;
-    const U = drwUndoStack.splice(j, 1)[0], m = { ...pmeta(proj) };
+  /** (beta 7.12, Drawing edit) A step's other side, now: the pins as they are, each of its records as it is (null: not there), the photos of those that the step
+   *  would take away (for the way back), the route as it is when the step has one. */
+  async function drwStepNow(proj, U) {
+    const o = { project: proj, what: U.what, pins: drwPinsSnap(pmeta(proj)) };
+    if (U.recs && U.recs.length) {
+      o.recs = U.recs.map((r) => { const cur = points.find((x) => String(x.id) === String(r.id)); return cur ? JSON.parse(JSON.stringify(cur)) : { id: r.id, gone: true, project: proj }; });
+      const ph = []; for (const r of U.recs) { if (!r.gone) continue; const cur = points.find((x) => String(x.id) === String(r.id)); if (cur) for (const pid of allPids(cur)) { const x = await dbGet('photos', pid).catch(() => null); if (x) ph.push(x); } } if (ph.length) o.ph = ph;
+    }
+    if (U.route) o.route = routeSnap(); return o;
+  }
+  /** (beta 7.12, Drawing edit) A step applied: the pins, then each record as it was (one marked gone: deleted, as its record's Delete does), its photos back, the route. */
+  async function drwStepApply(proj, U) {
+    const m = { ...pmeta(proj) };
     for (const k of MV_KEYS) { if (U.pins[k] && Object.keys(U.pins[k]).length) m[k] = U.pins[k]; else delete m[k]; }
     if (!pinsAny(m)) delete m.planGrid; else if (U.pins.planGrid) m.planGrid = U.pins.planGrid; // ((beta 7.10, Plan kept) the grid as it was kept then (none kept then: the one kept now); none placed by hand: worked out again)
-    S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.undo', { what: U.what, left: drwUndoStack.filter((u) => u.project === proj).length });
-    if (U.recs && U.recs.length) { await drwRecsPut(U.recs); return; } // ((beta 7.11, Drawing tools) the records as they were: the Drawing made again with them)
+    S.meta = S.meta || {}; S.meta[proj] = m; persist();
+    if (!(U.recs && U.recs.length) && !U.route) return false;
+    for (const x of U.ph || []) await dbPut('photos', x).catch(() => {});
+    const now = new Date().toISOString(); let del = false;
+    for (const r of U.recs || []) {
+      const cur = points.find((x) => String(x.id) === String(r.id)), mm = { ...(S.meta[proj] || {}) }, g = { ...(mm.gone || {}) };
+      if (r.gone) { if (!cur) continue; await dbDel('points', cur.id); await deletePhotosIfUnused(allPids(cur), new Set([cur.id])); points = points.filter((x) => x.id !== cur.id); g[cur.id] = now; del = true; } // (as its record's Delete: the deletion goes with the next share)
+      else { await dbPut('points', r); const i = points.findIndex((x) => x.id === r.id); if (i >= 0) points[i] = r; else points.push(r); delete g[r.id]; }
+      mm.gone = g; if (!Object.keys(g).length) delete mm.gone; S.meta[proj] = mm; persist();
+    }
+    if (U.route && S.project === proj) setRoute(U.route.l, U.route.f);
+    changedAfterApproval(proj, del ? 'delete' : 'record'); try { renderPoles(); } catch (e) { /* not ready */ }
+    return true;
+  }
+  /** Undo (dir 1: Redo): the last step of this project's Drawing taken back (made again), its other side kept for Redo (Undo). */
+  async function drwUndo(dir) {
+    if (!drw) return; const proj = drw.project, A = dir === 1 ? drwRedoStack : drwUndoStack, B = dir === 1 ? drwUndoStack : drwRedoStack;
+    let j = A.length - 1; while (j >= 0 && A[j].project !== proj) j--; if (j < 0) return;
+    const U = A.splice(j, 1)[0]; B.push(await drwStepNow(proj, U)); if (B.length > 60) B.shift();
+    LOG.info(dir === 1 ? 'draw.redo' : 'draw.undo', { what: U.what, left: A.filter((u) => u.project === proj).length });
+    const recs = await drwStepApply(proj, U), m = pmeta(proj);
+    if (recs) { drwRecsShow(); return; } // ((beta 7.11, Drawing tools) the records as they were: the Drawing made again with them)
     if (drw.ph && drw.ph.at) { // (the photos where their pins put them, until the plan's places come)
       const pp = m.phPin || {}, at = {};
-      for (const [id, A] of Object.entries(drw.ph.at)) {
-        const pin = pp[id], A0 = drw.ph.planAt ? drw.ph.planAt[id] : null, x = pin ? A.dp[0] + pin[0] : 0, y = pin ? A.dp[1] + pin[1] : 0;
-        at[id] = pin ? (A0 && A0.how === 'by hand' && Math.hypot(A0.x - x, A0.y - y) < 0.02 ? A0 : { ...A, x, y, how: 'by hand', line: null }) : A0 && A0.how !== 'by hand' ? A0 : A.how === 'by hand' ? { ...A, how: 'auto' } : A;
+      for (const [id, A0] of Object.entries(drw.ph.at)) {
+        const pin = pp[id], P0 = drw.ph.planAt ? drw.ph.planAt[id] : null, x = pin ? A0.dp[0] + pin[0] : 0, y = pin ? A0.dp[1] + pin[1] : 0;
+        at[id] = pin ? (P0 && P0.how === 'by hand' && Math.hypot(P0.x - x, P0.y - y) < 0.02 ? P0 : { ...A0, x, y, how: 'by hand', line: null }) : P0 && P0.how !== 'by hand' ? P0 : A0.how === 'by hand' ? { ...A0, how: 'auto' } : A0;
       }
       drw.ph = { ...drw.ph, sig: '', at };
     }
     drwMvShowPins(); drwPlanUi(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel && drwSels().length <= 1) drwMvTap(drw.mvSel); else { if (drwSels().length) { drwSelSay(); drwTbRender(); } drawDrawing(); } drwPhSoon(0);
   }
+  const drwRedo = () => drwUndo(1);
   $('drawUndo').addEventListener('click', () => { drwUndo(); });
+  $('drawRedo').addEventListener('click', () => { drwRedo(); });
+  /* (beta 7.12, Drawing edit) Ctrl + Z (Cmd + Z on a Mac): Undo; Ctrl + Y, Ctrl + Shift + Z (Cmd + Y, Cmd + Shift + Z): Redo, on the Drawing (not while typing in a
+     field, nor in ✎ Edit route, which has its own ↶). */
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented || !drw || $('drawing').hidden || drwEd || typingIn(e.target) || !$('askBox').hidden || boxOpen()) return;
+    const k = String(e.key || '').toLowerCase(), top = stack[stack.length - 1]; if (top !== 'drawing' && !((top === 'drwStyle' || top === 'export') && $(top).classList.contains('side'))) return;
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); drwUndo(); } else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); drwRedo(); }
+  });
   /** Over the plan: the item tapped outlined (yellow), the items placed by hand across a sheet's edge (orange, dashed, as a photo's), the one
    *  dragged with a dashed line to what it names ((beta 7.11, Drawing tools) every item selected, and one alone with its handles: its turn, its arrow's tip). */
   function drwMvDraw(g, d) {
@@ -3135,9 +3181,10 @@
   async function drwRecsPut(recs) {
     for (const r of recs) { try { await dbPut('points', r); } catch (e) { toast('Could not save: try again', 3500); return false; } const i = points.findIndex((x) => x.id === r.id); if (i >= 0) points[i] = r; changedAfterApproval(r.project, 'record'); }
     try { renderPoles(); } catch (e) { /* not ready */ }
-    if (drw && !$('drawing').hidden) { const v = drw.view ? { ...drw.view } : null, sel = drwSels(), all = !!drw.tbAll, more = !!drw.tbMore; openDrawing(true, v); if (drw) { drw.mvSels = sel; drw.mvSel = sel.length ? sel[sel.length - 1] : null; drw.tbAll = all; drw.tbMore = more; drwSelSay(); drwTbRender(); drawDrawing(); } }
-    return true;
+    drwRecsShow(); return true;
   }
+  /** The Drawing made again with the records as they are now (its view and its selection kept; an item no longer on it: off the selection). */
+  function drwRecsShow() { if (drw && !$('drawing').hidden) { const v = drw.view ? { ...drw.view } : null, sel = drwSels(), all = !!drw.tbAll, more = !!drw.tbMore; openDrawing(true, v); if (drw) { drw.mvSels = sel; drw.mvSel = sel.length ? sel[sel.length - 1] : null; drw.tbAll = all; drw.tbMore = more; drwSelSay(); drwTbRender(); drawDrawing(); } } }
   /* (beta 7.11, Drawing tools) The toolbar of what is selected: shown only while something on the plan is (the plan shown, Labels on), its tools those the selection
      can take (report.movable can), over the plan at its top, or at its bottom while the selection is under it. */
   const TB_COLS = [[0, 'As the plan'], [1, 'Red'], [2, 'Yellow'], [3, 'Green'], [4, 'Cyan'], [5, 'Blue'], [6, 'Magenta'], [7, 'Black (white in CAD)'], [8, 'Grey']];
@@ -3321,7 +3368,8 @@
     b('sel').setAttribute('aria-pressed', String(!ad)); b('addtext').setAttribute('aria-pressed', String(ad === 'text')); b('addphoto').setAttribute('aria-pressed', String(ad === 'photo' || drw.icoPop === 'photo'));
     for (const a of ['sel', 'addtext', 'addphoto', 'more']) b(a).disabled = !pl;
     b('addphoto').setAttribute('aria-expanded', String(drw.icoPop === 'photo')); b('more').setAttribute('aria-expanded', String(drw.icoPop === 'more')); b('more').setAttribute('aria-pressed', String(drw.icoPop === 'more'));
-    const nu = drwUndoStack.filter((u) => u.project === drw.project).length, ub = $('drawUndo'); ub.disabled = !nu; ub.title = nu ? `Undo: where things were before the last change (${nu})` : 'Undo: nothing to take back yet';
+    const nu = drwUndoStack.filter((u) => u.project === drw.project).length, ub = $('drawUndo'); ub.disabled = !nu; ub.title = nu ? `Undo (Ctrl + Z): where things were before the last change (${nu})` : 'Undo (Ctrl + Z): nothing to take back yet';
+    const nr = drwRedoStack.filter((u) => u.project === drw.project).length, rb = $('drawRedo'); rb.disabled = !nr; rb.title = nr ? `Redo (Ctrl + Y): the change taken back, made again (${nr})` : 'Redo (Ctrl + Y): nothing to make again'; // ((beta 7.12, Drawing edit) Redo)
     const say = ad === 'text' ? 'Tap the plan where the text goes' : ad === 'photo' ? 'Tap the plan where the photo goes' : drw.tbMore && !drwSels().length ? 'Select several: tap each one' : ''; if ($('drawIcoSay').textContent !== say) $('drawIcoSay').textContent = say;
   }
   /** The row's tray (k: 'photo', 'more'; null: put away). */
@@ -3335,7 +3383,7 @@
   }
   $('drawIcons').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-a]'); if (!b || b.disabled || !drw) return; const a = b.dataset.a; e.preventDefault();
-    if (a === 'undo') { drwIcoPop(null); return; } // (Undo: its own listener)
+    if (a === 'undo' || a === 'redo') { drwIcoPop(null); return; } // (Undo, Redo: their own listeners)
     if (a === 'sel') { drwIcoPop(null); drwAddEnd(); drwIcoRender(); return; }
     if (a === 'addtext') { drwIcoPop(null); if (drw.add && drw.add.kind === 'text') drwAddEnd(); else { if (drw.add) drwAddEnd(); drwAddStart({ kind: 'text' }); } return; }
     if (a === 'addphoto' || a === 'more') { const k = a === 'addphoto' ? 'photo' : 'more'; drwIcoPop(drw.icoPop === k ? null : k); drwIcoRender(); }
@@ -3423,7 +3471,7 @@
   }
   function drawDrawing() {
     if (!drw || !drw.view) return;
-    { const sg = `${!!drw.plWant}|${drwEd}|${drwPlanOn()}|${drw.labels}|${drw.add ? drw.add.kind : ''}|${drw.icoPop || ''}|${drwUndoStack.length}|${!!drw.tbMore}|${(drw.mvSels || []).length}`; if (sg !== drw.icoSig) { drw.icoSig = sg; drwIcoRender(); } } // ((beta 7.12, Drawing edit) the row of tools as the Drawing is now: Edit route, Labels, adding, Undo)
+    { const sg = `${!!drw.plWant}|${drwEd}|${drwPlanOn()}|${drw.labels}|${drw.add ? drw.add.kind : ''}|${drw.icoPop || ''}|${drwUndoStack.length}|${drwRedoStack.length}|${!!drw.tbMore}|${(drw.mvSels || []).length}`; if (sg !== drw.icoSig) { drw.icoSig = sg; drwIcoRender(); } } // ((beta 7.12, Drawing edit) the row of tools as the Drawing is now: Edit route, Labels, adding, Undo)
     drw.phHit = []; // (beta 7.8, Drawing photos) the photo frames drawn, for a finger ((beta 7.11, Drawing tools) drwCands)
     if (drwEd) drw.selRun = fibAdd != null ? fibAdd : fibSel; // beta 6.7: Edit route: the cable in the bar (or lit) lit as on the map
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
@@ -6680,7 +6728,7 @@
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
         h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
-        if (drwEd && !rtPairs) { h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add Pin: pick what it is (as the map's Add Pin), then tap the Drawing where it goes">＋ Add Pin</button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over; (beta 7.9, Add Pin): the map's list)
+        if (drwEd && !rtPairs) { h += `<div class="rt-row"><button class="ib pinadd" type="button" data-rt="site" id="rtDrwSite" aria-label="Add Pin: pick what it is (as the map's Add Pin), then tap the Drawing where it goes" title="Add Pin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.8-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21Z"/><path d="M12 6.8v6M9 9.8h6"/></svg></button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over; (beta 7.9, Add Pin): the map's list)
       }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
@@ -22475,7 +22523,7 @@
   window.__polecam.drwMv = () => { if (!drw) return null; const r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1, M = drwMvs(), PL = drw.ph && drw.ph.plan, sc = drw.view ? drw.view.sc : 1;
     return { items: M.map((m, i) => { const B = drwMvBox(m, i), [x, y] = drwPx([B[0], B[1]]); return { id: m.id, kind: m.kind, how: m.how, x: r.left + x / d, y: r.top + y / d, w: B[2] * sc / d, h: B[3] * sc / d, deg: B[4], box: B, anchor: m.anchor, cut: drwMvCut(m, i), name: drwMvName(m), with: m.with || [], handles: m.handles.length }; }),
       sel: drw.mvSel || null, drag: drw.mvDrag ? { id: drw.mvDrag.id, dx: drw.mvDrag.dx / d, dy: drw.mvDrag.dy / d } : null, pins: Object.fromEntries(PIN_KEYS.map((k) => [k, JSON.parse(JSON.stringify(pmeta(drw.project)[k] || {}))])),
-      lifted: PL && PL.lifted ? [...PL.lifted].map(([i, L]) => ({ id: M[i] ? M[i].id : i, off: L.off.slice() })) : [], undo: drwUndoStack.filter((u) => u.project === drw.project).map((u) => u.what), own: PL && PL.own ? PL.own.length : 0,
+      lifted: PL && PL.lifted ? [...PL.lifted].map(([i, L]) => ({ id: M[i] ? M[i].id : i, off: L.off.slice() })) : [], undo: drwUndoStack.filter((u) => u.project === drw.project).map((u) => u.what), redo: drwRedoStack.filter((u) => u.project === drw.project).map((u) => u.what), own: PL && PL.own ? PL.own.length : 0,
       undoBtn: { hidden: $('drawUndo').hidden || $('drawUndo').disabled || $('drawIcons').hidden }, info: $('drawInfo').hidden ? null : $('drawInfo').textContent, // ((beta 7.12, Drawing edit) Undo in the row: not offered (greyed) with nothing to take back)
       sels: drwSels(), tools: Object.fromEntries(TOOL_KEYS.map((k) => [k, JSON.parse(JSON.stringify(pmeta(drw.project)[k] || {}))])), more: !!drw.tbMore, all: !!drw.tbAll, // ((beta 7.11, Drawing tools) the selection, what the tools keep, Select more, All like it)
       hdl: (drw.hdl || []).map((h) => ({ kind: h.kind, id: h.id, x: r.left + h.x / d, y: r.top + h.y / d })), hDrag: drw.hDrag ? { ...drw.hDrag } : null }; };
