@@ -16,7 +16,7 @@
    - The PDF (dxfpdf.js): a page for each sheet, on the template's paper (A3 landscape), with the fields as filled.
    - A template without its look (the CEF's own fonts and weights on the client's sheet); one the CEF cannot be printed on: why.
    - The sheet's own viewport told from the drawing area as AutoCAD writes a sheet not open (its number 0), or added when there is none.
-   - With the synthesizer (dxfsynth.js) beside it: the CEF seeds it makes of its made-up clients (tests/fixtures/client-{a,b,c}-made-up.dxf: A1,
+   - With the synthesizer (vendor/synth/dxfsynth.js) beside it: the CEF seeds it makes of its made-up clients (tests/fixtures/client-{a,b,c}-made-up.dxf: A1,
      A3 with a narrow drawing area, a sheet in inches), each page on the client's sheet at its scale (skipped without them).
    - Without a template: the CEF's DXF (with its layout tabs, and of the older kind), its PDF, its sheets and KML exactly as beta 7.13
      made them (SHA-256 of beta 7.13's output, the engine of 933ad3b on the same made-up plans).
@@ -243,11 +243,12 @@ test('the sheet\'s own viewport: as AutoCAD writes a sheet that was not open (it
   }
 });
 
-/* the synthesizer's own CEF seeds (dxfsynth.js, its made-up clients' templates: tests/fixtures/client-{a,b,c}-made-up.dxf; skipped where they
-   are not): A1 in millimetres, A3 with a narrow drawing area, and a sheet in inches */
-const SYNTH = fs.existsSync(path.join(root, 'dxfsynth.js')) && ['a', 'b', 'c'].every((c) => fs.existsSync(path.join(__dirname, 'fixtures', `client-${c}-made-up.dxf`)));
-test('on the synthesizer\'s CEF seeds of its made-up clients: every page on the client\'s sheet, its fields filled, at its scale, AutoCAD\'s rules, printed', { skip: !SYNTH && 'needs dxfsynth.js and its made-up clients (tests/fixtures/client-a-made-up.dxf …)' }, async () => {
-  const G = require('../dxfsynth.js');
+/* the synthesizer's own CEF seeds (vendor/synth/dxfsynth.js, its made-up clients' templates: tests/fixtures/client-{a,b,c}-made-up.dxf; skipped
+   where they are not): A1 in millimetres, A3 with a narrow drawing area, and a sheet in inches */
+const SYNTH_JS = [path.join(root, 'vendor', 'synth', 'dxfsynth.js'), path.join(root, 'dxfsynth.js')].find((f) => fs.existsSync(f));
+const SYNTH = !!SYNTH_JS && ['a', 'b', 'c'].every((c) => fs.existsSync(path.join(__dirname, 'fixtures', `client-${c}-made-up.dxf`)));
+test('on the synthesizer\'s CEF seeds of its made-up clients: every page on the client\'s sheet, its fields filled, at its scale, AutoCAD\'s rules, printed', { skip: !SYNTH && 'needs the synthesizer (vendor/synth/dxfsynth.js) and its made-up clients (tests/fixtures/client-a-made-up.dxf …)' }, async () => {
+  const G = require(SYNTH_JS);
   for (const c of ['a', 'b', 'c']) {
     const src = fs.readFileSync(path.join(__dirname, 'fixtures', `client-${c}-made-up.dxf`), 'utf8'), dg = G.digest(src, `client-${c}-made-up.dxf`), made = G.make(src, G.proposal(dg), dg);
     assert.ok(made && made.cef, `client ${c}: a CEF seed`);
