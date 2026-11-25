@@ -4138,6 +4138,7 @@
       TOC_GEO: () => String(N), TOC_LEGEND: () => String(sheetNames.filter((n) => /^LEGENDS?( \(\d+\))?$/.test(n)).length), TOC_TOTAL: () => String(sheetNames.filter((n) => n !== 'Model').length),
     };
     const blanks = new Set(), filled = new Set(), rowCells = [], idxTexts = new Set(), filledM = new Set(), locTexts = new Set(), sigTexts = new Set();
+    const rowToks = new Map(); // ((beta 7.11, ROW table) each ROW_* field of the model space's ROW table: its MTEXT and its text as the template has it)
     const fill = (r, sheet, inBlockText) => {
       const t = typ(r); if (t !== 'TEXT' && t !== 'MTEXT') return;
       const txt = (t === 'MTEXT' ? all(r, 3).join('') : '') + (get(r, 1) || ''); if (txt.indexOf('@@') < 0) return;
@@ -4148,6 +4149,7 @@
       // the site's name moves one line up (an empty line sat between the project type and it)
       const src0 = t === 'MTEXT' && sheet === 'TITLE' ? txt.replace(/@@LOCATION@@\\P/g, (m) => (none(val('LOCATION')) ? '' : m)) : txt;
       if (t === 'MTEXT' && ctx === 'PAGING' && src0.includes('@@LOCATION@@')) locTexts.add(r); // v2.42.12: fitted to its box below
+      if (t === 'MTEXT' && ctx === 'MODEL') for (const m of src0.match(/@@ROW_(?:BARANGAY|MUNICIPALITY)_\d@@/g) || []) { const k = m.slice(2, -2); (rowToks.get(k) || rowToks.set(k, []).get(k)).push({ r, src: src0 }); } // (beta 7.11, ROW table)
       if (t === 'MTEXT' && /@@SIG_\w+@@/.test(src0)) sigTexts.add(r); // v2.42.12: a name fitted to its cell below
       // v2.34: a value given as lines (an array) is written one per line, without the template's brackets round the field
       const nt = src0.replace(/\((@@(\w+)@@)\)/g, (m, tok, k) => (Array.isArray(val(k)) && t === 'MTEXT' ? tok : m)).replace(/@@(\w+)@@/g, (m, k) => {
@@ -4231,9 +4233,19 @@
         const edge = box ? 2 * Math.min(x - box.x0, box.x1 - x) : Infinity, avail = Math.min(dxs.length ? Math.min(...dxs) : Infinity, edge, 200) * 0.92, n = Math.max(...L.map((s1) => wOfL(s1, h, false)));
         if (n > avail) setFirst(r, 40, F(Math.max(h * 0.45, h * avail / n)));
       } }
+    // (beta 7.11, ROW table) the table drawn to fit the places along the route (values.ROW_TABLE, from the app's rowCoverage): one cell
+    // for each city / municipality over its own barangays' rows (rowRedraw, after buildOne); a template whose table is not drawn as
+    // rowRedraw knows it: filled in its own rows as before (each city / municipality once), and said in the notes
+    const rowT = rowTableOf(V.ROW_TABLE); let rowDone = false;
+    if (rowT && rowToks.size) {
+      const anyB = rowT.some((g) => g.brgys.length);
+      for (const k of [...blanks]) if (/^ROW_MUNICIPALITY_\d$/.test(k) || (anyB && /^ROW_BARANGAY_\d$/.test(k))) blanks.delete(k); // (a cell left empty on purpose: the places are known)
+      const why = anyB ? rowRedraw(d, S, rowToks, rowT, rep) : 'no barangay known along the route: the template\'s rows kept to fill in'; rowDone = !why;
+      if (why) { rep.rowTable = { redrawn: false, why }; if (anyB) rep.notes.push(`ROW AREA COVERAGE: filled in the template's own rows, not drawn to fit its barangays (${why})`); }
+    }
     // v2.35: a city / municipality or barangay of the ROW table on one line of its cell: the text box as wide as the cell, and a
     // long name made smaller (the rows are one line tall)
-    if (rowCells.length) {
+    if (rowCells.length && !rowDone) {
       const mod = d.sec('ENTITIES').recs.filter((r) => owner(r) === S.modelH && (typ(r) === 'LINE' || typ(r) === 'LWPOLYLINE'));
       for (const [r, v] of rowCells) {
         const h = +get(r, 40) || 9, x = +get(r, 10), y = +get(r, 20), box = cellOf(mod, x + 1, y - h / 2);
@@ -4533,6 +4545,162 @@
     S = structure(d); centerCache.clear();
     rep.frame = frame(d, S, [[gx0, gy0, gx1, gy1], ...vics.map((v) => v.sb), ...(tablesBox ? [tablesBox] : [])], rep);
     return { text: d.text(), report: rep };
+  }
+
+  /* ---------------- (beta 7.11, ROW table) the ROW AREA COVERAGE table drawn to fit its places ----------------
+     The owner: "davao city takes 2 rows, it must be one davao CITY only and the Barangay rows should adjust based on the number of brgy
+     within the city or town." The template's table has two city / municipality cells over 4 and 3 barangay rows (ROW_MUNICIPALITY_1, 2,
+     ROW_BARANGAY_1..7); one city with more than 4 barangays was written in both. Now: one cell for each city / municipality, as tall as
+     its own barangays' rows, and as many barangay rows as there are barangays (every city's together), the table's frame, its column
+     line and its TOTAL row where the template has them, the body's height shared evenly by the rows. The body is found from the cells
+     of the ROW_* fields (cellOf); the lines across it (LINEs, and the edges of polylines: a cell drawn as a closed rectangle is split
+     where its edge goes) are taken out and the new ones drawn as the template's (copies of them: layer, colour, line weight): the
+     barangay column at every row, the city / municipality column between two cities. The texts are the template's (copies for more
+     rows), as tall as the template's and smaller when a row is smaller, down to ROW_MIN of it: more barangays than that leaves room
+     for, the last row says "+n MORE"; a long name made smaller as before; a city / municipality in the middle of its cell. */
+  const ROW_MIN = 0.45; // (the smallest a text of the table gets, of the template's height)
+  /** values.ROW_TABLE (the app's rowCoverage): [{ muni, brgys: [...] }], or null. */
+  function rowTableOf(s) {
+    let a = null; try { a = typeof s === 'string' && s.trim() ? JSON.parse(s) : null; } catch (e) { a = null; }
+    if (!Array.isArray(a)) return null;
+    const G = a.filter((g) => g && typeof g === 'object').map((g) => ({ muni: String(g.muni == null ? '' : g.muni).trim(), brgys: (Array.isArray(g.brgys) ? g.brgys : []).map((b) => String(b == null ? '' : b).trim()).filter(Boolean) })).filter((g) => g.muni || g.brgys.length);
+    return G.length ? G : null;
+  }
+  /** An LWPOLYLINE's parts: the groups before its first vertex (head), its vertices ({ x, y, b: bulge, w: a width of its own }), the
+      groups after them (tail: extrusion, extended data), closed or not. */
+  function lwParts(r) {
+    const k = r.findIndex((p, i) => i > 0 && p[0] === 10); if (k < 0) return null;
+    const V = []; let i = k;
+    for (; i < r.length; i++) { const c = r[i][0]; if (c === 10) V.push({ g: [r[i]] }); else if (V.length && (c === 20 || c === 91 || c === 40 || c === 41 || c === 42)) V[V.length - 1].g.push(r[i]); else break; }
+    for (const v of V) { const gv = (c) => { const p = v.g.find((q) => q[0] === c); return p ? parseFloat(p[1]) || 0 : 0; }; v.x = gv(10); v.y = gv(20); v.b = gv(42); v.w = !!(gv(40) || gv(41)); }
+    return { head: r.slice(0, k), V, tail: r.slice(i), closed: (parseInt(get(r, 70, '0'), 10) & 1) === 1 };
+  }
+  /** That LWPOLYLINE's groups (copies) with these points instead of its vertices, open. */
+  const lwWith = (P, pts) => [...P.head.map((p) => [p[0], p[0] === 90 ? I(pts.length) : p[0] === 70 ? I(parseInt(p[1], 10) & ~1) : p[1]]), ...pts.flatMap(([x, y]) => [[10, F(x)], [20, F(y)]]), ...P.tail.map((p) => [p[0], p[1]])];
+  /** A copy of an entity with a handle of its own (without the reactors or extension dictionary of the one copied), added to model space. */
+  function rowClone(d, r) { const c = stripGroups(r).map((p) => [p[0], p[1]]), k = c.findIndex((p) => p[0] === 5); if (k >= 0) c[k][1] = d.newHandle(); d.sec('ENTITIES').recs.push(c); return c; }
+  /** How wide a name of the table is written (h: its height): the font's letters (arialW, with some room: the PDF's Helvetica is a little
+      wider), never less than the estimate before (0.7 h a letter). src: its text in the template (bold when its font is). */
+  const wOfRow = (s, h, src) => Math.max(String(s).length * h * 0.7, arialW(s, h, /\\f[^;|]*\|b1/i.test(src || '')) * 1.1);
+  /** Sets an MTEXT's own code c (inserted after its height when it has none). */
+  function mtextSet(r, c, v) { const k = mtextIdx(r, c); if (k >= 0) { r[k][1] = v; return; } const k40 = mtextIdx(r, 40); if (k40 >= 0) r.splice(k40 + 1, 0, [c, v]); }
+  /** The table re-drawn for these places (groups: [{ muni, brgys }]); toks: the ROW_* fields' MTEXTs ({ r, src } each, from the fill).
+      Returns null when done (rep.rowTable says what was drawn), else why not (nothing changed). */
+  function rowRedraw(d, S, toks, groups, rep) {
+    const KM = ['ROW_MUNICIPALITY_1', 'ROW_MUNICIPALITY_2'], KB = [1, 2, 3, 4, 5, 6, 7].map((k) => `ROW_BARANGAY_${k}`), T0 = {};
+    const ENT = d.sec('ENTITIES').recs, mod = ENT.filter((r) => owner(r) === S.modelH && (typ(r) === 'LINE' || typ(r) === 'LWPOLYLINE'));
+    for (const k of [...KM, ...KB]) { // each field's text: its place, height and cell
+      const L = toks.get(k) || []; if (L.length !== 1) return L.length ? `${k} is written more than once` : `${k} not found`;
+      const { r, src } = L[0]; if ((src.match(/@@ROW_(?:BARANGAY|MUNICIPALITY)_\d@@/g) || []).length !== 1) return `${k} shares its text with another field`;
+      const h = num(r, 40, 0), x = num(r, 10, NaN), y = num(r, 20, NaN), att = Math.min(9, Math.max(1, parseInt(get(r, 71, '1'), 10) || 1)), ci = (att - 1) % 3, ri = Math.floor((att - 1) / 3);
+      if (!(h > 0) || !Number.isFinite(x) || !Number.isFinite(y)) return `${k} has no height or place`;
+      const cy = y - (ri === 0 ? h / 2 : ri === 1 ? 0 : -h / 2), c = cellOf(mod, x + (ci === 0 ? 0.1 : ci === 2 ? -0.1 : 0) * h, cy); // (its middle, as it is drawn)
+      if (!c) return `the cell of ${k} not found`;
+      T0[k] = { r, src, h, x, y, ri, cy, c };
+    }
+    if (new Set(Object.values(T0).map((t) => t.r)).size !== KM.length + KB.length) return 'two fields in one text';
+    // the body: the city / municipality column and the barangay column, one row under the other, from the first rows' top to the last's foot
+    const M = KM.map((k) => T0[k].c), B = KB.map((k) => T0[k].c), W = B[0].x1 - B[0].x0;
+    const top = B[0].y1, bot = B[6].y0, H = top - bot, rowH0 = H / 7, tx = Math.max(1e-6, W * 0.005), ty = Math.max(1e-6, rowH0 * 0.05), eq = (a, b, t) => Math.abs(a - b) <= t;
+    if (!(W > 0 && H > 0)) return 'its rows not found';
+    if (!B.every((c) => eq(c.x0, B[0].x0, tx) && eq(c.x1, B[0].x1, tx))) return 'its barangay rows are not one column';
+    if (!eq(M[0].x0, M[1].x0, tx) || !eq(M[0].x1, M[1].x1, tx)) return 'its city / municipality cells are not one column';
+    for (let i = 1; i < 7; i++) if (!eq(B[i].y1, B[i - 1].y0, ty)) return 'its barangay rows are not one under the other';
+    if (!eq(M[0].y1, top, ty) || !eq(M[1].y0, bot, ty) || !eq(M[0].y0, M[1].y1, ty)) return 'its city / municipality cells are not beside the barangay rows';
+    const mLeft = eq(M[0].x1, B[0].x0, tx); if (!mLeft && !eq(B[0].x1, M[0].x0, tx)) return 'its two columns are not side by side';
+    const mx0 = M[0].x0, mx1 = M[0].x1, bx0 = B[0].x0, bx1 = B[0].x1, X0 = Math.min(mx0, bx0), X1 = Math.max(mx1, bx1), XC = mLeft ? bx0 : mx0;
+    // its lines: those across the body taken out (a part of one past the table's sides kept), the frame and the column line kept
+    const inner = [X0 + tx, bot + ty, X1 - tx, top - ty], area = [X0 - tx, bot - ty, X1 + tx, top + ty];
+    const kindOf = (a, b, bulge) => { // 'h': across the body; 'v': upright; 'o': elsewhere; 'x': slanted (or an arc) through the body
+      if (bulge) { const L = Math.hypot(b[0] - a[0], b[1] - a[1]), s = Math.abs(bulge) * L / 2; return Math.min(a[0], b[0]) - s < inner[2] && Math.max(a[0], b[0]) + s > inner[0] && Math.min(a[1], b[1]) - s < inner[3] && Math.max(a[1], b[1]) + s > inner[1] ? 'x' : 'o'; }
+      if (Math.abs(b[1] - a[1]) < 0.01) return a[1] > inner[1] && a[1] < inner[3] && Math.min(a[0], b[0]) < inner[2] && Math.max(a[0], b[0]) > inner[0] ? 'h' : 'o';
+      if (Math.abs(b[0] - a[0]) < 0.01) return 'v';
+      return clipLine([a, b], inner).length ? 'x' : 'o';
+    };
+    const outside = (a, b) => { // the parts of a line across the body past the table's sides, in its direction
+      const lo = Math.min(a[0], b[0]), hi = Math.max(a[0], b[0]), y = a[1], P = [];
+      if (lo < X0 - tx) P.push([lo, Math.min(hi, X0)]); if (hi > X1 + tx) P.push([Math.max(lo, X1), hi]);
+      return (b[0] >= a[0] ? P : P.reverse().map(([p, q]) => [q, p])).map(([p, q]) => [p, y, q, y]);
+    };
+    const boxOf = (r) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 1; i < r.length; i++) { const c = r[i][0]; if (c === 10 || c === 11) { const v = +r[i][1]; if (v < x0) x0 = v; if (v > x1) x1 = v; } else if (c === 20 || c === 21) { const v = +r[i][1]; if (v < y0) y0 = v; if (v > y1) y1 = v; } } return [x0, y0, x1, y1]; };
+    const plan = [], ups = [], protos = []; // (plan: what to change; ups: the upright lines kept, for the frame and the column line; protos: the lines taken out)
+    for (const r of mod) {
+      const bb = boxOf(r); if (!(bb[0] <= area[2] && bb[2] >= area[0] && bb[1] <= area[3] && bb[3] >= area[1])) continue;
+      if (typ(r) === 'LINE') {
+        const a = [num(r, 10, 0), num(r, 20, 0)], b = [num(r, 11, 0), num(r, 21, 0)], k = kindOf(a, b, 0);
+        if (k === 'x') return 'a slanted line crosses its body';
+        if (k === 'v') ups.push([a[0], Math.min(a[1], b[1]), Math.max(a[1], b[1])]);
+        if (k === 'h') { plan.push({ r, line: outside(a, b) }); protos.push({ r: r.map((p) => [p[0], p[1]]), x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]) }); }
+        continue;
+      }
+      const P = lwParts(r); if (!P || P.V.length < 2) continue;
+      if (num(r, 230, 1) < 0) return 'a polyline of it is drawn mirrored';
+      const n = P.V.length, E = [];
+      for (let i = 0; i < (P.closed ? n : n - 1); i++) { const a = P.V[i], b = P.V[(i + 1) % n]; E.push({ a: [a.x, a.y], b: [b.x, b.y], k: kindOf([a.x, a.y], [b.x, b.y], a.b) }); }
+      if (E.some((e) => e.k === 'x')) return 'a polyline with an arc or a slanted side crosses its body';
+      E.forEach((e) => { if (e.k === 'v') ups.push([e.a[0], Math.min(e.a[1], e.b[1]), Math.max(e.a[1], e.b[1])]); });
+      const cutAt = E.findIndex((e) => e.k === 'h'); if (cutAt < 0) continue;
+      if (P.V.some((v) => v.w)) return 'a polyline with widths of its own crosses its body';
+      const order = P.closed ? [...E.slice(cutAt + 1), ...E.slice(0, cutAt + 1)] : E, runs = []; let cur = null;
+      for (const e of order) for (const [x0, y0, x1, y1] of e.k === 'h' ? outside(e.a, e.b) : [[e.a[0], e.a[1], e.b[0], e.b[1]]]) {
+        if (cur && Math.abs(cur[cur.length - 1][0] - x0) < 1e-9 && Math.abs(cur[cur.length - 1][1] - y0) < 1e-9) cur.push([x1, y1]); else runs.push(cur = [[x0, y0], [x1, y1]]);
+      }
+      if (P.closed && runs.length > 1) { const f = runs[0], l = runs[runs.length - 1]; if (Math.abs(l[l.length - 1][0] - f[0][0]) < 1e-9 && Math.abs(l[l.length - 1][1] - f[0][1]) < 1e-9) { runs.pop(); runs[0] = l.concat(f.slice(1)); } }
+      plan.push({ r, P, runs });
+      E.filter((e) => e.k === 'h').forEach((e) => protos.push({ r: r.map((p) => [p[0], p[1]]), x0: Math.min(e.a[0], e.b[0]), x1: Math.max(e.a[0], e.b[0]) }));
+    }
+    if (!protos.length) return 'no line across its body';
+    const covered = (x) => { // the body's height covered by upright lines at x
+      const L = ups.filter((u) => eq(u[0], x, tx) && u[2] > bot && u[1] < top).sort((p, q) => p[1] - q[1]); let y = bot + ty;
+      for (const u of L) { if (u[1] > y) return false; y = Math.max(y, u[2]); } return y >= top - ty;
+    };
+    if (!covered(X0) || !covered(X1)) return 'its frame not found beside its body';
+    if (!covered(XC)) return 'its column line not found';
+    const protoIn = (a, b) => protos.find((p) => p.x0 < b - tx && p.x1 > a + tx), pB = protoIn(bx0, bx1) || protos[0], pM = protoIn(mx0, mx1) || pB;
+    // the rows: each barangay of each city / municipality (one empty row for a city with none); past what fits readably, "+n MORE"
+    const rows = []; groups.forEach((g, gi) => { if (g.brgys.length) g.brgys.forEach((b) => rows.push({ gi, b })); else rows.push({ gi, b: '' }); });
+    const nMax = Math.max(1, Math.floor(H / (ROW_MIN * rowH0) + 1e-6)); let shown = rows, more = 0, moreM = 0;
+    if (rows.length > nMax) {
+      const hid = rows.slice(nMax - 1), gi = hid[0].gi; more = hid.filter((x) => x.b).length; moreM = new Set(hid.map((x) => x.gi).filter((g) => g !== gi)).size;
+      shown = rows.slice(0, nMax - 1).concat([{ gi, b: more ? `+${more} MORE` : '' }]);
+    }
+    const n = shown.length, rowH = H / n, cells = [];
+    shown.forEach((x, i) => { const c = cells[cells.length - 1]; if (c && c.gi === x.gi) c.n++; else cells.push({ gi: x.gi, i0: i, n: 1, name: groups[x.gi].muni }); });
+    if (moreM) { const c = cells[cells.length - 1]; c.name = `${c.name ? `${c.name} ` : ''}+${moreM} MORE`; }
+    // now the changes: the lines across the body out, the new ones in, the texts in their rows
+    const drop = new Set();
+    for (const p of plan) {
+      if (p.line) { if (!p.line.length) { drop.add(p.r); continue; } p.line.forEach(([x0, y0, x1, y1], i) => { const c = i ? rowClone(d, p.r) : p.r; setFirst(c, 10, F(x0)); setFirst(c, 20, F(y0)); setFirst(c, 11, F(x1)); setFirst(c, 21, F(y1)); }); continue; }
+      if (!p.runs.length) { drop.add(p.r); continue; }
+      const g0 = lwWith(p.P, p.runs[0]); p.runs.slice(1).forEach((run) => rowClone(d, lwWith(p.P, run))); p.r.length = 0; p.r.push(...g0);
+    }
+    const lineAt = (pr, x0, x1, y) => { if (typ(pr.r) === 'LINE') { const c = rowClone(d, pr.r); setFirst(c, 10, F(x0)); setFirst(c, 20, F(y)); setFirst(c, 11, F(x1)); setFirst(c, 21, F(y)); return; } rowClone(d, lwWith(lwParts(pr.r), [[x0, y], [x1, y]])); };
+    for (let i = 1; i < n; i++) { const y = top - i * rowH; lineAt(pB, bx0, bx1, y); if (shown[i].gi !== shown[i - 1].gi) lineAt(pM, mx0, mx1, y); } // (a city / municipality's cell over its own rows)
+    const hScale = (src, f) => src.replace(/\\H(\d+(?:\.\d+)?);/g, (m, v) => `\\H${F(+v * f)};`); // (a height written in the text, as the text's)
+    const tB = [];
+    shown.forEach((x, i) => { // a barangay in its row, from the template's place in its row (the first row's for a row the template has not)
+      const t = i < 7 ? T0[KB[i]] : T0[KB[0]], r = i < 7 ? t.r : rowClone(d, t.r);
+      let h = t.h * Math.min(1, rowH / rowH0); const avail = bx1 - t.x - h * 0.3, wid = (hh) => wOfRow(x.b, hh, t.src); // (a long name smaller, as before)
+      if (avail > 0 && wid(h) > avail) h = Math.max(t.h * ROW_MIN, h * avail / wid(h));
+      const off0 = (t.cy - (t.c.y0 + t.c.y1) / 2) * h / t.h, room = Math.max(0, (rowH - h) / 2), off = Math.max(-room, Math.min(room, off0)), yc = top - (i + 0.5) * rowH + off;
+      setText(r, hScale(t.src, h / t.h).replace(/@@ROW_BARANGAY_\d@@/, () => mtextEsc(x.b)));
+      shiftRec(r, 0, yc + (t.ri === 0 ? h / 2 : t.ri === 1 ? 0 : -h / 2) - num(r, 20, 0)); mtextSet(r, 40, F(h)); mtextSet(r, 41, F(Math.max(num(r, 41, 0) || 0, avail, wid(h)))); // (its box never narrower than its name: one line)
+      tB.push(+h.toFixed(4));
+    });
+    const tM = [];
+    cells.forEach((c, j) => { // a city / municipality in the middle of its cell
+      const t = j < 2 ? T0[KM[j]] : T0[KM[0]], r = j < 2 ? t.r : rowClone(d, t.r), cellH = c.n * rowH;
+      let h = t.h * Math.min(1, cellH / rowH0); const avail = mx1 - mx0 - h * 0.6, wid = (hh) => wOfRow(c.name, hh, t.src);
+      if (avail > 0 && wid(h) > avail) h = Math.max(t.h * ROW_MIN, h * avail / wid(h));
+      setText(r, hScale(t.src, h / t.h).replace(/\\pxq[lrjd];/g, '\\pxqc;').replace(/@@ROW_MUNICIPALITY_\d@@/, () => mtextEsc(c.name)));
+      shiftRec(r, (mx0 + mx1) / 2 - num(r, 10, 0), top - (c.i0 + c.n / 2) * rowH - num(r, 20, 0)); mtextSet(r, 71, I(5)); mtextSet(r, 40, F(h)); mtextSet(r, 41, F(Math.max(avail, wid(h))));
+      tM.push(+h.toFixed(4));
+    });
+    for (let i = n; i < 7; i++) drop.add(T0[KB[i]].r); // (the template's texts of the rows not drawn)
+    if (cells.length < 2) drop.add(T0[KM[1]].r);
+    if (drop.size) { let w = 0; for (const r of ENT) if (!drop.has(r)) ENT[w++] = r; ENT.length = w; } // (in place: the template's structure keeps this list)
+    rep.rowTable = { redrawn: true, rows: n, cities: cells.map((c) => ({ name: c.name, rows: c.n })), more, rowH: +rowH.toFixed(4), rowH0: +rowH0.toFixed(4), textH: tB, cityH: tM, body: [X0, bot, X1, top].map((v) => +v.toFixed(4)), column: +XC.toFixed(4) };
+    return null;
   }
   return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.17' };
 }));
