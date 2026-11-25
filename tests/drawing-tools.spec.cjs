@@ -382,7 +382,7 @@ test('kept with the project (another project, a reload), left out of what the te
   await select(page, cab); await tbClick(page, 'h+'); await select(page, 'clo:s2'); await tbClick(page, 's+'); await select(page, 'lbl:s5'); await tbClick(page, 'rot+');
   await select(page, 'pole:s7', 's7'); const p7 = await page.evaluate(() => window.__polecam.drwPt('s7')); await drag(page, p7[0], p7[1], 30, 0);
   const K = await kept(page); assert.ok(K.mvStyle[cab] && K.mvStyle['clo:s2'] && K.lblPin.s5 && K.poleAt.s7, JSON.stringify(K));
-  await shown(page); assert.equal((await pl(page)).phAll, '4 items placed by hand · Back to automatic');
+  await shown(page); assert.equal((await pl(page)).phAll, '4 items changed by hand · Back to automatic', 'styled, turned and moved: changed');
   assert.deepEqual((await mvOf(page)).undo, ['style h+', 'style s+', 'turned +15°', 'pole moved']);
   // shared: none of it
   const sh = await page.evaluate(() => window.__polecam.shareMeta()); for (const k of ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'lblPin', 'planGrid']) assert.ok(!(k in sh), `shareMeta: no ${k}`);

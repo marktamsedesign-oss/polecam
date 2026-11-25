@@ -2522,14 +2522,14 @@
     rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
     if (busy) $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = '';
     $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
-    $('drawPhAll').hidden = !(pl && n); $('drawPhAllT').textContent = `${drwPinsSay(C)} placed by hand · Back to automatic`;
+    $('drawPhAll').hidden = !(pl && n); $('drawPhAllT').textContent = `${drwPinsSay(C)} ${C.chg ? 'changed' : 'placed'} by hand · Back to automatic`; // ((beta 7.11, Drawing tools) styled or turned: changed)
     const nu = drwUndoStack.filter((u) => u.project === drw.project).length, ub = $('drawUndo'); ub.hidden = !(pl && nu); ub.title = nu ? `Undo: where things were before the last change (${nu})` : 'Undo'; // ((beta 7.10, Drawing labels) Undo, while there is a change to take back)
   }
   /** Back to automatic for every photo placed by hand on this project's plan, asked first. */
   async function drwPhAutoAll() {
     if (!drw) return; const proj = drw.project, C = drwPinsN(proj), n = C.n; if (!n) return; // ((beta 7.10, Drawing labels) every photo, number, pole's details and cable label placed by hand)
     const one = n === 1 && !C.lbl, it1 = one ? 'it' : 'them'; // (one photo, number or cable label: "it"; a pole's details, several: "them")
-    if (!(await ask(`Back to automatic: ${drwPinsSay(C)}?`, `The ${n === 1 ? drwPinsSay(C).replace(/^1 /, '') : drwPinsSay(C, true)} placed by hand ${one ? 'goes' : 'go'} back where the plan puts ${it1}, and the plan's sheets are worked out again (kept as they were while things were placed by hand). The next export has ${it1} there too. Undo (↶) brings ${it1} back.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
+    if (!(await ask(`Back to automatic: ${drwPinsSay(C)}?`, `The ${n === 1 ? drwPinsSay(C).replace(/^1 /, '') : drwPinsSay(C, true)} ${C.chg ? 'changed' : 'placed'} by hand ${one ? 'goes' : 'go'} back ${C.chg ? 'where and as' : 'where'} the plan puts ${it1}, and the plan's sheets are worked out again (kept as they were while things were placed by hand). The next export has ${it1} there too. Undo (↶) brings ${it1} back.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
     if (!drw || drw.project !== proj) return;
     drwUndoPush('all back to automatic');
     const m = { ...pmeta(proj) }; MV_KEYS.forEach((k) => { delete m[k]; }); delete m.planGrid; S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n, ph: C.ph, num: C.num, lbl: C.lbl, cab: C.cab, more: C.more, kinds: C.kind }); // ((beta 7.10, Plan kept) and the grid kept: worked out again) ((beta 7.11, Drawing tools) and every item turned or styled, every pole moved)
@@ -2613,7 +2613,8 @@
     const seen = new Set([['phPin', 'ph'], ['numPin', 'num'], ['lblPin', 'lbl'], ['cabPin', 'cab']].flatMap(([k, p]) => Object.keys(m[k] || {}).map((x) => `${p}:${x}`))), F = { photo: 'ph', number: 'num', details: 'lbl', cable: 'cab' };
     for (const pid of Object.keys(m.poleAt || {})) { const k = ptNoun(pid); seen.add(`${k}:${pid}`); r.more[k] = (r.more[k] || 0) + 1; }
     for (const id of [...Object.keys(m.mvPin || {}), ...Object.keys(m.mvStyle || {})]) { if (seen.has(id)) continue; seen.add(id); const k = mvKindOf(id); if (F[k]) r[F[k]]++; else r.more[k] = (r.more[k] || 0) + 1; }
-    r.kind = r.kinds.length; r.n = r.ph + r.num + r.lbl + r.cab + Object.values(r.more).reduce((a, b) => a + b, 0) + r.kind; return r; };
+    r.kind = r.kinds.length; r.n = r.ph + r.num + r.lbl + r.cab + Object.values(r.more).reduce((a, b) => a + b, 0) + r.kind;
+    r.chg = !!(Object.keys(m.mvStyle || {}).length || r.kind || Object.values(m.mvPin || {}).some((t) => t && (t.rot != null || t.tip != null))); return r; }; // (chg: styled, turned, an arrow's tip: "changed by hand"; only placed: 7.10's words)
   /** They in words: "2 photos", "1 cable label"; of several kinds "5 items" (long: "2 photos, 1 number and 2 cable labels"; (beta 7.11, Drawing tools) "1 pole", "the style of all cable labels"). */
   const drwPinsSay = (C, long) => { const L = [[C.ph, 'photo', 'photos'], [C.num, 'number', 'numbers'], [C.lbl, 'pole\'s details', 'poles\' details'], [C.cab, 'cable label', 'cable labels'], ...Object.entries(C.more || {}).map(([k, n]) => [n, ...(MV_NOUN[k] || ['item', 'items'])])].filter((x) => x[0]).map(([n, a, b]) => `${n} ${n === 1 ? a : b}`);
     const K = (C.kinds || []).map((k) => `the style of all ${(MV_NOUN[k] || ['item', 'items'])[1]}`);
@@ -2751,7 +2752,7 @@
   /** One item said: what it is, placed by hand or where the plan puts it, across a sheet's edge (7.10's words). */
   function drwMvSay(m) {
     const i = mvIx(m.id), M = pmeta(drw.project), pin = drwPinOf(m), hand = !!pin || drwHandOf(m, M), info = $('drawInfo'), cut = pin ? drwMvCut(m, i) : null; // ((beta 7.10, Plan kept) across a sheet's edge: said, as a photo's)
-    const pole = ptMoves(m), how = hand ? (pole && (M.poleAt || {})[pidOf(m)] ? 'moved on the plan (its record\'s place stays)' : pin || PIN_OF[m.kind] ? 'placed by hand on the plan' : 'changed by hand on the plan') : `where the plan puts it: ${pole ? 'drag it to move it on the plan (its record\'s place stays)' : 'drag it to place it by hand'}`;
+    const pole = ptMoves(m), how = hand ? (pole && (M.poleAt || {})[pidOf(m)] ? 'moved on the plan (its record\'s place stays)' : pin ? 'placed by hand on the plan' : 'changed by hand on the plan') : `where the plan puts it: ${pole ? 'drag it to move it on the plan (its record\'s place stays)' : 'drag it to place it by hand'}`;
     info.textContent = `${drwMvName(m)}${drwSels().length === 1 && drw.tbMore ? ' · tap more to add' : ''} · ${how}${cut ? ` · across the edge of sheets ${andList(cut)}: it prints cut on both, drag it inside one` : ''}`;
     if (hand) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawMvAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwMvAuto(m.id)); info.appendChild(b); }
     info.hidden = false; $('drawHint').hidden = true;
