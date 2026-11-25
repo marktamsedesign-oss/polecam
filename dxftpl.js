@@ -1704,6 +1704,8 @@
    *   texts' size (a label from its middle; a symbol's texts each where it stands), scale a symbol's size (a guy, grounding, arm from where it meets
    *   its pole), bold / italic (an Arial style made for it, an MTEXT's own codes), color an AutoCAD colour for the whole item (a block: a copy of it in
    *   that colour), lead false: no line or arrow to what it names; job.leaders { photo, details, number }: false, none for every one of them.
+   * job.cloStyle 'bubble' (or a closure label's own callout, or its kind's): each closure, proposed and existing, labelled with the owner's CAD callout
+   *   (see bubDraw); 'arrow' or none: PROPOSED CLOSURE and its arrow, as before. job.pts cloSize (e.g. '72C') and cloFacing (a site's name): its lines.
    */
   /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
       every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
@@ -2220,6 +2222,11 @@
       Manhole: ['PROPOSED MAN HOLE', 'PROPOSED MH', 0.7803353843555049, 'MH', 'EXISTING MH', 1.749630906627053],
       'Service box': ['proposed service box', 'PROPOSED SERVICE BOX', 0.7803353843555049, 'SB', 'EXISTING SERVICE BOX', 1.749630906627053] };
     const inl = new Map(), cloLate = []; let nCloOff = 0; // (2.44.12: the crowded closures drawn away from their pole)
+    /** (beta 7.11, Drawing tools) a closure's label: 'arrow' (PROPOSED CLOSURE and a red arrow, as before) or 'bubble' (the owner's CAD callout: a dashed
+        circle round the closure, a pointer, its lines beside it; an existing closure gets one too): its own (style['clolbl:<id>'].callout), its kind's,
+        Plan style's (job.cloStyle) */
+    const cloCall = (p) => { const k = p ? `clolbl:${p.id}` : '', a = p && job.style && job.style[k] && job.style[k].callout, b = job.styleKind && job.styleKind.closurelabel && job.styleKind.closurelabel.callout, v = a || b || job.cloStyle; return v === 'bubble' ? 'bubble' : 'arrow'; };
+    const BUB = (p) => cloCall(p) === 'bubble';
     /* 2.44.12: a closure in proportion to the drawing: its pentagon about a third of its street's width round (2.2 to 4.35 m, the
        template's size; 7 m streets where the roads are not known), its PROPOSED and ID as large as the other IDs. Where its pole is
        crowded (another point, or the riser's place toward a manhole, within a few metres) it is drawn on its cable a little away from
@@ -2556,7 +2563,9 @@
        closurelabel, loop, span, guy, ground, arm, landmark, road): the records each one writes, gathered while it is drawn (o.own: its id's list), each
        record one element's only (some taken over by another after, e.g. a tower's name attributes by its details: retag); placed, turned and styled
        at the end of the build (DT, below). Nothing written changes: a job without pins, styles or the rest is drawn as before. */
-    const OWN = new Map(), attN = new Map(), LEAD = new Set(); // (LEAD: the records of an element that go to what it names: a line or arrow whose far end stays there)
+    const OWN = new Map(), attN = new Map(), LEAD = new Set(), BUBC = new Set(); // (LEAD: the records of an element that go to what it names: a line or arrow whose far end stays there; BUBC: a closure's bubble circle)
+    /** (beta 7.11, Drawing tools) the bubble callout's pointer: 9 points on its circle (at, radius rb), 28° each side of the way v to its label */
+    const bubArc = (at, rb, v) => { const a0 = Math.atan2(v[1], v[0]), al = 28 * Math.PI / 180, arc = []; for (let k = 0; k <= 8; k++) { const a = a0 - al + 2 * al * k / 8; arc.push([at[0] + rb * Math.cos(a), at[1] + rb * Math.sin(a)]); } return arc; };
     const own = (id, kind, p, info) => { let g = OWN.get(id); if (!g) { g = { id, kind, p: p || null, recs: [], ...(info || {}) }; OWN.set(id, g); } return g; };
     const owning = (id, kind, p, info, f) => { const g = own(id, kind, p, info), prev = o.own; o.own = g.recs; try { return f(); } finally { o.own = prev; } };
     const attId = (k, p) => { const key = `${k}:${p.id}`, n = (attN.get(key) || 0) + 1; attN.set(key, n); return n > 1 ? `${key}:${n}` : key; }; // (guy:s3, then guy:s3:2 …: in the order drawn)
@@ -2720,8 +2729,9 @@
         if (p.poleId && TIDY) tidySym.push({ kind: 'id', at: [p.E, p.N], r: 10 * fN, box: nbx, ov: [0, -1], lines: [p.poleId], layer: lay('Proposed NAP ID', 'MISC'), style: idStyle, color: IDS.color || null, pole: null, own: [`nap:${p.id}`, 'nap', p, null] });
         else if (p.poleId) { owning(`nap:${p.id}`, 'nap', p, null, () => idText(lay('Proposed NAP ID', 'MISC'), p.E, p.N - 7, IDS.h, p.poleId, 0, null)); spots.add(textBox(p.E, p.N - 7, IDS.h, p.poleId, 0, 1, 2)); }
       } else if (p.el === 'Closure') {
-        { const Rq = cloR([p.E, p.N]), m0 = o.model.length; owning(`clo:${p.id}`, 'closure', p, null, () => o.insert(lay('P-JOINT'), 'P-Joint', p.E, p.N, { scale: Rq, attrs: { JT_ID: p.poleId || p.closureId || '', JOINT: 'JT' } })); retag(`clo:${p.id}`, `clolbl:${p.id}`, 'closurelabel', p, visAtt); spots.add(Spots.box(p.E, p.N, 2 * Rq, 2 * Rq, 0)); // (2.44.12: its size) ((beta 7.11, Drawing tools) its texts its label)
-          if (TIDY) for (const r of o.model.slice(m0)) { if (r[0][1] !== 'ATTRIB') continue; const g = (c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; }, h = +g(40, 0), tx = String(g(1, '')); if (!(h > 0) || !tx.trim()) continue; const al = +g(72, 0) || +g(74, 0), x = al ? +g(11, 0) : +g(10, 0), y = al ? +g(21, 0) : +g(20, 0); spots.add(textBox(x, y, h, tx, +g(50, 0), +g(72, 0), +g(74, 0) === 2 ? 2 : +g(74, 0) === 3 ? 3 : 0), 'label'); } } // (beta 6.0: Tidy: its ID and JT where the block puts them: nothing over them)
+        { const Rq = cloR([p.E, p.N]), m0 = o.model.length, bub = BUB(p); owning(`clo:${p.id}`, 'closure', p, null, () => o.insert(lay('P-JOINT'), 'P-Joint', p.E, p.N, { scale: Rq, attrs: bub ? { JT_ID: '', JOINT: '' } : { JT_ID: p.poleId || p.closureId || '', JOINT: 'JT' } })); retag(`clo:${p.id}`, `clolbl:${p.id}`, 'closurelabel', p, visAtt); spots.add(Spots.box(p.E, p.N, 2 * Rq, 2 * Rq, 0)); // (2.44.12: its size) ((beta 7.11, Drawing tools) its texts its label)
+          if (bub) cloLbl.push({ at: [p.E, p.N], R: Rq * 0.9, cid: p.poleId || p.closureId || 'CLOSURE', p, old: !isNew }); // ((beta 7.11) its bubble callout, with the others: its own texts left off)
+          if (TIDY && !bub) for (const r of o.model.slice(m0)) { if (r[0][1] !== 'ATTRIB') continue; const g = (c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; }, h = +g(40, 0), tx = String(g(1, '')); if (!(h > 0) || !tx.trim()) continue; const al = +g(72, 0) || +g(74, 0), x = al ? +g(11, 0) : +g(10, 0), y = al ? +g(21, 0) : +g(20, 0); spots.add(textBox(x, y, h, tx, +g(50, 0), +g(72, 0), +g(74, 0) === 2 ? 2 : +g(74, 0) === 3 ? 3 : 0), 'label'); } } // (beta 6.0: Tidy: its ID and JT where the block puts them: nothing over them)
       } else if (JNW[p.el]) { // beta 6.9: a pull-off (square) or cross-over (circle), and a thin line for each of its extended messengers
         const J = JNW[p.el], at = p.A || [p.E, p.N], sz = 3 * kG, P = (p.att || []).map((id) => byId.get(String(id))).filter((q) => q && (q.A || q.dp));
         if (!S.layers.has('MESSENGER')) addLayer(d, S, 'MESSENGER', 1);
@@ -2952,12 +2962,12 @@
           cands.push({ q, lx, ty: tq[1], boxes: [textBox(lx - 1.5, tq[1] + IDS.h * 0.6, IDS.h, 'PROPOSED  ', 0, 0, 2), textBox(lx - 1.5, tq[1] - IDS.h * 0.85, IDS.h, cid + '  ', 0, 0, 2), Spots.box(q[0], q[1], 2 * Rq, 2 * Rq * 0.45, rd)] }); } // (a little room round the texts)
         if (TIDY) { // beta 4.8: Tidy: 0.7 W at most, its texts a level label beside it (end of step 8)
           const fC = fitW(1.9 * 4.35, base) / kAt(base[0], base[1]), c2 = pick(spots, cands.map((x) => ({ ...x, boxes: [Spots.box(x.q[0], x.q[1], 9 * fC, 4 * fC, rd)] }))), sb = spots.add(c2.boxes[0]), v0 = p.closureOld ? 'EXISTING' : 'PROPOSED';
-          if (!p.closureOld) { owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', c2.q[0], c2.q[1], { scale: 4.35 * fC, rot: rd, attrs: { JT_ID: '', JOINT: '' } })); cloLbl.push({ at: c2.q, R: 4.35 * fC * 0.9, cid, p }); continue; } // (beta 6.7: its red label and arrow after everything else)
+          if (!p.closureOld || BUB(p)) { owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', c2.q[0], c2.q[1], { scale: 4.35 * fC, rot: rd, attrs: { JT_ID: '', JOINT: '' } })); cloLbl.push({ at: c2.q, R: 4.35 * fC * 0.9, cid, p, ...(p.closureOld ? { old: true } : {}) }); continue; } // ((beta 7.11, Drawing tools) an existing one with a bubble callout: as a proposed one, its own texts left off) // (beta 6.7: its red label and arrow after everything else)
           tidySym.push({ kind: 'clo', at: c2.q, r: 4.35 * fC, box: sb, ov: p.td, lines: [v0, cid], layer: lay('P-JOINT'), style: 'arial', color: null, pole: p, own: [`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }],
             write: (P) => o.insert(lay('P-JOINT'), 'P-Joint', c2.q[0], c2.q[1], { scale: 4.35 * fC, rot: rd, attrs: { JT_ID: { v: v0, x: P[0].x, y: P[0].y, h: P[0].h, ha: P[0].ha, va: 3 }, JOINT: { v: cid, x: P[1].x, y: P[1].y, h: P[1].h, ha: P[1].ha, va: 3 } } }) });
           continue;
         }
-        if (!p.closureOld) { const c = pick(spots, cands.map((x) => ({ ...x, boxes: x.boxes.slice(2) }))); owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: Rq, rot: rd, attrs: { JT_ID: '', JOINT: '' } })); spots.add(c.boxes); cloLbl.push({ at: c.q, R: Rq * 0.9, cid, p }); continue; } // (beta 6.7: its red label and arrow after everything else)
+        if (!p.closureOld || BUB(p)) { const c = pick(spots, cands.map((x) => ({ ...x, boxes: x.boxes.slice(2) }))); owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: Rq, rot: rd, attrs: { JT_ID: '', JOINT: '' } })); spots.add(c.boxes); cloLbl.push({ at: c.q, R: Rq * 0.9, cid, p, ...(p.closureOld ? { old: true } : {}) }); continue; } // ((beta 7.11, Drawing tools) as above) // (beta 6.7: its red label and arrow after everything else)
         const c = pick(spots, cands);
         const jt = { JT_ID: { v: p.closureOld ? 'EXISTING' : 'PROPOSED', x: c.lx, y: c.ty + IDS.h * 0.6, h: IDS.h, ha: 0, va: 2 }, JOINT: { v: cid, x: c.lx, y: c.ty - IDS.h * 0.85, h: IDS.h, ha: 0, va: 2 } }; // v2.41: an existing hybrid closure says so
         owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: Rq, rot: rd, attrs: jt })); retag(`clo:${p.id}`, `clolbl:${p.id}`, 'closurelabel', p, visAtt); spots.add(c.boxes); // ((beta 7.11, Drawing tools) its texts its label)
@@ -2966,6 +2976,8 @@
     let nCloInl = 0;
     for (const it of inl.values()) { // v2.42.24: each closure on the cable: its pentagon at its pole (v2.42.25: its texts after the loops and guys, so they cover none); PROPOSED and its ID (an existing one: its ID) where they cover nothing, smaller as needed
       if (it.kind !== 'clo') continue;
+      if (it.old && BUB(it.p)) { const at = it.at, R = it.hh, pts5 = [...Array(5)].map((_, i) => { const a = (90 + i * 72) * Math.PI / 180; return [at[0] + R * Math.cos(a), at[1] + R * Math.sin(a)]; }); // ((beta 7.11, Drawing tools) an existing one with a bubble callout: its blue pentagon, the callout with the others)
+        owning(`clo:${it.p.id}`, 'closure', it.p, { status: { now: 'existing', field: 'closureOld' } }, () => o.lwpoly(it.layer, pts5, { closed: true, color: 5, lwt: 35 })); cloLbl.push({ at, R, cid: it.cid, p: it.p, old: true }); nInline++; nCloInl++; continue; }
       if (!it.old) { owning(`clo:${it.p.id}`, 'closure', it.p, { status: { now: it.old ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(it.layer, 'P-Joint', it.at[0], it.at[1], { scale: it.sc, attrs: { JT_ID: '', JOINT: '' } })); cloLbl.push({ at: it.at, R: it.hh, cid: it.cid, p: it.p }); nInline++; nCloInl++; continue; } // (beta 6.7: a proposed one: its red label and arrow after everything else)
       if (TIDY) { // beta 4.8: Tidy: PROPOSED and its ID a level label beside it, placed with the pole labels (end of step 8), and the pentagon then
         const at = it.at, R = it.hh;
@@ -3112,8 +3124,8 @@
         let c = null; for (const x of cands) { const n = x.boxes.reduce((t2, b) => t2 + spots.hitsW(b, x.lead ? W_CLO : W_ON), 0) + x.tb.reduce((t2, b) => t2 + spots.hitsW(b, W_CLO), 0) + x.room.reduce((t2, b) => t2 + spots.hitsW(b, W_ON), 0); /* (its loop's room: over a road's edge line or the cable is fine) */ if (n < 0.5) { c = { ...x, n: 0 }; break; } if (!c || n < c.n) c = { ...x, n }; } // (the first that covers nothing: a road's edge line or a cable under it counts little)
         if (c && (!best || c.n < best.n)) best = c; if (best && !best.n) break;
       }
-      if (best && !p.closureOld) { // beta 6.7: a proposed one: its pentagon (and its line to the pole) here, its red label and arrow after everything else
-        const at = best.c; owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: '', JOINT: '' } })); spots.add(sym(at)); cloLbl.push({ at, R: Rc * 0.9, cid, p });
+      if (best && (!p.closureOld || BUB(p))) { // beta 6.7: a proposed one: its pentagon (and its line to the pole) here, its red label and arrow after everything else ((beta 7.11, Drawing tools) an existing one with a bubble callout too: its blue pentagon)
+        const at = best.c; owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => (p.closureOld ? o.lwpoly(lay('P-JOINT'), [...Array(5)].map((_, i) => { const a5 = (90 + i * 72) * Math.PI / 180; return [at[0] + Rc * Math.cos(a5), at[1] + Rc * Math.sin(a5)]; }), { closed: true, color: 5, lwt: 35 }) : o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: '', JOINT: '' } }))); spots.add(sym(at)); cloLbl.push({ at, R: Rc * 0.9, cid, p, ...(p.closureOld ? { old: true } : {}) });
         if (best.lead) { LEAD.add(owning(`clo:${p.id}`, 'closure', p, null, () => o.lwpoly(lay('P-JOINT'), best.lead, { color: 8 }))); spots.line(best.lead, 0.5); } nCloOff++;
         { const u = unit(p.A, at), a = pastPole(p, u), e = add2(at, u, -(Rc + 0.4)); if (dist2(p.A, e) > dist2(p.A, a)) p.cloAt = [a, e]; }
       } else if (best) {
@@ -3951,8 +3963,41 @@
       /* beta 7.4 / 2.45.6 (the owner's GEO sheet as a drafter finished it): one line, PROPOSED CLOSURE, with the closure's own ID after
          it where it has one (PROPOSED CLOSURE · CL-01), never the default "CLOSURE" under it; beside the road, clear of its edge lines
          and the cable (a line through it read as struck through) wherever such a place is free, else as before */
-      const W_CLR = (t) => (t === 'road' || t === 'cable' ? 1 : 0);
-      for (const { at, R: Rp, cid, p: cp } of cloLbl) { // (Rp: the pentagon's reach)
+      const W_CLR = (t) => (t === 'road' || t === 'cable' ? 1 : 0); let nBub = 0;
+      /* (beta 7.11, Drawing tools) the owner: "proposed closure Arrow, photo3, can you add also this kind of arrow poiting to closure as option?" (the owner's CAD
+         callout): a dashed yellow-green circle round the closure, a solid pointer on its edge toward the label (its inner side the circle's, its tip out
+         from it), the label's lines left-aligned beside the tip: a proposed closure PROPOSE <size> and HYBRID CLOSURE in red, an existing one PROPOSE
+         INSERTION in red and @EXISTING CLOSURE in green; then FACING <its site> (the nearest tower or ODF along its cable, else the ODC; job.pts cloFacing
+         when the app gives one) and its lat / long (6 decimals) in green. Its size: the job's (pts cloSize, e.g. 72C), else its cable's (F72: 72C, the
+         largest at its pole), else PROPOSE alone. On white paper (the PDF, the Drawing) the circle and the pointer have a dark edge and the green lines a
+         dark shadow, as the numbers in light colours. The label's place: the first free one round the circle, the right side first (as the owner's);
+         placed by hand, the pointer turns to face it (DT, bubTurn). */
+      const BUBG = 60, BUBK = 250, BLT = ['DASHED', 'DASHED2', 'AERCA'].find((n) => S.ltypes.has(n)) || null;
+      const cloSize = (p) => { if (p && p.cloSize) return String(p.cloSize); let n = 0; for (const s0 of spans) { if (String(s0.ia) !== String(p.id) && String(s0.ib) !== String(p.id)) continue; const m = /(\d+)\s*$/.exec(String(s0.cable || '')); if (m) n = Math.max(n, +m[1]); } return n ? `${n}C` : ''; };
+      const facing = (p0) => { if (p0 && p0.cloFacing) return String(p0.cloFacing); for (const kinds of [['Site', 'ODF'], ['ODC']]) { const dd = new Map([[p0, 0]]), Q = [p0], done = new Set();
+        while (Q.length) { let bi = 0; for (let i = 1; i < Q.length; i++) if (dd.get(Q[i]) < dd.get(Q[bi])) bi = i; const q = Q.splice(bi, 1)[0]; if (done.has(q)) continue; done.add(q); if (q !== p0 && kinds.includes(q.el)) return String(q.siteName || q.poleId || '');
+          for (const r of nb.get(q) || []) { const v = dd.get(q) + dist2(q.dp || [q.E, q.N], r.dp || [r.E, r.N]); if (!dd.has(r) || v < dd.get(r) - 1e-9) { dd.set(r, v); Q.push(r); } } } } return ''; };
+      const bubLines = (p, old) => { const sz = cloSize(p), f = facing(p), ll = Number.isFinite(+p.lat) && Number.isFinite(+p.lon) && p.lat !== '' && p.lon !== '' ? `${(+p.lat).toFixed(6)}%%d, ${(+p.lon).toFixed(6)}%%d` : '';
+        return [...(old ? [{ s: 'PROPOSE INSERTION', c: 1 }, { s: '@EXISTING CLOSURE', c: 3 }] : [{ s: sz ? `PROPOSE ${sz}` : 'PROPOSE', c: 1 }, { s: 'HYBRID CLOSURE', c: 1 }]), ...(f ? [{ s: `FACING ${f}`, c: 3 }] : []), ...(ll ? [{ s: ll, c: 3 }] : [])]; };
+      const bubGeo = (at, rb, th, v, W, H) => { const tip = add2(at, v, rb + 0.9 * th), side = Math.abs(v[0]) >= 0.5, x0 = side ? (v[0] >= 0 ? tip[0] + 0.6 * th : tip[0] - 0.6 * th - W) : tip[0] - W / 2;
+        const y1 = side ? tip[1] : v[1] > 0 ? tip[1] + 0.6 * th + H - th / 2 : tip[1] - 0.6 * th - th / 2, cy = y1 + th / 2 - H / 2; return { tip, x0, y1, bx: Spots.box(x0 + W / 2, cy, W + th * 0.4, H + th * 0.3, 0) }; }; // (y1: its first line's middle)
+      const bubDraw = (at, Rp, cid, cp, old) => {
+        const th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, rb = Math.max(2.6 * Rp, 3 * th), L = bubLines(cp, old), W = Math.max(...L.map((l) => arialW(l.s.replace(/%%d/g, '°'), th))), H = th + (L.length - 1) * 1.45 * th;
+        let best = null;
+        [0, 25, -25, 50, -50, 180, 155, -155, 130, -130, 90, -90, 75, -75, 105, -105].forEach((a, k) => { const v = rotv([1, 0], a), G = bubGeo(at, rb, th, v, W, H), m = add2(at, v, rb + 0.45 * th), tb = Spots.box(m[0], m[1], 0.9 * th, rb * 0.9, a);
+          const n = spots.hitsW(G.bx, W_CL) * 10 + spots.hitsW(tb, W_AR) * 3 + k * 0.05 + (cellHolds(G.bx, at[0], at[1]) ? 0 : 50); if (!best || n < best.n) best = { v, G, tb, n }; });
+        const B = { at, rb, th, v: best.v, parts: [] }, so = th * 0.08;
+        owning(`clolbl:${cp.id}`, 'closurelabel', cp, { at, R: Rp, th, bub: B }, () => {
+          for (const [c, w] of [[BUBK, 50], [BUBG, 25]]) { const r = o.circle(CLY, at[0], at[1], rb, { color: c, lwt: w, ...(BLT ? { lt: BLT, lts: +(rb * 0.2).toFixed(3) } : {}) }); LEAD.add(r); BUBC.add(r); } // (its dark edge, then the yellow-green)
+          const arc = bubArc(at, rb, best.v), tip = best.G.tip; for (let k = 0; k < 8; k++) { const r = o.solid(CLY, [tip, arc[k], arc[k + 1]], { color: BUBG }); LEAD.add(r); B.parts.push(r); }
+          const ol = o.lwpoly(CLY, [tip, ...arc.slice().reverse()], { closed: true, color: BUBK, lwt: 13 }); LEAD.add(ol); B.edge = ol;
+          L.forEach((l, i) => { const y = best.G.y1 - i * 1.45 * th; if (l.c === 3) o.text(CLY, best.G.x0 + so, y - so, th, l.s, { ha: 0, va: 2, style: 'arial', color: BUBK }); o.text(CLY, best.G.x0, y, th, l.s, { ha: 0, va: 2, style: 'arial', color: l.c }); });
+        });
+        spots.add([best.G.bx], 'label'); spots.add([best.tb]); { const ring = []; for (let k = 0; k <= 32; k++) ring.push(add2(at, rotv([1, 0], k * 11.25), rb)); spots.line(ring, 0.4); }
+        nBub++; (rep._cloB || (rep._cloB = [])).push({ cid: String(cid), old: !!old, lines: L.map((l) => l.s.replace(/%%d/g, '°')), r: +rb.toFixed(2), at: at.map((x) => +x.toFixed(2)), side: +deg(best.v).toFixed(1), clear: best.n < 1 });
+      };
+      for (const { at, R: Rp, cid, p: cp, old } of cloLbl) { // (Rp: the pentagon's reach)
+        if (BUB(cp)) { bubDraw(at, Rp, cid, cp, old); continue; } // ((beta 7.11, Drawing tools) the bubble callout)
         const own = String((cp && cp.closureId) || (cid !== 'CLOSURE' ? cid : '') || '').trim(), th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, L2 = [own ? `PROPOSED CLOSURE · ${own}` : 'PROPOSED CLOSURE'], w = Math.max(...L2.map((x) => arialW(x, th))) * 1.08, h = th * 1.3; let best = null;
         for (const g of [2.2, 3.5, 5, 7, 10, 14, 19, 25]) { for (let k = 0; k < 16; k++) { const v = rotv([1, 0], k * 22.5 + (g > 5 ? 11.25 : 0)), ex = Math.abs(v[0]) * w / 2 + Math.abs(v[1]) * h / 2, c = add2(at, v, Rp + g * th + ex), bx = Spots.box(c[0], c[1], w + th * 0.4, h + th * 0.3, 0);
             if (!cellHolds(bx, at[0], at[1])) continue; // (inside the closure's own sheet)
@@ -3968,7 +4013,7 @@
           LEAD.add(o.solid(CLY, [a1, add2(b0, pv, aw), add2(b0, pv, -aw)], { color: 1 })); });
         spots.add([best.bx], 'label'); if (best.ab) spots.line([a0, a1], 0.3); if (!best.ok) nOver++; nCL++; (rep._cloL || (rep._cloL = [])).push({ cid: own, text: L2[0], g: best.g, box: +best.nb.toFixed(2), arrow: +best.na.toFixed(2), clear: best.ok === 2, at: c.map((x) => +x.toFixed(2)) }); if (best.g > 7) nFar++;
       }
-      if (cloLbl.length) { rep.closureLabels = { proposed: cloLbl.length, labelled: nCL, further: nFar, notFree: nOver, each: rep._cloL || [] }; delete rep._cloL; if (nOver) rep.notes.push(`PROPOSED CLOSURE labels with no free place (placed where they cover least): ${nOver}`); } }
+      if (cloLbl.length) { rep.closureLabels = { proposed: cloLbl.filter((x) => !x.old).length, labelled: nCL, further: nFar, notFree: nOver, each: rep._cloL || [], ...(nBub ? { bubbles: rep._cloB } : {}) }; delete rep._cloL; delete rep._cloB; if (nOver) rep.notes.push(`PROPOSED CLOSURE labels with no free place (placed where they cover least): ${nOver}`); } }
     let Lp = TIDY ? PHMM / (printK || 0.62) : PHMM * 1.1, photoPl = placePhotos(Lp); /* (beta 6.7: Standard too: the size set, in metres at 1:1100; no longer smaller where the poles stand close, nor again below) */ // (beta 6.4: Tidy: the photo size as set, printed) // (beta 4.8: Tidy: about 1.4 times the street's width, at most; 2.44.10: Drawing style's photo size)
     // (beta 6.7: no second and third round at 0.8 and 0.64 of the size: a photo with no room near its pole goes further with its line)
     const nCol = NS.color || null, bCol = NS.bcolor || NS.color || null, nLay = lay('p-pole');
@@ -4038,7 +4083,7 @@
     // v2.37: smaller, where they cover nothing (none for a NAP or closure drawn on its pole)
     for (const p of pts) {
       if (p.el === 'Pole' || p.onPole) continue;
-      if (JNW[p.el] || (p.el === 'Site' && !/olt/i.test(p.siteKind || ''))) continue; // beta 7.4 / 2.45.6: none for a pull-off or cross-over (the drafter took it off); a tower's is under its name (see its name group)
+      if (JNW[p.el] || (p.el === 'Site' && !/olt/i.test(p.siteKind || '')) || (p.el === 'Closure' && BUB(p))) continue; // beta 7.4 / 2.45.6: none for a pull-off or cross-over (the drafter took it off); a tower's is under its name (see its name group) ((beta 7.11, Drawing tools) a closure with a bubble callout: in it)
       const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], ext = inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : 3, hL = TIDY ? TS.sm / kAt(q0[0], q0[1]) : +(job.poleStyle || {}).llH > 0 ? +job.poleStyle.llH : 1.2, w = 10 * hL * CHW, h = 2 * 1.67 * hL; // (beta 4.3: the lat/long height of the drawing style)
       // v2.41: where every place is taken, over a road edge line or the cable rather than over an ID, a number or a photo
       const kq = TIDY ? kAt(q0[0], q0[1]) : 1, cs = []; for (const r of [ext + 1.5 / kq, ext + 5 / kq, ext + 9 / kq, ext + 13 / kq, ext + 18 / kq]) for (const a of [-45, 45, -135, 135, -90, 90, 0, 180]) { /* (beta 4.8: on a finer grid, as much nearer) */ const u = rotv([1, 0], a), c = add2(q0, u, r + w / 2 * Math.abs(u[0]) + h / 2 * Math.abs(u[1])); cs.push({ q: [c[0] - w / 2, c[1] + h / 2], boxes: [Spots.box(c[0], c[1], w * 1.1, h, 0)] }); }
@@ -4308,6 +4353,12 @@
         if (ln) { const P = far ? [a0, b0] : [b0, b0], ks = ln.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((kk, j) => { ln[kk][1] = F(P[Math.min(j, 1)][0]); ln[kk + 1][1] = F(P[Math.min(j, 1)][1]); }); }
         if (hd) { const Q = [a1, add2(b0, pv, aw), add2(b0, pv, -aw), add2(b0, pv, -aw)]; [10, 11, 12, 13].forEach((cx, j) => { const kk = hd.findIndex((q, i) => i > 0 && q[0] === cx); if (kk > 0) { hd[kk][1] = F(Q[j][0]); hd[kk + 1][1] = F(Q[j][1]); } }); }
       };
+      /** a closure's bubble callout: its pointer turned to face its label where it now is (its circle stays round the closure) */
+      const bubTurn = (E) => {
+        const B = E.bub, c = [E.box.cx, E.box.cy], v = dist2(c, B.at) > 1e-6 ? unit(B.at, c) : B.v, tip = add2(B.at, v, B.rb + 0.9 * B.th), arc = bubArc(B.at, B.rb, v), put = (r, P) => { const ks = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((kk, j) => { r[kk][1] = F(P[j][0]); r[kk + 1][1] = F(P[j][1]); }); };
+        B.parts.forEach((r, k) => { const Q = [tip, arc[k], arc[k + 1], arc[k + 1]]; [10, 11, 12, 13].forEach((cx, j) => { const kk = r.findIndex((q, i) => i > 0 && q[0] === cx); if (kk > 0) { r[kk][1] = F(Q[j][0]); r[kk + 1][1] = F(Q[j][1]); } }); });
+        if (B.edge) put(B.edge, [tip, ...arc.slice().reverse()]); B.v = v;
+      };
       /** a thin line from a label moved away from what it names (q: a point; or a line [a, b]: its nearest point) to it, where its box is further than gap from it */
       const thinTo = (E, tgt, gap) => {
         const B = E.box, near = (q) => nearBox(B, q), tp = Array.isArray(tgt[0]) ? (() => { const [a, b] = tgt, c = [B.cx, B.cy], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-9, t = Math.max(0, Math.min(1, ((c[0] - a[0]) * dx + (c[1] - a[1]) * dy) / L2)); return [a[0] + t * dx, a[1] + t * dy]; })() : tgt;
@@ -4320,7 +4371,8 @@
         if (!rot && !mv) continue;
         const t = mv ? [E.anchor[0] + pn.at[0] - E.box.cx, E.anchor[1] + pn.at[1] - E.box.cy] : [0, 0];
         xformEl(E, { c: c0, a: rot, t }); E.a = norm(E.a + rot); E.box = boxOf(E); E.how = 'by hand';
-        if (k === 'closurelabel' && E.at) cloArrow(E);
+        if (k === 'closurelabel' && E.bub) bubTurn(E);
+        else if (k === 'closurelabel' && E.at) cloArrow(E);
         else if (mv && k === 'span') { const g = geoOf(E.sp[0], E.sp[1]); thinTo(E, [g.a, g.b], Math.max(2.5, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1))); }
         else if (mv && k === 'loop' && E.at) thinTo(E, E.at, Math.max(3, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1)));
       }
@@ -4380,13 +4432,14 @@
       }
       for (const E of EL) {
         const st = stOf(E.id, E.kind); if (!st) continue; const k = E.kind;
-        if (st.lead === false && (k === 'span' || k === 'loop' || k === 'closurelabel')) E.recs.forEach((r) => { if (LEAD.has(r)) drop.add(r); });
+        if (st.lead === false && (k === 'span' || k === 'loop' || k === 'closurelabel')) E.recs.forEach((r) => { if (LEAD.has(r) && !BUBC.has(r)) drop.add(r); }); // (a bubble keeps its circle: its pointer goes)
         if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const body = bodyOf(E), P = outl(body), c = ATTK.has(k) ? P.reduce((b2, q) => (!b2 || dist2(q, E.about) < dist2(b2, E.about) ? q : b2), null) || E.about : [E.box.cx, E.box.cy]; scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); }
         if (st.h && Math.abs(st.h - 1) > 1e-9) { if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
         fontOn(E.recs, st.bold, st.italic);
         if (st.color) colorOn(E.recs, st.color);
         E.box = boxOf(E); E.styled = true;
-        if (k === 'closurelabel' && E.at && (E.how === 'by hand' || st.h)) cloArrow(E);
+        if (k === 'closurelabel' && E.bub && (E.how === 'by hand' || st.h)) bubTurn(E);
+        else if (k === 'closurelabel' && E.at && (E.how === 'by hand' || st.h)) cloArrow(E);
       }
       if (drop.size) { o.model = o.model.filter((r) => !drop.has(r)); for (const m of MV) m.handles = m.handles.filter((h) => !drop.has(recOfH.get(h))); for (const E of EL) E.recs = E.recs.filter((r) => !drop.has(r)); for (const m of MV) if (m.line && m.handles.every((h) => !ld7(recOfH.get(h)))) m.line = null; }
       /* (beta 7.10, Plan kept) as a photo placed by hand: a label, number, pole's details or (beta 7.11) other element placed by hand, its box (turned with it)
