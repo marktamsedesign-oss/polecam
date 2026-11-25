@@ -272,6 +272,20 @@ svg.dpi{width:23px;height:23px;flex:none;fill:none;stroke:currentColor;stroke-wi
 .drwtbpal button[aria-pressed=true]{box-shadow:0 0 0 3px var(--accent)}
 .drwtbpal button.asplan{background:conic-gradient(#e03131,#f59f00,#2f9e44,#1098ad,#1c7ed6,#ae3ec9,#e03131);position:relative}.drwtbpal button.asplan::after{content:'';position:absolute;inset:9px;border-radius:50%;background:var(--surface)}
 @media (pointer:coarse){.drwtbpal button{width:40px;height:40px}}
+/* (beta 7.13, Drawing fixes) the right-click menu over the plan: the toolbar's tools in a list, each with its icon and words, at the pointer, inside the window */
+.drwctx{position:fixed;z-index:30;min-width:190px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;display:flex;flex-direction:column;padding:4px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.22)}
+.drwctx[hidden]{display:none}
+.drwctx>button{display:flex;align-items:center;gap:10px;min-height:30px;padding:3px 10px 3px 8px;border:0;border-radius:7px;background:none;color:inherit;font:600 calc(13px * var(--fs))/1.2 var(--sans);text-align:left;white-space:nowrap;cursor:pointer}
+.drwctx>button:hover,.drwctx>button:focus-visible{background:var(--soft);outline:none}
+.drwctx>button svg.dpi{width:20px;height:20px}
+.drwctx>button .sw{width:20px;height:20px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1.5px var(--muted);flex:none}
+.drwctx>button[aria-checked=true]::after{content:"✓";margin-left:auto;padding-left:16px;font-weight:800}
+.drwctx>button[disabled]{opacity:.35;cursor:default}.drwctx>button[disabled]:hover{background:none}
+.drwctx hr{border:0;border-top:1px solid var(--line);margin:3px 4px}
+.drwctx .pal{display:flex;flex-wrap:wrap;gap:6px;padding:4px 8px 6px 38px;max-width:240px}
+.drwctx .pal button{width:28px;height:28px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1.5px var(--line);cursor:pointer;padding:0}
+.drwctx .pal button[aria-checked=true]{box-shadow:0 0 0 3px var(--accent)}.drwctx .pal button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.drwctx .pal button.asplan{background:conic-gradient(#e03131,#f59f00,#2f9e44,#1098ad,#1c7ed6,#ae3ec9,#e03131);position:relative}.drwctx .pal button.asplan::after{content:'';position:absolute;inset:7px;border-radius:50%;background:var(--surface)}
 /* (beta 7.12, Drawing edit) on a phone the tools used less (bold, italic, turn back, the line, existing / proposed, arrow / bubble, the draw order, this one / all
    like it, automatic, several) wait under More (xtra), as the CEF editor's strip keeps its few; a laptop has the room for all of them */
 .drwtbb[data-a="xtra"]{display:none}
@@ -2068,6 +2082,8 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
       <button type="button" class="drwtbb" data-a="done" title="Done (Esc)" aria-label="Done: nothing selected"><svg class="dpi" aria-hidden="true"><use href="#ce-ok"/></svg><span>Done</span></button>
       <div class="drwtbpal" id="drawTbPal" data-a="pal" role="group" aria-label="Colour" hidden></div>
     </div>
+    <!-- (beta 7.13, Drawing fixes) a right-click on the plan (a computer): the toolbar's tools for what is under the pointer, as a menu there (drwCtxOpen) -->
+    <div class="drwctx" id="drawCtx" role="menu" aria-label="Tools for what is selected on the plan" hidden></div>
     <!-- v2.42.28: the drawing of the export shown here; ‹ › go through them -->
     <div class="drwpv" id="drawPv" hidden><button type="button" id="drawPvPrev" aria-label="Show the drawing before">‹</button><span id="drawPvT"></span><button type="button" id="drawPvNext" aria-label="Show the next drawing">›</button></div>
     <!-- beta 6.2: the poles hidden from the exports are not on the plan: how many (a tap: the one's record, or the Records list of them) -->

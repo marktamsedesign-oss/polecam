@@ -3296,6 +3296,56 @@
     if (TB_NEED[a]) drwStyleSet(L, a, v);
   }
   $('drawTb').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b || !drw || b.disabled) return; const g = b.closest('[data-a]'); if (!g) return; e.preventDefault(); drwTbAct(g.dataset.a, b.dataset.v); });
+  /* (beta 7.13, Drawing fixes) The owner (after beta 7.12): "allow right click to open options tool for that element". On a computer, a right-click on the plan
+     selects what is under the pointer (what a tap there selects; on an item already selected: the selection as it is) and opens its tools as a menu at the
+     pointer: the toolbar's tools it can take (as drwTbRender shows them), each with the toolbar's icon and words, doing what its button does (drwTbAct: one
+     Undo step); on the empty plan: Add text here (a text of yours there, as the row's Text). Kept inside the window; Esc, a click elsewhere or a choice closes it. The
+     browser's own menu does not open over the plan (it still does elsewhere in the app); a phone: as before (a long press is not taken). */
+  const CTX_SKIP = new Set(['done', 'more', 'xtra', 'scope', 'pal']); // (the toolbar's own: Done, Several, More, This one / All like it, its palette)
+  /** The right-click menu put away: true when it was open. */
+  function drwCtxClose() { const M = $('drawCtx'); if (!M || M.hidden) return false; M.hidden = true; M.textContent = ''; return true; }
+  /** The menu opened at (x, y) (page pixels): the toolbar's tools for what is selected; at: the empty plan there ({ clientX, clientY }): Add text here. False: nothing to offer. */
+  function drwCtxOpen(x, y, at) {
+    const M = $('drawCtx'), tb = $('drawTb'); if (!M || !drw) return false; M.textContent = '';
+    const cap = (el) => ((el.querySelector('span:last-child') || el).textContent || '').trim();
+    const item = (o) => { const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', o.role || 'menuitem'); b.dataset.a = o.a; if (o.v != null) b.dataset.v = o.v; if (o.checked != null) b.setAttribute('aria-checked', String(!!o.checked));
+      if (o.title) b.title = o.title; if (o.label) b.setAttribute('aria-label', o.label); if (o.disabled) b.disabled = true; if (o.ico) { const i = o.ico.cloneNode(true); i.removeAttribute('id'); b.appendChild(i); }
+      const t = document.createElement('span'); t.textContent = o.cap; b.appendChild(t); b.addEventListener('click', () => o.go(b)); M.appendChild(b); return b; };
+    const hr = () => { if (M.lastElementChild && M.lastElementChild.tagName !== 'HR') M.appendChild(document.createElement('hr')); };
+    if (!at) {
+      if (tb.hidden) return false;
+      for (const el of tb.children) {
+        const a = el.dataset.a; if (!a || CTX_SKIP.has(a) || el.hidden) continue;
+        if (el.classList.contains('drwtbsep')) { hr(); continue; }
+        if (el.classList.contains('drwtbseg')) { el.querySelectorAll('button').forEach((b) => item({ a, v: b.dataset.v, role: 'menuitemradio', checked: b.getAttribute('aria-pressed') === 'true', title: b.title, ico: b.querySelector('svg.dpi'), cap: cap(b), go: () => drwCtxDo(a, b.dataset.v) })); continue; } // (Existing / Proposed, Arrow / Bubble)
+        if (a === 'color') { const b = item({ a, title: el.title, label: el.getAttribute('aria-label'), ico: $('drawTbSw'), cap: cap(el), go: (bb) => drwCtxPal(bb) }); b.setAttribute('aria-haspopup', 'true'); b.setAttribute('aria-expanded', 'false'); continue; } // (its colours under it)
+        const pr = el.getAttribute('aria-pressed'); item({ a, title: el.title, label: el.getAttribute('aria-label'), ico: el.querySelector('svg.dpi'), cap: cap(el), disabled: el.disabled, role: pr != null ? 'menuitemcheckbox' : 'menuitem', checked: pr != null ? pr === 'true' : null, go: () => drwCtxDo(a) });
+      }
+    } else { const t = $('drawIcons').querySelector('[data-a="addtext"]'); item({ a: 'addtext', title: 'Add text here: type it, it goes where you clicked', label: 'Add text here', ico: t.querySelector('svg.dpi'), cap: 'Add text here', go: () => { drwCtxClose(); if (drw.add) drwAddEnd(); drwAddStart({ kind: 'text' }); if (drw.add) drwAddAt(at); } }); }
+    while (M.lastElementChild && M.lastElementChild.tagName === 'HR') M.lastElementChild.remove();
+    if (!M.childElementCount) return false;
+    M.hidden = false; drwCtxPlace(x, y); M.dataset.x = String(x); M.dataset.y = String(y);
+    const f = M.querySelector('button:not([disabled])'); if (f) f.focus({ preventScroll: true }); LOG.info('draw.ctx', { n: M.querySelectorAll('button').length, sel: drwSels().length }); return true;
+  }
+  /** The menu at (x, y), inside the window: to the left of the pointer where it has no room at its right, up where none below. */
+  function drwCtxPlace(x, y) { const M = $('drawCtx'); M.style.left = '0px'; M.style.top = '0px'; const r = M.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight, pad = 8; let L = x + 2, T = y + 2; if (L + r.width > W - pad) L = Math.max(pad, x - r.width - 2); if (T + r.height > H - pad) T = Math.max(pad, H - pad - r.height); M.style.left = `${Math.round(L)}px`; M.style.top = `${Math.round(T)}px`; }
+  /** A tool of the menu chosen: the menu put away, its toolbar button's work done. */
+  function drwCtxDo(a, v) { drwCtxClose(); if (drw) drwTbAct(a, v); }
+  /** Colour in the menu: the colours under it (as the toolbar's palette), the one of the selection ticked; again: put away. */
+  function drwCtxPal(b) {
+    const M = $('drawCtx'), was = M.querySelector('.pal'); if (was) { was.remove(); b.setAttribute('aria-expanded', 'false'); return; }
+    const L = drwSels().map(mvById).filter(Boolean), cs = [...new Set(L.filter((m) => canOf(m).color).map((m) => +drwStyNow(m).color || 0))], c1 = cs.length === 1 ? cs[0] : -1, P = document.createElement('div'); P.className = 'pal'; P.setAttribute('role', 'group'); P.setAttribute('aria-label', 'Colour');
+    TB_COLS.forEach(([c, nm]) => { const s0 = document.createElement('button'); s0.type = 'button'; s0.setAttribute('role', 'menuitemradio'); s0.setAttribute('aria-checked', String(c === c1)); s0.dataset.a = 'pal'; s0.dataset.v = String(c); s0.title = nm; s0.setAttribute('aria-label', nm); if (c) s0.style.background = drwAciCss(c); else s0.classList.add('asplan'); s0.addEventListener('click', () => drwCtxDo('pal', String(c))); P.appendChild(s0); });
+    b.after(P); b.setAttribute('aria-expanded', 'true'); drwCtxPlace(+M.dataset.x || 0, +M.dataset.y || 0); (P.querySelector('[aria-checked="true"]') || P.querySelector('button')).focus({ preventScroll: true });
+  }
+  $('drawCtx').addEventListener('keydown', (e) => { // (the keys of a menu: ↑ ↓ (← → among the colours) to go through it, Home / End, Enter to choose, Esc or Tab to put it away)
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); drwCtxClose(); return; }
+    if (e.key === 'Tab') { drwCtxClose(); return; }
+    const B = [...$('drawCtx').querySelectorAll('button:not([disabled])')], i = B.indexOf(document.activeElement), k = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (k || e.key === 'Home' || e.key === 'End') { e.preventDefault(); e.stopPropagation(); if (B.length) B[e.key === 'Home' ? 0 : e.key === 'End' ? B.length - 1 : i < 0 ? 0 : (i + k + B.length) % B.length].focus({ preventScroll: true }); }
+  });
+  document.addEventListener('pointerdown', (e) => { if (!$('drawCtx').hidden && !(e.target instanceof Element && e.target.closest('#drawCtx'))) drwCtxClose(); }, true); // (a click elsewhere: put away, before what it does)
+  window.addEventListener('resize', () => drwCtxClose()); window.addEventListener('blur', () => drwCtxClose());
   /* (beta 7.12, Drawing edit) The text of an item of the plan edited (the owner: "allow also the user to edit the text if needed. just to make everything correct before
      exporting"): Edit text on the toolbar, or a double-tap (a double-click) on it, opens a small editor with its text as the plan writes it (report.movable text: one
      line per line), kept as mvText[id] (job.text: the plan only, the record stays as it is); Automatic puts the plan's own text back; ↶ undoes. A text note the same. */
@@ -3979,8 +4029,9 @@
   }
   (() => { // pan, pinch, wheel and tap on the drawing
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
+    let ctxHere = false; // ((beta 7.13, Drawing fixes) this press opened the right-click menu (a Mac's Ctrl + click too): its release is not a tap)
     let last = null, moved = 0, pinch = null, phD = null, mvD = null, hD = null, add = false; // (beta 7.8, Drawing photos) phD: a photo frame pressed (outside Edit route), dragged rather than the drawing ((beta 7.10, Drawing labels) mvD: a label, number or pole's details, the same) ((beta 7.11, Drawing tools) hD: a handle of the item selected (its turn, its arrow's tip); add: Shift or Ctrl held, a tap adds to the selection)
-    cv.addEventListener('pointerdown', (e) => { if (!drw) return; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); drwTbPal(false); if (drw.icoPop) { drwIcoPop(null); drwIcoRender(); } drw.lastPtr = e.pointerType; cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0; // ((beta 7.12, Drawing edit) the row's tray put away; a mouse or a finger: for a double-click)
+    cv.addEventListener('pointerdown', (e) => { if (!drw) return; ctxHere = false; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); drwTbPal(false); if (drw.icoPop) { drwIcoPop(null); drwIcoRender(); } drw.lastPtr = e.pointerType; cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0; // ((beta 7.12, Drawing edit) the row's tray put away; a mouse or a finger: for a double-click)
       if (drw.ptrs.size === 1) { const ok = !drwEd && !jnPick && !drw.add && (e.pointerType !== 'mouse' || e.button === 0); add = !!(e.shiftKey || e.ctrlKey || e.metaKey); phD = null; mvD = null; hD = null; // ((beta 7.12) adding a text or a photo: nothing is taken, a tap places it, a drag pans)
         const Hd = ok && drwPlanOn() ? drwHandleAt(e) : null; if (Hd) hD = drwHandleGrab(Hd, e); // ((beta 7.11, Drawing tools) a handle first)
         else if (ok) { const g = drwGrabAt(e); if (g && g.photo) phD = { id: g.photo, x0: e.clientX, y0: e.clientY }; else if (g && g.id) mvD = { id: g.id, x0: e.clientX, y0: e.clientY }; } } // ((beta 7.11) a selected item under the finger first; a pole or a site only when selected)
@@ -3992,6 +4043,7 @@
         if (pinch.w) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; drw.view.cx = pinch.w[0] - (m[0] * d() - cv.width / 2) / drw.view.sc; drw.view.cy = pinch.w[1] + (m[1] * d() - cv.height / 2) / drw.view.sc; }
         drawDrawing(); return; }
       const dx = e.clientX - last[0], dy = e.clientY - last[1]; last = [e.clientX, e.clientY]; moved += Math.abs(dx) + Math.abs(dy);
+      if (ctxHere && moved >= 8) drwCtxClose(); // ((beta 7.13, Drawing fixes) the right button dragged on: the plan panned, its menu put away)
       if (hD) { if (moved >= 8) { drwHandleMove(hD, e); drawDrawing(); } return; } // ((beta 7.11, Drawing tools) turned by the finger, or its arrow's tip slid along its span; the drawing stays)
       if (phD) { if (moved >= 8) { drw.phDrag = { id: phD.id, dx: (e.clientX - phD.x0) * d(), dy: (e.clientY - phD.y0) * d() }; drawDrawing(); } return; } // (beta 7.8, Drawing photos) the photo follows the finger; the drawing stays
       if (mvD && moved >= 8 && !drw.mvDrag && !(drw.mvDrag = drwMvGrab(mvD.id))) mvD = null; // ((beta 7.10, Drawing labels) lifted off the plan at the first move)
@@ -4001,6 +4053,7 @@
     });
     const up = (e) => {
       if (!drw) return; drw.ptrs.delete(e.pointerId); if (drw.ptrs.size < 2) pinch = null;
+      if ((ctxHere || (e.pointerType === 'mouse' && e.button === 2)) && moved < 8) { ctxHere = false; hD = null; phD = null; mvD = null; drw.hDrag = null; drw.phDrag = null; drw.mvDrag = null; drawDrawing(); return; } // ((beta 7.13, Drawing fixes) a right-click: its menu (contextmenu below), not a tap
       if (hD) { const D = hD; hD = null; if (e.type === 'pointerup' && moved >= 8 && drw.hDrag) drwHandleDrop(D); else { drw.hDrag = null; if (e.type === 'pointerup' && moved < 8) drwTapAt(e, add); else drawDrawing(); } return; } // ((beta 7.11, Drawing tools) a handle let go: the turn or the tip kept; only tapped: what is under it, as any tap)
       if (phD) { const D = phD, G = drw.phDrag; phD = null; drw.phDrag = null; // (beta 7.8, Drawing photos) a photo let go where it was dragged, or tapped
         if (e.type === 'pointerup' && moved >= 8 && G) drwPhDrop(D.id, G.dx, G.dy); else if (e.type === 'pointerup' && moved < 8) drwTapAt(e, add); else drawDrawing(); return; } // ((beta 7.11) a tap: what is under it, tapped again the next)
@@ -4017,7 +4070,16 @@
       if (!drw || drwEd || drw.add || drw.lastPtr !== 'mouse' || !drwPlanOn() || !$('drawTxtBox').hidden) return; const A = drw.tapPrev; if (!A || Date.now() - A.t > 900 || Math.hypot(A.x - e.clientX, A.y - e.clientY) > 12) return;
       if (drwDblText(A)) e.preventDefault();
     });
-    cv.addEventListener('wheel', (e) => { if (!drw) return; e.preventDefault(); drw.view.sc *= e.deltaY < 0 ? 1.15 : 1 / 1.15; drawDrawing(); }, { passive: false });
+    cv.addEventListener('contextmenu', (e) => { // ((beta 7.13, Drawing fixes) a right-click on the plan (a computer): the menu of what is under the pointer, never the browser's
+      if (!drw || drwEd) return; const pt = e.pointerType || drw.lastPtr; if (pt && pt !== 'mouse') return; // (✎ Edit route: its own (a right-click undoes); a phone's long press: as before)
+      e.preventDefault(); drwCtxClose(); ctxHere = true;
+      if (moved >= 8 || drw.add || jnPick || !drwPlanOn() || drw.labels === false || !drw.view) return; // (the right button dragged: the plan panned; adding a text or a photo; a pull-off's poles; no plan shown)
+      const C = drwCands(e), S0 = new Set(drwSels());
+      if (!C.length) { drwCtxOpen(e.clientX, e.clientY, { clientX: e.clientX, clientY: e.clientY }); return; } // (the empty plan: Add text here)
+      if (!C.some((c) => c.id && S0.has(c.id))) { drw.tapC = null; drwTapAt0(e, false); drw.tapLast = null; } // (what a tap there selects; on one selected: the selection as it is)
+      drwCtxOpen(e.clientX, e.clientY);
+    });
+    cv.addEventListener('wheel', (e) => { if (!drw) return; e.preventDefault(); drwCtxClose(); drw.view.sc *= e.deltaY < 0 ? 1.15 : 1 / 1.15; drawDrawing(); }, { passive: false });
     window.addEventListener('resize', () => { if (drw && !$('drawing').hidden) { sizeDrawing(); drawDrawing(); } });
   })();
   $('drawFit').addEventListener('click', () => { fitDrawing(); drawDrawing(); });
@@ -21482,6 +21544,7 @@
       $('edClose').click(); return; // with changes not saved it asks first (Esc again: keep editing)
     }
     if ((top === 'export' || top === 'drwStyle') && $(top).classList.contains('side')) { e.preventDefault(); closeSheet(); return; } // v2.42.28: a panel beside the plan (beta 6.7, UX step 4: Plan style)
+    if (top === 'drawing' && drwCtxClose()) { e.preventDefault(); return; } // ((beta 7.13, Drawing fixes) Esc: the right-click menu put away first, the selection kept)
     if (top === 'drawing' && drw && drw.icoPop) { e.preventDefault(); drwIcoPop(null); drwIcoRender(); return; } // ((beta 7.12, Drawing edit) Esc: the row's tray put away, adding a text or a photo stopped)
     if (top === 'drawing' && drw && drw.add) { e.preventDefault(); drwAddEnd(); return; }
     if (top === 'drawing' && drw && drwSelClear()) { e.preventDefault(); return; } // ((beta 7.11, Drawing tools) Esc: nothing selected on the plan any more)
@@ -22723,6 +22786,9 @@
     const tl = (b) => ({ a: b.dataset.a, label: b.getAttribute('aria-label'), title: b.title, cap: (b.querySelector('span:last-child') || {}).textContent || '', icon: !!b.querySelector('svg.dpi use, .sw'), pressed: b.getAttribute('aria-pressed'), disabled: !!b.disabled, hidden: !(b.offsetWidth || b.offsetHeight), ...(b.offsetWidth || b.offsetHeight ? at(b) : {}) });
     return { hidden: R.hidden, rect: R.hidden ? null : at(R), tools: [...R.querySelectorAll('button[data-a]')].map(tl), say: $('drawIcoSay').textContent, pop: $('drawIcoPop').hidden ? null : { rect: at($('drawIcoPop')), tools: [...$('drawIcoPop').querySelectorAll('button[data-a]')].map(tl) },
       adding: drw && drw.add ? drw.add.kind : null, selWant: drw ? drw.selWant || null : null, tb: [...$('drawTb').querySelectorAll('button[data-a], .drwtbseg button')].map((b) => ({ ...tl(b), a: b.dataset.a || (b.closest('[data-a]') || {}).dataset.a, v: b.dataset.v || null })), xopen: $('drawTb').classList.contains('xopen') }; };
+  /* (beta 7.13, Drawing fixes) for tests: the right-click menu (shown, its place in page pixels, each item: its tool, choice, words, name, icon, ticked, greyed, place) */
+  window.__polecam.drwCtx = () => { const M = $('drawCtx'), R = (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
+    return { open: !M.hidden, rect: M.hidden ? null : R(M), focus: M.contains(document.activeElement) ? (document.activeElement.dataset.a || null) : null, items: M.hidden ? [] : [...M.querySelectorAll('button')].map((b) => ({ a: b.dataset.a, v: b.dataset.v || null, cap: (b.querySelector('span:last-child') || {}).textContent || '', label: b.getAttribute('aria-label') || '', title: b.title, role: b.getAttribute('role'), icon: ((b.querySelector('svg use') || {}).getAttribute ? b.querySelector('svg use').getAttribute('href') : null) || (b.querySelector('.sw') ? 'swatch' : null), checked: b.getAttribute('aria-checked'), disabled: !!b.disabled, ...R(b) })) }; };
   window.__polecam.drwTxt = () => ({ open: !$('drawTxtBox').hidden, title: $('drawTxtTitle').textContent, sub: $('drawTxtSub').textContent, text: $('drawTxtArea').value, auto: !$('drawTxtAuto').hidden, saveOff: !!$('drawTxtYes').disabled, ok: $('drawTxtYes').textContent });
   window.__polecam.drwNotes = () => ({ notes: drw ? JSON.parse(JSON.stringify(notesOf(pmeta(drw.project)))) : [], pend: drw ? (drw.notePend || []).slice() : [], made: drw && drw.ph && drw.ph.tools ? JSON.parse(JSON.stringify(drw.ph.tools.notes || null)) : null });
   window.__polecam.drwNotesSweep = () => drwNotesSweep();
