@@ -94,7 +94,7 @@ async function exportPlan(page) {
   const e = await page.evaluate(() => window.__exp); assert.equal(e.length, 1, 'one plan made'); return e[0];
 }
 /** A sheet's layout names, the root dictionary's look, a style's font (the DXF text, read as the builder reads it). */
-const T = require(path.join(root, 'dxftpl.js')), G = require(path.join(root, 'dxfsynth.js'));
+const T = require(path.join(root, 'dxftpl.js')), G = require(path.join(root, 'vendor', 'synth', 'dxfsynth.js'));
 function dxfInfo(text) {
   const d = new T.Doc(text), S = T.structure(d), get = (r, c) => { const p = r.find((q, i) => i > 0 && q[0] === c); return p ? p[1] : undefined; };
   const style = (n) => { const r = S.T.find((x) => x[0][1] === 'STYLE' && get(x, 2) === n); return r ? get(r, 3) : null; };

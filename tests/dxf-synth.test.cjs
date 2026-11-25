@@ -1,4 +1,4 @@
-/* (beta 7.15, Client templates) the DXF synthesizer (dxfsynth.js, in Node) on three made-up "DEMO CLIENT" templates (tests/fixtures/mkclient.py):
+/* (beta 7.15, Client templates) the DXF synthesizer (vendor/synth/dxfsynth.js, in Node) on three made-up "DEMO CLIENT" templates (tests/fixtures/mkclient.py):
    (a) A1 in mm, a title block BLOCK with attributes, ROMANS, layers with line weights, client symbols, a sample route and a legend in model space;
    (b) A3 in mm, a title block of plain TEXT labels and value texts (some labels with none), Arial Narrow, one symbol drawn in millimetres;
    (c) inches, two sheets (PLAN, KEY PLAN), no symbols, labels and values in one text. Run: node --test tests/dxf-synth.test.cjs
@@ -20,7 +20,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const root = path.resolve(__dirname, '..'), FX = path.join(__dirname, 'fixtures');
-const T = require(path.join(root, 'dxftpl.js')), G = require(path.join(root, 'dxfsynth.js'));
+const T = require(path.join(root, 'dxftpl.js')), G = require(path.join(root, 'vendor', 'synth', 'dxfsynth.js'));
 const SRC = Object.fromEntries(['a', 'b', 'c'].map((k) => [k, fs.readFileSync(path.join(FX, `client-${k}-made-up.dxf`), 'utf8')]));
 const DG = {}, MADE = {}, MAP = {};
 const dg = (k) => DG[k] || (DG[k] = G.digest(SRC[k], `client-${k}-made-up.dxf`));

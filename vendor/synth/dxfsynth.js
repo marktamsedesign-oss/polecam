@@ -12,9 +12,11 @@
    (its group 1 strings joined are a JSON) and the text style 'G-ESAA TEXT' (the client's main font; 'G-ESAA TEXT BOLD' when it has a bold
    one). make() checks what it made: the seed is one the app takes, the builder makes a made-up plan on it, every field is placed and filled,
    and the structure (tools/dxf-seed/check_dxf.py's checks, here in JS) is sound.
-   Works in the browser (window.GeDxfSynth; it uses window.GeDxfTpl, which the app loads first) and in Node (require; tests). */
+   Works in the browser (window.GeDxfSynth; it uses window.GeDxfTpl, which the app loads first) and in Node (require; tests).
+   This file is vendor/synth/dxfsynth.js, as the app's own Ask & Draw page is under vendor/splice: the APK workflows copy vendor/ whole, so they
+   name no new file and stay the same on beta and main (the repository's rule; beta 7.15 is on beta only). */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./dxftpl.js'));
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('../../dxftpl.js'));
   else root.GeDxfSynth = factory(null);
 }(typeof self !== 'undefined' ? self : this, function (T0) {
   'use strict';

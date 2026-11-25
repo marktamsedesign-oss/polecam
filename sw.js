@@ -6,7 +6,7 @@ const VERSION = 'polecam-v2.45.15-b7.13';
 const BETA_WEB = /\/beta\/sw\.js$/.test(self.location.pathname);
 const CACHE = BETA_WEB ? VERSION.replace('polecam-', 'polecam-beta-') : VERSION;
 const SHELL = [
-  './', 'index.html', 'app.js', 'core.js', 'glyphs.js', 'reports.js', 'forms.js', 'tutorial.js', 'dxftpl.js', 'dxf-worker.js', 'dxfpdf.js', 'dxfsynth.js' /* (beta 7.15, Client templates) the DXF synthesizer */, 'manifest.json', 'brand/logo-left.jpg', 'brand/logo-right.jpg',
+  './', 'index.html', 'app.js', 'core.js', 'glyphs.js', 'reports.js', 'forms.js', 'tutorial.js', 'dxftpl.js', 'dxf-worker.js', 'dxfpdf.js', 'vendor/synth/dxfsynth.js' /* (beta 7.15, Client templates) the DXF synthesizer (under vendor/: the APK workflows copy it with vendor/, unchanged) */, 'manifest.json', 'brand/logo-left.jpg', 'brand/logo-right.jpg',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/protomaps/protomaps-leaflet.js', 'vendor/icons/landmarks.js', 'vendor/icons/landmarks.png', 'vendor/icons/landmark-blocks.js', 'vendor/qr/qrcode.min.js', 'vendor/qr/jsQR.min.js',
   'vendor/leaflet/images/layers.png', 'vendor/leaflet/images/layers-2x.png',
   'vendor/leaflet/images/marker-icon.png', 'vendor/leaflet/images/marker-icon-2x.png', 'vendor/leaflet/images/marker-shadow.png',

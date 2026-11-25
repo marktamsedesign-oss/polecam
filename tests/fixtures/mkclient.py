@@ -1,5 +1,5 @@
 """(beta 7.15, Client templates) Made-up "DEMO CLIENT" drawing templates, as another client might send them, for the DXF synthesizer's tests
-(dxfsynth.js: tests/dxf-synth.test.cjs, tests/client-templates.spec.cjs). Nothing here comes from any company or client: every name, text,
+(vendor/synth/dxfsynth.js: tests/dxf-synth.test.cjs, tests/client-templates.spec.cjs). Nothing here comes from any company or client: every name, text,
 number and drawing is made up. Made with ezdxf (tests/requirements.txt):
 
     python3 tests/fixtures/mkclient.py tests/fixtures      (writes the three files below)

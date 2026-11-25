@@ -13757,7 +13757,7 @@
      The owner: "dxf for asplan and cef must be based from a template dxf. Context: client requires a different template with a different text
      font style, drawing style size and thickness. By changing the template dxf, the app can now accomodate plan creation from different clients
      using its template." and "add a dxf synthesizer that accepts and digest a dxf from other clients". Plan style › Template: each project's
-     template, the company's (the seed above, as before) or a client's, added here from the client's own DXF (dxfsynth.js digests it on this
+     template, the company's (the seed above, as before) or a client's, added here from the client's own DXF (vendor/synth/dxfsynth.js digests it on this
      phone; nothing is uploaded) and reviewed. A client template: S.tpls [{ id, name, at, from: { file, size }, client, look, ok, cef }] (the list),
      its texts in IndexedDB ('packs', '~tpl:<id>': src, the client's DXF as given, to make it again; plan, its as-plan seed; cef, its CEF seed or
      null; map, the review's choices; look; checks). A project's choice: pmeta(proj).tpl (none: the company template; not shared with the team in
@@ -13774,7 +13774,7 @@
   async function tplCefText(proj) { const t = projTpl(proj); if (!t || !t.cef) return null; const r = await tplGet(t.id); return r && r.cef ? { name: r.name, text: r.cef, look: r.cefLook || r.look || null, client: r.client || '' } : null; }
   /** The look of the project's client template (its plan sheet's cell for 1:1100, its fonts…), or null. */
   async function tplLookOf(proj) { const t = projTpl(proj); if (!t) return null; const r = await tplGet(t.id); return r && r.plan ? r.look || t.look || null : null; } // (its seed gone from this phone: the company template's, as seedText)
-  async function synthReady() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeDxfPdf) await loadScript('dxfpdf.js'); if (!window.GeDxfSynth) await loadScript('dxfsynth.js'); return window.GeDxfSynth; }
+  async function synthReady() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeDxfPdf) await loadScript('dxfpdf.js'); if (!window.GeDxfSynth) await loadScript('vendor/synth/dxfsynth.js'); return window.GeDxfSynth; }
   /** A project's template chosen ('' : the company's). */
   function tplChoose(proj, id) {
     if (!proj) return; S.meta = S.meta || {}; const m = { ...pmeta(proj) };
