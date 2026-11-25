@@ -1702,7 +1702,7 @@
    *   stay the record's (a copy of the point is drawn, the job is not changed).
    * job.style { [id]: { h, scale, bold, italic, color, lead, callout } }, job.styleKind { [kind]: the same } (the item's own wins, field by field): h its
    *   texts' size (a label from its middle; a symbol's texts each where it stands), scale a symbol's size (a guy, grounding, arm from where it meets
-   *   its pole), bold / italic (an Arial style made for it, an MTEXT's own codes), color an AutoCAD colour for the whole item (a block: a copy of it in
+   *   its pole; a closure's bubble callout: its circle and pointer), bold / italic (an Arial style made for it, an MTEXT's own codes), color an AutoCAD colour for the whole item (a block: a copy of it in
    *   that colour), lead false: no line or arrow to what it names; job.leaders { photo, details, number }: false, none for every one of them.
    * job.cloStyle 'bubble' (or a closure label's own callout, or its kind's): each closure, proposed and existing, labelled with the owner's CAD callout
    *   (see bubDraw); 'arrow' or none: PROPOSED CLOSURE and its arrow, as before. job.pts cloSize (e.g. '72C') and cloFacing (a site's name): its lines.
@@ -2564,8 +2564,19 @@
        record one element's only (some taken over by another after, e.g. a tower's name attributes by its details: retag); placed, turned and styled
        at the end of the build (DT, below). Nothing written changes: a job without pins, styles or the rest is drawn as before. */
     const OWN = new Map(), attN = new Map(), LEAD = new Set(), BUBC = new Set(); // (LEAD: the records of an element that go to what it names: a line or arrow whose far end stays there; BUBC: a closure's bubble circle)
-    /** (beta 7.11, Drawing tools) the bubble callout's pointer: 9 points on its circle (at, radius rb), 28° each side of the way v to its label */
-    const bubArc = (at, rb, v) => { const a0 = Math.atan2(v[1], v[0]), al = 28 * Math.PI / 180, arc = []; for (let k = 0; k <= 8; k++) { const a = a0 - al + 2 * al * k / 8; arc.push([at[0] + rb * Math.cos(a), at[1] + rb * Math.sin(a)]); } return arc; };
+    /* (beta 7.11, Drawing tools) the bubble callout as the owner's CAD drawing measures (owner-shots/latest-3: its circle 210 px round, the pointer's tip 50 px
+       out from the circle, 1.24 times its radius from its middle, its corners on the circle 27° each side, a chord 0.91 of the radius; the lines' capitals
+       18.5 px high, 28 px apart, starting 16 px past the tip, the first one level with it); the circle 6 times the text's height round (the owner's is
+       about 11: a little smaller on the plan, where it is crowded; Drawing tools › Size makes the whole bubble larger or smaller) */
+    const BUB_A = 27, BUB_TIP = 1.24, BUB_R = 6, BUB_LS = 1.5;
+    /** the pointer: 9 points on its circle (at, radius rb), BUB_A each side of the way v to its label */
+    const bubArc = (at, rb, v) => { const a0 = Math.atan2(v[1], v[0]), al = BUB_A * Math.PI / 180, arc = []; for (let k = 0; k <= 8; k++) { const a = a0 - al + 2 * al * k / 8; arc.push([at[0] + rb * Math.cos(a), at[1] + rb * Math.sin(a)]); } return arc; };
+    /** the label's place for a pointer facing v (its lines W wide, H high, th their height): the tip; its lines' alignment (xa, ha: beside a pointer to the
+        right they start just past the tip, left-aligned, as the owner's; to the left, its mirror: they end just before it, right-aligned; above or below,
+        left-aligned, the block centred on the tip) and its first line's middle (y1); its box; pv, the point of it nearest the tip (it grows from there) */
+    const bubGeo = (at, rb, th, v, W, H) => { const tip = add2(at, v, rb * BUB_TIP), gap = 0.8 * th, side = Math.abs(v[0]) >= 0.5, ha = side && v[0] < 0 ? 2 : 0, xa = side ? (v[0] >= 0 ? tip[0] + gap : tip[0] - gap) : tip[0] - W / 2;
+      const y1 = side ? tip[1] : v[1] > 0 ? tip[1] + gap + H - th / 2 : tip[1] - gap - th / 2, cy = y1 + th / 2 - H / 2, x0 = ha === 2 ? xa - W : xa, pv = side ? [xa, y1] : [tip[0], v[1] > 0 ? cy - H / 2 : cy + H / 2];
+      return { tip, xa, ha, y1, pv, bx: Spots.box(x0 + W / 2, cy, W + th * 0.4, H + th * 0.3, 0) }; };
     const own = (id, kind, p, info) => { let g = OWN.get(id); if (!g) { g = { id, kind, p: p || null, recs: [], ...(info || {}) }; OWN.set(id, g); } return g; };
     const owning = (id, kind, p, info, f) => { const g = own(id, kind, p, info), prev = o.own; o.own = g.recs; try { return f(); } finally { o.own = prev; } };
     const attId = (k, p) => { const key = `${k}:${p.id}`, n = (attN.get(key) || 0) + 1; attN.set(key, n); return n > 1 ? `${key}:${n}` : key; }; // (guy:s3, then guy:s3:2 …: in the order drawn)
@@ -3970,8 +3981,9 @@
          INSERTION in red and @EXISTING CLOSURE in green; then FACING <its site> (the nearest tower or ODF along its cable, else the ODC; job.pts cloFacing
          when the app gives one) and its lat / long (6 decimals) in green. Its size: the job's (pts cloSize, e.g. 72C), else its cable's (F72: 72C, the
          largest at its pole), else PROPOSE alone. On white paper (the PDF, the Drawing) the circle and the pointer have a dark edge and the green lines a
-         dark shadow, as the numbers in light colours. The label's place: the first free one round the circle, the right side first (as the owner's);
-         placed by hand, the pointer turns to face it (DT, bubTurn). */
+         dark shadow, as the numbers in light colours. The label's place: the first free one round the circle, the right side first (as the owner's), its
+         lines and pointer covering nothing (the circle, a thin dashed line, may cross what is there); placed by hand, the pointer turns to face it (DT,
+         bubTurn). Its proportions: see BUB_R, BUB_TIP, BUB_A (Drawing tools › Size: the whole bubble larger or smaller). */
       const BUBG = 60, BUBK = 250, BLT = ['DASHED', 'DASHED2', 'AERCA'].find((n) => S.ltypes.has(n)) || null;
       const cloSize = (p) => { if (p && p.cloSize) return String(p.cloSize); let n = 0; for (const s0 of spans) { if (String(s0.ia) !== String(p.id) && String(s0.ib) !== String(p.id)) continue; const m = /(\d+)\s*$/.exec(String(s0.cable || '')); if (m) n = Math.max(n, +m[1]); } return n ? `${n}C` : ''; };
       const facing = (p0) => { if (p0 && p0.cloFacing) return String(p0.cloFacing); for (const kinds of [['Site', 'ODF'], ['ODC']]) { const dd = new Map([[p0, 0]]), Q = [p0], done = new Set();
@@ -3979,21 +3991,20 @@
           for (const r of nb.get(q) || []) { const v = dd.get(q) + dist2(q.dp || [q.E, q.N], r.dp || [r.E, r.N]); if (!dd.has(r) || v < dd.get(r) - 1e-9) { dd.set(r, v); Q.push(r); } } } } return ''; };
       const bubLines = (p, old) => { const sz = cloSize(p), f = facing(p), ll = Number.isFinite(+p.lat) && Number.isFinite(+p.lon) && p.lat !== '' && p.lon !== '' ? `${(+p.lat).toFixed(6)}%%d, ${(+p.lon).toFixed(6)}%%d` : '';
         return [...(old ? [{ s: 'PROPOSE INSERTION', c: 1 }, { s: '@EXISTING CLOSURE', c: 3 }] : [{ s: sz ? `PROPOSE ${sz}` : 'PROPOSE', c: 1 }, { s: 'HYBRID CLOSURE', c: 1 }]), ...(f ? [{ s: `FACING ${f}`, c: 3 }] : []), ...(ll ? [{ s: ll, c: 3 }] : [])]; };
-      const bubGeo = (at, rb, th, v, W, H) => { const tip = add2(at, v, rb + 0.9 * th), side = Math.abs(v[0]) >= 0.5, x0 = side ? (v[0] >= 0 ? tip[0] + 0.6 * th : tip[0] - 0.6 * th - W) : tip[0] - W / 2;
-        const y1 = side ? tip[1] : v[1] > 0 ? tip[1] + 0.6 * th + H - th / 2 : tip[1] - 0.6 * th - th / 2, cy = y1 + th / 2 - H / 2; return { tip, x0, y1, bx: Spots.box(x0 + W / 2, cy, W + th * 0.4, H + th * 0.3, 0) }; }; // (y1: its first line's middle)
+      const LTS0 = (() => { const v = d.headerVar('$LTSCALE'), lt = BLT ? d.sec('TABLES').recs.find((r) => typ(r) === 'LTYPE' && get(r, 2) === BLT) : null, pl = lt ? num(lt, 40, 0.75) : 0.75; return (v && +v[1] > 0 ? +v[1] : 1) * (pl > 0 ? pl : 0.75); })(); // (the drawing's own line type scale and its dashes' pattern: about 24 dashes round, as the owner's, whatever they are)
       const bubDraw = (at, Rp, cid, cp, old) => {
-        const th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, rb = Math.max(2.6 * Rp, 3 * th), L = bubLines(cp, old), W = Math.max(...L.map((l) => arialW(l.s.replace(/%%d/g, '°'), th))), H = th + (L.length - 1) * 1.45 * th;
-        let best = null;
-        [0, 25, -25, 50, -50, 180, 155, -155, 130, -130, 90, -90, 75, -75, 105, -105].forEach((a, k) => { const v = rotv([1, 0], a), G = bubGeo(at, rb, th, v, W, H), m = add2(at, v, rb + 0.45 * th), tb = Spots.box(m[0], m[1], 0.9 * th, rb * 0.9, a);
+        const th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, rb = Math.max(2.6 * Rp, BUB_R * th), L = bubLines(cp, old), W = Math.max(...L.map((l) => arialW(l.s.replace(/%%d/g, '°'), th))), H = th + (L.length - 1) * BUB_LS * th;
+        let best = null; // (its lines where they cover nothing, the right side first; the circle, a thin dashed line, may cross what is there; the pointer rather not)
+        [0, 25, -25, 50, -50, 180, 155, -155, 130, -130, 90, -90, 75, -75, 105, -105].forEach((a, k) => { const v = rotv([1, 0], a), G = bubGeo(at, rb, th, v, W, H), ca = Math.cos(BUB_A * Math.PI / 180), m = add2(at, v, rb * (ca + BUB_TIP) / 2), tb = Spots.box(m[0], m[1], rb * (BUB_TIP - ca), 2 * rb * Math.sin(BUB_A * Math.PI / 180), a);
           const n = spots.hitsW(G.bx, W_CL) * 10 + spots.hitsW(tb, W_AR) * 3 + k * 0.05 + (cellHolds(G.bx, at[0], at[1]) ? 0 : 50); if (!best || n < best.n) best = { v, G, tb, n }; });
-        const B = { at, rb, th, v: best.v, parts: [] }, so = th * 0.08;
+        const B = { at, rb, th, W, H, v: best.v, parts: [], circles: [] }, so = th * 0.08;
         owning(`clolbl:${cp.id}`, 'closurelabel', cp, { at, R: Rp, th, bub: B }, () => {
-          for (const [c, w] of [[BUBK, 50], [BUBG, 25]]) { const r = o.circle(CLY, at[0], at[1], rb, { color: c, lwt: w, ...(BLT ? { lt: BLT, lts: +(rb * 0.2).toFixed(3) } : {}) }); LEAD.add(r); BUBC.add(r); } // (its dark edge, then the yellow-green)
+          for (const [c, w] of [[BUBK, 50], [BUBG, 25]]) { const r = o.circle(CLY, at[0], at[1], rb, { color: c, lwt: w, ...(BLT ? { lt: BLT, lts: +(2 * Math.PI * rb / 24 / LTS0).toFixed(3) } : {}) }); LEAD.add(r); BUBC.add(r); B.circles.push(r); } // (its dark edge, then the yellow-green; about 24 dashes round, as the owner's)
           const arc = bubArc(at, rb, best.v), tip = best.G.tip; for (let k = 0; k < 8; k++) { const r = o.solid(CLY, [tip, arc[k], arc[k + 1]], { color: BUBG }); LEAD.add(r); B.parts.push(r); }
           const ol = o.lwpoly(CLY, [tip, ...arc.slice().reverse()], { closed: true, color: BUBK, lwt: 13 }); LEAD.add(ol); B.edge = ol;
-          L.forEach((l, i) => { const y = best.G.y1 - i * 1.45 * th; if (l.c === 3) o.text(CLY, best.G.x0 + so, y - so, th, l.s, { ha: 0, va: 2, style: 'arial', color: BUBK }); o.text(CLY, best.G.x0, y, th, l.s, { ha: 0, va: 2, style: 'arial', color: l.c }); });
+          L.forEach((l, i) => { const y = best.G.y1 - i * BUB_LS * th, ha = best.G.ha; if (l.c === 3) o.text(CLY, best.G.xa + so, y - so, th, l.s, { ha, va: 2, style: 'arial', color: BUBK }); o.text(CLY, best.G.xa, y, th, l.s, { ha, va: 2, style: 'arial', color: l.c }); });
         });
-        spots.add([best.G.bx], 'label'); spots.add([best.tb]); { const ring = []; for (let k = 0; k <= 32; k++) ring.push(add2(at, rotv([1, 0], k * 11.25), rb)); spots.line(ring, 0.4); }
+        spots.add([best.G.bx], 'label'); spots.add([best.tb]);
         nBub++; (rep._cloB || (rep._cloB = [])).push({ cid: String(cid), old: !!old, lines: L.map((l) => l.s.replace(/%%d/g, '°')), r: +rb.toFixed(2), at: at.map((x) => +x.toFixed(2)), side: +deg(best.v).toFixed(1), clear: best.n < 1 });
       };
       for (const { at, R: Rp, cid, p: cp, old } of cloLbl) { // (Rp: the pentagon's reach)
@@ -4353,9 +4364,9 @@
         if (ln) { const P = far ? [a0, b0] : [b0, b0], ks = ln.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((kk, j) => { ln[kk][1] = F(P[Math.min(j, 1)][0]); ln[kk + 1][1] = F(P[Math.min(j, 1)][1]); }); }
         if (hd) { const Q = [a1, add2(b0, pv, aw), add2(b0, pv, -aw), add2(b0, pv, -aw)]; [10, 11, 12, 13].forEach((cx, j) => { const kk = hd.findIndex((q, i) => i > 0 && q[0] === cx); if (kk > 0) { hd[kk][1] = F(Q[j][0]); hd[kk + 1][1] = F(Q[j][1]); } }); }
       };
-      /** a closure's bubble callout: its pointer turned to face its label where it now is (its circle stays round the closure) */
+      /** a closure's bubble callout: its pointer turned to face its label where it now is (its circle stays round the closure); its tip BUB_TIP times its radius out */
       const bubTurn = (E) => {
-        const B = E.bub, c = [E.box.cx, E.box.cy], v = dist2(c, B.at) > 1e-6 ? unit(B.at, c) : B.v, tip = add2(B.at, v, B.rb + 0.9 * B.th), arc = bubArc(B.at, B.rb, v), put = (r, P) => { const ks = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((kk, j) => { r[kk][1] = F(P[j][0]); r[kk + 1][1] = F(P[j][1]); }); };
+        const B = E.bub, c = [E.box.cx, E.box.cy], v = E.how === 'by hand' && dist2(c, B.at) > 1e-6 ? unit(B.at, c) : B.v, /* (where the plan put it: the way it was drawn) */ tip = add2(B.at, v, B.rb * BUB_TIP), arc = bubArc(B.at, B.rb, v), put = (r, P) => { const ks = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((kk, j) => { r[kk][1] = F(P[j][0]); r[kk + 1][1] = F(P[j][1]); }); };
         B.parts.forEach((r, k) => { const Q = [tip, arc[k], arc[k + 1], arc[k + 1]]; [10, 11, 12, 13].forEach((cx, j) => { const kk = r.findIndex((q, i) => i > 0 && q[0] === cx); if (kk > 0) { r[kk][1] = F(Q[j][0]); r[kk + 1][1] = F(Q[j][1]); } }); });
         if (B.edge) put(B.edge, [tip, ...arc.slice().reverse()]); B.v = v;
       };
@@ -4410,11 +4421,15 @@
       for (const E of EL) {
         const st = stOf(E.id, E.kind); if (!st) continue; const k = E.kind;
         if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const ins = (k === 'guy' || k === 'ground') && E.recs.find((r) => typ(r) === 'INSERT'), da = ins ? num(ins, 50, 0) : E.a, c = ATTK.has(k) ? add2(E.about, [Math.cos(da * Math.PI / 180), Math.sin(da * Math.PI / 180)], (E.p && E.p.rp) || 0) : [E.box.cx, E.box.cy]; /* (a guy's or grounding's block is drawn along its way) */ scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); } // (a guy, grounding, arm: from where it meets its pole, its symbol's edge that way)
-        if (st.h && Math.abs(st.h - 1) > 1e-9) { if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
+        if (E.bub && st.scale && Math.abs(st.scale - 1) > 1e-9) { // (a bubble callout's size: its circle and pointer; its lines, where the plan put them, follow its tip)
+          const B = E.bub, rb1 = B.rb * st.scale, G0 = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H), G1 = bubGeo(B.at, rb1, B.th, B.v, B.W, B.H);
+          for (const r of B.circles) { setFirst(r, 40, F(rb1)); const kk = r.findIndex((q, i) => i > 0 && q[0] === 48); if (kk > 0) r[kk][1] = F(+r[kk][1] * st.scale); }
+          for (const r of E.recs) if (!LEAD.has(r)) xformRec(r, { t: [G1.xa - G0.xa, G1.y1 - G0.y1] }); B.rb = rb1; E.box = boxOf(E); }
+        if (st.h && Math.abs(st.h - 1) > 1e-9) { if (E.bub) { const B = E.bub, G = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H); scaleRecs(E.recs, (r) => LEAD.has(r), G.pv, st.h, st.h); } /* (a bubble's lines grow away from its tip) */ else if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
         fontOn(E.recs, st.bold, st.italic);
         if (st.color) colorOn(E.recs, st.color);
         E.box = boxOf(E); E.styled = true;
-        if (k === 'closurelabel' && E.bub && (E.how === 'by hand' || st.h)) bubTurn(E);
+        if (k === 'closurelabel' && E.bub && (E.how === 'by hand' || st.h || st.scale)) bubTurn(E);
         else if (k === 'closurelabel' && E.at && (E.how === 'by hand' || st.h)) cloArrow(E);
       }
       for (const E of EL) {
@@ -4481,7 +4496,7 @@
         const o2 = { id: E.id, kind: k, box: [B.cx, B.cy, B.w, B.h, B.a || 0], anchor: E.anchor, how: E.how, handles: E.recs.map((r) => r[1][1]) };
         if (p) Object.assign(o2, { point: String(p.id), name: String(p.poleId || p.id) }); else o2.name = nm(E);
         if (E.pole) o2.pole = E.pole; if (k === 'span') o2.span = E.key.split('|');
-        o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k), text: E.recs.some(isTxt), color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) };
+        o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k) || !!E.bub, /* (a bubble callout: its circle and pointer) */ text: E.recs.some(isTxt), color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) };
         const w = k === 'pole' && p ? (kidsOf.get(String(p.id)) || []).filter((id) => id !== E.id) : k === 'site' && p ? [`sitelbl:${p.id}`, `sitename:${p.id}`].filter((id) => EL.some((x) => x.id === id)) : null; if (w && w.length) o2.with = w;
         if (cutOn) o2.cut = cutOn;
         outE.push(o2);

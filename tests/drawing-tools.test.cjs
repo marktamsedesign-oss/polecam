@@ -233,13 +233,19 @@ test('the closure bubble callout (job.cloStyle bubble): dashed circle, pointer, 
       const m = by(M, `clolbl:${pid}`), es = m.handles.map((h) => E.get(h)), circ = es.filter((e) => e.type === 'CIRCLE'), sol = es.filter((e) => e.type === 'SOLID'), tx = es.filter((e) => e.type === 'TEXT' && g1(e, 62) !== '   250');
       assert.equal(circ.length, 2, `${pid}: its circle (and its dark edge)`); assert.ok(circ.every((e) => g1(e, 6) === 'DASHED'), 'dashed'); assert.deepEqual(circ.map((e) => +g1(e, 62)), [250, 60], 'yellow-green over a dark edge');
       const c0 = [+g1(circ[0], 10), +g1(circ[0], 20)], rb = +g1(circ[0], 40), cl = by(M, `clo:${pid}`); near(Math.hypot(c0[0] - cl.box[0], c0[1] - cl.box[1]), 0, 0.3, `${pid}: round the closure`);
+      // as the owner's drawing measures: the circle 6 times the text's height round (or round the pentagon), the pointer's tip 1.24 times the radius out,
+      // its corners on the circle 27° each side (a chord 0.91 of the radius), its inner side the circle's
+      const th = +g1(tx[0], 40); assert.ok(rb >= 6 * th - 1e-6, `${pid}: its circle ${rb} round, 6 times its text (${th})`);
       assert.equal(sol.length, 8, 'the pointer: solid pieces'); const tip = [+g1(sol[0], 10), +g1(sol[0], 20)]; assert.ok(sol.every((e) => +g1(e, 10) === tip[0] && +g1(e, 62) === 60), 'from one tip');
-      near(Math.hypot(tip[0] - c0[0], tip[1] - c0[1]) - rb, 0.9 * +g1(tx[0], 40), 1e-3, 'its tip out from the circle');
+      near(Math.hypot(tip[0] - c0[0], tip[1] - c0[1]), 1.24 * rb, 1e-3, 'its tip 0.24 of the radius out from the circle');
       for (const e of sol) for (const cx of [11, 12]) near(Math.hypot(+g1(e, cx) - c0[0], +g1(e, cx + 10) - c0[1]), rb, 1e-3, 'its inner side on the circle');
+      const k0 = [+g1(sol[0], 11) - c0[0], +g1(sol[0], 21) - c0[1]], k8 = [+g1(sol[7], 12) - c0[0], +g1(sol[7], 22) - c0[1]], tv = [tip[0] - c0[0], tip[1] - c0[1]];
+      near(Math.abs(angle((Math.atan2(k8[1], k8[0]) - Math.atan2(k0[1], k0[0])) * 180 / Math.PI)), 54, 1e-3, 'its corners 27° each side'); near(angle((Math.atan2(k0[1], k0[0]) + Math.atan2(k8[1], k8[0]) - 2 * Math.atan2(tv[1], tv[0])) * 90 / Math.PI), 0, 1e-3, 'about its tip');
       assert.deepEqual(tx.map((e) => e.text), lines, `${pid}: its lines`); assert.deepEqual(tx.map((e) => +g1(e, 62)), pid === 's2' ? [1, 1, 3, 3] : [1, 3, 3, 3], 'red, then green');
-      assert.ok(tx.every((e) => +g1(e, 72) === 0 && Math.abs(+g1(e, 11) - +g1(tx[0], 11)) < 1e-6), 'left-aligned');
+      const right = tip[0] >= c0[0], side = Math.abs(tv[0]) >= 0.5 * Math.hypot(tv[0], tv[1]); assert.ok(tx.every((e) => +g1(e, 72) === (side && !right ? 2 : 0) && Math.abs(+g1(e, 11) - +g1(tx[0], 11)) < 1e-6), 'aligned beside the tip (to its left: their mirror)');
+      if (side) { near(+g1(tx[0], 21), tip[1], 1e-6, 'its first line level with the tip'); near(Math.abs(+g1(tx[0], 11) - tip[0]), 0.8 * th, 1e-6, 'starting just past the tip'); }
       assert.equal(es.filter((e) => e.type === 'TEXT' && g1(e, 62) === '   250').length, tx.filter((e) => +g1(e, 62) === 3).length, 'the green lines with a dark shadow');
-      assert.ok(Math.abs(+g1(tx[0], 21) - tip[1]) < 1e-6 || Math.abs(+g1(tx[0], 11) - tip[0]) < 3 * +g1(tx[0], 40) + m.box[2], 'beside the tip');
+      assert.equal(m.can.scale, true, 'its size can be changed');
     }
     assert.deepEqual(r.report.closureLabels.bubbles.map((b) => [b.cid, b.old]), [['CL-01', false], ['CL-02', true]]);
     assert.ok(![...E.values()].some((e) => e.type === 'TEXT' && /^PROPOSED CLOSURE/.test(e.text || '')), 'no arrow label');
@@ -250,6 +256,13 @@ test('the closure bubble callout (job.cloStyle bubble): dashed circle, pointer, 
   const es = m1.handles.map((h) => E.get(h)), circ = es.find((e) => e.type === 'CIRCLE'), c0 = [+g1(circ, 10), +g1(circ, 20)], tip = es.filter((e) => e.type === 'SOLID').map((e) => [+g1(e, 10), +g1(e, 20)])[0];
   near(Math.hypot(c0[0] - m0.anchor[0], c0[1] - m0.anchor[1]), 0, 0.3, 'its circle round the closure still');
   near(angle((Math.atan2(tip[1] - c0[1], tip[0] - c0[0]) - Math.atan2(m1.box[1] - c0[1], m1.box[0] - c0[0])) * 180 / Math.PI), 0, 1e-3, 'its pointer toward the label');
+  // its size (scale): the circle and the pointer half as large, its lines beside the tip still; its texts (h) grow from the tip's side
+  const r4 = T.build(SEED_BL, richJob({ cloStyle: 'bubble', style: { 'clolbl:s8': { scale: 0.5, h: 1.25 } } })), E4 = entsOf(r4.text), m4 = by(r4.report.movable, 'clolbl:s8'), e4 = m4.handles.map((h) => E4.get(h)), es0 = m0.handles.map((h) => entsOf(r0.text).get(h));
+  const rad = (es) => +g1(es.find((e) => e.type === 'CIRCLE'), 40), tip4 = (() => { const sd = e4.find((e) => e.type === 'SOLID'); return [+g1(sd, 10), +g1(sd, 20)]; })(), c4 = [+g1(e4.find((e) => e.type === 'CIRCLE'), 10), +g1(e4.find((e) => e.type === 'CIRCLE'), 20)];
+  near(rad(e4), rad(es0) / 2, 1e-5, 'half as large'); near(Math.hypot(tip4[0] - c4[0], tip4[1] - c4[1]), 1.24 * rad(e4), 1e-3, 'its pointer with it');
+  const t40 = es0.filter((e) => e.type === 'TEXT' && g1(e, 62) !== '   250'), t4 = e4.filter((e) => e.type === 'TEXT' && g1(e, 62) !== '   250');
+  near(+g1(t4[0], 40), +g1(t40[0], 40) * 1.25, 1e-5, 'h: its texts'); near(+g1(t4[0], 21), tip4[1], 1e-5, 'its first line level with its tip'); near(Math.abs(+g1(t4[0], 11) - tip4[0]), 0.8 * +g1(t40[0], 40), 1e-5, 'just past it');
+  assert.equal(by(T.build(SEED_BL, richJob({})).report.movable, 'clolbl:s2').can.scale, false, 'an arrow label: no size of its own');
   // one closure's own callout: the arrow for it, the bubble for the other
   const r2 = T.build(SEED_BL, richJob({ cloStyle: 'bubble', style: { 'clolbl:s2': { callout: 'arrow' } } })); assert.deepEqual(r2.report.closureLabels.bubbles.map((b) => b.cid), ['CL-02']);
   assert.ok([...entsOf(r2.text).values()].some((e) => e.type === 'TEXT' && /^PROPOSED CLOSURE · CL-01$/.test(e.text || '')), 'its arrow label');
