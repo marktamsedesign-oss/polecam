@@ -1564,6 +1564,82 @@
     else if (ty === 'IMAGE') { movePt(10); const P12 = (v) => String((+v).toPrecision(12)); turnVec(11, s, P12); turnVec(12, s, P12); }
     return r;
   }
+  /* ---------------- (beta 7.12, Drawing edit) an item's texts as lines, written again with the user's words ---------------- */
+  const SPC_READ = { d: '°', c: 'Ø', p: '±', '%': '%' };
+  /** (beta 7.12, Drawing edit) a TEXT's or an attribute's words as they read (%%d a degree sign, %%c Ø, %%p ±; the underline and overline switches out) */
+  const txRead = (s) => String(s).replace(/%%([dDcCpP%])/g, (m, c) => SPC_READ[c.toLowerCase()]).replace(/%%[uUoOkK]/g, '');
+  /** (beta 7.12, Drawing edit) a line of the user's as AutoCAD writes it in a TEXT or an attribute (°, Ø, ± as %%d, %%c, %%p, as the plan writes its own) */
+  const txWrite = (s) => String(s).replace(/°/g, '%%d').replace(/Ø/g, '%%c').replace(/±/g, '%%p');
+  /** (beta 7.12, Drawing edit) an MTEXT's text as tokens in order: { k: 'c' (a formatting code or a brace), 'n' (a new line, \P), 't' (one letter: s as
+      written, v as it reads) }, so that its words can be changed with its codes kept round them */
+  function mtTokens(raw) {
+    const out = [], n = raw.length; let i = 0;
+    while (i < n) {
+      const ch = raw[i], nx = raw[i + 1];
+      if (ch === '\\' && nx !== undefined) {
+        if (nx === 'P' || nx === 'N') { out.push({ k: 'n', s: raw.slice(i, i + 2) }); i += 2; continue; }
+        if (nx === '\\' || nx === '{' || nx === '}') { out.push({ k: 't', s: raw.slice(i, i + 2), v: nx }); i += 2; continue; }
+        if (nx === '~') { out.push({ k: 't', s: '\\~', v: ' ' }); i += 2; continue; }
+        if ('LlOoKk'.includes(nx)) { out.push({ k: 'c', s: raw.slice(i, i + 2) }); i += 2; continue; }
+        if (nx === 'U' && raw[i + 2] === '+' && /^[0-9A-Fa-f]{4}$/.test(raw.slice(i + 3, i + 7))) { out.push({ k: 't', s: raw.slice(i, i + 7), v: String.fromCharCode(parseInt(raw.slice(i + 3, i + 7), 16)) }); i += 7; continue; }
+        const j = raw.indexOf(';', i);
+        if (nx === 'S' && j > i) { out.push({ k: 't', s: raw.slice(i, j + 1), v: raw.slice(i + 2, j).replace(/[\^#]/g, '/') }); i = j + 1; continue; } // (a stacked fraction: as it reads)
+        if ('ACcFfHhQqTtWwp'.includes(nx) && j > i) { out.push({ k: 'c', s: raw.slice(i, j + 1) }); i = j + 1; continue; }
+      }
+      if (ch === '{' || ch === '}') { out.push({ k: 'c', s: ch }); i++; continue; }
+      if (ch === '%' && nx === '%' && raw[i + 2] !== undefined) { const c3 = raw[i + 2].toLowerCase(); if (SPC_READ[c3]) { out.push({ k: 't', s: raw.slice(i, i + 3), v: SPC_READ[c3] }); i += 3; continue; } if ('uok'.includes(c3)) { out.push({ k: 'c', s: raw.slice(i, i + 3) }); i += 3; continue; } }
+      if (ch === '^' && (nx === 'J' || nx === 'I')) { out.push(nx === 'J' ? { k: 'n', s: '^J' } : { k: 't', s: '^I', v: ' ' }); i += 2; continue; }
+      out.push({ k: 't', s: ch, v: ch }); i++;
+    }
+    return out;
+  }
+  /** (beta 7.12, Drawing edit) an MTEXT's lines as they read */
+  const mtLines = (raw) => { const L = ['']; for (const t of mtTokens(raw)) { if (t.k === 'n') L.push(''); else if (t.k === 't') L[L.length - 1] += t.v; } return L; };
+  /** (beta 7.12, Drawing edit) a line of the user's as an MTEXT writes it (its backslashes and braces escaped; °, Ø, ± as %%d, %%c, %%p) */
+  const mtWrite = (s) => txWrite(s).replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}');
+  /** (beta 7.12, Drawing edit) an MTEXT's text with the lines L (as they read): line k's words where its first letter was (its codes kept round them; a line
+      as it was when its words are the same); more lines than it has: after the last one's words, in its codes; fewer: the others' words left off
+      (their codes kept, so its braces still match). null: L empty (no line left). */
+  function mtSet(raw, L) {
+    if (!L.length) return null;
+    const rows = [[]]; for (const t of mtTokens(raw)) { if (t.k === 'n') rows.push([]); else rows[rows.length - 1].push(t); }
+    const words = (row) => row.filter((t) => t.k === 't').map((t) => t.v).join(''), keep = Math.min(rows.length, L.length), more = L.slice(rows.length).map((x) => `\\P${mtWrite(x)}`).join('');
+    const put = (row, s, add) => {
+      const o2 = row.map((t) => t.s); if (words(row) === s && !add) return o2.join('');
+      if (words(row) === s) { let k = -1; row.forEach((t, i) => { if (t.k === 't') k = i; }); if (k < 0) { k = o2.length - 1; while (k >= 0 && o2[k] === '}') k--; } o2.splice(k + 1, 0, add); return o2.join(''); } // (the same words: the new lines after its last letter)
+      const k0 = row.findIndex((t) => t.k === 't'); let at = k0; if (k0 < 0) { at = o2.length; while (at > 0 && o2[at - 1] === '}') at--; }
+      const o3 = []; row.forEach((t, i) => { if (i === at) o3.push(mtWrite(s) + add); if (t.k !== 't') o3.push(t.s); }); if (at >= row.length) o3.push(mtWrite(s) + add);
+      return o3.join('');
+    };
+    const parts = []; for (let i = 0; i < keep; i++) parts.push(put(rows[i], String(L[i]), i === keep - 1 ? more : ''));
+    return parts.join('\\P') + rows.slice(keep).map((row) => row.filter((t) => t.k === 'c').map((t) => t.s).join('')).join('');
+  }
+  /** (beta 7.12, Drawing edit) the layer of the user's own notes (job.notes) */
+  const NOTE_LAYER = 'G-ESAA NOTES';
+  /** (beta 7.12, Drawing edit) job.notes as given, each one checked: [{ id, kind: 'text' | 'photo', at: [E, N], rot (deg), lead: [E, N] | null; a text: lines, h (a
+      factor of the pole details' height, 0.2–5), bold, italic, color (1–255 | null); a photo: photo { file, px, py }, size (its width, metres | null) }];
+      one without a place, a photo without its file or size, a text without words, an id met before: left out */
+  function notesOf(job) {
+    const out = [], seen = new Set(), N = job && Array.isArray(job.notes) ? job.notes : [], xy = (v) => (Array.isArray(v) && v.length >= 2 && v[0] !== '' && v[1] !== '' && v[0] != null && v[1] != null && Number.isFinite(+v[0]) && Number.isFinite(+v[1]) ? [+v[0], +v[1]] : null);
+    for (const n of N) {
+      if (!n || typeof n !== 'object' || n.id == null || String(n.id) === '' || seen.has(String(n.id))) continue;
+      const at = xy(n.at); if (!at) continue;
+      const kind = n.kind === 'photo' ? 'photo' : 'text', base = { id: String(n.id), kind, at, rot: n.rot != null && n.rot !== '' && Number.isFinite(+n.rot) ? +n.rot : 0, lead: xy(n.lead) };
+      if (kind === 'photo') { const ph = n.photo; if (!ph || typeof ph !== 'object' || !ph.file || !(+ph.px > 0 && +ph.py > 0)) continue; out.push({ ...base, photo: { file: String(ph.file), px: +ph.px, py: +ph.py }, size: +n.size > 0 ? +n.size : null }); }
+      else {
+        const L = (Array.isArray(n.lines) ? n.lines : n.text != null ? String(n.text).split('\n') : []).map((x) => (x == null ? '' : String(x))); if (!L.some((x) => x.trim())) continue;
+        out.push({ ...base, lines: L, h: n.h != null && n.h !== '' && Number.isFinite(+n.h) && +n.h > 0 ? Math.max(0.2, Math.min(5, +n.h)) : 1, bold: n.bold === true, italic: n.italic === true, color: Number.isInteger(+n.color) && +n.color >= 1 && +n.color <= 255 ? +n.color : null });
+      }
+      seen.add(String(n.id));
+    }
+    return out;
+  }
+  /** (beta 7.12, Drawing edit) whether two boxes [cx, cy, w, h, deg] overlap (each turned its deg; their sides as the axes that may part them) */
+  function boxesHit(A, B) {
+    const ax = (b) => { const a = (+b[4] || 0) * Math.PI / 180; return [[Math.cos(a), Math.sin(a)], [-Math.sin(a), Math.cos(a)]]; }, ext = (b, u) => { const [e1, e2] = ax(b); return Math.abs(e1[0] * u[0] + e1[1] * u[1]) * b[2] / 2 + Math.abs(e2[0] * u[0] + e2[1] * u[1]) * b[3] / 2; };
+    for (const u of [...ax(A), ...ax(B)]) { const d = Math.abs((B[0] - A[0]) * u[0] + (B[1] - A[1]) * u[1]); if (d > ext(A, u) + ext(B, u) + 1e-9) return false; }
+    return true;
+  }
   /** (beta 7.11, Drawing tools) a block in an AutoCAD colour of the user's: a copy of it with every entity in that colour (so an INSERT's colour shows
       whatever its block's entities say), as the existing arm's blue copy (blueBlock); its name, or null */
   function tintBlock(d, S, src, aci) {
@@ -1706,6 +1782,44 @@
    *   that colour), lead false: no line or arrow to what it names; job.leaders { photo, details, number }: false, none for every one of them.
    * job.cloStyle 'bubble' (or a closure label's own callout, or its kind's): each closure, proposed and existing, labelled with the owner's CAD callout
    *   (see bubDraw); 'arrow' or none: PROPOSED CLOSURE and its arrow, as before. job.pts cloSize (e.g. '72C') and cloFacing (a site's name): its lines.
+   *
+   * (beta 7.12, Drawing edit; the contract with the app: the scratchpad's stage5-contract.md) With none of job.text, job.notes and job.order (or them empty, or
+   * naming nothing) the DXF is beta 7.11's, byte for byte. Taken at the end of the build (DT), in this order: the notes drawn, the texts written, styles,
+   * pins, the lines to what items name (leaders), the notes moved last, then job.order.
+   * job.leaders.photo false (or a photo's own style lead false, or styleKind.photo): no line from any pole photo to its pole, whatever placed it (near, further
+   *   out, smaller, where it covers least, on the next sheet, by hand) and whatever its picture (the app's geotag stamp is in its JPEG); photoAt[id].line null.
+   *   A closure's bubble label reads level wherever the plan puts it: only a pin's rot turns it.
+   * report.movable[i].text: for every item with can.text, its lines as they read (MTEXT codes out; %%d °, %%c Ø, %%p ±), in reading order: its texts as
+   *   groups (a TEXT; an MTEXT's lines; a block's shown attributes, in their order), the groups in rows top to bottom (a group whose top is within 0.45 of
+   *   its height of a row's first: in that row) in the frame of its first text, each row left to right; a dark copy under a line (colour 250, the same
+   *   words, a little off: a number's, a bubble's green lines') is not a line, it follows its line. An element's can.text: it had texts as the plan wrote
+   *   them (so that texts left off can come back). report.movable[i].empty: nothing of it drawn (its texts left off, no symbol): handles [], its box kept.
+   * job.text { [id]: [lines] } (plan only): line k's words in place of the item's line k, with its look (layer, colour, height, style, place; an MTEXT's
+   *   line where its first letter was, its codes kept round it); lines the same as now: unchanged. More lines: below the last, with its look: an MTEXT's
+   *   own new lines (\P, in its codes); after a TEXT or an attribute, a TEXT copied from it (an attribute's look; after its block's attributes), down by
+   *   the spacing of the last two lines when alike (else 1.45 times its height), its shadow too. Fewer: the rest left off (a TEXT taken off with its
+   *   shadow, an attribute emptied and hidden, an MTEXT's last lines). A blank line ('', spaces): a TEXT's or an attribute's left off (the others stay
+   *   where they are), an MTEXT's kept empty. [] none; nothing of it left but its line or arrow: that goes too (a bubble keeps its circle). An MTEXT's
+   *   first line stays where it was as lines come and go. Placed by the plan: its lines where they were (its box follows); one of beta 7.10's kinds
+   *   placed by hand (pin at): its box's middle stays where it was put; the other kinds: their pin takes the edited box (its middle at anchor + at). °, Ø, ±
+   *   written as %%d, %%c, %%p (an MTEXT's backslashes and braces escaped). report.closureLabels.bubbles[].lines: as written.
+   * job.notes [{ id, kind: 'text' | 'photo', at: [E, N], rot, lines (or text, split at new lines), h, bold, italic, color, photo: { file, px, py }, size,
+   *   lead: [E, N] }] (notesOf): drawn at the end, over the plan's own items (the last entities of the model space, before job.order), others not moved;
+   *   layer G-ESAA NOTES (colour 7; frozen on the vicinity maps). A text: an MTEXT, its middle at `at` (attachment 5), style arial, turned rot, as high as
+   *   the pole details (Standard job.poleStyle.idH, else 2.2 m; Tidy its labels' first line at its grid) times h (0.2–5), bold / italic as its codes
+   *   ({\fArial|b1|i0|c0|p34;…}), color (1–255; none: by layer). A photo: as the plan's photos (IMAGE naming photo.file, e.g. NOTE_<id>.jpg, and its grey
+   *   frame), its middle at `at`, size metres wide (none: the plan's photos' long side), turned rot about its middle. lead: a thin grey line from that
+   *   point to the note's edge (after its pin; style lead false: none). In report.movable after the plan's other elements: id note:<id>, kind note |
+   *   notephoto, anchor at, how 'by hand', can { move, rotate, scale, text, color (a text), delete: true, lead (with one) }, text (a text's lines);
+   *   pins (at from `at`, rot) and styles (h; scale: a photo's size, a text's height; bold, italic, color, lead) on top. A cell no sheet prints under a
+   *   note becomes a GEO sheet (build, as a photo placed by hand). A note without a place, a photo without its file or size, a text without words, an
+   *   id met before: left out.
+   * job.order [{ id, op: 'front' | 'forward' | 'backward' | 'back' }] (in order; an unknown id or op: none): the item's entities moved in the model space
+   *   (their order IS the draw order): front last, back first, forward just after the last entity of the next item drawn after it whose box overlaps
+   *   its box, backward just before the first one of the item before it that overlaps (none: as it was); an INSERT with its attributes and end (an
+   *   attribute another item has stays with its INSERT). Items' places: their first entity. With a SORTENTSTABLE of the model space in the template
+   *   (AutoCAD draws by it): the plan's entities given sort handles in that order (report.sortents). report.movable[i].z: the item's place in the draw
+   *   order now (0: drawn first; null: nothing of it drawn), always.
    */
   /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
       every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
@@ -4315,6 +4429,8 @@
         }
       } else o.mtext(VLAY, vb[0] + VDX + 8 * vk, vb[1] + 14 * vk, 6 * vk, mtextEsc(String(img.credit || '© OpenStreetMap contributors').toUpperCase()), { att: 7, style: 'arial', color: 7, mask: 255 }); // v2.36: on a white box (readable on a satellite picture)
     });
+    const NOTES = notesOf(job); // ((beta 7.12, Drawing edit) the user's notes, drawn at the end (DT); their layer made now, so that the vicinity maps leave it off as the plan's own)
+    if (NOTES.length) { addLayer(d, S, NOTE_LAYER, 7); (o.used || (o.used = new Set())).add(NOTE_LAYER); }
     const layerH = (n) => (S.layers.has(n) ? get(S.layers.get(n), 5) : null);
     const vicOnly = [layerH(VLAY), layerH(VMAP)].filter(Boolean);
     const keepInVic = new Set([VLAY, VMAP]);
@@ -4338,7 +4454,7 @@
       const isTxt = (r) => typ(r) === 'TEXT' || typ(r) === 'MTEXT' || visAtt(r);
       const angOf = (r) => (typ(r) === 'MTEXT' ? (r.some((q, i) => i > 0 && q[0] === 11) ? deg([num(r, 11, 1), num(r, 21, 0)]) : num(r, 50, 0)) : num(r, 50, 0));
       const norm = (a) => { let x = ((a % 360) + 360) % 360; if (x > 180) x -= 360; return Math.abs(x) < 1e-9 ? 0 : +x.toFixed(9); };
-      const ATTK = new Set(['guy', 'ground', 'arm']), SYMK = new Set(['pole', 'site', 'nap', 'closure']), SCALEK = new Set(['pole', 'site', 'nap', 'closure', 'guy', 'ground', 'arm', 'landmark']);
+      const ATTK = new Set(['guy', 'ground', 'arm']), SYMK = new Set(['pole', 'site', 'nap', 'closure']), SCALEK = new Set(['pole', 'site', 'nap', 'closure', 'guy', 'ground', 'arm', 'landmark', 'notephoto']); // ((beta 7.12, Drawing edit) a photo note sized as a symbol)
       const bodyOf = (E) => E.recs.filter((r) => !LEAD.has(r)), outl = (recs) => recs.flatMap((r) => recOutline(S, r));
       const onPoleOf = (p) => (p && p.el === 'Pole' ? p : null);
       const boxOf = (E) => { const P = outl(bodyOf(E).length ? bodyOf(E) : E.recs); if (ATTK.has(E.kind)) { const B0 = ptsBox(P, 0); E.a = B0 ? norm(deg([B0.cx - E.about[0], B0.cy - E.about[1]])) : 0; } return ptsBox(P, E.a) || { cx: E.anchor[0], cy: E.anchor[1], w: 0, h: 0, a: E.a }; };
@@ -4380,6 +4496,113 @@
         const e = near(tp); if (dist2(e, tp) <= gap) return;
         const u = unit(tp, e), prev = o.own; o.own = null; const r = o.lwpoly(lay(E.kind === 'span' ? 'Distance Data' : 'PROPOSED LOOP'), [add2(tp, u, 0.3), add2(e, u, -0.3)], { color: 8 }); o.own = prev; LEAD.add(r); E.recs.push(r);
       };
+      /* (beta 7.12, Drawing edit) the user's own notes (job.notes; the owner: "let the user also add a text or photo no related with the capture on plans as
+         needed"): a text (an MTEXT on the layer G-ESAA NOTES, its middle at `at`, as high as the pole details by default, times h) or a photo (written as the
+         plan's photos are: its picture and its frame, its middle at `at`, size metres wide, else as large as the plan's photos), turned rot; drawn over the
+         plan's own items (others do not move aside for them). Each one an element the Drawing may move, turn, size, colour and delete (note:<id>, kind note or
+         notephoto); pins and styles on top as for the rest. Its thin line to a point (lead): once it is where it goes (below). */
+      const nearPt = (q) => { let b = null, bd = Infinity; for (const p of pts) { const z = p.dp || [p.E, p.N], dd = Math.hypot(z[0] - q[0], z[1] - q[1]); if (dd < bd) { bd = dd; b = p; } } return b; };
+      for (const nt of NOTES) {
+        const at = nt.at, a = norm(nt.rot), NL = lay(NOTE_LAYER), E = { id: `note:${nt.id}`, kind: nt.kind === 'photo' ? 'notephoto' : 'note', p: null, recs: [], anchor: [at[0], at[1]], how: 'by hand', nt, a };
+        const prevOwn = o.own; o.own = E.recs; try {
+          if (nt.kind === 'photo') {
+            const { file, px, py } = nt.photo, L0 = TIDY ? Lp / kAt(at[0], at[1]) : Lp, w = nt.size || (px >= py ? L0 : L0 * px / py), h = w * py / px, A = a * Math.PI / 180, c = Math.cos(A), s = Math.sin(A);
+            const P = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([u, v]) => [at[0] + u * c - v * s, at[1] + u * s + v * c]);
+            getImgs().image(o, NL, file, px, py, P[0][0], P[0][1], w, h, a); o.lwpoly(NL, P, { closed: true, color: 8 }); // (its frame, as the photos')
+          } else {
+            const h0 = TIDY ? TS.l1 / kAt(at[0], at[1]) : +(job.poleStyle || {}).idH > 0 ? +job.poleStyle.idH : 2.2, body = nt.lines.map(mtWrite).join('\\P');
+            o.mtext(NL, at[0], at[1], h0 * nt.h, nt.bold || nt.italic ? `{\\fArial|b${nt.bold ? 1 : 0}|i${nt.italic ? 1 : 0}|c0|p34;${body}}` : body, { att: 5, style: 'arial', ...(nt.color ? { color: nt.color } : {}), ...(a ? { dir: [Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)] } : {}) });
+          }
+        } finally { o.own = prevOwn; }
+        const q = nearPt(at); E.lk = q ? locOfPt.get(q) || 0 : 0; E.box = boxOf(E); EL.push(E); // (lk: the place of the point nearest it, for a sheet added under it)
+      }
+      /* (beta 7.12, Drawing edit) the texts the user wrote (the owner: "allow also the user to edit the text if needed. just to make everything correct before
+         exporting"), job.text { id: [lines] }, on the plan only (the record is unchanged). An item's lines: each TEXT and attribute shown one, each MTEXT
+         its lines, in reading order (top to bottom, then left to right, in the frame of its first text); a dark copy under a line (colour 250, the same
+         words, a little off: a number's or a bubble's shadow) goes with it. Line k takes the k-th words with its own look (layer, colour, height, font,
+         its place); more lines: below the last, with its look and spacing (an MTEXT's own lines; a text: a copy of it); fewer: the rest left off (an
+         attribute emptied and hidden); [] none (its symbol stays). An item placed by hand keeps its box's middle where it was put; one the plan placed, its
+         lines where they were. Pins, styles and leaders on top, as usual (below). */
+      const SHD = I(250), JT = job.text && typeof job.text === 'object' && !Array.isArray(job.text) ? job.text : null, hRec = new Map(o.model.map((r) => [r[1][1], r]));
+      const isLn = (r) => (typ(r) === 'TEXT' && String(get(r, 1, '')) !== '') || (typ(r) === 'MTEXT' && textOf(r) !== '') || visAtt(r);
+      const lnAng = (r) => (typ(r) === 'MTEXT' ? (r.some((q, i) => i > 0 && q[0] === 11) ? Math.atan2(num(r, 21, 0), num(r, 11, 1)) : num(r, 50, 0) * Math.PI / 180) : num(r, 50, 0) * Math.PI / 180);
+      /** an item's texts as lines, in reading order: [{ r, k (an MTEXT's line; -1: a text, an attribute), s (as it reads), u, v (in the frame of its first text), h, sh (its shadows) }] */
+      const linesOf = (recs) => {
+        const main = [], dark = [], shad = new Map(); for (const r of recs) if (isLn(r)) (typ(r) !== 'MTEXT' && get(r, 62) === SHD ? dark : main).push(r);
+        for (const s of dark) { const h = num(s, 40, 0), m = main.find((r) => typ(r) !== 'MTEXT' && get(r, 62) !== SHD && get(r, 1) === get(s, 1) && Math.abs(num(r, 40, 0) - h) < 1e-6 && Math.hypot(num(r, 10, 0) - num(s, 10, 0), num(r, 20, 0) - num(s, 20, 0)) < 0.3 * h + 1e-9); if (m) (shad.get(m) || shad.set(m, []).get(m)).push(s); else main.push(s); }
+        if (!main.length) return [];
+        const a = lnAng(main[0]), c = Math.cos(a), sn = Math.sin(a), fr = (x, y) => [x * c + y * sn, -x * sn + y * c], G = [], byIns = new Map(); // (G: its texts as groups: a text, an MTEXT's lines, a block's attributes in their order)
+        main.forEach((r, ix) => { const P = recOutline(S, r).map((q) => fr(q[0], q[1])), q0 = fr(num(r, 10, 0), num(r, 20, 0)), h = num(r, 40, 0), top = P.length ? Math.max(...P.map((q) => q[1])) : q0[1], left = P.length ? Math.min(...P.map((q) => q[0])) : q0[0];
+          const ow = typ(r) === 'ATTRIB' ? owner(r) : null, g = ow && byIns.get(ow); if (g) { g.rs.push(r); g.top = Math.max(g.top, top); g.left = Math.min(g.left, left); g.h = Math.min(g.h, h); return; }
+          const g2 = { rs: [r], ix, h, top, left }; G.push(g2); if (ow) byIns.set(ow, g2); });
+        G.sort((x, y) => y.top - x.top || x.ix - y.ix); const rows = []; // (in rows, top to bottom (a group whose top is within 0.45 of its height of the row's first: in that row), each row left to right)
+        for (const x of G) { const R0 = rows[rows.length - 1]; if (R0 && Math.abs(R0[0].top - x.top) <= 0.45 * Math.min(R0[0].h, x.h)) R0.push(x); else rows.push([x]); }
+        return rows.flatMap((R0) => R0.sort((x, y) => x.left - y.left || x.ix - y.ix)).flatMap((g) => g.rs).map((r) => ({ r, h: num(r, 40, 0) })).flatMap(({ r, h }) => {
+          if (typ(r) === 'MTEXT') { const L = mtLines(textOf(r)), pitch = h * 5 / 3 * (num(r, 44, 1) || 1), H = h + pitch * (L.length - 1), att = parseInt(get(r, 71, '1'), 10) || 1, rw = Math.floor((att - 1) / 3), v0 = fr(num(r, 10, 0), num(r, 20, 0))[1], top = v0 + (rw === 0 ? 0 : rw === 1 ? H / 2 : H);
+            return L.map((s, k) => ({ r, k, s, v: top - h / 2 - k * pitch, h, sh: [] })); }
+          const P = recOutline(S, r), q = P.length ? [P.reduce((t, z) => t + z[0], 0) / P.length, P.reduce((t, z) => t + z[1], 0) / P.length] : [num(r, 10, 0), num(r, 20, 0)];
+          return [{ r, k: -1, s: txRead(get(r, 1, '')), v: fr(q[0], q[1])[1], h, sh: shad.get(r) || [] }];
+        });
+      };
+      /** a text or an attribute copied as a TEXT of model space (an attribute's look: its layer, colour, height, style, alignment), a new handle */
+      const asText = (r) => {
+        let c = r.map(([k, v]) => [k, v]); c[0] = [0, 'TEXT']; setFirst(c, 5, d.newHandle());
+        if (typ(r) === 'ATTRIB') { const k = c.findIndex((q, i) => i > 0 && q[0] === 100 && q[1] === 'AcDbAttribute'), va = parseInt(get(r, 74, '0'), 10) || 0; if (k > 0) c = c.slice(0, k); setFirst(c, 330, S.modelH); c.push([100, 'AcDbText']); if (va) c.push([73, I(va)]); }
+        return c;
+      };
+      const mtPut = (r, s2) => { const k = r.findIndex((q, i) => i > 0 && (q[0] === 3 || q[0] === 1)); for (let i = r.length - 1; i > 0; i--) if (r[i][0] === 3 || r[i][0] === 1) r.splice(i, 1); const ch = []; for (let i = 0; i < s2.length; i += 250) ch.push(s2.slice(i, i + 250)); if (!ch.length) ch.push(''); r.splice(k > 0 ? k : r.length, 0, ...ch.slice(0, -1).map((x) => [3, x]), [1, ch[ch.length - 1]]); };
+      /** the item's records (recs) written with the lines L: the records taken off (gone) and those added, each after a record ([after, [recs]]) */
+      const textSet = (recs, L) => {
+        const U = linesOf(recs), gone = new Set(), add = [], mt = new Map(); if (!U.length) return null;
+        const lines = L.map((x) => (x == null ? '' : String(x))), mtOf = (r) => mt.get(r) || mt.set(r, mtLines(textOf(r))).get(r);
+        U.forEach((x, k) => {
+          const s = k < lines.length ? lines[k] : null;
+          if (x.k >= 0) { mtOf(x.r)[x.k] = s; return; } // (an MTEXT: its lines written below; an empty one stays a line)
+          if (s == null || !s.trim()) { if (typ(x.r) === 'ATTRIB') { setFirst(x.r, 1, ''); const f = x.r.findIndex((q, i) => i > 0 && q[0] === 70); if (f > 0) x.r[f][1] = I((parseInt(x.r[f][1], 10) || 0) | 1); } else gone.add(x.r); x.sh.forEach((q) => gone.add(q)); return; } // (left off; an attribute: emptied and hidden)
+          if (s !== x.s) { const w = txWrite(s); setFirst(x.r, 1, w); x.sh.forEach((q) => setFirst(q, 1, w)); }
+        });
+        const last = U[U.length - 1], more = lines.slice(U.length);
+        if (more.length && last.k >= 0) mtOf(last.r).push(...more); // (more lines: an MTEXT's own, in its look)
+        else if (more.length) { // (a copy of the last text for each, below it by the spacing of the last two when they are alike, else 1.45 times its height)
+          const pv = U[U.length - 2], pitch = pv && Math.abs(pv.h - last.h) <= 0.2 * last.h && pv.v - last.v > 0.5 * last.h && pv.v - last.v < 4 * last.h ? pv.v - last.v : 1.45 * last.h, A = lnAng(last.r), dn = [Math.sin(A), -Math.cos(A)];
+          let after = last.r; more.forEach((s, j) => { if (!s.trim()) return; const w = txWrite(s), mv = (r) => { const c = asText(r); setFirst(c, 1, w); xformRec(c, { t: [dn[0] * pitch * (j + 1), dn[1] * pitch * (j + 1)] }); return c; }, cs = [...last.sh.map(mv), mv(last.r)]; add.push([after, cs]); after = cs[cs.length - 1]; });
+        }
+        for (const [r, M0] of mt) { // (an MTEXT: its lines; its first line kept where it was, as many more or fewer)
+          const L0 = mtLines(textOf(r)), L1 = M0.filter((x) => x != null); if (!L1.length) { gone.add(r); continue; }
+          const raw = mtSet(textOf(r), L1); if (raw !== textOf(r)) mtPut(r, raw);
+          const dN = L1.length - L0.length, att = parseInt(get(r, 71, '1'), 10) || 1, rw = Math.floor((att - 1) / 3);
+          if (dN && rw) { const A = lnAng(r), pitch = num(r, 40, 0) * 5 / 3 * (num(r, 44, 1) || 1), k = rw / 2 * pitch * dN; xformRec(r, { t: [Math.sin(A) * k, -Math.cos(A) * k] }); }
+        }
+        return { gone, add };
+      };
+      /** the records added put in the model space after theirs (an INSERT's or attribute's after its attributes and end), the ones taken off out */
+      const textPut = (R) => {
+        for (const [after, cs] of R.add) { let i = o.model.indexOf(after); if (i < 0) { o.model.push(...cs); continue; } if (typ(after) === 'ATTRIB' || typ(after) === 'INSERT') while (i + 1 < o.model.length && (typ(o.model[i + 1]) === 'ATTRIB' || typ(o.model[i + 1]) === 'SEQEND')) i++; o.model.splice(i + 1, 0, ...cs); }
+        if (R.gone.size) o.model = o.model.filter((r) => !R.gone.has(r));
+        return R.add.flatMap(([, cs]) => cs);
+      };
+      const tBody = (recs, isLead) => recs.filter((r) => !isLead(r)), tBox = (recs, a) => ptsBox(recs.flatMap((r) => recOutline(S, r)), a);
+      for (const m of MV) m.hadText = m.kind !== 'photo';
+      for (const E of EL) E.hadText = E.recs.some(isTxt);
+      if (JT) for (const [id, L] of Object.entries(JT)) {
+        if (!Array.isArray(L)) continue;
+        const m = MV.find((x) => x.id === id), E = m ? null : EL.find((x) => x.id === id); if (!m && !E) continue;
+        if (m) {
+          if (!m.hadText) continue;
+          const recs = m.handles.map((h) => hRec.get(h)).filter(Boolean), isL = (r) => typ(r) === 'SOLID' || (typ(r) === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1)), b0 = tBox(tBody(recs, isL), m.box.a || 0);
+          const R = textSet(recs, L); if (!R) continue; const nw = textPut(R), now = [...recs.filter((r) => !R.gone.has(r)), ...nw]; nw.forEach((r) => hRec.set(r[1][1], r)); m.handles = now.map((r) => r[1][1]); m.edited = true;
+          if (!tBody(now, isL).length && now.length) { const g2 = new Set(now); o.model = o.model.filter((r) => !g2.has(r)); m.handles = []; m.line = null; } // (nothing left but its line to its pole: that goes too)
+          const b1 = tBox(tBody(now, isL), m.box.a || 0);
+          if (!b1) { m.empty = !m.handles.length; continue; } // (its texts all left off: its box kept, where it was)
+          if (b0) { const d0 = [b1.cx - b0.cx, b1.cy - b0.cy]; m.box = { ...m.box, w: Math.max(0, m.box.w + b1.w - b0.w), h: Math.max(0, m.box.h + b1.h - b0.h) }; if (m.how === 'by hand') { for (const r of tBody(now, isL)) xformRec(r, { t: [-d0[0], -d0[1]] }); } else m.box = { ...m.box, cx: m.box.cx + d0[0], cy: m.box.cy + d0[1] }; } // (placed by hand: its box's middle where it was put)
+        } else {
+          if (!E.hadText) continue;
+          const R = textSet(E.recs, L); if (!R) continue; const nw = textPut(R); E.recs = [...E.recs.filter((r) => !R.gone.has(r)), ...nw]; E.edited = true;
+          if (E.bub) { const B = E.bub, T1 = linesOf(E.recs); B.W = Math.max(0, ...T1.map((x) => arialW(x.s, B.th))); B.H = B.th + Math.max(0, T1.length - 1) * BUB_LS * B.th; if (B.rep) B.rep.lines = T1.map((x) => x.s); } // (a bubble's lines as written now: its size for Size and h, below)
+          if (E.recs.some((r) => !LEAD.has(r))) E.box = boxOf(E);
+          else { const g2 = new Set(E.recs.filter((r) => !BUBC.has(r))); o.model = o.model.filter((r) => !g2.has(r)); E.recs = E.recs.filter((r) => !g2.has(r)); E.empty = !E.recs.length; E.at = null; } // (its texts all left off and nothing else of it: its line or arrow, a bubble's pointer go too (its circle stays); its box kept)
+        }
+      }
       /* (beta 7.11, Drawing tools) styles (job.style { id: {…} }, job.styleKind { kind: {…} }: the item's own wins, field by field) and the lines to what an
          item names (Plan style › job.leaders { photo, details, number }, an item's own lead). h: its texts' size (a label, a number, a span's length…, the
          whole of it from its middle; a symbol's texts each where it is); scale: a symbol's size (pole, site, NAP, closure, guy, grounding, arm, landmark
@@ -4390,7 +4613,7 @@
       const stOf = (id, kind) => { const a = STK && STK[kind] && typeof STK[kind] === 'object' ? STK[kind] : null, b = STI && STI[id] && typeof STI[id] === 'object' ? STI[id] : null; if (!a && !b) return null; const o3 = { ...(a || {}), ...(b || {}) }, f = (v, lo, hi) => (v != null && v !== '' && Number.isFinite(+v) && +v > 0 ? Math.max(lo, Math.min(hi, +v)) : null);
         const st = { h: f(o3.h, 0.2, 5), scale: f(o3.scale, 0.2, 5), bold: typeof o3.bold === 'boolean' ? o3.bold : null, italic: typeof o3.italic === 'boolean' ? o3.italic : null, color: Number.isInteger(+o3.color) && +o3.color >= 1 && +o3.color <= 255 ? +o3.color : null, lead: typeof o3.lead === 'boolean' ? o3.lead : null, callout: o3.callout === 'bubble' || o3.callout === 'arrow' ? o3.callout : null };
         return Object.values(st).some((v) => v != null) ? st : null; };
-      const recOfH = new Map(o.model.map((r) => [r[1][1], r])), TXTK = new Set(['span', 'loop', 'road', 'sitename', 'sitedetails', 'closurelabel', 'details', 'number', 'cable']);
+      const recOfH = new Map(o.model.map((r) => [r[1][1], r])), TXTK = new Set(['span', 'loop', 'road', 'sitename', 'sitedetails', 'closurelabel', 'details', 'number', 'cable', 'note']); // ((beta 7.12, Drawing edit) a text note grows from its middle as a label)
       const isTxtR = (r) => typ(r) === 'TEXT' || typ(r) === 'MTEXT' || (typ(r) === 'ATTRIB' && !(parseInt(get(r, 70, '0'), 10) & 1));
       /** an MTEXT's text, written again (its 250-letter pieces) */
       const setMt = (r, s2) => { const k = r.findIndex((q, i) => i > 0 && (q[0] === 3 || q[0] === 1)); for (let i = r.length - 1; i > 0; i--) if (r[i][0] === 3 || r[i][0] === 1) r.splice(i, 1); const ch = []; for (let i = 0; i < s2.length; i += 250) ch.push(s2.slice(i, i + 250)); if (!ch.length) ch.push(''); r.splice(k > 0 ? k : r.length, 0, ...ch.slice(0, -1).map((c) => [3, c]), [1, ch[ch.length - 1]]); };
@@ -4423,7 +4646,7 @@
         if (st.color && m.kind !== 'photo') colorOn(recs, st.color);
       }
       for (const E of EL) {
-        const st = stOf(E.id, E.kind); if (!st) continue; const k = E.kind;
+        const st0 = stOf(E.id, E.kind), st = st0 && E.kind === 'note' && st0.scale ? { ...st0, h: (st0.h || 1) * st0.scale, scale: null } : st0; if (!st) continue; const k = E.kind; // ((beta 7.12, Drawing edit) a text note's size: its height)
         if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const ins = (k === 'guy' || k === 'ground') && E.recs.find((r) => typ(r) === 'INSERT'), da = ins ? num(ins, 50, 0) : E.a, c = ATTK.has(k) ? add2(E.about, [Math.cos(da * Math.PI / 180), Math.sin(da * Math.PI / 180)], (E.p && E.p.rp) || 0) : [E.box.cx, E.box.cy]; /* (a guy's or grounding's block is drawn along its way) */ scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); } // (a guy, grounding, arm: from where it meets its pole, its symbol's edge that way)
         if (E.bub && st.scale && Math.abs(st.scale - 1) > 1e-9) { // (a bubble callout's size: its circle and pointer; its lines, where the plan put them, follow its tip)
           const B = E.bub, rb1 = B.rb * st.scale, G0 = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H), G1 = bubGeo(B.at, rb1, B.th, B.v, B.W, B.H);
@@ -4447,6 +4670,11 @@
         else if (mv && k === 'span') { const g = geoOf(E.sp[0], E.sp[1]); thinTo(E, [g.a, g.b], Math.max(2.5, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1))); }
         else if (mv && k === 'loop' && E.at) thinTo(E, E.at, Math.max(3, 2 * (E.recs.find(isTxt) ? num(E.recs.find(isTxt), 40, 1) : 1)));
       }
+      /* (beta 7.12, Drawing edit) a note's thin line to its point (job.notes[].lead), now that it is where it goes: from the edge of its box to the point */
+      for (const E of EL) {
+        const L = E.nt && E.nt.lead; if (!L) continue; const e = nearBox(E.box, L); if (dist2(e, L) <= 0.5) continue;
+        const u = unit(L, e), prev = o.own; o.own = null; const r = o.lwpoly(lay(NOTE_LAYER), [L, add2(e, u, -0.3)], { color: 8 }); o.own = prev; LEAD.add(r); E.recs.push(r); E.lead = true;
+      }
       /* beta 7.10's items turned by hand (pins' rot) where their pin has no place (at) for 7.10's own (their details and cable labels take rot there), and
          photos and numbers: about their middle; their lines to their point stay (an open line, an arrow's head) */
       for (const m of MV) {
@@ -4459,7 +4687,7 @@
       }
       /* the lines and arrows to what an item names left off (lead false; Plan style's job.leaders), after every item is where it goes */
       for (const m of MV) { const st = stOf(m.id, m.kind), lp = LDS && LEADK[m.kind] && LDS[LEADK[m.kind]] === false; if ((st && st.lead === false) || (lp && !(st && st.lead === true))) { m.handles.forEach((h) => { const r = recOfH.get(h); if (r && ld7(r)) drop.add(r); }); if (m.kind === 'photo' && m.p && rep.photoAt[String(m.p.id)]) rep.photoAt[String(m.p.id)].line = null; } } // (a photo's line in photoAt too)
-      for (const E of EL) { const st = stOf(E.id, E.kind), k = E.kind; if (st && st.lead === false && (k === 'span' || k === 'loop' || k === 'closurelabel')) E.recs.forEach((r) => { if (LEAD.has(r) && !BUBC.has(r)) drop.add(r); }); } // (a bubble keeps its circle: its pointer goes)
+      for (const E of EL) { const st = stOf(E.id, E.kind), k = E.kind; if (st && st.lead === false && (k === 'span' || k === 'loop' || k === 'closurelabel' || k === 'note' || k === 'notephoto')) E.recs.forEach((r) => { if (LEAD.has(r) && !BUBC.has(r)) drop.add(r); }); } // (a bubble keeps its circle: its pointer goes)
       if (drop.size) { o.model = o.model.filter((r) => !drop.has(r)); for (const m of MV) m.handles = m.handles.filter((h) => !drop.has(recOfH.get(h))); for (const E of EL) E.recs = E.recs.filter((r) => !drop.has(r)); for (const m of MV) if (m.line && m.handles.every((h) => !ld7(recOfH.get(h)))) m.line = null; }
       /* (beta 7.10, Plan kept) as a photo placed by hand: a label, number, pole's details or (beta 7.11) other element placed by hand, its box (turned with it)
          and its line or arrow; across a sheet's edge, the sheets it prints cut on (cut, report.movable); in a cell no sheet prints: that sheet added (build) */
@@ -4471,7 +4699,7 @@
       }
       for (const E of EL) {
         if (E.how !== 'by hand') continue;
-        const lk = (E.p && locOfPt.get(E.p)) || (E.sp ? locOfPt.get(E.sp[0]) || 0 : 0), C = frameCells({ x: E.box.cx, y: E.box.cy, w: E.box.w, h: E.box.h, rot: E.box.a });
+        const lk = E.lk != null ? E.lk : (E.p && locOfPt.get(E.p)) || (E.sp ? locOfPt.get(E.sp[0]) || 0 : 0), C = frameCells({ x: E.box.cx, y: E.box.cy, w: E.box.w, h: E.box.h, rot: E.box.a }); // ((beta 7.12, Drawing edit) a note: the place of the point nearest it)
         C.forEach(([i, j]) => offAt(i, j, lk)); E.cells = C; for (const r of E.recs) if (LEAD.has(r) && typ(r) === 'LWPOLYLINE') { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); lineCells(X.map((x, i) => [x, Y[i]]), lk); }
       }
       if (offM.size) rep._offCells = [...offM.values()];
@@ -4481,7 +4709,7 @@
          on (as a photo's photoAt[id].cut; the notes say so); a cell it is in that no sheet printed is a GEO sheet (build, _offCells, as a photo's).
          (beta 7.11) Tidy: a pole's number in its block is an item of its own (num:…, block: true), carried with its block (with), as its photo beside it. */
       const cut = [], off = [], NAME = { pole: 'symbol', site: 'symbol', sitedetails: 'details', sitename: 'name', nap: 'NAP', closure: 'closure', closurelabel: 'closure label', loop: 'loop', guy: 'guy', ground: 'grounding', arm: 'arm' };
-      const nm = (m) => (m.kind === 'cable' ? `${m.name} label` : m.kind === 'number' ? `No. ${m.seq}` : m.kind === 'details' ? `${m.p.poleId || m.p.id} details` : m.kind === 'span' ? `${m.recs.find(isTxt) ? get(m.recs.find(isTxt), 1, '') : ''} span length` : m.kind === 'road' || m.kind === 'landmark' ? String(m.id.slice(m.id.indexOf(':') + 1)) : `${m.p ? m.p.poleId || m.p.id : m.id} ${NAME[m.kind] || m.kind}`);
+      const nm = (m) => (m.kind === 'note' ? `note "${String(m.nt.lines[0] || '').trim().slice(0, 40)}"` : m.kind === 'notephoto' ? `photo note ${m.nt.photo.file}` : m.kind === 'cable' ? `${m.name} label` : m.kind === 'number' ? `No. ${m.seq}` : m.kind === 'details' ? `${m.p.poleId || m.p.id} details` : m.kind === 'span' ? `${m.recs.find(isTxt) ? get(m.recs.find(isTxt), 1, '') : ''} span length` : m.kind === 'road' || m.kind === 'landmark' ? String(m.id.slice(m.id.indexOf(':') + 1)) : `${m.p ? m.p.poleId || m.p.id : m.id} ${NAME[m.kind] || m.kind}`);
       const cutOf = (m, B) => { if (m.how !== 'by hand' || m.kind === 'photo') return null; const C = m.cells || [[ci(B.cx), cj(B.cy)]]; let cutOn = null; if (C.length > 1) { cutOn = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort(); cut.push(nm(m)); } if (C.some(([i, j]) => !used.has(key(i, j)))) off.push(nm(m)); return cutOn; }; // ((beta 7.10, Plan kept) as a photo's photoAt[id].cut; on no sheet: build adds the sheet, see its _offCells)
       const CAN0 = { photo: { move: true, rotate: true, scale: false, text: false, color: false, lead: true }, number: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, details: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, cable: { move: true, rotate: true, scale: false, text: true, color: true, lead: true } };
       const out = MV.map((m) => {
@@ -4492,6 +4720,7 @@
         if (m.kind === 'number' || m.number) o2.seq = m.seq != null ? String(m.seq) : null; if (m.kind === 'details') { o2.number = !!m.number; o2.with = m.with || []; } if (m.block) o2.block = true; if (cutOn) o2.cut = cutOn;
         o2.can = { ...CAN0[m.kind] }; if (m.p && m.p.el === 'Pole') o2.pole = String(m.p.id);
         if (m.kind === 'cable' && m.spanPts) { o2.spanPts = m.spanPts.map((q) => [q[0], q[1]]); if (m.tip) o2.tip = [m.tip[0], m.tip[1]]; }
+        if (o2.can.text) o2.text = linesOf(m.handles.map((h) => recOfH.get(h)).filter(Boolean)).map((x) => x.s); if (m.empty) o2.empty = true; // ((beta 7.12, Drawing edit) its lines as they read, what the editor shows; empty: nothing of it drawn)
         return o2;
       });
       const kidsOf = new Map(), outE = []; for (const x of [...out, ...EL]) { const pid = x.pole; if (pid) (kidsOf.get(pid) || kidsOf.set(pid, []).get(pid)).push(x.id); }
@@ -4500,12 +4729,54 @@
         const o2 = { id: E.id, kind: k, box: [B.cx, B.cy, B.w, B.h, B.a || 0], anchor: E.anchor, how: E.how, handles: E.recs.map((r) => r[1][1]) };
         if (p) Object.assign(o2, { point: String(p.id), name: String(p.poleId || p.id) }); else o2.name = nm(E);
         if (E.pole) o2.pole = E.pole; if (k === 'span') o2.span = E.key.split('|');
-        o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k) || !!E.bub, /* (a bubble callout: its circle and pointer) */ text: E.recs.some(isTxt), color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) };
+        o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k) || !!E.bub, /* (a bubble callout: its circle and pointer) */ text: !!E.hadText, color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) }; // ((beta 7.12) text: it had texts as the plan wrote it, so that those left off can come back)
+        if (E.nt) o2.can = { move: true, rotate: true, scale: true, text: k === 'note', color: k === 'note', delete: true, ...(E.lead ? { lead: true } : {}) }; // ((beta 7.12, Drawing edit) a note of the user's: moved, turned, sized, edited, coloured, deleted by changing the note itself (or pins and styles))
+        if (o2.can.text) o2.text = linesOf(E.recs).map((x) => x.s); if (E.empty) o2.empty = true;
         const w = k === 'pole' && p ? (kidsOf.get(String(p.id)) || []).filter((id) => id !== E.id) : k === 'site' && p ? [`sitelbl:${p.id}`, `sitename:${p.id}`].filter((id) => EL.some((x) => x.id === id)) : null; if (w && w.length) o2.with = w;
         if (cutOn) o2.cut = cutOn;
         outE.push(o2);
       }
       rep.movable = [...outE, ...out]; // (the other elements first: a pole before its number, details and photo, which it carries (with) and which may have pins of their own)
+      /* (beta 7.12, Drawing edit) the notes drawn last (over the plan's own items, the lines the end of the build added too), then the draw order the user set:
+         job.order [{ id, op: 'front' | 'forward' | 'backward' | 'back' }], in its order (the owner: "allow order on the selected item, say, sent to back,
+         backward, sent to front or forward"). An item's entities moved in the model space, whose order IS the draw order (AutoCAD, the PDF and the Drawing
+         draw them in it): front last (over everything), back first (under everything), forward just over the next item drawn after it whose box overlaps
+         its box, backward just under the one before it (none: as it was); an INSERT with its attributes and end. With a SORTENTSTABLE of the model space
+         (AutoCAD draws by it): the plan's entities given sort handles in that order. report.movable[i].z: its place in the draw order now (0: drawn first;
+         null: nothing of it drawn). */
+      {
+        const NR = new Set(EL.filter((E) => E.nt).flatMap((E) => E.recs)); if (NR.size) o.model = [...o.model.filter((r) => !NR.has(r)), ...o.model.filter((r) => NR.has(r))];
+        const RH = new Map(o.model.map((r) => [r[1][1], r])), recsOf = (x) => x.handles.map((h) => RH.get(h)).filter(Boolean), sub = (r) => typ(r) === 'ATTRIB' || typ(r) === 'SEQEND';
+        const OPS = Array.isArray(job.order) ? job.order.filter((x) => x && typeof x === 'object' && x.id != null && ['front', 'forward', 'backward', 'back'].includes(x.op)) : [];
+        let moved = false;
+        for (const op of OPS) {
+          const it = rep.movable.find((x) => x.id === String(op.id)); if (!it) continue;
+          const ix = new Map(o.model.map((r, i) => [r, i])), mvS = new Set();
+          for (const r of recsOf(it)) { if (sub(r) || !ix.has(r)) continue; mvS.add(r); if (typ(r) === 'INSERT') for (let i = ix.get(r) + 1; i < o.model.length && sub(o.model[i]); i++) mvS.add(o.model[i]); } // (an INSERT with its attributes and end; an attribute of another's INSERT stays with it)
+          if (!mvS.size) continue;
+          const first = (x) => { let a = Infinity; for (const r of recsOf(x)) { const i = ix.get(r); if (i != null && i < a) a = i; } return a; }, me = first(it), rest = o.model.filter((r) => !mvS.has(r)), mv = o.model.filter((r) => mvS.has(r));
+          let k = null;
+          if (op.op === 'front') k = rest.length; else if (op.op === 'back') k = 0;
+          else {
+            const ix2 = new Map(rest.map((r, i) => [r, i])), C = rep.movable.filter((x) => x !== it && boxesHit(x.box, it.box) && recsOf(x).some((r) => ix2.has(r))).map((x) => ({ x, f: first(x) })).filter((q) => Number.isFinite(q.f));
+            if (op.op === 'forward') { const nx = C.filter((q) => q.f > me).sort((a, b) => a.f - b.f)[0]; if (!nx) continue; k = -1; for (const r of recsOf(nx.x)) if (ix2.has(r)) k = Math.max(k, ix2.get(r)); k++; while (k < rest.length && sub(rest[k])) k++; } // (just over it: after its last entity)
+            else { const pv = C.filter((q) => q.f < me).sort((a, b) => b.f - a.f)[0]; if (!pv) continue; k = Infinity; for (const r of recsOf(pv.x)) if (ix2.has(r)) k = Math.min(k, ix2.get(r)); while (k > 0 && sub(rest[k])) k--; } // (just under it: before its first one)
+          }
+          const nm2 = [...rest.slice(0, k), ...mv, ...rest.slice(k)]; if (nm2.some((r, i) => r !== o.model[i])) { o.model = nm2; moved = true; }
+        }
+        if (moved) { // (AutoCAD draws by a model space's SORTENTSTABLE where the template has one: the plan's entities' sort handles in their order now)
+          const br = d.byHandle.get(S.modelH), xi = br ? br.findIndex((q, i) => i > 0 && q[0] === 102 && q[1] === '{ACAD_XDICTIONARY') : -1, dict = xi > 0 && br[xi + 1] ? d.byHandle.get(br[xi + 1][1]) : null;
+          const sk = dict ? dict.findIndex((q, i) => i > 0 && q[0] === 3 && q[1] === 'ACAD_SORTENTS') : -1, st = sk > 0 && dict[sk + 1] ? d.byHandle.get(dict[sk + 1][1]) : null;
+          if (st && typ(st) === 'SORTENTSTABLE') {
+            const top = o.model.filter((r) => !sub(r)), hs = top.map((r) => r[1][1]), srt = hs.slice().sort((a, b) => parseInt(a, 16) - parseInt(b, 16)), mine = new Set(hs);
+            for (let i = st.length - 2; i > 0; i--) if (st[i][0] === 331 && mine.has(st[i][1]) && st[i + 1][0] === 5) st.splice(i, 2);
+            top.forEach((r, i) => { if (srt[i] !== hs[i]) st.push([331, hs[i]], [5, srt[i]]); });
+            rep.sortents = true;
+          }
+        }
+        const ix = new Map(o.model.map((r, i) => [r, i])), Z = rep.movable.map((x, i) => { let a = Infinity; for (const r of recsOf(x)) { const j = ix.get(r); if (j != null && j < a) a = j; } return [a, i]; }).filter((q) => Number.isFinite(q[0])).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+        for (const x of rep.movable) x.z = null; Z.forEach(([, i], z) => { rep.movable[i].z = z; });
+      }
       const nts = []; if (cut.length) nts.push(`Labels, numbers or pole details placed by hand across a sheet's edge (each sheet shows only its part; move them on the Drawing): ${cut.join(', ')}`);
       if (off.length) nts.push(`Labels, numbers or pole details placed by hand partly off the plan's sheets (on no GEO sheet; move them on the Drawing): ${off.join(', ')}`);
       if (nts.length) rep.notes.splice(notesAt, 0, ...nts);
@@ -4958,7 +5229,7 @@
       /* (beta 7.9, Drawing preview) the GEO sheets, each its cell: the sheet's tab, the cell's name as the plan writes it (report.sheets) and its square
          in model metres; ents: the handles of the grid's lines and names in model space (the Drawing draws the sheets itself). The DXF the same. */
       sheets: geoCells.map((c, k) => ({ sheet: geoNames(N)[k], name: cellName(c.i, c.j), box: [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell], ...(c.x ? { forPhoto: true } : {}) })), ents: gridEnts }; // ((beta 7.10, Plan kept) forPhoto: a sheet for a photo, see build)
-    if (xCells.length) rep.notes.push(`GEO sheets added so that every photo and pole drawn prints (no route there, a photo, a label placed by hand or a pole beside its road): ${xCells.map((c) => cellName(c.i, c.j)).join(', ')}`);
+    if (xCells.length) rep.notes.push(`GEO sheets added so that every photo and pole drawn prints (no route there, a photo, a label placed by hand${NOTES.length ? ', a note of yours' : ''} or a pole beside its road): ${xCells.map((c) => cellName(c.i, c.j)).join(', ')}`); // ((beta 7.12, Drawing edit) a note's sheet too)
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };
     S = structure(d); centerCache.clear();
