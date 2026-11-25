@@ -251,13 +251,15 @@ test('no barangay known, no places, or none given: the template\'s rows as they 
   assert.equal(a.text, b.text, 'no ROW table: the same DXF');
 });
 
-test('the PDF of the sheets (dxfpdf.js) prints the table drawn to fit: each name once, on the ROW AREA COVERAGE sheet', async () => {
-  const P = require(path.join(root, 'dxfpdf.js'));
-  for (const seed of ['lines', 'cells']) {
-    const o = built([['Demo City', ['Demo Brgy 1 (Pob.)', 'Demo Brgy 2', 'Demo Brgy 3', 'Demo Brgy 4', 'Demo Brgy 5']]], seed), pdf = await P.toPdf(o.text, { images: {}, title: 'ROW' });
-    assert.equal(o.report.rowTable.redrawn, true, `${seed}: drawn to fit`); assert.ok(pdf.report.sheets.includes('ROW AREA COVERAGE'), `${seed}: the sheet printed`);
+test('the PDF of the sheets (dxfpdf.js) prints the table: each name once and on one line, on the ROW AREA COVERAGE sheet', async () => {
+  const P = require(path.join(root, 'dxfpdf.js')), d = new W.T.Doc(SEEDS.lines), E = d.sec('ENTITIES').recs, g = (r, c) => { const p = r.find((q, i) => i > 0 && q[0] === c); return p ? p[1] : undefined; };
+  E.splice(E.findIndex((r) => r[0][1] === 'LINE' && +g(r, 10) === XC && +g(r, 11) === XC), 1); // (no column line: filled in the template's rows)
+  const long = 'DEMO BARANGAY LONG MADE-UP NAME SR.';
+  for (const seed of ['lines', 'cells', d.text()]) {
+    const o = built([['Demo City', ['Demo Brgy 1 (Pob.)', 'Demo Brgy 2', 'Demo Brgy 3', 'Demo Brgy 4', 'Demo Barangay Long Made-Up Name Sr.']]], seed), pdf = await P.toPdf(o.text, { images: {}, title: 'ROW' }), tag = SEEDS[seed] ? seed : 'not drawn to fit';
+    assert.equal(o.report.rowTable.redrawn, !!SEEDS[seed], `${tag}: drawn to fit or not`); assert.ok(pdf.report.sheets.includes('ROW AREA COVERAGE'), `${tag}: the sheet printed`);
     const s = Buffer.from(pdf).toString('latin1'), count = (w) => s.split(`(${w.replace(/[()]/g, (m) => `\\${m}`)})`).length - 1;
-    assert.equal(count('DEMO CITY'), 1, `${seed}: DEMO CITY printed once`);
-    for (const b of ['DEMO BRGY 1 (POB.)', 'DEMO BRGY 2', 'DEMO BRGY 3', 'DEMO BRGY 4', 'DEMO BRGY 5', 'TOTAL - 1', 'TOTAL - 5']) assert.equal(count(b), 1, `${seed}: ${b} printed once`);
+    assert.equal(count('DEMO CITY'), 1, `${tag}: DEMO CITY printed once`);
+    for (const b of ['DEMO BRGY 1 (POB.)', 'DEMO BRGY 2', 'DEMO BRGY 3', 'DEMO BRGY 4', long, 'TOTAL - 1', 'TOTAL - 5']) assert.equal(count(b), 1, `${tag}: ${b} printed once, on one line`);
   }
 });

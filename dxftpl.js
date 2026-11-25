@@ -4249,9 +4249,10 @@
       const mod = d.sec('ENTITIES').recs.filter((r) => owner(r) === S.modelH && (typ(r) === 'LINE' || typ(r) === 'LWPOLYLINE'));
       for (const [r, v] of rowCells) {
         const h = +get(r, 40) || 9, x = +get(r, 10), y = +get(r, 20), box = cellOf(mod, x + 1, y - h / 2);
-        const avail = box ? box.x1 - x - h * 0.3 : (+get(r, 41) || 20 * h), need = v.length * h * 0.7;
-        setFirst(r, 41, F(Math.max(+get(r, 41) || 0, avail)));
-        if (need > avail) setFirst(r, 40, F(Math.max(h * 0.45, h * avail / need)));
+        const avail = box ? box.x1 - x - h * 0.3 : (+get(r, 41) || 20 * h), need = wOfRow(v, h, textOf(r)); // ((beta 7.11, ROW table) measured by its letters: a long name was made too little smaller and broke over two rows)
+        const h1 = need > avail ? Math.max(h * 0.45, h * avail / need) : h;
+        setFirst(r, 41, F(Math.max(+get(r, 41) || 0, avail, wOfRow(v, h1, textOf(r))))); // (its box never narrower than it: one line)
+        if (h1 < h) setFirst(r, 40, F(h1));
       }
     }
     let tablesBox = null;
