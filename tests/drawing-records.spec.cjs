@@ -163,7 +163,7 @@ const itemOf = async (page, id) => (await mvOf(page)).items.find((m) => m.id ===
 const full = (page, id) => page.evaluate((x) => window.__polecam.drwMvItem(x), id);
 const tap = (page, x, y) => (page.__touch ? page.touchscreen.tap(x, y) : page.mouse.click(x, y));
 async function see(page, id) {
-  let m = await itemOf(page, id); assert.ok(m, `${id} on the plan`);
+  let m = await itemOf(page, id); for (let k = 0; k < 150 && !m; k++) { await page.waitForTimeout(100); m = await itemOf(page, id); } assert.ok(m, `${id} on the plan`); // (after a record's change the plan's items come back with the plan made again)
   const R = await page.evaluate(() => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; });
   if (m.x < R.l + 50 || m.x > R.l + R.w - 110 || m.y < R.t + 190 || m.y > R.t + R.h - 230) { await page.evaluate(([X, Y]) => { window.__polecam.drwView({ cx: X, cy: Y }); window.__polecam.drwRedraw(); }, [m.box[0], m.box[1]]); await page.waitForTimeout(80); m = await itemOf(page, id); }
   return m;
