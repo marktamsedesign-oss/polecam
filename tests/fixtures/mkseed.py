@@ -4,7 +4,8 @@ sheet, nothing from any company. Made with ezdxf (tests/requirements.txt): pytho
 so the PDF's GEO sheets print the plan): python3 tests/fixtures/mkseed.py --square tests/fixtures/plan-seed-made-up-square.dxf
 (beta 7.11, ROW table) --row: also a ROW AREA COVERAGE sheet and a made-up right-of-way table in model space, far from the plan as a
 template keeps its tables (the plan moves them beside it): a title row, a header row MUNICIPALITY | BARANGGAY, two city / municipality
-cells over 4 and 3 barangay rows, a TOTAL row and the @@ROW_...@@ fields, its lines drawn as LINEs:
+cells over 4 and 3 barangay rows, a TOTAL row and the @@ROW_...@@ fields, its lines drawn as LINEs; the sheet's viewport over most of the
+sheet, the table in its upper part; beside the table, a made-up legend on a LEGENDS sheet of its own (its window close to the table's):
 python3 tests/fixtures/mkseed.py --row tests/fixtures/row-table-made-up.dxf; --row-cells: the same table drawn as closed LWPOLYLINE
 cells (a rectangle round each cell and one round the table): python3 tests/fixtures/mkseed.py --row-cells tests/fixtures/row-table-made-up-cells.dxf"""
 import sys, ezdxf
@@ -59,9 +60,19 @@ if row:
         mtext('{\\fArial|b0|i0|c0|p34;@@ROW_BARANGAY_%d@@}' % (k + 1), XC + 122, YH - k * RH - 3, 9, 1, 200)
     mtext('{\\fArial|b0|i0|c0|p34;TOTAL - @@ROW_MUNICIPALITIES@@}', X0 + 140, YB - 3, 9, 1, 120)
     mtext('{\\fArial|b0|i0|c0|p34;TOTAL - @@ROW_BARANGAYS@@}', XC + 126, YB - 3, 9, 1, 120)
-    lay = doc.layouts.new('ROW AREA COVERAGE')
-    lay.page_setup(size=(420, 297), margins=(10, 10, 10, 10), units='mm')
-    lay.add_viewport(center=(210, 160), size=(400, 140), view_center_point=((X0 + X1) / 2, (YT + YF) / 2), view_height=250)
-    lay.add_lwpolyline([(5, 5), (415, 5), (415, 292), (5, 292)], close=True)
+    # a made-up legend beside the table (another table of the template, its own sheet)
+    LX0, LX1, LY0, LY1 = 14760.0, 15260.0, 16380.0, 16560.0
+    for y in (LY0, LY1 - 30) + tuple(LY0 + 30 * k for k in range(1, 5)) + (LY1,):
+        msp.add_line((LX0, y), (LX1, y), dxfattribs=LA)
+    for x in (LX0, LX1):
+        msp.add_line((x, LY0), (x, LY1), dxfattribs=LA)
+    mtext('{\\fArial|b1|i0|c0|p34;DEMO LEGEND}', (LX0 + LX1) / 2, LY1 - 15, 12, 5, 400)
+    for k in range(5):
+        mtext('{\\fArial|b0|i0|c0|p34;DEMO SAMPLE %d}' % (k + 1), LX0 + 20, LY1 - 30 - k * 30 - 10.5, 9, 1, 300)
+    for name, size, centre in (('LEGENDS', (300, 270), ((LX0 + LX1) / 2, 16470.0)), ('ROW AREA COVERAGE', (400, 270), ((X0 + X1) / 2, 16504.0))):
+        lay = doc.layouts.new(name)
+        lay.page_setup(size=(420, 297), margins=(10, 10, 10, 10), units='mm')
+        lay.add_viewport(center=(210, 150), size=size, view_center_point=centre, view_height=480)  # (the ROW table's top 30 % down its window)
+        lay.add_lwpolyline([(5, 5), (415, 5), (415, 292), (5, 292)], close=True)
 doc.saveas(out)
 print('seed written', out)

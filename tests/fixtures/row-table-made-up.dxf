@@ -493,7 +493,7 @@ $SKPOLY
   9
 $TDCREATE
  40
-2461370.108576389
+2461370.157511574
   9
 $TDUCREATE
  40
@@ -501,7 +501,7 @@ $TDUCREATE
   9
 $TDUPDATE
  40
-2461370.108576389
+2461370.157511574
   9
 $TDUUPDATE
  40
@@ -553,7 +553,7 @@ $SPLINESEGS
   9
 $HANDSEED
   5
-C8
+DE
   9
 $SURFTAB1
  70
@@ -933,11 +933,11 @@ $PSTYLEMODE
   9
 $FINGERPRINTGUID
   2
-{4FBB75DA-A296-4DF5-88A5-C8BAAD6D9F11}
+{0761300D-BF84-4505-AB4E-EA428430D105}
   9
 $VERSIONGUID
   2
-{AC9E20EB-C74E-4A92-80B1-92C66D829EA6}
+{1840FE18-31CD-4E6F-AF9E-61EA3FFAED22}
   9
 $EXTNAMES
 290
@@ -1327,9 +1327,9 @@ ISM
   0
 CLASS
   1
-LAYOUT
+ACDBPLACEHOLDER
   2
-AcDbLayout
+AcDbPlaceHolder
   3
 ObjectDBX Classes
  90
@@ -1343,9 +1343,9 @@ ObjectDBX Classes
   0
 CLASS
   1
-ACDBPLACEHOLDER
+LAYOUT
   2
-AcDbPlaceHolder
+AcDbLayout
   3
 ObjectDBX Classes
  90
@@ -3137,7 +3137,7 @@ ACAD
   0
 APPID
   5
-C5
+DB
 330
 3
 100
@@ -3151,7 +3151,7 @@ HATCHBACKGROUNDCOLOR
   0
 APPID
   5
-C6
+DC
 330
 3
 100
@@ -4853,7 +4853,7 @@ BLOCK_RECORD
 100
 AcDbSymbolTable
  70
-8
+9
   0
 BLOCK_RECORD
   5
@@ -4997,7 +4997,7 @@ AcDbBlockTableRecord
   0
 BLOCK_RECORD
   5
-BE
+CD
 330
 9
 100
@@ -5007,7 +5007,27 @@ AcDbBlockTableRecord
   2
 *Paper_Space2
 340
-C1
+D0
+ 70
+0
+280
+1
+281
+0
+  0
+BLOCK_RECORD
+  5
+D4
+330
+9
+100
+AcDbSymbolTableRecord
+100
+AcDbBlockTableRecord
+  2
+*Paper_Space3
+340
+D7
  70
 0
 280
@@ -6085,9 +6105,9 @@ AcDbBlockEnd
   0
 BLOCK
   5
-BF
+CE
 330
-BE
+CD
 100
 AcDbEntity
   8
@@ -6111,9 +6131,9 @@ AcDbBlockBegin
   0
 VIEWPORT
   5
-C2
+D1
 330
-BE
+CD
 100
 AcDbEntity
  67
@@ -6215,9 +6235,9 @@ AcDbViewport
   0
 VIEWPORT
   5
-C3
+D2
 330
-BE
+CD
 100
 AcDbEntity
  67
@@ -6229,21 +6249,21 @@ AcDbViewport
  10
 210.0
  20
-160.0
+150.0
  30
 0.0
  40
-400.0
+300.0
  41
-140.0
+270.0
  68
 2
  69
 3
  12
-14340.0
+15010.0
  22
-16506.5
+16470.0
  13
 0.0
  23
@@ -6275,7 +6295,7 @@ AcDbViewport
  44
 0.0
  45
-250.0
+480.0
  50
 0.0
  51
@@ -6319,9 +6339,9 @@ AcDbViewport
   0
 LWPOLYLINE
   5
-C4
+D3
 330
-BE
+CD
 100
 AcDbEntity
  67
@@ -6353,9 +6373,289 @@ AcDbPolyline
   0
 ENDBLK
   5
-C0
+CF
 330
-BE
+CD
+100
+AcDbEntity
+  8
+0
+100
+AcDbBlockEnd
+  0
+BLOCK
+  5
+D5
+330
+D4
+100
+AcDbEntity
+  8
+0
+100
+AcDbBlockBegin
+  2
+*Paper_Space3
+ 70
+0
+ 10
+0.0
+ 20
+0.0
+ 30
+0.0
+  3
+*Paper_Space3
+  1
+
+  0
+VIEWPORT
+  5
+D8
+330
+D4
+100
+AcDbEntity
+ 67
+1
+  8
+VIEWPORTS
+100
+AcDbViewport
+ 10
+200.0
+ 20
+138.5
+ 30
+0.0
+ 40
+462.00000000000006
+ 41
+326.70000000000005
+ 68
+1
+ 69
+1
+ 12
+200.0
+ 22
+138.5
+ 13
+0.0
+ 23
+0.0
+ 14
+10.0
+ 24
+10.0
+ 15
+10.0
+ 25
+10.0
+ 16
+0.0
+ 26
+0.0
+ 36
+1.0
+ 17
+0.0
+ 27
+0.0
+ 37
+0.0
+ 42
+50.0
+ 43
+0.0
+ 44
+0.0
+ 45
+326.70000000000005
+ 50
+0.0
+ 51
+0.0
+ 72
+100
+ 90
+557088
+  1
+
+281
+0
+ 71
+0
+ 74
+0
+110
+0.0
+120
+0.0
+130
+0.0
+111
+1.0
+121
+0.0
+131
+0.0
+112
+0.0
+122
+1.0
+132
+0.0
+ 79
+0
+146
+0.0
+282
+0
+  0
+VIEWPORT
+  5
+D9
+330
+D4
+100
+AcDbEntity
+ 67
+1
+  8
+VIEWPORTS
+100
+AcDbViewport
+ 10
+210.0
+ 20
+150.0
+ 30
+0.0
+ 40
+400.0
+ 41
+270.0
+ 68
+2
+ 69
+3
+ 12
+14340.0
+ 22
+16504.0
+ 13
+0.0
+ 23
+0.0
+ 14
+10.0
+ 24
+10.0
+ 15
+10.0
+ 25
+10.0
+ 16
+0.0
+ 26
+0.0
+ 36
+1.0
+ 17
+0.0
+ 27
+0.0
+ 37
+0.0
+ 42
+50.0
+ 43
+0.0
+ 44
+0.0
+ 45
+480.0
+ 50
+0.0
+ 51
+0.0
+ 72
+100
+ 90
+0
+  1
+
+281
+0
+ 71
+0
+ 74
+0
+110
+0.0
+120
+0.0
+130
+0.0
+111
+1.0
+121
+0.0
+131
+0.0
+112
+0.0
+122
+1.0
+132
+0.0
+ 79
+0
+146
+0.0
+282
+0
+  0
+LWPOLYLINE
+  5
+DA
+330
+D4
+100
+AcDbEntity
+ 67
+1
+  8
+0
+100
+AcDbPolyline
+ 90
+4
+ 70
+1
+ 10
+5.0
+ 20
+5.0
+ 10
+415.0
+ 20
+5.0
+ 10
+415.0
+ 20
+292.0
+ 10
+5.0
+ 20
+292.0
+  0
+ENDBLK
+  5
+D6
+330
+D4
 100
 AcDbEntity
   8
@@ -7125,6 +7425,414 @@ AcDbMText
   1
 {\fArial|b0|i0|c0|p34;TOTAL - @@ROW_BARANGAYS@@}
   0
+LINE
+  5
+BE
+330
+17
+100
+AcDbEntity
+  8
+ROW LINES
+ 62
+7
+370
+35
+100
+AcDbLine
+ 10
+14760.0
+ 20
+16380.0
+ 30
+0.0
+ 11
+15260.0
+ 21
+16380.0
+ 31
+0.0
+  0
+LINE
+  5
+BF
+330
+17
+100
+AcDbEntity
+  8
+ROW LINES
+ 62
+7
+370
+35
+100
+AcDbLine
+ 10
+14760.0
+ 20
+16530.0
+ 30
+0.0
+ 11
+15260.0
+ 21
+16530.0
+ 31
+0.0
+  0
+LINE
+  5
+C0
+330
+17
+100
+AcDbEntity
+  8
+ROW LINES
+ 62
+7
+370
+35
+100
+AcDbLine
+ 10
+14760.0
+ 20
+16410.0
+ 30
+0.0
+ 11
+15260.0
+ 21
+16410.0
+ 31
+0.0
+  0
+LINE
+  5
+C1
+330
+17
+100
+AcDbEntity
+  8
+ROW LINES
+ 62
+7
+370
+35
+100
+AcDbLine
+ 10
+14760.0
+ 20
+16440.0
+ 30
+0.0
+ 11
+15260.0
+ 21
+16440.0
+ 31
+0.0
+  0
+LINE
+  5
+C2
+330
+17
+100
+AcDbEntity
+  8
+ROW LINES
+ 62
+7
+370
+35
+100
+AcDbLine
+ 10
+14760.0
+ 20
+16470.0
+ 30
+0.0
+ 11
+15260.0
+ 21
+16470.0
+ 31
+0.0
+  0
+LINE
+  5
+C3
+330
+17
+100
+AcDbEntity
+  8
+ROW LINES
+ 62
+7
+370
+35
+100
+AcDbLine
+ 10
+14760.0
+ 20
+16500.0
+ 30
+0.0
+ 11
+15260.0
+ 21
+16500.0
+ 31
+0.0
+  0
+LINE
+  5
+C4
+330
+17
+100
+AcDbEntity
+  8
+ROW LINES
+ 62
+7
+370
+35
+100
+AcDbLine
+ 10
+14760.0
+ 20
+16560.0
+ 30
+0.0
+ 11
+15260.0
+ 21
+16560.0
+ 31
+0.0
+  0
+LINE
+  5
+C5
+330
+17
+100
+AcDbEntity
+  8
+ROW LINES
+ 62
+7
+370
+35
+100
+AcDbLine
+ 10
+14760.0
+ 20
+16380.0
+ 30
+0.0
+ 11
+14760.0
+ 21
+16560.0
+ 31
+0.0
+  0
+LINE
+  5
+C6
+330
+17
+100
+AcDbEntity
+  8
+ROW LINES
+ 62
+7
+370
+35
+100
+AcDbLine
+ 10
+15260.0
+ 20
+16380.0
+ 30
+0.0
+ 11
+15260.0
+ 21
+16560.0
+ 31
+0.0
+  0
+MTEXT
+  5
+C7
+330
+17
+100
+AcDbEntity
+  8
+ROW TEXT
+100
+AcDbMText
+ 10
+15010.0
+ 20
+16545.0
+ 30
+0.0
+ 40
+12.0
+ 41
+400.0
+ 71
+5
+  1
+{\fArial|b1|i0|c0|p34;DEMO LEGEND}
+  0
+MTEXT
+  5
+C8
+330
+17
+100
+AcDbEntity
+  8
+ROW TEXT
+100
+AcDbMText
+ 10
+14780.0
+ 20
+16519.5
+ 30
+0.0
+ 40
+9.0
+ 41
+300.0
+ 71
+1
+  1
+{\fArial|b0|i0|c0|p34;DEMO SAMPLE 1}
+  0
+MTEXT
+  5
+C9
+330
+17
+100
+AcDbEntity
+  8
+ROW TEXT
+100
+AcDbMText
+ 10
+14780.0
+ 20
+16489.5
+ 30
+0.0
+ 40
+9.0
+ 41
+300.0
+ 71
+1
+  1
+{\fArial|b0|i0|c0|p34;DEMO SAMPLE 2}
+  0
+MTEXT
+  5
+CA
+330
+17
+100
+AcDbEntity
+  8
+ROW TEXT
+100
+AcDbMText
+ 10
+14780.0
+ 20
+16459.5
+ 30
+0.0
+ 40
+9.0
+ 41
+300.0
+ 71
+1
+  1
+{\fArial|b0|i0|c0|p34;DEMO SAMPLE 3}
+  0
+MTEXT
+  5
+CB
+330
+17
+100
+AcDbEntity
+  8
+ROW TEXT
+100
+AcDbMText
+ 10
+14780.0
+ 20
+16429.5
+ 30
+0.0
+ 40
+9.0
+ 41
+300.0
+ 71
+1
+  1
+{\fArial|b0|i0|c0|p34;DEMO SAMPLE 4}
+  0
+MTEXT
+  5
+CC
+330
+17
+100
+AcDbEntity
+  8
+ROW TEXT
+100
+AcDbMText
+ 10
+14780.0
+ 20
+16399.5
+ 30
+0.0
+ 40
+9.0
+ 41
+300.0
+ 71
+1
+  1
+{\fArial|b0|i0|c0|p34;DEMO SAMPLE 5}
+  0
 ENDSEC
   0
 SECTION
@@ -7235,9 +7943,13 @@ KEYMAP
 350
 98
   3
+LEGENDS
+350
+D0
+  3
 ROW AREA COVERAGE
 350
-C1
+D7
   0
 DICTIONARY
   5
@@ -8227,7 +8939,7 @@ CREATED_BY_EZDXF
   3
 WRITTEN_BY_EZDXF
 350
-C7
+DD
   0
 DICTIONARYVAR
   5
@@ -8239,7 +8951,7 @@ DictionaryVariables
 280
 0
   1
-1.4.5 @ 2026-11-25T02:36:21.540162+00:00
+1.4.5 @ 2026-11-25T03:46:49.848072+00:00
   0
 VISUALSTYLE
   5
@@ -15049,7 +15761,135 @@ KEYMAP
   0
 LAYOUT
   5
-C1
+D0
+330
+D
+100
+AcDbPlotSettings
+  1
+
+  2
+DWG to PDF.pc3
+  4
+ezdxf_(420.00_x_297.00_MM)
+  6
+
+ 40
+10.0
+ 41
+10.0
+ 42
+10.0
+ 43
+10.0
+ 44
+420.0
+ 45
+297.0
+ 46
+0.0
+ 47
+0.0
+ 48
+0.0
+ 49
+0.0
+140
+0.0
+141
+0.0
+142
+1.0
+143
+1.0
+ 70
+672
+ 72
+1
+ 73
+0
+ 74
+5
+  7
+
+ 75
+16
+ 76
+0
+ 77
+2
+ 78
+300
+147
+1.0
+148
+0.0
+149
+0.0
+100
+AcDbLayout
+  1
+LEGENDS
+ 70
+1
+ 71
+5
+ 10
+-10.0
+ 20
+-10.0
+ 11
+410.0
+ 21
+287.0
+ 12
+0.0
+ 22
+0.0
+ 32
+0.0
+ 14
+1e+20
+ 24
+1e+20
+ 34
+1e+20
+ 15
+-1e+20
+ 25
+-1e+20
+ 35
+-1e+20
+146
+0.0
+ 13
+0.0
+ 23
+0.0
+ 33
+0.0
+ 16
+1.0
+ 26
+0.0
+ 36
+0.0
+ 17
+0.0
+ 27
+1.0
+ 37
+0.0
+ 76
+1
+330
+CD
+331
+D1
+  0
+LAYOUT
+  5
+D7
 330
 D
 100
@@ -15121,7 +15961,7 @@ ROW AREA COVERAGE
  70
 1
  71
-5
+6
  10
 -10.0
  20
@@ -15171,13 +16011,13 @@ ROW AREA COVERAGE
  76
 1
 330
-BE
+D4
 331
-C2
+D8
   0
 DICTIONARYVAR
   5
-C7
+DD
 330
 2D
 100
@@ -15185,7 +16025,7 @@ DictionaryVariables
 280
 0
   1
-1.4.5 @ 2026-11-25T02:36:21.543831+00:00
+1.4.5 @ 2026-11-25T03:46:49.853603+00:00
   0
 ENDSEC
   0
