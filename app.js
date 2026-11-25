@@ -3490,7 +3490,7 @@
     });
     const up = (e) => {
       if (!drw) return; drw.ptrs.delete(e.pointerId); if (drw.ptrs.size < 2) pinch = null;
-      if (hD) { const D = hD; hD = null; if (e.type === 'pointerup' && moved >= 8 && drw.hDrag) drwHandleDrop(D); else { drw.hDrag = null; drawDrawing(); } return; } // ((beta 7.11, Drawing tools) a handle let go: the turn or the tip kept)
+      if (hD) { const D = hD; hD = null; if (e.type === 'pointerup' && moved >= 8 && drw.hDrag) drwHandleDrop(D); else { drw.hDrag = null; if (e.type === 'pointerup' && moved < 8) drwTapAt(e, add); else drawDrawing(); } return; } // ((beta 7.11, Drawing tools) a handle let go: the turn or the tip kept; only tapped: what is under it, as any tap)
       if (phD) { const D = phD, G = drw.phDrag; phD = null; drw.phDrag = null; // (beta 7.8, Drawing photos) a photo let go where it was dragged, or tapped
         if (e.type === 'pointerup' && moved >= 8 && G) drwPhDrop(D.id, G.dx, G.dy); else if (e.type === 'pointerup' && moved < 8) drwTapAt(e, add); else drawDrawing(); return; } // ((beta 7.11) a tap: what is under it, tapped again the next)
       if (mvD) { const D = mvD, G = drw.mvDrag; mvD = null; drw.mvDrag = null; // ((beta 7.10, Drawing labels) a label, number or pole's details let go where it was dragged, or tapped

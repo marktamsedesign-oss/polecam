@@ -115,7 +115,7 @@ async function boot(page) {
 async function hook(page) {
   await page.evaluate(async (KEYS) => {
     if (!window.GeDxfTpl) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'dxftpl.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
-    const T = window.GeDxfTpl, real = T.build; window.__exp = [];
+    const T = window.GeDxfTpl, real = T.build; T.__w = true; window.__exp = []; // (__w: the export's plan made on the page, where this sees it)
     T.build = function (seed, job) { const out = real.call(this, seed, job); window.__exp.push({ job: JSON.parse(JSON.stringify(Object.fromEntries(KEYS.filter((k) => k in job).map((k) => [k, job[k]])))), pts: JSON.parse(JSON.stringify(job.pts.map((p) => ({ id: p.id, status: p.status, closureOld: p.closureOld, E: p.E, N: p.N })))), phPin: JSON.parse(JSON.stringify(job.phPin || {})), cabPin: JSON.parse(JSON.stringify(job.cabPin || {})), movable: JSON.parse(JSON.stringify(out.report.movable)), drawnAt: JSON.parse(JSON.stringify(out.report.drawnAt || {})), text: out.text }); return out; };
   }, TOOL_JOB);
 }
@@ -300,27 +300,27 @@ test('Existing ↔ Proposed changes the record itself (the plan follows); Undo p
   await ctx.close();
 });
 
-test('a pole dragged: poleAt (the record\'s GPS stays), shown where let go, the plan made with it (its spans follow); Back to automatic', async () => {
+test('a pole dragged: poleAt (the record\'s GPS stays), shown where let go, the plan made with it (its spans follow); Back to automatic', async () => { // (s7: a pole with nothing on it but its labels)
   const { ctx, page, errors } = await open();
-  const e0s6 = (await exportPlan(page)).pts.find((p) => p.id === 's6');
+  const e0s7 = (await exportPlan(page)).pts.find((p) => p.id === 's7');
   await drawing(page); await shown(page);
-  await see(page, 'pole:s6'); const r0 = await recOf(page, 's6'), p0 = await page.evaluate(() => window.__polecam.drwPt('s6'));
+  await see(page, 'pole:s7'); const r0 = await recOf(page, 's7'), p0 = await page.evaluate(() => window.__polecam.drwPt('s7'));
   // not selected: a drag pans the drawing, the pole stays
   const v0 = await page.evaluate(() => window.__polecam.drawView()); await drag(page, p0[0], p0[1], -40, 0);
   assert.deepEqual((await kept(page)).poleAt, {}, 'a pan'); assert.notEqual((await page.evaluate(() => window.__polecam.drawView())).cx, v0.cx);
   await page.evaluate((v) => { window.__polecam.drwView(v); window.__polecam.drwRedraw(); }, v0);
   // selected, then dragged: moved on the plan
-  await select(page, 'pole:s6', 's6'); const n0 = (await pl(page)).n, sc = (await page.evaluate(() => window.__polecam.drwPh().sc)), q0 = await page.evaluate(() => window.__polecam.drwPt('s6')), d0 = (await full(page, 'pole:s6')).box;
+  await select(page, 'pole:s7', 's7'); const n0 = (await pl(page)).n, sc = (await page.evaluate(() => window.__polecam.drwPh().sc)), q0 = await page.evaluate(() => window.__polecam.drwPt('s7')), d0 = (await full(page, 'pole:s7')).box;
   await drag(page, q0[0], q0[1], -40, 0); const K = await kept(page);
-  assert.ok(K.poleAt.s6, 'kept'); near(K.poleAt.s6[0], d0[0] - 40 / sc, 0.15, 'where let go (E)'); near(K.poleAt.s6[1], d0[1], 0.15, 'N');
-  const p1 = await page.evaluate(() => window.__polecam.drwPt('s6')); near(p1[0], q0[0] - 40, 1.5, 'drawn where let go'); near(p1[1], q0[1], 1.5, 'y');
-  const L = (await mvOf(page)).lifted.map((x) => x.id); assert.ok(L.includes('pole:s6') && L.includes('lbl:s6'), `the pole and what is on it shown there until the plan made with it comes: ${L}`);
-  const r1 = await recOf(page, 's6'); assert.equal(r1.lat, r0.lat); assert.equal(r1.lon, r0.lon); assert.equal(r1.updated, r0.updated, 'the record as it was');
+  assert.ok(K.poleAt.s7, 'kept'); near(K.poleAt.s7[0], d0[0] - 40 / sc, 0.15, 'where let go (E)'); near(K.poleAt.s7[1], d0[1], 0.15, 'N');
+  const p1 = await page.evaluate(() => window.__polecam.drwPt('s7')); near(p1[0], q0[0] - 40, 1.5, 'drawn where let go'); near(p1[1], q0[1], 1.5, 'y');
+  const L = (await mvOf(page)).lifted.map((x) => x.id); assert.ok(L.includes('pole:s7') && L.includes('lbl:s7'), `the pole and what is on it shown there until the plan made with it comes: ${L}`);
+  const r1 = await recOf(page, 's7'); assert.equal(r1.lat, r0.lat); assert.equal(r1.lon, r0.lon); assert.equal(r1.updated, r0.updated, 'the record as it was');
   await again(page, n0); const e = await exportPlan(page);
-  assert.deepEqual(e.job.poleAt, K.poleAt, 'the export\'s job'); near(e.drawnAt.s6[0], K.poleAt.s6[0], 0.01, 'drawn there'); near(e.drawnAt.s6[1], K.poleAt.s6[1], 0.01, 'N');
-  assert.equal(e.pts.find((p) => p.id === 's6').E, e0s6.E, 'its record\'s place in the job as surveyed');
+  assert.deepEqual(e.job.poleAt, K.poleAt, 'the export\'s job'); near(e.drawnAt.s7[0], K.poleAt.s7[0], 0.01, 'drawn there'); near(e.drawnAt.s7[1], K.poleAt.s7[1], 0.01, 'N');
+  assert.equal(e.pts.find((p) => p.id === 's7').E, e0s7.E, 'its record\'s place in the job as surveyed');
   // Back to automatic
-  await drawing(page); await shown(page); await select(page, 'pole:s6', 's6'); await tbClick(page, 'auto'); await page.waitForTimeout(200);
+  await drawing(page); await shown(page); await select(page, 'pole:s7', 's7'); await tbClick(page, 'auto'); await page.waitForTimeout(200);
   assert.deepEqual((await kept(page)).poleAt, {}, 'back');
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -356,7 +356,7 @@ test('Plan style: Lines to the pole off and Closure labels Bubble reach the job;
   await closeAll(page); await drawing(page); await shown(page, (x) => x.n > n0);
   const e = await exportPlan(page); assert.deepEqual(e.job.leaders, { photo: false, details: false, number: true }); assert.equal(e.job.cloStyle, 'bubble');
   // back to the defaults: none in the job; one closure in a bubble from the toolbar
-  await page.click('#drawSetBtn'); await page.waitForTimeout(700); await page.evaluate(() => { document.getElementById('stPole').open = true; document.getElementById('stCab').open = true; });
+  await drawing(page); await shown(page); await page.click('#drawSetBtn'); await page.waitForTimeout(700); await page.evaluate(() => { document.getElementById('stPole').open = true; document.getElementById('stCab').open = true; });
   await page.click('#stLead [data-k="photo"]'); await page.click('#stLead [data-k="details"]'); await page.click('#stCloStyle [data-v="arrow"]'); await page.waitForTimeout(200);
   await drawing(page); await shown(page); await select(page, 'clolbl:s2'); await tbClick(page, 'callout', 'bubble'); await page.waitForTimeout(150);
   assert.deepEqual((await kept(page)).mvStyle['clolbl:s2'], { callout: 'bubble' });
