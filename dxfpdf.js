@@ -13,7 +13,10 @@
      → Promise<Uint8Array> (the PDF), with .report = { sheets, pictures, missing }
    (beta 7.9, Drawing preview) GeDxfPdf.planList(dxfText, report) → the plan's model space as its GEO sheets print it, drawn by the same draw(), as a
      display list in model metres for the Drawing screen (modelList); toPdf's output is the same as before, byte for byte. (beta 7.10, Drawing labels) Each
-     item of it says which of report.movable it draws (own). */
+     item of it says which of report.movable it draws (own).
+   (beta 7.14, Text format) the text editor's fonts printed as near as the PDF's own go: a serif TrueType font in Times, a monospaced one in Courier (each put
+     in the PDF only when a page uses it: a PDF without them is as before, byte for byte), a narrow one in Helvetica narrowed, an SHX one as before; a
+     text's underline (TEXT %%u, MTEXT \L … \l) a line under it. planList's texts say their family (ff: 1 Times, 2 Courier; none: Helvetica). */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./dxftpl.js'), require('./reports.js'));
   else root.GeDxfPdf = factory(root.GeDxfTpl, root.PoleReports);

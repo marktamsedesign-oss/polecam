@@ -1899,6 +1899,28 @@
    *   'point', point } the record; { how: 'note' }; { how: 'hide' } left off the plan; none: a span's cable). job.hide [ids]: left off the plan (their
    *   lines and arrows too; a block's attribute hidden in it), still listed with hidden: true and their box. report.movable[i].src: for each text line,
    *   the record field it shows ({ point, field, line?: '{v}m LOOP'…, value?: 'CC-{v}' } or { span: [a, b], field: 'lenW' | 'runLbls', i? }) or null.
+   *
+   * (beta 7.14, Text format; the contract with the app: the scratchpad's stage6-contract.md §1; the owner: "add text editor (center line, left, or right , wrap
+   * text and so on) . Add also a font style selection") job.style[id] / job.styleKind[kind] (the item's own wins, field by field) and a text note's own fields
+   * (job.notes[i], between the two) take align ('left' | 'center' | 'right'), wrap (metres on the plan, > 0), spacing (0.5–3), font (a name of report.fonts)
+   * and underline (true / false), on every item with texts. With none of them (or them as drawn, or not valid) the DXF is beta 7.13's, byte for byte.
+   * Laid out after job.text and before the styles (h, bold, italic, colour), pins and leaders: wrap: each line broken at its spaces where it is wider, with
+   *   the builder's own text measure (arialW, bold when bold, at the item's size after h; GeDxfTpl.wrapLine), a word wider whole; a TEXT's or attribute's
+   *   other pieces TEXT copies of it after it (its shadow with each), an MTEXT's \P where it breaks; the rows below moved down to make room. spacing: the
+   *   distance from each row to the next and an MTEXT's own (44) times it. align: in the frame of the item's first text, each line (a TEXT, a piece, an
+   *   MTEXT as one) with its left edge, middle or right edge in line: TEXT / ATTRIB 72 = 0 / 1 / 2 and its point (11) at that end (its vertical alignment
+   *   kept; 72 = 4 as 0 / 1 / 2 with 73 / 74 = 2; 72 = 3 / 5 only moved), MTEXT its attachment column (71) and its own \pxq…; codes. Then the texts moved
+   *   together so the middle of their box is where it was (a closure's bubble: laid out beside its pointer's tip as the plan lays it, aligned in its box);
+   *   a pole details' line and a cable label's arrow keep their end at the box's edge, a closure label's arrow is drawn again, a Tidy block's number moves
+   *   with its first line. report.movable[i].text: the lines before wrapping (what the editor edits).
+   * font, after the styles' bold and italic: TEXT / ATTRIB group 7 = the template's own style of that font, else a style added once ('G-ESAA <NAME>',
+   *   bold / italic 'G-ESAA <NAME> B' | 'I' | 'BI': the bold / italic files of the app's TrueType fonts, a template font's own file, with the ACAD xdata
+   *   family and flags; Arial: beta 7.11's 'G-ESAA ARIAL …'); MTEXT its codes \f<Family>|b…|i…|c0|p<pitch>; (a TrueType font) or \F<file>; (an SHX font),
+   *   a text not in one wrapped in {…} (a template TrueType font of no known family: its style, the MTEXT's codes out). An SHX font: neither bold nor italic.
+   * underline: %%u before a TEXT's or attribute's words (its shadow's too), \L … \l round an MTEXT's; false takes them out.
+   * report.fonts [{ name, file, kind: 'ttf' | 'shx', from: 'template' | 'app', family? }]: the template's text styles (one per font file; its G-ESAA styles
+   *   and shape files left out), then the app's (APP_FONTS) whose file it has not got. report.movable[i].fmt (every item with can.text): { align, font,
+   *   spacing, wrap, underline, bold, italic } as drawn (those asked, else as its first text is; spacing 1, wrap 0 when not asked).
    */
   /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
       every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
