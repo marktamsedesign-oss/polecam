@@ -2740,7 +2740,7 @@
       const M = drwMvs(), v = drw.view, sc = v.sc, E = v.cx + (x - cv.width / 2) / sc, N = v.cy - (y - cv.height / 2) / sc, mg = (e.pointerType === 'mouse' ? 5 : 9) * d / sc, hit = [], hid = new Set(Object.keys(pmeta(drw.project).mvHide || {}));
       M.forEach((m, i) => {
         const line = m.kind === 'cableline' || m.kind === 'messenger'; // ((beta 7.12, Drawing edit) a line (a span's cable, a messenger arm): taken within a finger of it; after what is on it)
-        if (m.kind === 'photo' || (!line && Math.min(m.box[2], m.box[3]) * sc < 3 * d) || (line && m.box[2] * sc < 6 * d) || (pt && pt.id === m.id) || (isNote(m) && !noteNow(m)) || hid.has(m.id)) return; // ((beta 7.12, Drawing edit) a note deleted since the plan shown was made, an item deleted from the plan: not there)
+        if (m.kind === 'photo' || (!line && Math.min(m.box[2], m.box[3]) * sc < 3 * d) || (line && m.box[2] * sc < 6 * d) || (pt && pt.id === m.id) || (isNote(m) && !noteNow(m)) || hid.has(m.id) || m.hidden) return; // ((beta 7.12, Drawing edit) a note deleted since the plan shown was made, an item deleted from the plan: not there)
         const B = drwMvBox(m, i), a = B[4] * Math.PI / 180, dx = E - B[0], dy = N - B[1], u = dx * Math.cos(a) + dy * Math.sin(a), w = -dx * Math.sin(a) + dy * Math.cos(a);
         if (Math.abs(u) <= B[2] / 2 + mg && Math.abs(w) <= B[3] / 2 + mg) hit.push({ id: m.id, i, ar: line ? B[2] * Math.max(B[3], 2 * mg) * 4 : B[2] * B[3] });
       });
@@ -3324,35 +3324,54 @@
   function drwTxtEdit(m) {
     if (!m || !drw || !canText(m)) return;
     if (isNote(m)) { const n = noteNow(m); if (!n) return; drwTxtOpen({ title: 'Edit the note', sub: 'One line per line, as it goes on the plan (the DXF, its PDF and the One PDF).', lines: n.lines || [], need: true, onSave: (L) => drwNoteSet(m, { lines: L }, 'note edited') }); return; }
-    const had = (pmeta(drw.project).mvText || {})[m.id], own = drwTextOf(m), S0 = own.map((_, k) => srcOf(m, k)), recL = S0.map((x, k) => (x ? `${k + 1} (${SRC_NAME[x.field] || x.field})` : '')).filter(Boolean); // ((beta 7.12) the lines from its record)
+    const had = (pmeta(drw.project).mvText || {})[m.id], own = drwTextOf(m), S0 = own.map((_, k) => srcOf(m, k)), recL = S0.map((x, k) => (x ? `${k + 1} (${x.point === pidOf(m) ? 'its' : `${recName(x.rec) || x.rec.poleId || elemOf(x.rec)}'s`} ${x.R.say})` : '')).filter(Boolean); // ((beta 7.12) the lines from its record)
     drwTxtOpen({ title: `Edit text · ${drwMvName(m)}`, sub: `As it goes on the plan (the DXF, its PDF and the One PDF), one line per line; ${had ? 'changed by hand: Automatic puts the plan\'s own text back' : 'the plan\'s own text now'}. ${recL.length ? `Line${recL.length > 1 ? 's' : ''} ${andList(recL)} ${recL.length > 1 ? 'are' : 'is'} from its record: changed, ${recL.length > 1 ? 'they are' : 'it is'} written into the record (the KMZ, the BOQ and every export follow); the others change the plan only.` : 'The record stays as it is.'}`, lines: had || own, auto: !!had, onSave: (L) => drwTextSave(m, L), onAuto: () => drwTextSet(m, null) });
   }
   /* (beta 7.12, Drawing edit) The owner: "after edit or update or delete. the kmz and other related docs must be updated as well": an item's text lines that show a field of
-     a record (report.movable src: per line, its field, or { field, point }) are written into that record when changed, as its form writes it (updated by this user;
-     a latitude or longitude only a number in range, a few metres at most from where it was: a typing slip is refused), so the KMZ, the BOQ and every export show them;
-     the other lines stay the plan's (job.text). One step of Undo / Redo. */
-  const SRC_NAME = { poleId: 'its ID', napId: 'its NAP ID', nap2Id: 'its second NAP ID', closureId: 'its closure ID', lat: 'its latitude', lon: 'its longitude', siteName: 'its name', 'boq.clamp': 'its clamp size', 'boq.owner': 'its owner' };
-  /** The record field line k of an item's text shows (report src), with its record; null: the plan's own words. */
-  function srcOf(m, k) { const x = Array.isArray(m && m.src) ? m.src[k] : null; if (!x) return null; const f = typeof x === 'string' ? x : x.field, pt = typeof x === 'object' && x.point != null ? String(x.point) : pidOf(m); if (!f || pt == null) return null; const rec = points.find((p) => String(p.id) === String(pt)); return rec ? { field: String(f), point: String(pt), rec } : null; }
-  /** A record with field f written as typed (t), or an error to say. */
-  function srcPut(rec, f, t) {
-    const v = String(t).trim();
-    if (f === 'lat' || f === 'lon') { const n = parseFloat(v.replace(/[°\s]|%%d/gi, '')); if (!Number.isFinite(n) || Math.abs(n) > (f === 'lat' ? 90 : 180)) return { err: `${v}: not a ${f === 'lat' ? 'latitude' : 'longitude'}` }; const q = { ...rec, [f]: n }; if (haversine(rec, q) > 50) return { err: `${v}: ${Math.round(haversine(rec, q))} m from where it is (move it on the plan instead)` }; return { rec: { ...q, adjusted: true } }; }
-    if (!v) return { err: `${SRC_NAME[f] || f}: empty` };
-    if (/^boq\./.test(f)) return { rec: { ...rec, boq: { ...(rec.boq || {}), [f.slice(4)]: v.slice(0, 40) } } };
-    return { rec: { ...rec, [f]: v.slice(0, 60) } };
+     a record (report.movable src) are written into that record when changed, as its form writes it (updated by this user; an ID in capitals, a size one of its form's),
+     so the KMZ, the BOQ and every export show them; the other lines (a line not in its form, a span's measured length, its cable's label, the plan's own words) stay the
+     plan's (job.text). One step of Undo / Redo. */
+  /* SRC_REC: a field the plan names (report src; job.pts' names) written into the app's record as its form writes it: say (the editor's words), put(record, value)
+     → the record, { err } (said, nothing saved) or null (not in the record's form: the plan's only). */
+  const srcId = (p, v) => ({ ...p, poleId: v.toUpperCase().slice(0, 60) }), srcUp = (k) => (p, v) => ({ ...p, [k]: v.toUpperCase().slice(0, 40) });
+  const srcOpt = (k, nm) => (p, v) => { const o = (BOQ_OPT[k] || []).find((x) => [v, `${v}m`, `${v}C`].some((y) => x.toLowerCase() === y.toLowerCase())); return o ? { ...p, boq: { ...(p.boq || {}), [k]: o } } : { err: `${v}: ${nm} is one of ${(BOQ_OPT[k] || []).join(', ')}` }; };
+  const SRC_REC = {
+    poleId: { say: 'ID', put: srcId }, tag: { say: 'ID', put: srcId }, siteName: { say: 'name', put: srcId },
+    label1: { say: 'ID', put: (p, v) => { const x = /^PROP\.?\s*POLE\s+(\S.*)$/i.exec(v); return x ? srcId(p, x[1].trim()) : null; } }, // ('PROP.POLE <its ID>')
+    napId: { say: 'NAP ID', put: srcUp('napId') }, nap2Id: { say: 'second NAP ID', put: srcUp('nap2Id') }, closureId: { say: 'closure ID', put: srcUp('closureId') },
+    height: { say: 'pole size', put: srcOpt('height', 'a new pole\'s size') }, clamp: { say: 'clamp size', put: srcOpt('clamp', 'a clamp size') }, cloSize: { say: 'closure size', put: srcOpt('clo', 'a closure size') },
+    ownerName: { say: 'owner\'s name', put: (p, v) => ({ ...p, boq: { ...(p.boq || {}), ownerName: v.slice(0, 60) } }) },
+    armText: { say: 'arm', put: (p, v) => { const a = ARMS_ON_POLE.find((x) => x[2].toLowerCase() === v.toLowerCase() || x[3].toLowerCase() === v.toLowerCase()), k = armOn(p); if (!a) return { err: `${v}: an arm on the pole is one of ${ARMS_ON_POLE.map((x) => x[2]).join(', ')}` }; if (k < 0) return null; const det = (p.details || []).map((d) => ({ ...d })); det[k] = { ...det[k], item: a[3] }; return { ...p, details: det }; } },
+    mloopM: { say: 'loop length', put: (p, v) => { const n = parseFloat(v); if (!(n > 0 && n <= 300)) return { err: `${v}: a loop's length in metres` }; const b = { ...(p.boq || {}), mloopM: String(+n.toFixed(1)) }; if (!loopsAt(p).own) b.mloop = 'Yes'; return { ...p, boq: b }; } }, // (as its form's length chips)
+  };
+  /** The record field line k of an item's text shows (report src: { point, field, line?, value? }), with its record; null: not a record's (a span's measured length,
+      its cable's label, a street's name, the plan's own words). */
+  function srcOf(m, k) {
+    const x = Array.isArray(m && m.src) ? m.src[k] : null; if (!x || typeof x !== 'object' || x.point == null || !SRC_REC[x.field]) return null;
+    const rec = points.find((p) => String(p.id) === String(x.point)); return rec ? { ...x, point: String(x.point), rec, R: SRC_REC[x.field] } : null;
+  }
+  /** The value the line typed (t) gives its field: its line's form round the value ('{v}m LOOP'), the field made from it ('CC-{v}'); null: not in that form (the plan's only). */
+  function srcVal(x, t) {
+    let v = String(t).trim(); if (!v) return null;
+    if (x.line) { const [a, b] = String(x.line).split('{v}'); if (b == null || v.length <= a.length + b.length || v.slice(0, a.length).toUpperCase() !== a.toUpperCase() || v.slice(v.length - b.length).toUpperCase() !== b.toUpperCase()) return null; v = v.slice(a.length, v.length - b.length).trim(); }
+    if (x.value) v = String(x.value).replace('{v}', v);
+    return v || null;
   }
   /** Edit text saved: its record's lines into the record, the rest kept for the plan (job.text). */
   async function drwTextSave(m, L) {
     const own = drwTextOf(m), had = (pmeta(drw.project).mvText || {})[m.id], recs = new Map(), errs = []; let plan = false;
-    L.forEach((t, k) => { const x = srcOf(m, k); if (x && t !== (had ? had[k] : own[k]) && t !== own[k]) { const cur = recs.get(x.point) || x.rec, r = srcPut(cur, x.field, t); if (r.err) errs.push(r.err); else recs.set(x.point, r.rec); } else if (t !== own[k]) plan = true; });
+    L.forEach((t, k) => {
+      if (t === own[k]) return; const x = srcOf(m, k), v = x && t !== (had ? had[k] : own[k]) ? srcVal(x, t) : null; if (v == null) { plan = true; return; } // (not a record's, or not in its form: the plan's only)
+      const cur = recs.get(x.point) || x.rec, r = x.R.put(cur, v); if (!r) plan = true; else if (r.err) errs.push(r.err); else recs.set(x.point, r);
+    });
     if (L.length !== own.length) plan = true; if (errs.length) { toast(`Not saved: ${errs[0]}`, 5000); return; }
     if (!recs.size) { drwTextSet(m, L); return; }
     const proj = drw.project, m0 = pmeta(proj), T = { ...(m0.mvText || {}) }, now = new Date().toISOString(), before = [...recs.keys()].map((pid) => JSON.parse(JSON.stringify(points.find((p) => String(p.id) === pid))));
-    { const lk = tmHooks.locked ? tmHooks.locked(before[0].id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    for (const b of before) { const lk = tmHooks.locked ? tmHooks.locked(b.id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    const dup = [...recs.values()].filter((r) => r.poleId && r.poleId !== (before.find((b) => b.id === r.id) || {}).poleId && points.some((q) => q.project === r.project && q.id !== r.id && String(q.poleId || '').toUpperCase() === r.poleId)).map((r) => r.poleId); // (as its form warns: the ID already used in this project)
     drwUndoPush('text written into its record', before); if (plan) T[m.id] = L.slice(); else delete T[m.id]; S.meta = S.meta || {}; S.meta[proj] = { ...m0, mvText: T }; if (!Object.keys(T).length) delete S.meta[proj].mvText; persist();
     LOG.info('draw.text.rec', { kind: m.kind, recs: recs.size, plan });
-    if (await drwRecsPut([...recs.values()].map((r) => ({ ...r, updated: now, updatedBy: byLine() })))) toast(`${recs.size === 1 ? `${recName([...recs.values()][0]) || 'Its record'}` : `${recs.size} records`}: written, the KMZ, the BOQ and the plan follow (↶ undoes)`, 3500);
+    if (await drwRecsPut([...recs.values()].map((r) => ({ ...r, updated: now, updatedBy: byLine() })))) toast(`${recs.size === 1 ? `${recName([...recs.values()][0]) || 'Its record'}` : `${recs.size} records`}: written, the KMZ, the BOQ and the plan follow (↶ undoes)${dup.length ? `. ${dup[0]} is already used in this project.` : ''}`, dup.length ? 6000 : 3500);
   }
   /** An item's text kept as edited (L: its lines; [] its texts left off) or, null, the plan's own again. */
   function drwTextSet(m, L) {
@@ -3425,23 +3444,42 @@
     closure: (p) => { const b = { ...(p.boq || {}) }; delete b.clo; delete b.cloSt; delete b.cloAuto; return { ...p, closure: false, closureId: '', boq: b }; }, // (the survey form's Closure switch off: its size, status and ID with it)
     nap: (p) => { const b = { ...(p.boq || {}) }; ['napType', 'napSz', 'napSt'].forEach((k) => delete b[k]); return { ...p, nap: false, napId: '', boq: b }; },
     nap2: (p) => { const b = { ...(p.boq || {}) }; ['nap2Type', 'nap2Sz', 'nap2St'].forEach((k) => delete b[k]); return { ...p, nap2: false, nap2Id: '', boq: b }; }, // (as its Remove)
-    guy: (p) => { const b = { ...(p.boq || {}) }; delete b.guy; delete b.p2p; return { ...p, boq: b }; },
     ground: (p) => ({ ...p, boq: { ...(p.boq || {}), ground: 'No' } }), // (No grounding)
-    mloop: (p) => { const b = { ...(p.boq || {}), mloop: 'No' }; delete b.mloopM; return { ...p, mloop: false, boq: b }; }, // (No loop: the app adds none there either)
-    arm: (p) => { const b = { ...(p.boq || {}) }; if (b.arm) { delete b.arm; return { ...p, boq: b }; } const k = armOn(p); if (k < 0) return p; const det = (p.details || []).slice(); det.splice(k, 1); return { ...p, details: det }; }, // (the new arm, else the arm on the pole)
-    telcoArm: (p) => { const b = { ...(p.boq || {}) }; delete b.telcoArm; return { ...p, boq: b }; },
+    mloop: (p) => { if (loopsAt(p).own) return p; const b = { ...(p.boq || {}), mloop: 'No' }; delete b.mloopM; return { ...p, mloop: false, boq: b }; }, // (its form's No loop; a NAP's, closure's or riser's own loop has none)
     riser: (p) => { const b = { ...(p.boq || {}) }; delete b.riser; return { ...p, boq: b }; },
   };
-  const KIND_FIELD = { closure: 'closure', closurelabel: 'closure', nap: 'nap', guy: 'guy', ground: 'ground', loop: 'mloop', loopsym: 'mloop', arm: 'arm' };
-  /** A record's field off: as the table says, else a BOQ key taken off, a switch off or a text emptied. */
-  const fieldOffFn = (f) => (!f ? null : FIELD_OFF[f] || (/^boq\./.test(f) ? (p) => { const b = { ...(p.boq || {}) }; delete b[f.slice(4)]; return { ...p, boq: b }; } : (p) => ({ ...p, [f]: typeof p[f] === 'boolean' ? false : '' })));
-  /** How an item is deleted (null: it is not): its note; the plan's del ('field', 'point', 'hide'; its point and field, its kind's field when it names none). */
+  /** (beta 7.12) The plan's del { how: 'field', field, off, also } (field: job.pts' name) as the record's form changes the record: (rec) → the record, or null when
+      its record cannot say it (then it is left off the plan only, said why). */
+  function delFieldFn(d) {
+    const f = String(d.field || '');
+    if (f === 'closure') return FIELD_OFF.closure;
+    if (f === 'nap') return (p) => FIELD_OFF.nap2(FIELD_OFF.nap(p)); // (a pole's NAP and its second one: the plan draws them as one)
+    if (f === 'nap2' || f === 'mloop' || f === 'ground' || f === 'riser') return FIELD_OFF[f];
+    if (f === 'guy') return (p) => { const b = { ...(p.boq || {}) }, g = String(d.off == null ? '' : d.off).trim(); if (g) b.guy = g; else delete b.guy; if (!/pole.?to.?pole/i.test(b.guy || '')) delete b.p2p; return { ...p, boq: b }; }; // (its other guys kept, as its form's chips keep them)
+    if (f === 'armType') return (p) => { const b = { ...(p.boq || {}) }; delete b.arm; return { ...p, boq: b }; }; // (the new arm)
+    if (f === 'armText' || f === 'telcoArm') return (p) => { const k = armOn(p); if (k < 0) return p; const det = (p.details || []).slice(); det.splice(k, 1); return { ...p, details: det }; }; // (the arm on the pole: its line in the details)
+    if (f === 'att') return (p) => { // (a messenger arm: that pole taken off the pull-off's or cross-over's poles, as its poles' picker does; a pole that carries its cable stays)
+      const keep = new Set((Array.isArray(d.off) ? d.off : []).map(String)), drop = jnAtt(p).map((q) => String(q.id)).filter((id) => !keep.has(id)), fix = new Set(jnCablePoles(p).map(String));
+      if (!drop.length || drop.some((id) => fix.has(id))) return null;
+      const r = { ...p, att: (Array.isArray(p.att) ? p.att : []).filter((id) => !drop.includes(String(id))) };
+      try { const fit = jnFit(r, jnAtt(r)); if (fit && fit.main) r.jm = fit.main; else if (Array.isArray(r.jm) && r.jm.some((id) => drop.includes(String(id)))) delete r.jm; } catch (e) { /* (its messenger as it was) */ }
+      return r;
+    };
+    return null;
+  }
+  /** (beta 7.12) Still on the plan by the plan's own rule once its record says no: a loop (the cable's spacing; a NAP's, closure's or riser's own), a riser (the cable goes under there). */
+  function delStill(f, r) { if (f === 'riser') return riserAuto(r); if (f === 'mloop') { const o = loopsAt(r); return o.auto || o.own; } return false; }
+  /** The loops the plan puts on a pole by its own rule, with its record r: auto (the cable's spacing), own (a NAP's, a closure's, a riser's…), as planJob works them out. */
+  function loopsAt(r) { try { const pts = points.filter((q) => q.project === r.project).map((q) => (q.id === r.id ? r : q)), R = routeModel(), LA = autoLoops(pts, R); return { auto: LA.has(r.id) || !!(LA.fib && LA.fib.list.has(r.id)), own: loopOwnMap(pts, R).has(r.id) }; } catch (e) { return { auto: false, own: false }; } }
+  const DEL_WHY = { mloop: 'the plan puts a loop there by its own rule (the cable\'s spacing, or a NAP\'s, a closure\'s or a riser\'s own)', riser: 'the cable goes under there', att: 'that pole carries its cable' };
+  /** How an item is deleted (null: it is not): its note; the plan's del: 'field' (fn: its record changed), 'point', 'hide' (a field the app does not keep: 'hide' too). */
   function delOf(m) {
     if (isNote(m)) return noteNow(m) ? { how: 'note' } : null;
-    const d = m && m.del; if (!d) return null; const how = typeof d === 'string' ? d : d.how; if (!/^(field|point|hide)$/.test(how || '')) return null;
-    const point = d.point != null ? String(d.point) : pidOf(m), field = d.field || KIND_FIELD[m.kind] || null, rec = point != null ? points.find((p) => String(p.id) === String(point)) : null;
-    if (how === 'point' && !rec) return null; if (how === 'field' && !(rec && fieldOffFn(field))) return null;
-    return { how, point: point != null ? String(point) : null, field };
+    const d = m && m.del; if (!d || m.hidden) return null; const how = typeof d === 'string' ? d : d.how; if (!/^(field|point|hide)$/.test(how || '')) return null;
+    const point = d.point != null ? String(d.point) : pidOf(m), rec = point != null ? points.find((p) => String(p.id) === point) : null;
+    if (how === 'point') return rec ? { how, point } : null;
+    if (how === 'field') { if (!rec) return null; const fn = delFieldFn(d); return fn ? { how, point, field: String(d.field), fn } : { how: 'hide', point, field: String(d.field || '') }; }
+    return { how: 'hide', point };
   }
   /** What Delete does to them, said (the toolbar's tip). */
   const delSay = (L) => { const H = new Set(L.map((m) => (delOf(m) || {}).how)); return H.size !== 1 ? 'Delete: each as the plan says' : { note: 'Delete this note (↶ brings it back)', hide: 'Delete from the plan only (More › Hidden brings it back)', field: 'Delete: off in its record, as its form does (the BOQ and the KMZ follow; ↶ brings it back)', point: 'Delete the point: its record (asked first; ↶ brings it back)' }[[...H][0]]; };
@@ -3449,26 +3487,33 @@
     if (!drw) return; const T = L.map((m) => ({ m, d: delOf(m) })).filter((x) => x.d); if (!T.length) return;
     if (T.every((x) => x.d.how === 'note')) { drwNotesDel(T.map((x) => x.m)); return; }
     const proj = drw.project, pts = [...new Set(T.filter((x) => x.d.how === 'point').map((x) => x.d.point))], nameOf = (pid) => { const p = points.find((q) => String(q.id) === pid); return p ? recName(p) || p.poleId || elemOf(p) : pid; };
-    for (const pid of new Set(T.filter((x) => x.d.how !== 'hide' && x.d.how !== 'note').map((x) => x.d.point))) { const lk = tmHooks.locked ? tmHooks.locked(pid, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    for (const pid of new Set(T.filter((x) => x.d.how === 'field' || x.d.how === 'point').map((x) => x.d.point))) { const lk = tmHooks.locked ? tmHooks.locked(pid, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
     if (pts.length) { const nm1 = pts.map(nameOf); if (!(await ask(`Delete ${nm1.length === 1 ? nm1[0] : `${nm1.length} points`}?`, `${nm1.length === 1 ? 'Its record and its photos are' : `${nm1.join(', ')}: their records and photos are`} removed from this phone, as Delete in ${nm1.length === 1 ? 'its record' : 'their records'} does: the KMZ, the BOQ and the plan follow; a cable through ${nm1.length === 1 ? 'it' : 'them'} stays joined. ↶ Undo brings ${nm1.length === 1 ? 'it' : 'them'} back.`, [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }])) || !drw || drw.project !== proj) return; }
-    const ids = [...new Set(T.filter((x) => x.d.how === 'field' || x.d.how === 'point').map((x) => x.d.point))], before = ids.map((pid) => points.find((q) => String(q.id) === pid)).filter(Boolean).map((p) => JSON.parse(JSON.stringify(p))), ph = [];
+    // the records' fields off, as their forms set them off; what its record cannot say (the plan puts it there by its own rule) left off the plan too, said why
+    const recs = new Map(), why = [];
+    for (const x of T) {
+      if (x.d.how !== 'field' || pts.includes(x.d.point)) continue; const cur = recs.get(x.d.point) || points.find((q) => String(q.id) === x.d.point); if (!cur) continue;
+      const r = x.d.fn(cur), same = !r || JSON.stringify(r) === JSON.stringify(cur); if (!same) recs.set(x.d.point, r);
+      if (same || delStill(x.d.field, r)) { x.hide = true; why.push(x); }
+    }
+    const ids = [...new Set([...recs.keys(), ...pts])], before = ids.map((pid) => points.find((q) => String(q.id) === pid)).filter(Boolean).map((p) => JSON.parse(JSON.stringify(p))), ph = [];
     for (const pid of pts) { const p = points.find((q) => String(q.id) === pid); if (p) for (const x of allPids(p)) { const st = await dbGet('photos', x).catch(() => null); if (st) ph.push(st); } }
     const what = T.length === 1 ? { field: `${T[0].m.kind} off in its record`, point: 'point deleted', hide: `${T[0].m.kind} deleted from the plan`, note: 'note deleted' }[T[0].d.how] : `${T.length} items deleted`;
-    drwUndoPush(what, before.length ? before : null, { ph, route: pts.length ? routeSnap() : null }); LOG.info('draw.delete', { n: T.length, how: [...new Set(T.map((x) => x.d.how))] });
+    drwUndoPush(what, before.length ? before : null, { ph, route: pts.length ? routeSnap() : null }); LOG.info('draw.delete', { n: T.length, how: [...new Set(T.map((x) => x.d.how))], rule: why.length });
     // the plan's own: left off, the notes
-    const m0 = pmeta(proj), nm = { ...m0 }, H = { ...(nm.mvHide || {}) }; for (const x of T) if (x.d.how === 'hide') H[x.m.id] = true; if (Object.keys(H).length) nm.mvHide = H;
+    const m0 = pmeta(proj), nm = { ...m0 }, H = { ...(nm.mvHide || {}) }; for (const x of T) if (x.d.how === 'hide' || x.hide) H[x.m.id] = true; if (Object.keys(H).length) nm.mvHide = H;
     const nid = new Set(T.filter((x) => x.d.how === 'note').map((x) => x.m.id)); if (nid.size) { nm.notes = notesOf(nm).filter((n) => !nid.has(`note:${n.id}`)); if (!nm.notes.length) delete nm.notes; }
-    S.meta = S.meta || {}; S.meta[proj] = nm; persist(); drwSelClear(true);
-    // the records: a field off (as its form), a point deleted (as its record's Delete)
-    const now = new Date().toISOString(), recs = new Map();
-    for (const x of T) { if (x.d.how !== 'field' || pts.includes(x.d.point)) continue; const cur = recs.get(x.d.point) || points.find((q) => String(q.id) === x.d.point); if (cur) recs.set(x.d.point, { ...fieldOffFn(x.d.field)(cur), updated: now, updatedBy: byLine() }); }
+    S.meta = S.meta || {}; S.meta[proj] = nm; persist(); drwSelClear(true); $('drawInfo').hidden = true; $('drawHint').hidden = !!S.drawHintOff; // (what was selected is gone: its line too)
+    // a point deleted (as its record's Delete)
+    const now = new Date().toISOString();
     for (const pid of pts) {
       const p = points.find((q) => String(q.id) === pid); if (!p) continue; await dbDel('points', p.id); await deletePhotosIfUnused(allPids(p), new Set([p.id])); points = points.filter((q) => q.id !== p.id);
       if (links().some(([a, b]) => a === p.id || b === p.id) || fibers().some((f) => f.path.includes(p.id))) { const q = routeDrop(new Set([p.id]), links(), fibers()); setRoute(q.l, q.f); } // (as its record's Delete: off its spans and cables, a cable through it stays joined)
       const mm = { ...(S.meta[proj] || {}) }; mm.gone = { ...(mm.gone || {}), [p.id]: now }; S.meta[proj] = mm; persist(); changedAfterApproval(proj, 'delete');
     }
-    if (recs.size) await drwRecsPut([...recs.values()]); else if (pts.length) { try { renderPoles(); } catch (e) { /* not ready */ } drwRecsShow(); } else { drwMvShowPins(); drwPlanUi(); drwTbRender(); drawDrawing(); drwPhSoon(250); }
-    toast(`${T.length === 1 ? 'Deleted' : `${T.length} items deleted`}${recs.size || pts.length ? ': the record, the KMZ, the BOQ and the plan follow' : ' from the plan'} (↶ Undo brings ${T.length === 1 ? 'it' : 'them'} back)`, 3500);
+    if (recs.size) await drwRecsPut([...recs.values()].map((r) => ({ ...r, updated: now, updatedBy: byLine() }))); else if (pts.length) { try { renderPoles(); } catch (e) { /* not ready */ } drwRecsShow(); } else { drwMvShowPins(); drwPlanUi(); drwTbRender(); drawDrawing(); drwPhSoon(250); }
+    const w0 = why[0], rule = w0 ? ` ${drwMvName(w0.m)}: ${DEL_WHY[w0.d.field] || 'not a field its record keeps'}, so it is left off the plan only (More › Hidden brings it back).` : '';
+    toast(`${T.length === 1 ? 'Deleted' : `${T.length} items deleted`}${recs.size || pts.length ? ': the record, the KMZ, the BOQ and the plan follow' : ' from the plan'} (↶ Undo brings ${T.length === 1 ? 'it' : 'them'} back).${rule}`, rule ? 6000 : 3500);
   }
   /** (beta 7.12, Drawing edit) Items left off the plan shown again (ids; none: all of them). */
   function drwUnhide(ids) {

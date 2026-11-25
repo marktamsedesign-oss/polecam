@@ -275,7 +275,7 @@ svg.dpi{width:23px;height:23px;flex:none;fill:none;stroke:currentColor;stroke-wi
 /* (beta 7.12, Drawing edit) on a phone the tools used less (bold, italic, turn back, the line, existing / proposed, arrow / bubble, the draw order, this one / all
    like it, automatic, several) wait under More (xtra), as the CEF editor's strip keeps its few; a laptop has the room for all of them */
 .drwtbb[data-a="xtra"]{display:none}
-@media (max-width:699px){.drwtb:not(.xopen) .lo{display:none!important}.drwtbb[data-a="xtra"]{display:inline-flex}.drwtbb,.drwtbseg button{min-width:46px;padding:3px 3px;font-size:calc(10px * var(--fs))}.drwtb{gap:0;padding:3px 4px}.drwtb .drwtbsep{display:none}} /* (a phone: no lines between the groups, so that a label's tools fit one row) */
+@media (max-width:699px){.drwtb:not(.xopen) .lo{display:none!important}.drwtbb[data-a="xtra"]{display:inline-flex}.drwtbb,.drwtbseg button{min-width:42px;padding:3px 2px;font-size:calc(10px * var(--fs))}.drwtb{gap:0;padding:3px 4px}.drwtb .drwtbsep{display:none}} /* (a phone: no lines between the groups, so that a label's tools fit one row; (beta 7.12) 42 px each: with Delete too, on a phone 412 px wide) */
 #drawWrap.tbtop > .drwxhid{top:calc(var(--tbh, 64px) + 8px)}#drawWrap.tbtop:has(> #drawXHid:not([hidden])) > #drawPhAll{top:calc(var(--tbh, 64px) + 52px)} /* (the chips at the upper right, below the toolbar at the top) */
 @media (max-width:699px){#drawWrap.tbtop > .drwxhid{right:calc(var(--tap) + 24px)}} /* (a phone: below a tall toolbar, clear of the round tools) */
 /* (beta 7.12, Drawing edit) the Drawing's own tools in a row over the plan, as the CEF editor's strip: Select, Add text, Add photo, Undo, More (its tray); on a
