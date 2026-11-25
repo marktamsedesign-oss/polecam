@@ -1187,7 +1187,7 @@ Gfx.prototype.pl = function (pts, lay, close) { if (pts.length > 1) this.put({ k
 Gfx.prototype.ci = function (c, r, lay) { this.put({ k: 'ci', c, r, lay }); };
 Gfx.prototype.ar = function (c, r, a0, a1, lay) { this.put({ k: 'ar', c, r, a0, a1, lay }); };
 /* m: text lying on a face of the model. [ux, uy, vx, vy]: where one metre along the line of text, and one metre up from it, land on the drawing. */
-Gfx.prototype.tx = function (p, s, h, lay, al, a, b, m) { const t = { k: 'tx', p, s: String(s).replace(/\u00A0/g, ' '), h: TXK === 1 ? h : h * TXK, lay, al: al || 'l', a: a || 0, b: !!b }; if (m) t.m = m; this.put(t); };      /* (beta 7.15, CEF template: TXK) */
+Gfx.prototype.tx = function (p, s, h, lay, al, a, b, m) { const kd = typeof TPL !== 'undefined' && TPL ? tplKind(lay, b) : null, t = { k: 'tx', p, s: String(s).replace(/\u00A0/g, ' '), h: kd ? h * TXK * tplK(kd) : TXK === 1 ? h : h * TXK, lay, al: al || 'l', a: a || 0, b: !!b }; if (m) t.m = m; if (kd) t.kd = kd; this.put(t); };      /* (beta 7.15, CEF template: TXK; CEF template kit: on a template, its kind (kd: its style in the template's kit) and the kit's size for it) */
 Gfx.prototype.fl = function (pts, lay) { this.put({ k: 'fl', pts, lay }); };
 /* the name of the block of every item and line of a plan: its kind and its number among that kind (ODC_2, RPOLE_1, TRENCH_1). GSEQ: one number for each drawing made,
    so that the same item on two drawings of one sheet is two blocks. */
@@ -1833,6 +1833,7 @@ function buildTop(S, o) {
   return { prims: G.p, th, G, far, labs: LB.out, leads: LB.leads, skipped, pics };
 }
 function northArrow(G, base, n, th) {
+  if (typeof TPL !== 'undefined' && TPL && TPL.sym && TPL.sym['CEF NORTH ARROW']) return tplNorth(G, base, n, th);      /* (beta 7.15, CEF template kit) the template's own north arrow */
   const len = 3.2 * th, d = Math.hypot(n[0], n[1]) || 1, ux = n[0] / d, uy = n[1] / d, tip = [base[0] + ux * len, base[1] + uy * len], s = 0.9 * th;
   G.pl([base, tip], 'tx'); G.fl([tip, [tip[0] - ux * s - uy * s * 0.38, tip[1] - uy * s + ux * s * 0.38], [tip[0] - ux * s + uy * s * 0.38, tip[1] - uy * s - ux * s * 0.38]], 'tx');
   G.tx([tip[0] + ux * 0.9 * th, tip[1] + uy * 0.9 * th - 0.45 * th], 'N', th, 'tx', 'c', 0, 1);

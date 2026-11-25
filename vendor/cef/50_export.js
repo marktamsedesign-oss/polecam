@@ -66,7 +66,7 @@ function fitView(make, bw, bh, scales, mm) { let r = null; for (const N of scale
 /* where a view lands in a box: a point of the view (in its own units) goes to [dx + x * s, dy + y * s] on the sheet */
 function viewAt(v, box) { const w = (v.bb[2] - v.bb[0]) * v.s, h = (v.bb[3] - v.bb[1]) * v.s; return { dx: (box[0] + box[2]) / 2 - w / 2 - v.bb[0] * v.s, dy: (box[1] + box[3]) / 2 - h / 2 - v.bb[1] * v.s }; }
 function placeView(G, v, box) { const t = viewAt(v, box), P = xfPrims(v.prims, v.s, 0, t.dx, t.dy); for (const p of P) G.p.push(p); return P; }
-function fitTx(G, p, s, h, maxW, lay, al, b) { const w = textW(s, h) * (b ? 1.08 : 1); if (w > maxW && w > 0) h *= maxW / w; G.tx(p, s, h, lay, al, 0, b); }
+function fitTx(G, p, s, h, maxW, lay, al, b) { const kd = TPL ? tplKind(lay, b) : null, w = textW(s, h) * (b ? 1.08 : 1) * (kd ? tplK(kd) * tplW(kd) : 1); if (w > maxW && w > 0) h *= maxW / w; G.tx(p, s, h, lay, al, 0, b); }      /* (beta 7.15, CEF template kit: kd, on a template measured as its kind's style writes it) */
 const picFile = n => 'photos/photo_' + String(n).padStart(2, '0') + '.jpg';      /* beta 4.1 */
 function sheetFrame(S, G, o) {
   if (TPL) return tplFrame(S, G, o);      /* (beta 7.15, CEF template) on a client's sheet its own frame and title block, filled per sheet */
@@ -95,19 +95,19 @@ function sheetFrame(S, G, o) {
 }
 function drawTable(G, x, yTop, cols, rows, title, o) {
   o = o || {}; const W = cols.reduce((s, c) => s + c.w, 0), rh = o.rh || 6, hh = o.hh || 7, th = o.th || 2; let y = yTop; const ys = [y];
-  if (title) { G.tx([x + W / 2, y - hh / 2 - th * 0.6], title, th * 1.2, 'tx', 'c', 0, true); y -= hh; ys.push(y); }
-  const yCols = y, line = (cells, bold, h) => { let cx = x; cells.forEach((s, i) => { const c = cols[i], al = bold ? 'c' : (c.al || 'l'), px = al === 'c' ? cx + c.w / 2 : al === 'r' ? cx + c.w - 1.5 : cx + 1.5; if (s !== '' && s != null) fitTx(G, [px, y - h / 2 - th * 0.475], String(s), bold ? Math.max(Math.min(th, 1.8), th * 0.95) : th, c.w - (th < 1.9 ? 1.6 : 2.4), 'tx', al, bold); cx += c.w; }); y -= h; ys.push(y); };
+  if (title) { kd('CEF TABLE HEAD', () => G.tx([x + W / 2, y - hh / 2 - th * 0.6], title, th * 1.2, 'tx', 'c', 0, true)); y -= hh; ys.push(y); }      /* (beta 7.15, CEF template kit: kd, each text's kind) */
+  const yCols = y, line = (cells, bold, h) => { let cx = x; cells.forEach((s, i) => { const c = cols[i], al = bold ? 'c' : (c.al || 'l'), px = al === 'c' ? cx + c.w / 2 : al === 'r' ? cx + c.w - 1.5 : cx + 1.5; if (s !== '' && s != null) kd(bold ? 'CEF TABLE HEAD' : 'CEF TABLE', () => fitTx(G, [px, y - h / 2 - th * 0.475], String(s), bold ? Math.max(Math.min(th, 1.8), th * 0.95) : th, c.w - (th < 1.9 ? 1.6 : 2.4), 'tx', al, bold)); cx += c.w; }); y -= h; ys.push(y); };
   line(cols.map(c => c.t), true, hh); for (const r of rows) line(r, false, rh);
   for (const yy of ys) G.pl([[x, yy], [x + W, yy]], 'fr');
   G.pl([[x, yTop], [x, y]], 'fr'); G.pl([[x + W, yTop], [x + W, y]], 'fr');
   let cx = x; cols.forEach((c, i) => { if (i) G.pl([[cx, yCols], [cx, y]], 'fr'); cx += c.w; });
   return y;
 }
-function para(G, x, y, lines, h, maxW, lay, bold) { const n = Math.max(8, Math.floor(maxW / (h * 0.93))); for (const ln of lines) for (const w of wrap(ln, n)) { y -= h * 1.65; fitTx(G, [x, y], w, h, maxW, lay, 'l', bold); } return y; }
-function heading(G, x, y, s, w, h) { h = h || 2.3; G.tx([x, y - h * 1.3], s, h, 'tx', 'l', 0, true); G.pl([[x, y - h * 1.9], [x + (w || 116), y - h * 1.9]], 'fr'); return y - h * 2.2; }
+function para(G, x, y, lines, h, maxW, lay, bold) { const n = Math.max(8, Math.floor(maxW / (h * 0.93))); for (const ln of lines) for (const w of wrap(ln, n)) { y -= h * 1.65; kd(bold ? 'CEF REMARK' : 'CEF BODY', () => fitTx(G, [x, y], w, h, maxW, lay, 'l', bold)); } return y; }
+function heading(G, x, y, s, w, h) { h = h || 2.3; kd('CEF HEADING', () => G.tx([x, y - h * 1.3], s, h, 'tx', 'l', 0, true)); G.pl([[x, y - h * 1.9], [x + (w || 116), y - h * 1.9]], 'fr'); return y - h * 2.2; }
 function legend(G, x, y, S, w, h) {
   h = h || 1.9; y = heading(G, x, y, 'LEGEND', w, h * 1.2);
-  for (const [lay, s] of [['bl', 'FENCE / BUILDING LINE'], ['tw', 'TOWER'], ['eq', 'EXISTING EQUIPMENT'], ['ld', 'CABLE LADDER'], ['pp', 'PROPOSED ITEM'], ['ae', 'FOC AE (AERIAL)'], ['ug', 'FOC UG (UNDERGROUND, LADDER)'], ['fh', 'FOC BEHIND SOMETHING'], ['hp', 'BELOW GROUND (CONDUIT, PIT, ELBOW), WHERE ITS DEPTH IS DRAWN'], ['ln', 'LENGTH OF A LEG OF THE CABLE']].concat(S && S.els.some(e => e.t === 'cabin' && e.inside && (e.inside.els || []).some(q => q.t === 'rack' || q.t === 'odf')) ? [['nd', (k => k.c && k.t ? 'INSIDE A CABIN OR TELCO ROOM (RACK, ODF)' : k.t ? 'INSIDE A TELCO ROOM (RACK, ODF)' : 'INSIDE A CABIN (RACK, ODF)')({ c: S.els.some(e => e.t === 'cabin' && !e.tr && e.inside), t: S.els.some(e => e.t === 'cabin' && e.tr && e.inside) })]] : [], [['ph', 'PHOTO POSITION AND DIRECTION'], ['lot', 'PART DETAIL: ITS FRAME AND WHERE IT IS ON THE VIEW']])) { y -= h * 2.4; G.pl([[x + 1, y + h * 0.45], [x + 15, y + h * 0.45]], lay); if (lay === 'ln') G.tx([x + 8, y + h * 0.9], '10.0m', h * 0.9, 'ln', 'c'); if (TPL) fitTx(G, [x + 19, y], s, h, w - 19, 'tx', 'l'); else G.tx([x + 19, y], s, h, 'tx'); }      /* (beta 7.15, CEF template: on a client's sheet its text size may be larger: each line kept to its column) */
+  for (const [lay, s] of [['bl', 'FENCE / BUILDING LINE'], ['tw', 'TOWER'], ['eq', 'EXISTING EQUIPMENT'], ['ld', 'CABLE LADDER'], ['pp', 'PROPOSED ITEM'], ['ae', 'FOC AE (AERIAL)'], ['ug', 'FOC UG (UNDERGROUND, LADDER)'], ['fh', 'FOC BEHIND SOMETHING'], ['hp', 'BELOW GROUND (CONDUIT, PIT, ELBOW), WHERE ITS DEPTH IS DRAWN'], ['ln', 'LENGTH OF A LEG OF THE CABLE']].concat(S && S.els.some(e => e.t === 'cabin' && e.inside && (e.inside.els || []).some(q => q.t === 'rack' || q.t === 'odf')) ? [['nd', (k => k.c && k.t ? 'INSIDE A CABIN OR TELCO ROOM (RACK, ODF)' : k.t ? 'INSIDE A TELCO ROOM (RACK, ODF)' : 'INSIDE A CABIN (RACK, ODF)')({ c: S.els.some(e => e.t === 'cabin' && !e.tr && e.inside), t: S.els.some(e => e.t === 'cabin' && e.tr && e.inside) })]] : [], [['ph', 'PHOTO POSITION AND DIRECTION'], ['lot', 'PART DETAIL: ITS FRAME AND WHERE IT IS ON THE VIEW']])) { y -= h * 2.4; G.pl([[x + 1, y + h * 0.45], [x + 15, y + h * 0.45]], lay); if (lay === 'ln') G.tx([x + 8, y + h * 0.9], '10.0m', h * 0.9, 'ln', 'c'); if (TPL) kd('CEF BODY', () => fitTx(G, [x + 19, y], s, h, w - 19, 'tx', 'l')); else G.tx([x + 19, y], s, h, 'tx'); }      /* (beta 7.15, CEF template: on a client's sheet its text size may be larger: each line kept to its column) */
   return y;
 }
 /* The detail drawings of a plan, laid out in pages. Each one has its title and its place on the page: x from the left, y from the top, w and h, all as parts of the drawing area.
@@ -344,9 +344,9 @@ function buildSheets(S, opt) {      /* (14 Nov) opt.details === false: no detail
     else for (const k of [0, 1.6]) G.pl([[x0 + k, y0 + k], [x1 - k, y0 + k], [x1 - k, y1 - k], [x0 + k, y1 - k]], 'fr', 1);
     const cim = [], lc = logoAt(cim, 'client', cx - 150, 212, 110, 52), lv = logoAt(cim, 'vendor', cx + 40, 212, 110, 52);      /* beta 4.1: the two logos side by side at the top, the client's on the left, as on the plan drawings */
     const L = [[lv ? '' : up(si.org), lv || lc ? 5 : 7, 0, lv || lc ? 200 : 232], ['CABLE ENTRANCE FACILITY', 16, 1, lv || lc ? 166 : 176], [up(si.link), 14, 1, lv || lc ? 140 : 150], [[up(si.id), up(si.name)].filter(Boolean).join(' - '), 13, 1, lv || lc ? 100 : 104], [up(si.serial), 9, 1, lv || lc ? 84 : 88] /* beta 7.6 / 2.45.8: the serial number, when known (AS-PLAN lower) */, [PLAN_KIND, 11, 0, (lv || lc ? 70 : 72) - (si.serial ? 10 : 0)]];
-    for (const q of L) if (q[0]) fitTx(G, [cx, q[3]], q[0], q[1], x1 - x0 - 40, 'tx', 'c', !!q[2]);
-    { const ct = coordText(S); if (ct) fitTx(G, [cx, 38], ct, 3, x1 - x0 - 40, 'tx', 'c'); }      /* (beta 4.2, 22:24: no date and no "prepared by" on the cover; the title block of every sheet has them) */
-    if (!TPL) G.tx([x1, y0 - 2.6], 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE', 1, 'dm', 'r');      /* (22:24) very small, under the frame at the lower right; the app writes who exported here (beta 7.15, CEF template: on a client's sheet, tplFit) */ if (S.sample) G.tx([cx, 52], 'SAMPLE DATA - NOT A REAL SITE', 4, 'tp', 'c', 0, true);
+    for (const q of L) if (q[0]) kd(q[2] ? 'CEF COVER TITLE' : 'CEF COVER TEXT', () => fitTx(G, [cx, q[3]], q[0], q[1], x1 - x0 - 40, 'tx', 'c', !!q[2]));      /* (beta 7.15, CEF template kit: kd) */
+    { const ct = coordText(S); if (ct) kd('CEF COVER TEXT', () => fitTx(G, [cx, 38], ct, 3, x1 - x0 - 40, 'tx', 'c')); }      /* (beta 4.2, 22:24: no date and no "prepared by" on the cover; the title block of every sheet has them) */
+    if (!TPL) G.tx([x1, y0 - 2.6], 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE', 1, 'dm', 'r');      /* (22:24) very small, under the frame at the lower right; the app writes who exported here (beta 7.15, CEF template: on a client's sheet, tplFit) */ if (S.sample) kd('CEF NOTICE', () => G.tx([cx, 52], 'SAMPLE DATA - NOT A REAL SITE', 4, 'tp', 'c', 0, true));
     push('COVER', G, null, cim);
   }
   const toc = new Gfx(); n++; out.push(null);                                           /* 2. the table of contents: filled in when the other sheets are known */
@@ -420,7 +420,7 @@ function buildSheets(S, opt) {      /* (14 Nov) opt.details === false: no detail
     for (const d of DP[k]) {
       const x = ax0 + d.x * AW, yT = top - d.y * AH, cw = d.w * AW, ch = d.h * AH, v = fitView(d.make, cw - 8, ch - 16, DSCALES, 2.2);
       placeView(G, v, [x + 4, yT - ch + 3, x + cw - 4, yT - 13]);
-      fitTx(G, [x + 1, yT - 4], d.title, 2.8, cw - 4, 'tx', 'l', true); G.tx([x + 1, yT - 8.2], 'SCALE 1:' + v.N + (d.iso ? ' ALONG AXES' : ''), 1.9, 'dm');
+      kd('CEF HEADING', () => fitTx(G, [x + 1, yT - 4], d.title, 2.8, cw - 4, 'tx', 'l', true)); kd('CEF VIEW SCALE', () => G.tx([x + 1, yT - 8.2], 'SCALE 1:' + v.N + (d.iso ? ' ALONG AXES' : ''), 1.9, 'dm'));      /* (beta 7.15, CEF template kit: kd) */
       if (d.x > 0.01) G.pl([[x - 1, yT - 1], [x - 1, yT - ch + 2]], 'fr'); if (d.y > 0.01) G.pl([[x + 1, yT + 1], [x + cw - 3, yT + 1]], 'fr');
     }
     let y = PAN.y1; const rr = rackRows(S);
@@ -438,7 +438,7 @@ function buildSheets(S, opt) {      /* (14 Nov) opt.details === false: no detail
       let w = bw, h = w / ar; if (h > bh) { h = bh; w = h * ar; }
       const ix = x + (cw - w) / 2, iy = yT - 4 - bh + (bh - h) / 2, file = 'photos/photo_' + String(i + 1).padStart(2, '0') + '.jpg';
       G.pl([[ix, iy], [ix + w, iy], [ix + w, iy + h], [ix, iy + h]], 'ph', 1); images.push({ id: ph.id, x: ix, y: iy, w, h, file });
-      let y = yT - 4 - bh - 1; G.tx([x + 3, y - 3.4], S.photos[i] && S.photos[i].title != null && String(S.photos[i].title).trim() ? String(S.photos[i].title).trim() : 'PHOTO ' + (i + 1), 2.4, 'ph', 'l', 0, true);
+      let y = yT - 4 - bh - 1; kd('CEF HEADING', () => G.tx([x + 3, y - 3.4], S.photos[i] && S.photos[i].title != null && String(S.photos[i].title).trim() ? String(S.photos[i].title).trim() : 'PHOTO ' + (i + 1), 2.4, 'ph', 'l', 0, true));
       y = para(G, x + 3, y - 3.6, [String(ph.cap || '').toUpperCase() || '(NO CAPTION)'].concat(ph.placed ? ['TAKEN ' + f1(ph.x) + ' m FROM THE LEFT SIDE, ' + f1(ph.y) + ' m FROM THE BOTTOM SIDE, FACING ' + Math.round(((num(ph.dir, 0) + num(si.bearing, 0)) % 360 + 360) % 360) + '° (TRUE)'] : ['NOT PLACED ON THE PLAN']), 1.8, cw - 8, 'tx');
     });
     push('PHOTOS ' + (k + 1), G, null, images);
@@ -656,45 +656,108 @@ function sheetsDXF(sheets, o) {
    (G-ESAA TEXT, the bold ones in G-ESAA TEXT BOLD when it has one) and size factor, its layers at the seed's line weights (its look,
    G-ESAA_LOOK). The PDF is that DXF printed (dxfpdf.js, through the app). TPL null (no CEF template): everything as before, byte for byte. */
 let TPL = null;
-/* the drawing area, W x H mm, as the sheet: the view frame on the left, the strip of the tables on its right (as wide as on the app's sheet),
-   no title block (the client's is outside the drawing area); 2 mm in from the drawing area's edge */
-function tplGeo(W, H) {
-  const m = 2, fr = { x0: m, x1: W - m - SH.SW - SH.GAP, y0: m, y1: H - m, sx0: W - m - SH.SW, sx1: W - m };
-  return { SH: { W, H, M: 0, TB: 0, SW: SH.SW, GAP: SH.GAP }, FR: fr, PAN: { x: fr.sx0 + 2, w: SH.SW - 4, y1: fr.y1 - 2.5, y0: fr.y0 + 2 }, AREA: { x0: fr.x0 + 3, x1: fr.x1 - 3, y0: fr.y0 + 3, y1: fr.y1 - 3, tz: AREA.tz } };
+/* (beta 7.15, CEF template kit) The owner: "yes i want the CEF to be a dxf template same as the asplan. Can you give me a dxf from the code
+   generic template as a starting point CEF template?"; "Iwant this to be the standard for all my clients"; (should a template control fonts,
+   sizes, thickness, symbols?) "Yes definitely. That was the intention of a template".
+   The CEF's style kit: the names a CEF template's own tables are read by. Text styles: each kind of text the CEF writes has one, and the
+   CEF's texts of that kind take its font, height, width factor and slant (its height is the printed height of the kind's main size; the
+   kind's other sizes keep their proportions; 0: the CEF's own size). Layers: the CEF's own layers by name (LAYERS) with their colour, line
+   type and line weight. Symbols: blocks by name. A kind the template does not have: the CEF's own look (as today).
+   tools/cef-template makes the generic CEF template (vendor/cef/cef-template-generic.dxf) from this kit and the frame sheetFrame draws.
+   text: [style name, font file, bold, printed height (mm), what it is, who writes it: 'app' (the CEF, in the drawing area) or 'sheet' (the
+   template's own texts: the app fills their fields)] */
+const CEF_KIT = {
+  text: [
+    ['CEF VIEW TITLE', 'arial.ttf', 0, 5, 'The title under each drawing (TOP VIEW, ISOMETRIC DETAIL, LEGEND AND NOTES...)', 'app'],
+    ['CEF VIEW SCALE', 'arial.ttf', 0, 2.3, 'The scale under a drawing\'s title, and under each detail\'s title', 'app'],
+    ['CEF HEADING', 'arialbd.ttf', 1, 2.8, 'Headings (LEGEND, NOTES, SITE DATA) and the titles of the details and the photos', 'app'],
+    ['CEF TABLE HEAD', 'arialbd.ttf', 1, 1.8, 'The title and the column heads of a table (the title 1.2 times as high)', 'app'],
+    ['CEF TABLE', 'arial.ttf', 0, 1.8, 'The cells of the tables (CEF TABLE, FOC UG, RACK SCHEDULE, CONTENTS...)', 'app'],
+    ['CEF BODY', 'arial.ttf', 0, 2.3, 'Notes, site data, the legend\'s lines and the photos\' captions', 'app'],
+    ['CEF REMARK', 'arialbd.ttf', 1, 1.8, 'The remarks under the tables and the checks (in red)', 'app'],
+    ['CEF LABEL', 'arial.ttf', 0, 2.4, 'The names of things on the drawings (made smaller where the drawing is crowded)', 'app'],
+    ['CEF LABEL BOLD', 'arialbd.ttf', 1, 2.4, 'Bold names on the drawings: the photos\' titles, the N of the north arrow', 'app'],
+    ['CEF DIM', 'arial.ttf', 0, 2.4, 'Dimensions and the lengths of the cable on the drawings', 'app'],
+    ['CEF NOTICE', 'arialbd.ttf', 1, 2.6, 'SAMPLE DATA - NOT A REAL SITE (the made-up sample plan only)', 'app'],
+    ['CEF COVER TITLE', 'arialbd.ttf', 1, 16, 'The cover\'s main lines (CABLE ENTRANCE FACILITY, the project, the site, the serial number)', 'sheet'],
+    ['CEF COVER TEXT', 'arial.ttf', 0, 11, 'The cover\'s other lines (the plan\'s kind, the coordinates, the company)', 'sheet'],
+    ['CEF VALUE', 'arialbd.ttf', 1, 2.5, 'The values in the title block (its fields)', 'sheet'],
+    ['CEF TITLE BLOCK TEXT', 'arial.ttf', 0, 2.6, 'The plain lines of the title block\'s project box', 'sheet'],
+    ['CEF CAPTION', 'arial.ttf', 0, 1.4, 'The small captions of the title block\'s boxes (DATE, SCALE AT A3...)', 'sheet'],
+    ['CEF SMALL', 'arial.ttf', 0, 1, 'Who exported the plan, under the frame', 'sheet'],
+  ],
+  sym: [['CEF NORTH ARROW', 'The north arrow of the top view and the isometric. Draw it pointing up, in printed millimetres (it prints at that size), its base point at its foot.']],
+  /* what each CEF layer draws, for the template's STYLE KEY */
+  layers: { dt: 'Fine lines of the part details and the inside views', bl: 'Fence and building lines', tw: 'The tower', eq: 'Equipment (cabinets, ODC)', ex: 'Existing items',
+    ld: 'Cable ladders', pp: 'Proposed items (riser pole, conduit, handholes, ODF)', pt: 'Fine lines of a proposed fitting (the loop holder and its loop)', ug: 'FOC UG cable (underground, on the ladder)',
+    ae: 'FOC AE cable (aerial)', tx: 'Texts, the north arrow', tp: 'Red texts (proposed items, remarks)', dm: 'Dimensions, captions, scales', ln: 'Lengths of the legs of the cable',
+    ph: 'Photo positions and frames', fr: 'Frames, title block and table lines', lot: 'Part detail frames and their leaders', hd: 'Existing below ground (conduit, pit, elbow)',
+    hp: 'Proposed below ground (conduit, pit, elbow)', fh: 'FOC behind something', nd: 'Inside a cabin or telco room (rack, ODF)', np: 'Proposed, inside a cabin or telco room' } };
+/* (beta 7.15, CEF template kit) the kind of the texts being written (a style of CEF_KIT) while the sheets are laid out on a template: set
+   around a text by kd(); a text written without one is a name on a drawing (CEF LABEL, bold: CEF LABEL BOLD) or, on the dimension and length
+   layers, CEF DIM. Without a template nothing of this is read. */
+let TKIND = '';
+const KIT_H = {}; for (const t of CEF_KIT.text) KIT_H[t[0]] = t[3];
+function kd(kind, f) { const was = TKIND; TKIND = kind; try { return f(); } finally { TKIND = was; } }
+function tplKind(lay, b) { return TKIND || (lay === 'dm' || lay === 'ln' ? 'CEF DIM' : b ? 'CEF LABEL BOLD' : 'CEF LABEL'); }
+/* a kind's height as the template's style gives it (its main size; the kind's other sizes in proportion; 0 or no style: the CEF's own), and
+   its width factor */
+function tplK(kind) { const t = TPL && TPL.kit && TPL.kit[kind]; return t && t.mm > 0 && KIT_H[kind] ? t.mm / KIT_H[kind] : 1; }
+function tplW(kind) { const t = TPL && TPL.kit && TPL.kit[kind]; return t && t.wf > 0 ? t.wf : 1; }
+/* the template's north arrow (its block CEF NORTH ARROW, drawn pointing up in printed mm for names 2.4 mm high): put where the CEF's goes,
+   turned to north, at the drawing's size; an outline of the CEF's own keeps its room on the drawing (it is not drawn) */
+function tplNorth(G, base, n, th) {
+  const d = Math.hypot(n[0], n[1]) || 1, ux = n[0] / d, uy = n[1] / d, len = 3.2 * th, top = len + 1.5 * th;
+  G.put({ k: 'sym', name: 'CEF NORTH ARROW', p: base, h: th, a: Math.atan2(uy, ux) / D2R - 90, s: '', lay: 'tx', al: 'l', b: false });
+  G.pl([[base[0] - uy * 0.6 * th, base[1] + ux * 0.6 * th], [base[0] + ux * top + uy * 0.6 * th, base[1] + uy * top - ux * 0.6 * th]], 'kit');
+}
+/* the layout of the sheets on a template, in the millimetres of its paper (its sheet's own coordinates): the drawing in its drawing area; the
+   tables beside it in its tables' viewport (CEF-VP-TABLES) when it has one, as on the app's own sheet, else in a strip at the drawing area's
+   right side (as wide as the app's); 2 mm in from the drawing area's edge then (3 mm more for the drawing, as on the app's sheet) */
+function tplGeo(sd) {
+  const [x0, y0, x1, y1] = sd.DA, A = sd.paper || [x1, y1];
+  if (sd.TA) {
+    const [tx0, ty0, tx1, ty1] = sd.TA;
+    return { SH: { W: A[0], H: A[1], M: 0, TB: 0, SW: tx1 - tx0, GAP: SH.GAP }, FR: { x0, x1, y0, y1, sx0: tx0, sx1: tx1 }, PAN: { x: tx0 + 2, w: tx1 - tx0 - 4, y1: ty1 - 2.5, y0: ty0 + 2 }, AREA: { x0: x0 + 3, x1: x1 - 3, y0: y0 + 3, y1: y1 - 3, tz: AREA.tz } };
+  }
+  const m = 2, fr = { x0: x0 + m, x1: x1 - m - SH.SW - SH.GAP, y0: y0 + m, y1: y1 - m, sx0: x1 - m - SH.SW, sx1: x1 - m };
+  return { SH: { W: A[0], H: A[1], M: 0, TB: 0, SW: SH.SW, GAP: SH.GAP }, FR: fr, PAN: { x: fr.sx0 + 2, w: SH.SW - 4, y1: fr.y1 - 2.5, y0: fr.y0 + 2 }, AREA: { x0: fr.x0 + 3, x1: fr.x1 - 3, y0: fr.y0 + 3, y1: fr.y1 - 3, tz: AREA.tz } };
 }
 /* sheetFrame on a client's sheet: what its title block says (the fields are filled from it), and the title of the view at the foot of the drawing */
 function tplFrame(S, G, o) {
   G.p.tb = { sheet: o.sheet, scale: o.scale, n: o.n, N: o.N };
   if (o.view) {
-    const cx = AREA.x0 + 7.5, cy = AREA.y0 + 8.5, r = 6.5, tx = cx + r + 3, w = textW(o.view, 5);
+    const cx = AREA.x0 + 7.5, cy = AREA.y0 + 8.5, r = 6.5, tx = cx + r + 3, w = textW(o.view, 5) * tplK('CEF VIEW TITLE') * tplW('CEF VIEW TITLE');
     G.ci([cx, cy], r, 'fr'); G.pl([[cx - r - 2.5, cy], [tx + w + 5, cy]], 'fr'); G.pl([[cx + r + 0.4, cy - 0.9], [tx + w + 5, cy - 0.9]], 'fr');
-    G.tx([tx, cy + 1.7], o.view, 5, 'tx'); if (o.scale) { G.tx([tx, cy - 5.2], 'SCALE:', 2.3, 'tx'); G.tx([tx + 15, cy - 5.2], o.scale, 2.3, 'tx'); }
+    kd('CEF VIEW TITLE', () => G.tx([tx, cy + 1.7], o.view, 5, 'tx')); if (o.scale) kd('CEF VIEW SCALE', () => { G.tx([tx, cy - 5.2], 'SCALE:', 2.3, 'tx'); G.tx([tx + 15 * tplK('CEF VIEW SCALE') * tplW('CEF VIEW SCALE'), cy - 5.2], o.scale, 2.3, 'tx'); });
   }
-  if (S.sample) G.tx([AREA.x0, AREA.y1 - 3.4], 'SAMPLE DATA - NOT A REAL SITE', 2.6, 'tp', 'l', 0, true);
+  if (S.sample) kd('CEF NOTICE', () => G.tx([AREA.x0, AREA.y1 - 3.4], 'SAMPLE DATA - NOT A REAL SITE', 2.6, 'tp', 'l', 0, true));
 }
 /** The sheets of a sketch laid out for a client's sheet (sd: CefTpl.seed's reading of its CEF template; opt: as buildSheets'). */
 function tplSheets(S, sd, opt) {
-  const g = tplGeo(sd.W, sd.H), was = [SH, FR, PAN, AREA].map(q => Object.assign({}, q)), k0 = TXK;
+  const g = tplGeo(sd), was = [SH, FR, PAN, AREA].map(q => Object.assign({}, q)), k0 = TXK;
   try {
-    Object.assign(SH, g.SH); Object.assign(FR, g.FR); Object.assign(PAN, g.PAN); Object.assign(AREA, g.AREA); TPL = sd; TXK = sd.txk || 1;
+    Object.assign(SH, g.SH); Object.assign(FR, g.FR); Object.assign(PAN, g.PAN); Object.assign(AREA, g.AREA); TPL = sd; TXK = sd.txk || 1; TKIND = '';
     return tplFit(buildSheets(S, opt), sd);
-  } finally { [SH, FR, PAN, AREA].forEach((q, i) => Object.assign(q, was[i])); TPL = null; TXK = k0; }
+  } finally { [SH, FR, PAN, AREA].forEach((q, i) => Object.assign(q, was[i])); TPL = null; TXK = k0; TKIND = ''; }
 }
 /* a page with no scale of its own (the cover, the contents, the legend) larger than the drawing area is made smaller to fit it, and the cover
-   stands in its middle; the line of who exported at the foot of the drawing area on its right (on the app's sheet it is under the frame),
-   unless the template has a field for it (@@EXPORTED_BY@@) */
+   stands in its middle; the template's own cover sheet (CEF COVER), when it has one, is the cover: the app writes its fields only. The line
+   of who exported at the foot of the drawing area on its right (on the app's sheet it is under the frame), unless the template has a field
+   for it (@@EXPORTED_BY@@) */
 function tplFit(out, sd) {
-  const W = SH.W, H = SH.H, m = 2;
+  const [x0, y0, x1, y1] = sd.DA, m = 2;
   for (const sh of out) {
-    const tb = sh.prims.tb;
-    if (sh.name === 'COVER' || sh.name === 'CONTENTS' || sh.name === 'LEGEND') {
+    const tb = sh.prims.tb, own = sh.name === 'COVER' && sd.cover;
+    if (own) { sh.prims = []; sh.images = []; }
+    else if (sh.name === 'COVER' || sh.name === 'CONTENTS' || sh.name === 'LEGEND') {
       const b = primBox(sh.prims.concat(sh.images.map(im => ({ k: 'pl', pts: [[im.x, im.y], [im.x + im.w, im.y + im.h]] })))), bw = b[2] - b[0], bh = b[3] - b[1];
-      if (sh.name === 'COVER' || b[0] < m || b[1] < m || b[2] > W - m || b[3] > H - m) {
-        const f = Math.min(1, (W - 2 * m) / bw, (H - 2 * m) / bh), dx = W / 2 - (b[0] + b[2]) / 2 * f, dy = H / 2 - (b[1] + b[3]) / 2 * f;
+      if (sh.name === 'COVER' || b[0] < x0 + m || b[1] < y0 + m || b[2] > x1 - m || b[3] > y1 - m) {
+        const f = Math.min(1, (x1 - x0 - 2 * m) / bw, (y1 - y0 - 2 * m) / bh), dx = (x0 + x1) / 2 - (b[0] + b[2]) / 2 * f, dy = (y0 + y1) / 2 - (b[1] + b[3]) / 2 * f;
         sh.prims = xfPrims(sh.prims, f, 0, dx, dy); sh.images = sh.images.map(im => Object.assign({}, im, { x: dx + im.x * f, y: dy + im.y * f, w: im.w * f, h: im.h * f }));
       }
     }
-    if (!sd.has.has('EXPORTED_BY') && sd.foot) { const g = new Gfx(); g.tx([W - m, m + 0.4], String(sd.foot), 1, 'dm', 'r'); for (const p of g.p) sh.prims.push(p); }
+    if (!own && !sd.has.has('EXPORTED_BY') && sd.foot) { const g = new Gfx(); kd('CEF SMALL', () => g.tx([x1 - m, y0 + m + 0.4], String(sd.foot), 1, 'dm', 'r')); for (const p of g.p) sh.prims.push(p); }
     sh.prims.tb = tb;
   }
   return out;
@@ -760,28 +823,47 @@ const CefTpl = (() => {
     const lk = look && typeof look === 'object' ? look : lookOf(d) || {}, mm = lk.sheet && parseFloat(lk.sheet.mm);      /* (the look says its sheet's paper unit: look.sheet.mm, mm for one) */
     const u = mm > 0 ? mm : unitsOf(L.rec), paper = fnum(L.rec, 44, 0) * fnum(L.rec, 45, 0) / u / u, recs = sheetRecs(d, S, L), V = recs.filter(r => typ(r) === 'VIEWPORT');
     const ok = r => inum(r, 69, 0) !== 1 && !(inum(r, 90, 0) & 131072) && fnum(r, 40, 0) > 0 && fnum(r, 41, 0) > 0, page = !!V[0] && (inum(V[0], 69, 0) === 1 || !(paper > 0) || fnum(V[0], 40, 0) * fnum(V[0], 41, 0) >= 0.9 * paper);
-    const vp = (page ? V.slice(1) : V).filter(ok).sort((a, b) => fnum(b, 40, 0) * fnum(b, 41, 0) - fnum(a, 40, 0) * fnum(a, 41, 0))[0];
+    /* (beta 7.15, CEF template kit) the drawing area: the viewport on layer CEF-VP-DRAWING, else the largest; the tables beside it: the one on
+       CEF-VP-TABLES, when the sheet has one */
+    const onL = nm => r => String(get(r, 8, '')).trim().toUpperCase() === nm, mine = (page ? V.slice(1) : V).filter(ok), tv = mine.find(onL('CEF-VP-TABLES')) || null;
+    const vp = mine.find(onL('CEF-VP-DRAWING')) || mine.filter(r => r !== tv).sort((a, b) => fnum(b, 40, 0) * fnum(b, 41, 0) - fnum(a, 40, 0) * fnum(a, 41, 0))[0];
     if (!vp) throw new Error('its CEF sheet has no drawing area (a viewport)');
-    const W = fnum(vp, 40, 0) * u, H = fnum(vp, 41, 0) * u;
-    if (W < 200 || H < 120) throw new Error('its drawing area (' + Math.round(W) + ' x ' + Math.round(H) + ' mm) is too small for the CEF sheets');
+    const W = fnum(vp, 40, 0) * u, H = fnum(vp, 41, 0) * u, boxOf = r => { const cx = fnum(r, 10, 0), cy = fnum(r, 20, 0), w = fnum(r, 40, 0) / 2, h = fnum(r, 41, 0) / 2; return [(cx - w) * u, (cy - h) * u, (cx + w) * u, (cy + h) * u]; };
+    if (W < (tv ? 120 : 200) || H < 120) throw new Error('its drawing area (' + Math.round(W) + ' x ' + Math.round(H) + ' mm) is too small for the CEF sheets');
+    /* the paper (mm): its limits, else its page setup's paper turned as the drawing area is */
+    const ka = L.rec.findIndex(p => p[0] === 100 && p[1] === 'AcDbLayout'), sub = ka >= 0 ? L.rec.slice(ka) : [[0, '']], lim = [fnum(sub, 10, 0), fnum(sub, 20, 0), fnum(sub, 11, 0), fnum(sub, 21, 0)], pw = fnum(L.rec, 44, 0), ph = fnum(L.rec, 45, 0);
+    const paperMm = lim[2] - lim[0] > 1 && lim[3] - lim[1] > 1 ? [lim[2] * u, lim[3] * u] : pw > 1 && ph > 1 ? (W >= H ? [Math.max(pw, ph), Math.min(pw, ph)] : [Math.min(pw, ph), Math.max(pw, ph)]) : null;
+    /* its kit: the text styles of CEF_KIT it has (font by style; height: mm on its paper, its paper unit's for a sheet in inches; 0: the CEF's
+       own; width factor; slant), the symbols (blocks) */
     const tx = lk.text || {}, stU = new Map(); for (const s of S.styles) stU.set(String(s).toUpperCase(), s);
-    const st = v => (v && stU.get(String(v).toUpperCase())) || null, sc = parseFloat(tx.scale);
-    return { d, S, L, recs, vp, page, u, W, H, look: lk, style: st(tx.style), bold: st(tx.bold), txk: isFinite(sc) && sc > 0 ? clamp(sc, 0.5, 2) : 1, has: fieldsIn(S, recs), name: String(o.name || lk.name || ''), foot: o.foot || '', vals: o.vals || null };
+    const st = v => (v && stU.get(String(v).toUpperCase())) || null, sc = parseFloat(tx.scale), kit = {}, sym = {};
+    const styleRec = nm => S.T.find(r => typ(r) === 'STYLE' && String(get(r, 2, '')).toUpperCase() === nm.toUpperCase());
+    for (const t of CEF_KIT.text) { const r = styleRec(t[0]); if (r) kit[t[0]] = { style: get(r, 2), mm: Math.max(0, fnum(r, 40, 0)) * u, wf: fnum(r, 41, 1) || 1, ob: fnum(r, 50, 0) }; }
+    const bU = new Map(); for (const nm of S.blocks.keys()) bU.set(String(nm).toUpperCase(), nm);
+    for (const [nm] of CEF_KIT.sym) if (bU.has(nm.toUpperCase())) sym[nm] = bU.get(nm.toUpperCase());
+    /* its cover sheet (CEF COVER): the cover page, its own fields filled */
+    const Lc = S.layouts.find(q => String(q.name || '').trim().toUpperCase() === 'CEF COVER'), cover = Lc ? { L: Lc, recs: sheetRecs(d, S, Lc) } : null;
+    const has = fieldsIn(S, recs); if (cover) for (const k of fieldsIn(S, cover.recs)) has.add(k);
+    return { d, S, L, recs, vp, tv, page, u, W, H, DA: boxOf(vp), TA: tv ? boxOf(tv) : null, paper: paperMm, cover, kit, sym, look: lk, style: st(tx.style), bold: st(tx.bold),
+      txk: Object.keys(kit).length ? 1 : isFinite(sc) && sc > 0 ? clamp(sc, 0.5, 2) : 1, has, name: String(o.name || lk.name || ''), foot: o.foot || '', vals: o.vals || null };
   }
   /** The DXF of the sheets (tplSheets' on sd's template) made on the template (sd: a fresh reading: it is changed). o.dims: the size in pixels of
       each picture file (as sheetsDXF's); o.fields(sheet's tb) → (field name → its text) (cefFields). Returns the DXF text. */
   function write(sheets, sd, T, o) {
-    o = o || {}; const d = sd.d, S = sd.S, L = sd.L, look = sd.look || {}, LWK = look.lw || {}, LMAP = look.layers || {}, H = () => d.newHandle();
+    o = o || {}; const d = sd.d, S = sd.S, L = sd.L, look = sd.look || {}, LWK = look.lw || {}, LMAP = look.layers || {}, H = () => d.newHandle(), KIT = sd.kit || {};
     const TS = d.sec('TABLES').recs, BS = d.sec('BLOCKS').recs, ES = d.sec('ENTITIES').recs, OS = d.sec('OBJECTS').recs, MS = S.modelH, live = () => d.sec('TABLES').recs;
     const table = nm => live().find(r => typ(r) === 'TABLE' && get(r, 2) === nm), tabH = nm => { const t = table(nm); return t ? get(t, 5) : '0'; };
     const toTable = (nm, rec) => { const A = live(); let j = A.indexOf(table(nm)) + 1; while (j > 0 && j < A.length && typ(A[j]) !== 'ENDTAB') j++; if (j > 0) A.splice(j, 0, rec); };
-    /* ----- text styles: the template's (its look), else the CEF's own (Standard, CEF-BOLD) ----- */
+    /* ----- text styles: (beta 7.15, CEF template kit) a text's kind's style in the template's kit; else the template's look; else the CEF's own
+       (Standard, CEF-BOLD) ----- */
     let sty = sd.style, styB = sd.bold || sd.style;
     if (!sty) {
       sty = (S.styles.has('Standard') && 'Standard') || [...S.styles].find(s => /^standard$/i.test(s)) || 'Standard'; styB = [...S.styles].find(s => /^CEF-BOLD$/i.test(s));
       if (!styB) { styB = 'CEF-BOLD'; toTable('STYLE', [[0, 'STYLE'], [5, H()], [330, tabH('STYLE')], [100, 'AcDbSymbolTableRecord'], [100, 'AcDbTextStyleTableRecord'], [2, styB], [70, I(0)], [40, '0.0'], [41, '1.0'], [50, '0.0'], [71, I(0)], [42, '2.5'], [3, 'arialbd.ttf'], [4, ''], [1001, 'ACAD'], [1000, 'Arial'], [1071, I(33554466)]]); }
     }
-    /* ----- layers: the CEF's (or the template's layer its look puts one on), at the look's line weights ----- */
+    const kitOf = p => (p.kd && KIT[p.kd]) || null;
+    /* ----- layers: the CEF's (the template's own when it has one by that name: its kit; or the template's layer its look puts one on), else
+       added at the look's line weights or the CEF's own ----- */
     const layU = new Map(); for (const r of TS) if (typ(r) === 'LAYER') layU.set(String(get(r, 2, '')).toUpperCase(), r);
     const ps390 = layU.get('0') ? get(layU.get('0'), 390) : null, LWS = [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211];
     const near = hund => LWS.reduce((a, b) => (Math.abs(b - hund) < Math.abs(a - hund) ? b : a));
@@ -796,6 +878,7 @@ const CefTpl = (() => {
     const layName = {}, lay = k => { if (layName[k]) return layName[k];
       const Ly = LAYERS[k], to = LMAP[Ly[0]], mapped = to && layU.get(String(to).toUpperCase()); let nm = mapped ? get(mapped, 2) : Ly[0];
       if (!layU.has(nm.toUpperCase())) { const r = [[0, 'LAYER'], [5, H()], [330, tabH('LAYER')], [100, 'AcDbSymbolTableRecord'], [100, 'AcDbLayerTableRecord'], [2, nm], [70, I(0)], [62, I(Ly[1])], [6, Ly[2] ? dash() : 'Continuous'], [370, I(lwOf(k))]]; if (ps390) r.push([390, ps390]); toTable('LAYER', r); layU.set(nm.toUpperCase(), r); }
+      else nm = get(layU.get(nm.toUpperCase()), 2);
       return (layName[k] = nm); };
     /* ----- the pages in model space, side by side, each enlarged so that its view is true size (1 unit = 1 m), as sheetsDXF has them ----- */
     const ent = (out, p, ox, oy, own) => {
@@ -807,27 +890,49 @@ const CefTpl = (() => {
       else if (p.k === 'ci') head('CIRCLE').push([100, 'AcDbCircle'], [10, X(p.c[0])], [20, Y(p.c[1])], [30, '0.0'], [40, n(p.r)]);
       else if (p.k === 'ar') head('ARC').push([100, 'AcDbCircle'], [10, X(p.c[0])], [20, Y(p.c[1])], [30, '0.0'], [40, n(p.r)], [100, 'AcDbArc'], [50, n((p.a0 % 360 + 360) % 360)], [51, n((p.a1 % 360 + 360) % 360)]);
       else if (p.k === 'fl') { for (let i = 1; i + 1 < p.pts.length; i++) { const a = p.pts[0], b = p.pts[i], c = p.pts[i + 1]; head('SOLID').push([100, 'AcDbTrace'], [10, X(a[0])], [20, Y(a[1])], [30, '0.0'], [11, X(b[0])], [21, Y(b[1])], [31, '0.0'], [12, X(c[0])], [22, Y(c[1])], [32, '0.0'], [13, X(c[0])], [23, Y(c[1])], [33, '0.0']); } }
+      else if (p.k === 'sym') {      /* (beta 7.15, CEF template kit) the template's symbol, at the drawing's size (its block is drawn in printed mm for names 2.4 mm high) */
+        const bn = sd.sym && sd.sym[p.name]; if (!bn) return; const sc = n(p.h / 2.4);
+        head('INSERT').push([100, 'AcDbBlockReference'], [2, bn], [10, X(p.p[0])], [20, Y(p.p[1])], [30, '0.0'], [41, sc], [42, sc], [43, sc], [50, n((p.a % 360 + 360) % 360)]);
+      }
       else if (p.k === 'tx') {
-        const s = dxfStr(p.s); if (!s.trim()) return; let hh = p.h, rot = p.a, wf = 0, ob = 0;
+        const s = dxfStr(p.s); if (!s.trim()) return; let hh = p.h, rot = p.a, wf = 0, ob = 0; const ks = kitOf(p);
         if (p.m) { const ul = Math.hypot(p.m[0], p.m[1]) || 1, ux = p.m[0] / ul, uy = p.m[1] / ul, al = p.m[2] * ux + p.m[3] * uy, up = -p.m[2] * uy + p.m[3] * ux; rot = Math.atan2(uy, ux) / D2R; hh = p.h * up; wf = ul / up; ob = Math.atan2(al, up) / D2R; }
-        const r = head('TEXT'); r.push([100, 'AcDbText'], [10, X(p.p[0])], [20, Y(p.p[1])], [30, '0.0'], [40, n(hh)], [1, s]); if (rot) r.push([50, n((rot % 360 + 360) % 360)]); if (wf && Math.abs(wf - 1) > 1e-4) r.push([41, n(wf)]); if (ob) r.push([51, n(ob)]); r.push([7, p.b ? styB : sty]);
+        if (ks) { wf = (wf || 1) * ks.wf; ob += ks.ob; }      /* (the kit's style: its width factor and slant on each of its texts, as AutoCAD writes a text in a style) */
+        const r = head('TEXT'); r.push([100, 'AcDbText'], [10, X(p.p[0])], [20, Y(p.p[1])], [30, '0.0'], [40, n(hh)], [1, s]); if (rot) r.push([50, n((rot % 360 + 360) % 360)]); if (wf && Math.abs(wf - 1) > 1e-4) r.push([41, n(wf)]); if (ob) r.push([51, n(ob)]); r.push([7, ks ? ks.style : p.b ? styB : sty]);
         if (p.al !== 'l') r.push([72, I(p.al === 'c' ? 1 : 2)], [11, X(p.p[0])], [21, Y(p.p[1])], [31, '0.0']); r.push([100, 'AcDbText']);
       }
+    };
+    /* ----- the pictures: linked files (photos/…, logos/…), as in the DXF of the app's frame; their objects as the plan builder writes them ----- */
+    const root = OS[0], rootH = get(root, 5), defs = new Map(), reac = [];
+    let dict = null;
+    const picture = (file, px, py, x, y, w, h, own, layer, ps) => {      /* an IMAGE (its objects written at the end) */
+      if (!dict) {
+        const raw = d.sec('CLASSES') && d.sec('CLASSES').raw, have = new Set((raw || []).filter(p => p[0] === 1).map(p => p[1]));
+        const cls = (nm, cpp, fl, e) => { if (raw && !have.has(nm)) raw.push([0, 'CLASS'], [1, nm], [2, cpp], [3, 'ISM'], [90, I(fl)], [91, I(0)], [280, I(0)], [281, I(e ? 1 : 0)]); };
+        cls('IMAGE', 'AcDbRasterImage', 2175, true); cls('IMAGEDEF', 'AcDbRasterImageDef', 0, false); cls('IMAGEDEF_REACTOR', 'AcDbRasterImageDefReactor', 1, false); cls('RASTERVARIABLES', 'AcDbRasterVariables', 0, false);
+        const k = root.findIndex(p => p[0] === 3 && p[1] === 'ACAD_IMAGE_DICT'); dict = k > 0 ? d.byHandle.get(root[k + 1][1]) : null;
+        if (!dict) { const h0 = H(); dict = [[0, 'DICTIONARY'], [5, h0], [102, '{ACAD_REACTORS'], [330, rootH], [102, '}'], [330, rootH], [100, 'AcDbDictionary'], [281, I(1)]]; d.sec('OBJECTS').recs.push(dict); root.push([3, 'ACAD_IMAGE_DICT'], [350, h0]); }
+      }
+      let df = defs.get(file); if (!df) { df = { h: H(), users: [], file, px, py }; defs.set(file, df); dict.push([3, 'CEF_' + file.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60) + '_' + defs.size], [350, df.h]); }
+      const ih = H(), rh = H(); df.users.push(rh); reac.push([[0, 'IMAGEDEF_REACTOR'], [5, rh], [330, ih], [100, 'AcDbRasterImageDefReactor'], [90, I(2)], [330, ih]]);
+      return [[0, 'IMAGE'], [5, ih], [330, own], [100, 'AcDbEntity'], ...(ps ? [[67, I(1)]] : []), [8, layer], [100, 'AcDbRasterImage'], [90, I(0)], [10, n(x)], [20, n(y)], [30, '0.0'], [11, (w / px).toPrecision(10)], [21, '0.0'], [31, '0.0'], [12, '0.0'], [22, (h / py).toPrecision(10)], [32, '0.0'],
+        [13, n(px)], [23, n(py)], [340, df.h], [70, I(7)], [280, I(0)], [281, I(50)], [282, I(50)], [283, I(0)], [360, rh], [71, I(1)], [91, I(2)], [14, '-0.5'], [24, '-0.5'], [14, n(px - 0.5)], [24, n(py - 0.5)]];
     };
     const modelBox = (() => { let x1 = -Infinity; for (const r of ES) if (owner(r) === MS && String(get(r, 67, '0')).trim() !== '1') for (const p of r) if ((p[0] === 10 || p[0] === 11) && isFinite(parseFloat(p[1]))) x1 = Math.max(x1, parseFloat(p[1])); return x1; })();
     const k0 = 1 / (sheets.find(q => q.name === 'TOP VIEW') || sheets[0]).s, seen = {}, groups = new Map(), loose = [], imgs = [], dims = o.dims || {}, place = [];
     /* (a template's model space is empty; anything there stays, and the pages go beside it and beside what the template's other viewports
        look at, so that those still show what they showed) */
-    const seenTo = sd.recs.filter(r => typ(r) === 'VIEWPORT' && r !== sd.vp).slice(sd.page ? 1 : 0).map(r => fnum(r, 12, 0) + fnum(r, 17, 0) + fnum(r, 45, 0) * fnum(r, 40, 0) / (fnum(r, 41, 0) || 1) / 2).filter(isFinite);
-    const right = Math.max(isFinite(modelBox) ? modelBox : -Infinity, ...seenTo);
+    const seenTo = sd.recs.filter(r => typ(r) === 'VIEWPORT' && r !== sd.vp && r !== sd.tv).slice(sd.page ? 1 : 0).map(r => fnum(r, 12, 0) + fnum(r, 17, 0) + fnum(r, 45, 0) * fnum(r, 40, 0) / (fnum(r, 41, 0) || 1) / 2).filter(isFinite);
+    const right = Math.max(isFinite(modelBox) ? modelBox : -Infinity, ...seenTo), PW = sd.paper ? sd.paper[0] : sd.DA[2], PH = sd.paper ? sd.paper[1] : sd.DA[3];
     let ox = isFinite(right) ? Math.max(0, right) + 50 : 0, top = 0;
     for (const sh of sheets) {
+      if (sh.name === 'COVER' && sd.cover) { place.push({ sh, own: true }); continue; }      /* (the template's own cover sheet: nothing in model space) */
       const k = sh.N ? 1 / sh.s : k0, G = new Gfx(), t3 = (String(sh.name || 'S').replace(/[^A-Za-z]/g, '').slice(0, 3) || 'S').toUpperCase(); seen[t3] = (seen[t3] || 0) + 1; const tag = t3 + (seen[t3] > 1 ? seen[t3] : '');
       for (const im of sh.images) { const dm = dims[im.file];
         fitTx(G, [im.x + im.w / 2, im.y + im.h / 2 - 0.8], (im.logo ? 'LOGO: ' : 'PICTURE: ') + im.file, 1.8, im.w - 2, 'ph', 'c');
         if (dm && dm[0] > 0 && dm[1] > 0) imgs.push({ file: im.file, px: dm[0], py: dm[1], x: ox + im.x * k, y: im.y * k, w: im.w * k, h: im.h * k }); }
       for (const p of xfPrims(sh.prims.concat(G.p), k, 0, ox, 0)) { if (p.g) { const g = tag + '_' + p.g; let q = groups.get(g); if (!q) groups.set(g, q = []); q.push(p); } else loose.push(p); }
-      place.push({ sh, k, ox, c: [ox + sd.W * k / 2, sd.H * k / 2], vh: sd.H * k }); top = Math.max(top, sd.H * k); ox += sd.W * k * 1.06;
+      place.push({ sh, k, ox }); top = Math.max(top, PH * k); ox += PW * k * 1.06;
     }
     const BRS = [], BLK = [], MOD = [], bU = new Set([...S.blocks.keys()].map(s => s.toUpperCase())), used = {};
     for (const [key, P] of groups) {
@@ -843,32 +948,15 @@ const CefTpl = (() => {
     }
     for (const p of loose) ent(MOD, p, 0, 0, MS);
     for (const r of BRS) toTable('BLOCK_RECORD', r); for (const r of BLK) BS.push(r);
-    /* the pictures: linked files (photos/…, logos/…), as in the DXF of the app's frame; their objects as the plan builder writes them */
-    const root = OS[0], rootH = get(root, 5);
-    if (imgs.length) {
-      const raw = d.sec('CLASSES') && d.sec('CLASSES').raw, have = new Set((raw || []).filter(p => p[0] === 1).map(p => p[1]));
-      const cls = (nm, cpp, fl, e) => { if (raw && !have.has(nm)) raw.push([0, 'CLASS'], [1, nm], [2, cpp], [3, 'ISM'], [90, I(fl)], [91, I(0)], [280, I(0)], [281, I(e ? 1 : 0)]); };
-      cls('IMAGE', 'AcDbRasterImage', 2175, true); cls('IMAGEDEF', 'AcDbRasterImageDef', 0, false); cls('IMAGEDEF_REACTOR', 'AcDbRasterImageDefReactor', 1, false); cls('RASTERVARIABLES', 'AcDbRasterVariables', 0, false);
-      let k = root.findIndex(p => p[0] === 3 && p[1] === 'ACAD_IMAGE_DICT'), dict = k > 0 ? d.byHandle.get(root[k + 1][1]) : null;
-      if (!dict) { const h = H(); dict = [[0, 'DICTIONARY'], [5, h], [102, '{ACAD_REACTORS'], [330, rootH], [102, '}'], [330, rootH], [100, 'AcDbDictionary'], [281, I(1)]]; OS.push(dict); root.push([3, 'ACAD_IMAGE_DICT'], [350, h]); }
-      const dictH = get(dict, 5), defs = new Map(), reac = [];
-      for (const im of imgs) {
-        let df = defs.get(im.file); if (!df) { df = { h: H(), users: [], im }; defs.set(im.file, df); dict.push([3, 'CEF_' + im.file.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60) + '_' + defs.size], [350, df.h]); }
-        const ih = H(), rh = H(); df.users.push(rh); reac.push([[0, 'IMAGEDEF_REACTOR'], [5, rh], [330, ih], [100, 'AcDbRasterImageDefReactor'], [90, I(2)], [330, ih]]);
-        MOD.push([[0, 'IMAGE'], [5, ih], [330, MS], [100, 'AcDbEntity'], [8, lay('ph')], [100, 'AcDbRasterImage'], [90, I(0)], [10, n(im.x)], [20, n(im.y)], [30, '0.0'], [11, (im.w / im.px).toPrecision(10)], [21, '0.0'], [31, '0.0'], [12, '0.0'], [22, (im.h / im.py).toPrecision(10)], [32, '0.0'],
-          [13, n(im.px)], [23, n(im.py)], [340, df.h], [70, I(7)], [280, I(0)], [281, I(50)], [282, I(50)], [283, I(0)], [360, rh], [71, I(1)], [91, I(2)], [14, '-0.5'], [24, '-0.5'], [14, n(im.px - 0.5)], [24, n(im.py - 0.5)]]);
-      }
-      for (const df of defs.values()) OS.push([[0, 'IMAGEDEF'], [5, df.h], [102, '{ACAD_REACTORS'], [330, dictH], ...df.users.map(u => [330, u]), [102, '}'], [330, dictH], [100, 'AcDbRasterImageDef'], [90, I(0)], [1, df.im.file], [10, n(df.im.px)], [20, n(df.im.py)], [11, '0.01'], [21, '0.01'], [280, I(1)], [281, I(0)]]);
-      for (const r of reac) OS.push(r);
-      const rv = root.findIndex(p => p[0] === 3 && p[1] === 'ACAD_IMAGE_VARS');
-      if (rv < 0 || !d.byHandle.get(String(root[rv + 1] && root[rv + 1][1]))) { if (rv >= 0) root.splice(rv, 2); const h = H(); OS.push([[0, 'RASTERVARIABLES'], [5, h], [102, '{ACAD_REACTORS'], [330, rootH], [102, '}'], [330, rootH], [100, 'AcDbRasterVariables'], [90, I(0)], [70, I(1)], [71, I(1)], [72, I(3)]]); root.push([3, 'ACAD_IMAGE_VARS'], [350, h]); }
-    }
+    for (const im of imgs) MOD.push(picture(im.file, im.px, im.py, im.x, im.y, im.w, im.h, MS, lay('ph'), false));
     for (const r of MOD) ES.push(r);
     d.index();
-    /* ----- the sheets: a layout for each page, copied from the template's CEF (its frame, title block, logos), its drawing area aimed at the page;
-       the first page on the paper space every drawing has (*Paper_Space), the others each on its own; the template's other sheets left out ----- */
+    /* ----- the sheets: a layout for each page, copied from the template's CEF (its frame, title block, logos), its drawing area and its tables'
+       viewport aimed at the page; the cover from its CEF COVER when it has one; the first page on the paper space every drawing has
+       (*Paper_Space), the others each on its own; the template's other sheets left out ----- */
     const P = S.layouts.find(q => S.br.get(q.brh) && get(S.br.get(q.brh), 2) === '*Paper_Space'), pBR = S.br.get(P.brh), pBlk = S.blocks.get('*Paper_Space');
-    const tRec = L.rec.map(p => [p[0], p[1]]), tRecs = sd.recs.map(r => r.map(p => [p[0], p[1]])), tBr = L.brh, tH = get(L.rec, 5), vpH = get(sd.vp, 5);
+    const snap = (Lx, recsX) => ({ rec: Lx.rec.map(p => [p[0], p[1]]), recs: recsX.map(r => r.map(p => [p[0], p[1]])), br: Lx.brh, h: get(Lx.rec, 5) });
+    const MAIN = snap(L, sd.recs), COV = sd.cover ? snap(sd.cover.L, sd.cover.recs) : null, vpH = get(sd.vp, 5), tvH = sd.tv ? get(sd.tv, 5) : null;
     const ldk = root.findIndex(p => p[0] === 3 && p[1] === 'ACAD_LAYOUT'), ldict = ldk > 0 ? d.byHandle.get(root[ldk + 1][1]) : null, ldictH = ldict ? get(ldict, 5) : owner(P.rec);
     const gone = new Set(); for (const r of sheetRecs(d, S, P)) gone.add(r);      /* the paper space's own records: the first page takes their place */
     for (const X of S.layouts) {
@@ -888,8 +976,10 @@ const CefTpl = (() => {
       if (t !== 'MTEXT') { for (const p of r) if (p[0] === 1) { p[1] = s1; break; } return; }
       const first = r.findIndex((p, i) => i > 0 && (p[0] === 3 || p[0] === 1)), one = r.findIndex((p, i) => i > 0 && p[0] === 1), ch = []; for (let i = 0; i < s1.length; i += 250) ch.push(s1.slice(i, i + 250)); if (!ch.length) ch.push('');
       if (first > 0 && one >= first) r.splice(first, one - first + 1, ...ch.slice(0, -1).map(c => [3, c]), [1, ch[ch.length - 1]]);
-      /* a field's box (its width, 41) as wide as its one line at least: a longer value was broken over two lines in the template's narrow box */
-      const ln = s1.replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/\\P/g, '\n').split('\n'); if (ln.length === 1) { const k1 = r.findIndex(p => p[0] === 100 && p[1] === 'AcDbMText'); let iw = -1; for (let i = k1 + 1; k1 > 0 && i < r.length && r[i][0] !== 100 && r[i][0] !== 101; i++) if (r[i][0] === 41) { iw = i; break; } const w = textW(ln[0].replace(/[{}]/g, ''), fnum(r, 40, 2.5)) * 1.15; if (iw > 0 && parseFloat(r[iw][1]) > 0 && parseFloat(r[iw][1]) < w) r[iw][1] = n(w); }
+      /* (beta 7.15, CEF template kit) a field's box (its width, 41) is its room: a longer value is made smaller to fit it (to half its height
+         at most), as the CEF's own frame fits its values */
+      const ln = s1.replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/\\P/g, '\n').split('\n'), w = fnum(r.slice(Math.max(0, r.findIndex(p => p[0] === 100 && p[1] === 'AcDbMText'))), 41, 0), h0 = fnum(r, 40, 2.5);
+      if (ln.length === 1 && w > 0) { const need = textW(ln[0].replace(/[{}]/g, ''), h0) * 1.1; if (need > w) setIn(r, 'AcDbMText', 40, n(Math.max(h0 * 0.5, h0 * w / need))); }
     };
     /* a block of the template's sheet that holds fields: a copy of it for each sheet (its fields say that sheet's) */
     const fieldBlocks = new Set(); for (const [nm, b] of S.blocks) if (!/^\*(Model|Paper)_Space/i.test(nm) && fieldsIn(S, b.ents).size) fieldBlocks.add(nm);
@@ -907,6 +997,10 @@ const CefTpl = (() => {
       OS2.push([[0, 'IMAGEDEF_REACTOR'], [5, rh], [330, ih], [100, 'AcDbRasterImageDefReactor'], [90, I(2)], [330, ih]]);
       const k1 = df.findIndex(p => p[0] === 102 && p[1] === '{ACAD_REACTORS'); if (k1 > 0) df.splice(k1 + 1, 0, [330, rh]); else { const k2 = df.findIndex(p => p[0] === 330); df.splice(k2 > 0 ? k2 : df.length, 0, [102, '{ACAD_REACTORS'], [330, rh], [102, '}']); }
     }
+    /* (beta 7.15, CEF template kit) the logo boxes of a sheet (rectangles on layers CEF-LOGO-CLIENT and CEF-LOGO-VENDOR): the app's logos in them,
+       as on the app's own sheet; a field inside a box the app puts its logo in is left blank (the company's name where its logo goes) */
+    const logoBoxes = recs => recs.filter(r => typ(r) === 'LWPOLYLINE' && /^CEF-LOGO-(CLIENT|VENDOR)$/i.test(String(get(r, 8, '')).trim())).map(r => {
+      const xs = all(r, 10).map(Number), ys = all(r, 20).map(Number); return { key: /CLIENT/i.test(get(r, 8, '')) ? 'client' : 'vendor', box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], layer: get(r, 8) }; }).filter(q => q.box[2] - q.box[0] > 0 && q.box[3] - q.box[1] > 0);
     /* a sheet plotted as Layout (no plot window) is printed by dxfpdf.js from what it holds, and a long field (the line of who exported) took
        room from the page: its window set to the sheet's limits when they are its paper (AutoCAD does not use the window for a Layout plot) */
     const plotWin = rec => {
@@ -915,25 +1009,34 @@ const CefTpl = (() => {
       const big = Math.max(fnum(rec, 44, 0), fnum(rec, 45, 0)) / sd.u, lw = lim[2] - lim[0], lh = lim[3] - lim[1];
       if (lw > 1 && lh > 1 && big > 1 && Math.abs(Math.max(lw, lh) - big) < 0.25 * big) for (const [c, v] of [[48, lim[0]], [49, lim[1]], [140, lim[2]], [141, lim[3]]]) setIn(rec, 'AcDbPlotSettings', c, n(v));
     };
-    const pageVp = () => { const W = sd.W / sd.u, Hh = sd.H / sd.u, c = [fnum(sd.vp, 10, 0), fnum(sd.vp, 20, 0)];      /* (a template with no viewport of its sheet's own) */
-      return [[0, 'VIEWPORT'], [5, 'PAGEVP'], [330, tBr], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbViewport'], [10, n(c[0])], [20, n(c[1])], [30, '0.0'], [40, n(W * 1.2)], [41, n(Hh * 1.2)], [68, I(1)], [69, I(1)], [12, n(c[0])], [22, n(c[1])], [13, '0.0'], [23, '0.0'], [14, '10.0'], [24, '10.0'], [15, '10.0'], [25, '10.0'], [16, '0.0'], [26, '0.0'], [36, '1.0'], [17, '0.0'], [27, '0.0'], [37, '0.0'], [42, '50.0'], [43, '0.0'], [44, '0.0'], [45, n(Hh * 1.2)], [50, '0.0'], [51, '0.0'], [72, I(1000)], [90, I(32864)], [1, ''], [281, I(0)], [71, I(1)], [74, I(0)], [110, '0.0'], [120, '0.0'], [130, '0.0'], [111, '1.0'], [121, '0.0'], [131, '0.0'], [112, '0.0'], [122, '1.0'], [132, '0.0'], [79, I(0)], [146, '0.0']]; };
-    if (!sd.page) { const k = tRecs.findIndex(r => typ(r) === 'VIEWPORT'); tRecs.splice(k < 0 ? 0 : k, 0, pageVp()); }      /* (before its viewports: the sheet's own first) */
+    const pageVp = TT => { const W = sd.W / sd.u, Hh = sd.H / sd.u, c = [fnum(sd.vp, 10, 0), fnum(sd.vp, 20, 0)];      /* (a template with no viewport of its sheet's own) */
+      return [[0, 'VIEWPORT'], [5, 'PAGEVP'], [330, TT.br], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbViewport'], [10, n(c[0])], [20, n(c[1])], [30, '0.0'], [40, n(W * 1.2)], [41, n(Hh * 1.2)], [68, I(1)], [69, I(1)], [12, n(c[0])], [22, n(c[1])], [13, '0.0'], [23, '0.0'], [14, '10.0'], [24, '10.0'], [15, '10.0'], [25, '10.0'], [16, '0.0'], [26, '0.0'], [36, '1.0'], [17, '0.0'], [27, '0.0'], [37, '0.0'], [42, '50.0'], [43, '0.0'], [44, '0.0'], [45, n(Hh * 1.2)], [50, '0.0'], [51, '0.0'], [72, I(1000)], [90, I(32864)], [1, ''], [281, I(0)], [71, I(1)], [74, I(0)], [110, '0.0'], [120, '0.0'], [130, '0.0'], [111, '1.0'], [121, '0.0'], [131, '0.0'], [112, '0.0'], [122, '1.0'], [132, '0.0'], [79, I(0)], [146, '0.0']]; };
+    if (!sd.page) { const k = MAIN.recs.findIndex(r => typ(r) === 'VIEWPORT'); MAIN.recs.splice(k < 0 ? 0 : k, 0, pageVp(MAIN)); }      /* (before its viewports: the sheet's own first) */
+    const LOGOS = o.logos || {};
     let tab = 0;
     place.forEach((q, i) => {
-      const first = i === 0, br = first ? P.brh : H(), lh = first ? get(P.rec, 5) : H(), name = sheetName(q.sh, i), map = new Map([[tBr, br], [tH, lh], ['PAGEVP', H()]]);
-      for (const r of tRecs) { const h = get(r, 5); if (h && !map.has(h)) map.set(h, H()); }
+      const TT = q.own ? COV : MAIN, first = i === 0, br = first ? P.brh : H(), lh = first ? get(P.rec, 5) : H(), name = sheetName(q.sh, i), map = new Map([[TT.br, br], [TT.h, lh], ['PAGEVP', H()]]);
+      for (const r of TT.recs) { const h = get(r, 5); if (h && !map.has(h)) map.set(h, H()); }
       /* its records: the template's sheet with new handles, its fields this sheet's; on the paper space they are in ENTITIES and say so (67) */
-      const F = flds(q.sh.prims.tb || {}), memo = new Map(), recs = tRecs.map(r => { let x = remap(strip(r), map); if (first) { if (!x.some(p => p[0] === 67)) { const k1 = x.findIndex(p => p[0] === 100 && p[1] === 'AcDbEntity'); x.splice(k1 + 1, 0, [67, I(1)]); } } else x = x.filter(p => p[0] !== 67); return x; });
+      const F = flds(q.sh.prims.tb || {}), memo = new Map(), recs = TT.recs.map(r => { let x = remap(strip(r), map); if (first) { if (!x.some(p => p[0] === 67)) { const k1 = x.findIndex(p => p[0] === 100 && p[1] === 'AcDbEntity'); x.splice(k1 + 1, 0, [67, I(1)]); } } else x = x.filter(p => p[0] !== 67); return x; });
       { let ins = null; for (const r of recs) { const t = typ(r); if (t === 'INSERT') ins = get(r, 5); else if (t === 'ATTRIB' && ins) { const k1 = r.findIndex((p, j) => j > 0 && p[0] === 330); if (k1 > 0) r[k1][1] = ins; } else if (t !== 'SEQEND') ins = null; } }      /* (an attribute belongs to the insert before it: some programs name the sheet as its owner) */
-      for (const r of recs) { fill(r, F); if (typ(r) === 'INSERT' && fieldBlocks.has(get(r, 2))) setIn(r, 'AcDbBlockReference', 2, copyBlock(get(r, 2), i, F, memo)); imageCopy(r);
-        if (!first && typ(r) === 'VIEWPORT') { setIn(r, 'AcDbViewport', 68, I(0)); setIn(r, 'AcDbViewport', 69, I(0)); } }      /* (a sheet not open: its viewports' status and number 0, as AutoCAD writes them and the app's frame's DXF has them) */
-      const v = recs.find(r => get(r, 5) === map.get(vpH));
-      if (v) {      /* the drawing area looks at its page: straight down, no twist, at the page's scale */
-        for (const [c, val] of [[12, n(q.c[0])], [22, n(q.c[1])], [16, '0.0'], [26, '0.0'], [36, '1.0'], [17, '0.0'], [27, '0.0'], [37, '0.0'], [45, n(q.vh)], [51, '0.0']]) setIn(v, 'AcDbViewport', c, val);
+      const logos = logoBoxes(recs).filter(q2 => LOGOS[q2.key] && LOGOS[q2.key].px > 0 && LOGOS[q2.key].py > 0), inBox = r => logos.some(q2 => { const x = fnum(r, 10, NaN), y = fnum(r, 20, NaN); return x >= q2.box[0] && x <= q2.box[2] && y >= q2.box[1] && y <= q2.box[3]; });
+      for (const r of recs) {
+        if (isText(r) && inBox(r) && /@@\w+@@/.test(textOf(r))) { fill(r, () => ''); continue; }
+        fill(r, F); if (typ(r) === 'INSERT' && fieldBlocks.has(get(r, 2))) setIn(r, 'AcDbBlockReference', 2, copyBlock(get(r, 2), i, F, memo)); imageCopy(r);
+        if (!first && typ(r) === 'VIEWPORT') { setIn(r, 'AcDbViewport', 68, I(0)); setIn(r, 'AcDbViewport', 69, I(0)); }      /* (a sheet not open: its viewports' status and number 0, as AutoCAD writes them and the app's frame's DXF has them) */
+      }
+      for (const q2 of logos) {      /* the logo, as large as its box allows, in the middle of it */
+        const lg = LOGOS[q2.key], bw = q2.box[2] - q2.box[0], bh = q2.box[3] - q2.box[1], f = Math.min(bw / lg.px, bh / lg.py), w = lg.px * f, h = lg.py * f;
+        recs.push(picture(lg.file, lg.px, lg.py, q2.box[0] + (bw - w) / 2, q2.box[1] + (bh - h) / 2, w, h, br, lay('ph'), first));
+      }
+      if (!q.own) for (const [vh0, bx] of [[vpH, sd.DA], [tvH, sd.TA]]) {      /* the drawing area and the tables look at their part of the page: straight down, no twist, at the page's scale */
+        const v = vh0 && bx ? recs.find(r => get(r, 5) === map.get(vh0)) : null; if (!v) continue;
+        for (const [c, val] of [[12, n(q.ox + (bx[0] + bx[2]) / 2 * q.k)], [22, n((bx[1] + bx[3]) / 2 * q.k)], [16, '0.0'], [26, '0.0'], [36, '1.0'], [17, '0.0'], [27, '0.0'], [37, '0.0'], [45, n((bx[3] - bx[1]) * q.k)], [51, '0.0']]) setIn(v, 'AcDbViewport', c, val);
         const f = v.find(p => p[0] === 90); if (f && (parseInt(f[1], 10) & 131072)) f[1] = I(parseInt(f[1], 10) & ~131072);
       }
       /* its layout: the template's page setup (paper, plot window), its name and its place among the tabs */
-      const body = remap(strip(tRec), map), kb = body.findIndex(p => p[0] === 100 && p[1] === 'AcDbPlotSettings'), lay2 = body.slice(kb >= 0 ? kb : 0);
+      const body = remap(strip(TT.rec), map), kb = body.findIndex(p => p[0] === 100 && p[1] === 'AcDbPlotSettings'), lay2 = body.slice(kb >= 0 ? kb : 0);
       setIn(lay2, 'AcDbLayout', 1, name); setIn(lay2, 'AcDbLayout', 71, I(++tab)); plotWin(lay2);
       if (first) {
         const k1 = P.rec.findIndex(p => p[0] === 100 && p[1] === 'AcDbPlotSettings'), head = P.rec.slice(0, k1 > 0 ? k1 : 2).map(p => [p[0], p[1]]), at = OS2.indexOf(P.rec);
@@ -954,15 +1057,23 @@ const CefTpl = (() => {
     { const B = d.sec('BLOCKS').recs, refs = new Set(); for (const s of [B, d.sec('ENTITIES').recs]) for (const r of s) if (typ(r) === 'INSERT') refs.add(get(r, 2));
       const out = new Set(); for (const nm of fieldBlocks) { const b = S.blocks.get(nm), br = S.brByName.get(nm); if (!b || !br) continue; if (refs.has(nm)) { for (const r of b.ents) fill(r, () => ''); continue; } out.add(br); out.add(b.begin); out.add(b.end); for (const r of b.ents) out.add(r); }
       if (out.size) for (const nm of ['TABLES', 'BLOCKS']) { const s = d.sec(nm); s.recs = s.recs.filter(r => !out.has(r)); } }      /* (the template's own blocks with fields: each sheet has its copies; one nothing inserts now is taken out, another one's fields left blank) */
+    /* the pictures' objects, once every picture is in */
+    if (defs.size) {
+      const OS3 = d.sec('OBJECTS').recs, dictH = get(dict, 5);
+      for (const df of defs.values()) OS3.push([[0, 'IMAGEDEF'], [5, df.h], [102, '{ACAD_REACTORS'], [330, dictH], ...df.users.map(u => [330, u]), [102, '}'], [330, dictH], [100, 'AcDbRasterImageDef'], [90, I(0)], [1, df.file], [10, n(df.px)], [20, n(df.py)], [11, '0.01'], [21, '0.01'], [280, I(1)], [281, I(0)]]);
+      for (const r of reac) OS3.push(r);
+      d.index(); const rv = root.findIndex(p => p[0] === 3 && p[1] === 'ACAD_IMAGE_VARS');
+      if (rv < 0 || !d.byHandle.get(String(root[rv + 1] && root[rv + 1][1]))) { if (rv >= 0) root.splice(rv, 2); const h = H(); OS3.push([[0, 'RASTERVARIABLES'], [5, h], [102, '{ACAD_REACTORS'], [330, rootH], [102, '}'], [330, rootH], [100, 'AcDbRasterVariables'], [90, I(0)], [70, I(1)], [71, I(1)], [72, I(3)]]); root.push([3, 'ACAD_IMAGE_VARS'], [350, h]); }
+    }
     /* ----- the drawing opens on the Model tab with every page in view, as the DXF of the app's frame does ----- */
-    const x0 = place.length ? place[0].ox : 0, x1 = ox, y1 = top || 1, Hd = d.sec('HEADER').raw;
+    const firstM = place.find(q => !q.own), x0 = firstM ? firstM.ox : 0, x1 = ox, y1 = top || 1, Hd = d.sec('HEADER').raw;
     const setPt = (nm, x, y) => { const k = Hd.findIndex(p => p[0] === 9 && p[1] === nm); if (k < 0) return; for (let i = k + 1; i < Hd.length && Hd[i][0] !== 9; i++) { if (Hd[i][0] === 10) Hd[i] = [10, n(x)]; else if (Hd[i][0] === 20) Hd[i] = [20, n(y)]; } };
     setPt('$EXTMIN', x0, 0); setPt('$EXTMAX', x1, y1);
     { const k = Hd.findIndex(p => p[0] === 9 && p[1] === '$TILEMODE'); if (k >= 0 && Hd[k + 1]) Hd[k + 1] = [70, I(1)]; }
     const act = live().find(r => typ(r) === 'VPORT' && /^\*ACTIVE$/i.test(String(get(r, 2, ''))));
     if (act) { const asp = fnum(act, 41, 0) > 0.05 && fnum(act, 41, 0) < 20 ? fnum(act, 41, 0) : 1.6; for (const [c, v] of [[12, n((x0 + x1) / 2)], [22, n(y1 / 2)], [40, n(Math.max(y1, (x1 - x0) / asp, 1) * 1.06)], [16, '0.0'], [26, '0.0'], [36, '1.0'], [17, '0.0'], [27, '0.0'], [37, '0.0'], [51, '0.0']]) { const i = act.findIndex(p => p[0] === c); if (i > 0) act[i] = [c, v]; } }
     d.index(); const log = T.clean(d);
-    write.last = { sheets: place.length, fields: tok, pictures: imgs.length, groups: groups.size, clean: log };
+    write.last = { sheets: place.length, fields: tok, pictures: imgs.length, logos: [...defs.keys()].filter(f => /^logos\//.test(f)).length, groups: groups.size, clean: log };
     return d.text();
   }
   return { seed, write, sheetRecs, lookOf };

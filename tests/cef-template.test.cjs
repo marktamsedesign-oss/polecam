@@ -153,7 +153,7 @@ test('on the template: a sheet for each page, a copy of its CEF sheet with its f
       assert.ok(page && area && key && num(page, 40) > num(area, 40), `${tn}, ${s.name}: the sheet's own viewport first, then the drawing area and the key plan`);
       assert.deepEqual([num(area, 40), num(area, 41), num(area, 10), num(area, 20)], [398, 239, 210, 166.5]);
       const k = P.N ? 1 / P.s : 1 / r.sheets.find((q) => q.name === 'TOP VIEW').s, vh = num(area, 45), cx = num(area, 12), cy = num(area, 22);
-      assert.ok(Math.abs(vh - 239 * k) < 1e-4 && Math.abs(cy - 239 * k / 2) < 1e-4, `${tn}, ${s.name}: view height ${vh}, the page's ${239 * k}`);
+      assert.ok(Math.abs(vh - 239 * k) < 1e-4 && Math.abs(cy - 166.5 * k) < 1e-4, `${tn}, ${s.name}: view height ${vh}, the page's ${239 * k}; centre ${cy} (the drawing area's middle on the paper, 166.5 mm up)`);      /* ((beta 7.15, CEF template kit) the pages are laid out in the paper's millimetres) */
       if (P.N) assert.ok(Math.abs(num(area, 41) / vh - 1000 / P.N) < 1e-6, `${tn}, ${s.name}: 1:${P.N} on paper (${1000 / P.N} mm a metre)`);
       const inView = R.model.filter((e) => ['LINE', 'LWPOLYLINE', 'TEXT', 'INSERT', 'CIRCLE'].includes(typ(e))).filter((e) => Math.abs(num(e, 10, 1e9) - cx) < num(area, 40) * k / 2 && Math.abs(num(e, 20, 1e9) - cy) < vh / 2);
       assert.ok(inView.length > 5, `${tn}, ${s.name}: its page is what its drawing area shows (${inView.length} things)`);
