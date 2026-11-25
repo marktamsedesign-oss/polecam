@@ -2784,9 +2784,10 @@
     const M = pmeta(drw.project), want = new Map(), J = P.tools || {}, moved = new Map();
     for (const pid of Object.keys(P.drawnAt || {})) { const d = drwPtShift(pid, M); if (Math.hypot(d[0], d[1]) > 0.02) moved.set(String(pid), d); } // (the poles moved since: by how much ((beta 7.12) on the plan only, or their record))
     const zNow = drwOrderNow(M), zMade = drwOrderNow({ mvOrder: J.order || [] }); // ((beta 7.12, Drawing edit) each item's last draw order op, now and as the plan shown was made)
+    const alive = new Set(points.filter((q) => q.project === drw.project).map((q) => String(q.id))); // ((beta 7.12) a point deleted since the plan was made: what is on it not drawn until the plan made without it comes)
     P.mv.forEach((m, i) => {
       if (isNote(m)) { want.set(i, drwNoteLift(m, M)); return; } // ((beta 7.12, Drawing edit) a note: where, how turned and sized it is now, from the note itself; deleted: hidden)
-      if ((M.mvHide || {})[m.id] && !(J.hide || []).includes(m.id)) { want.set(i, { off: [0, 0], xf: { hide: true } }); return; } // ((beta 7.12) deleted from the plan since it was made: not drawn until the plan made without it comes)
+      if (((M.mvHide || {})[m.id] && !(J.hide || []).includes(m.id)) || (pidOf(m) != null && /^(pole|site|sitelbl|sitename|nap|clo|clolbl|loop|loopsym|guy|gnd|arm|lbl|num|ph|clamp):/.test(m.id) && !alive.has(String(pidOf(m))))) { want.set(i, { off: [0, 0], xf: { hide: true } }); return; } // ((beta 7.12) deleted from the plan, or its point deleted, since it was made: not drawn until the plan made without it comes)
       const z = zNow.get(m.id) !== zMade.get(m.id) ? (/^(front|forward)$/.test(zNow.get(m.id) || '') ? 1 : /^(back|backward)$/.test(zNow.get(m.id) || '') ? -1 : 0) : 0; // ((beta 7.12) over or under the rest until the plan made with it comes)
       if (m.kind === 'photo') { if (!want.has(i)) want.set(i, z ? { off: [0, 0], xf: { z } } : null); return; }
       const pin = drwPinOf(m, M), pid = pidOf(m); let off = null;
