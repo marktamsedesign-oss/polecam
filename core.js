@@ -722,7 +722,11 @@
     });
   }
   /** The ROW AREA COVERAGE table of the template (city / municipality cell 1 over barangay rows 1–4, cell 2 over rows 5–7, and
-      the totals) from the places along the route, in route order. Names in capitals; what does not fit: "+N MORE". */
+      the totals) from the places along the route, in route order. Names in capitals; what does not fit: "+N MORE".
+      (beta 7.11, ROW table) values.ROW_TABLE: the same places as JSON, [{ muni, brgys: [...] }] in capitals, for the plan builder to
+      draw the table's rows to fit them (one city / municipality cell over its own barangays: dxftpl.js); the cells above stay filled
+      for a template whose table it cannot re-draw. One city / municipality is written once (the owner: "davao city takes 2 rows, it
+      must be one davao CITY only"): in cell 1, its barangays down all seven rows, cell 2 empty. */
   function rowCoverage(hits) {
     const groups = [];
     for (const h of hits) {
@@ -734,9 +738,8 @@
     const fit = (list, n) => (list.length <= n ? list.map(U) : [...list.slice(0, n - 1).map(U), more(list.length - n + 1)]);
     const v = {}, nM = groups.filter((g) => g.muni).length, nB = groups.reduce((t, g) => t + g.brgys.length, 0);
     let m1 = '', m2 = '', r1 = [], r2 = [];
-    if (groups.length === 1) {
-      const g = groups[0]; m1 = U(g.muni); r1 = g.brgys.slice(0, 4).map(U);
-      if (g.brgys.length > 4) { m2 = m1; r2 = fit(g.brgys.slice(4), 3); }
+    if (groups.length === 1) { // ((beta 7.11, ROW table) was: its name again in cell 2 past 4 barangays)
+      const g = groups[0], all7 = fit(g.brgys, 7); m1 = U(g.muni); r1 = all7.slice(0, 4); r2 = all7.slice(4);
     } else if (groups.length > 1) {
       const [g0, g1, ...rest] = groups; m1 = U(g0.muni); r1 = fit(g0.brgys, 4);
       m2 = U(g1.muni) + (rest.length ? ` ${more(rest.length)}` : ''); r2 = fit([...g1.brgys, ...rest.flatMap((g) => g.brgys)], 3);
@@ -745,6 +748,7 @@
     for (let i = 0; i < 4; i++) v[`ROW_BARANGAY_${i + 1}`] = r1[i] || '';
     for (let i = 0; i < 3; i++) v[`ROW_BARANGAY_${i + 5}`] = r2[i] || '';
     v.ROW_MUNICIPALITIES = nM ? String(nM) : ''; v.ROW_BARANGAYS = nB ? String(nB) : '';
+    if (groups.length) v.ROW_TABLE = JSON.stringify(groups.map((g) => ({ muni: U(g.muni), brgys: g.brgys.map(U) }))); // (beta 7.11, ROW table)
     return { values: v, groups };
   }
 
