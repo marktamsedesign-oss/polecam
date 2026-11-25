@@ -65,9 +65,10 @@ const NAME = 'DEMO TOOLS TEST', OTHER = 'DEMO TOOLS OTHER', T0 = '2026-11-01T08:
 const USER = { name: 'Juan Dela Cruz', mobile: '09170000001', email: 'juan@demo-contractor.example', company: 'DEMO CONTRACTOR' };
 const LA0 = 7.10465, LO0 = 125.6010, DD = 0.00036;
 const POLES = []; for (let i = 0; i < 8; i++) POLES.push([`s${i + 1}`, `CC-${9001 + i}`, LA0 + (i > 4 ? (i - 4) * DD : 0), LO0 + Math.min(i, 4) * DD]);
-/** what is on the made-up poles: a proposed closure (s2), a guying and a grounding (s3), an existing pole (s4), a NAP (s6) */
+/** what is on the made-up poles: a proposed closure (s2), a guying and a grounding (s3), an existing pole (s4), a proposed extension arm (s5), a NAP (s6),
+ *  a 10-pin alley arm already on the pole (s8) */
 const ON = { s2: { closure: true, closureId: 'CL-9001', boq: { owner: 'Electric', clamp: '8-10', clo: '24C', cloSt: 'New' } }, s3: { boq: { owner: 'Electric', clamp: '8-10', guy: 'Down guy', ground: 'Yes' } }, s4: { status: 'Existing' },
-  s6: { nap: true, napId: 'NAP-9001', boq: { owner: 'Electric', clamp: '8-10', napType: 'NAP 1x8', napSt: 'New' } } };
+  s5: { boq: { owner: 'Electric', clamp: '8-10', arm: 'Extension arm 26"' } }, s6: { nap: true, napId: 'NAP-9001', boq: { owner: 'Electric', clamp: '8-10', napType: 'NAP 1x8', napSt: 'New' } }, s8: { details: [{ item: '10-pin alley arm', qty: 1 }] } };
 const RECS = POLES.map(([id, poleId, lat, lon], i) => ({ id, project: NAME, element: 'Pole', poleId, poleType: 'Concrete', status: 'Proposed', lat, lon, accuracy: 4.2, created: `2026-11-01T08:0${i}:00.000Z`, updated: T0, takenAt: T0, by: USER.name, boq: { owner: 'Electric', clamp: '8-10' }, ...(ON[id] || {}) }));
 const LINKS = POLES.slice(1).map((p, i) => [POLES[i][0], p[0], 'F12']);
 const PO = []; for (let i = 0; i < 3; i++) PO.push([`o${i + 1}`, `CC-${9201 + i}`, 7.1230, 125.6200 + i * DD]);
@@ -272,7 +273,7 @@ test('a computer: font size, bold and colour reach the job and the DXF (This one
   const e1 = await exportPlan(page), E1 = entsOf(e1.text), m1 = (id) => e1.movable.find((m) => m.id === id);
   assert.deepEqual(e1.job.style[cab], { h: 1.3, bold: true, color: 5 }); assert.deepEqual(e1.job.styleKind.number, { h: 1.15 }); assert.deepEqual(e1.job.style['clo:s2'], { scale: 1.25 });
   assert.ok(e1.job.pins[gid] && e1.job.pins[gid].rot != null, 'the guying turned');
-  const tx0 = E0.get(m0(cab).handles[0]), tx1 = E1.get(m1(cab).handles[0]); near(tx1.h / tx0.h, 1.3, 0.02, 'the cable label 1.3 times as high'); assert.equal(tx1.col, 5, 'blue');
+  const tx0 = E0.get(m0(cab).handles[0]), tx1 = E1.get(m1(cab).handles[0]); near(tx1.h / tx0.h, 1.3, 0.02, 'the cable label 1.3 times as high'); assert.equal(tx1.col, 5, 'blue'); assert.equal(tx1.style, 'G-ESAA ARIAL B', 'bold: the Arial bold style'); assert.notEqual(tx0.style, 'G-ESAA ARIAL B');
   const nt0 = m0('num:s5').handles.map((h) => E0.get(h)).find((x) => x.type === 'TEXT'), nt1 = m1('num:s5').handles.map((h) => E1.get(h)).find((x) => x.type === 'TEXT'); near(nt1.h / nt0.h, 1.15, 0.02, 'every number larger');
   const ci0 = m0('clo:s2').handles.map((h) => E0.get(h)).find((x) => x.type === 'INSERT'), ci1 = m1('clo:s2').handles.map((h) => E1.get(h)).find((x) => x.type === 'INSERT'); if (ci0 && ci1) near((ci1.sx || 1) / (ci0.sx || 1), 1.25, 0.02, 'the closure larger');
   assert.deepEqual(errors, []);
@@ -291,9 +292,17 @@ test('Existing ↔ Proposed changes the record itself (the plan follows); Undo p
   // a closure's label: its closure existing (its record's cloSt)
   await select(page, 'clolbl:s2'); n0 = (await pl(page)).n; await tbClick(page, 'status', 'existing'); await page.waitForTimeout(600);
   assert.equal((await recOf(page, 's2')).boq.cloSt, 'Existing', 'the closure existing'); await again(page, n0);
+  // an arm: the proposed extension arm (the record's BOQ arm) on the pole already (what is on the pole), and the alley arm on s8 the other way
+  await select(page, 'arm:s5'); assert.equal((await full(page, 'arm:s5')).canNow.status.field, 'armType'); n0 = (await pl(page)).n; await tbClick(page, 'status', 'existing'); await page.waitForTimeout(600);
+  let r5 = await recOf(page, 's5'); assert.ok(!r5.boq.arm, 'no new arm in its BOQ'); assert.deepEqual(r5.details, [{ item: 'Extension arm 26"', qty: 1 }], 'on the pole'); await again(page, n0);
+  assert.deepEqual((await full(page, 'arm:s5')).canNow.status, { now: 'existing', field: 'armText', point: 's5' }, 'the plan draws it existing');
+  await select(page, 'arm:s8'); n0 = (await pl(page)).n; await tbClick(page, 'status', 'proposed'); await page.waitForTimeout(600);
+  const r8 = await recOf(page, 's8'); assert.equal(r8.boq.arm, '10-pin alley arm'); assert.deepEqual(r8.details, []); await again(page, n0);
   const e1 = await exportPlan(page); assert.equal(e1.pts.find((p) => p.id === 's4').status, 'Proposed'); assert.equal(e1.pts.find((p) => p.id === 's2').closureOld, true);
-  // Undo: the records back
+  // Undo: the records back, one at a time
   await drawing(page); await shown(page);
+  await page.click('#drawUndo'); await page.waitForTimeout(600); assert.deepEqual((await recOf(page, 's8')).details, [{ item: '10-pin alley arm', qty: 1 }]);
+  await page.click('#drawUndo'); await page.waitForTimeout(600); r5 = await recOf(page, 's5'); assert.equal(r5.boq.arm, 'Extension arm 26"'); assert.ok(!(r5.details || []).length);
   await page.click('#drawUndo'); await page.waitForTimeout(600); assert.equal((await recOf(page, 's2')).boq.cloSt, 'New');
   await page.click('#drawUndo'); await page.waitForTimeout(600); assert.equal((await recOf(page, 's4')).status, 'Existing');
   assert.deepEqual(errors, []);

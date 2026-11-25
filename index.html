@@ -268,6 +268,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .drwtbpal button{width:36px;height:36px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1.5px var(--line);cursor:pointer;padding:0}
 .drwtbpal button[aria-pressed=true]{box-shadow:0 0 0 3px var(--accent)}
 .drwtbpal button.asplan{background:conic-gradient(#e03131,#f59f00,#2f9e44,#1098ad,#1c7ed6,#ae3ec9,#e03131);position:relative}.drwtbpal button.asplan::after{content:'';position:absolute;inset:9px;border-radius:50%;background:var(--surface)}
+@media (pointer:fine){.drwtb{gap:3px}.drwtbb{min-width:36px;height:38px;padding:0 5px}.drwtbb.wide{padding:0 7px}.drwtbseg{height:38px}.drwtbseg button{padding:0 7px}} /* (a mouse: a little smaller, one row on a laptop) */
 @media (pointer:coarse){.drwtbb,.drwtbseg{min-width:44px;height:44px}.drwtbpal button{width:40px;height:40px}.drwtb .drwtbx{width:40px;height:40px;top:-12px;right:-12px}}
 #drawWrap.tbtop > .drwxhid{top:calc(var(--tbh, 64px) + 8px)}#drawWrap.tbtop:has(> #drawXHid:not([hidden])) > #drawPhAll{top:calc(var(--tbh, 64px) + 52px)} /* (the chips at the upper right, below the toolbar at the top) */
 .strow.sthl,.stgrp.sthl,.psrow.sthl{outline:2px solid #f08c00;outline-offset:3px;border-radius:8px;background:rgba(240,140,0,.09)}#stPrev [data-st]{cursor:pointer}.dscap .dspk{color:#e8590c;font-weight:600}
