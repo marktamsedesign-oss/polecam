@@ -13961,11 +13961,15 @@
     }
     // ((beta 7.12, Drawing edit) the photos added on the Drawing (job.notes, kind photo): each one's JPEG made as the poles' photos are (800 px on its long side), beside
     // the DXF as NOTE_<id>.jpg (the name the job gives), in the ZIP, the plan's PDF and the One PDF; its size in the job as made. The preview needs no file.)
-    if (!prev) for (const n of tools.notes || []) {
-      if (n.kind !== 'photo' || !n.photo) continue; const nt = notesOf(m).find((x) => String(x.id) === n.id), pid = nt && nt.photo ? nt.photo.pid : null; if (!pid) continue;
-      const jpg = await pdfJpeg(pid, 800, null, null, 0.8).catch(() => null); if (!jpg) { LOG.warn('plan.note.photo', { id: n.id }); continue; }
-      try { const dm = window.PoleReports.jpegInfo(jpg); if (dm && dm.w > 0 && dm.h > 0) { n.photo.px = dm.w; n.photo.py = dm.h; } } catch (e) { /* its size as kept */ }
-      files.push({ name: n.photo.file, data: jpg });
+    if (!prev && tools.notes) {
+      const gone = new Set();
+      for (const n of tools.notes) {
+        if (n.kind !== 'photo' || !n.photo) continue; const nt = notesOf(m).find((x) => String(x.id) === n.id), pid = nt && nt.photo ? nt.photo.pid : null;
+        const jpg = pid ? await pdfJpeg(pid, 800, null, null, 0.8).catch(() => null) : null; if (!jpg) { gone.add(n.id); LOG.warn('plan.note.photo', { id: n.id }); continue; } // (its photo not on this phone: the note left out, not an empty frame)
+        try { const dm = window.PoleReports.jpegInfo(jpg); if (dm && dm.w > 0 && dm.h > 0) { n.photo.px = dm.w; n.photo.py = dm.h; } } catch (e) { /* its size as kept */ }
+        files.push({ name: n.photo.file, data: jpg });
+      }
+      if (gone.size) { tools.notes = tools.notes.filter((n) => !gone.has(n.id)); if (!tools.notes.length) delete tools.notes; }
     }
     // v2.38: a vicinity map for each place
     const vics = [], vicSay = [];
