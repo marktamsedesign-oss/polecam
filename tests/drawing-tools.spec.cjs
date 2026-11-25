@@ -13,7 +13,7 @@
    - font size, bold, colour reach the job (This one: job.style; All like it: job.styleKind) and the exported DXF; a symbol's size; turned ±15° and by its
      handle; a guying turns about its pole;
    - Existing ↔ Proposed changes the record itself (the plan and the BOQ follow); Undo puts the record back;
-   - a pole dragged sets poleAt (the record's GPS stays) and the preview follows (job.poleAt, report.drawnAt); Back to automatic;
+   - a pole dragged (beta 7.12) moves its record as far (adjusted, updated: the KMZ, the BOQ and the plan follow) and the preview follows; Undo and Redo;
    - a cable label's arrow tip slides only along its span (pins[id].tip, 0..1);
    - Plan style › Lines to the pole and Closure labels reach the job (job.leaders, job.cloStyle), and one closure's Bubble from the toolbar (style.callout);
    - all of it kept with the project (another project, a reload), left out of what is shared with the team (shareMeta), counted in the placed-by-hand chip and
@@ -311,28 +311,29 @@ test('Existing ↔ Proposed changes the record itself (the plan follows); Undo p
   await ctx.close();
 });
 
-test('a pole dragged: poleAt (the record\'s GPS stays), shown where let go, the plan made with it (its spans follow); Back to automatic', async () => { // (s7: a pole with nothing on it but its labels)
+test('a pole dragged: (beta 7.12) its record moved as far as it was dragged (adjusted, updated), shown where let go, the plan made with it (its spans follow); Undo and Redo', async () => { // (s7: a pole with nothing on it but its labels)
   const { ctx, page, errors } = await open();
   const e0s7 = (await exportPlan(page)).pts.find((p) => p.id === 's7');
   await drawing(page); await shown(page);
   await see(page, 'pole:s7'); const r0 = await recOf(page, 's7'), p0 = await page.evaluate(() => window.__polecam.drwPt('s7'));
   // not selected: a drag pans the drawing, the pole stays
   const v0 = await page.evaluate(() => window.__polecam.drawView()); await drag(page, p0[0], p0[1], -40, 0);
-  assert.deepEqual((await kept(page)).poleAt, {}, 'a pan'); assert.notEqual((await page.evaluate(() => window.__polecam.drawView())).cx, v0.cx);
+  assert.deepEqual((await kept(page)).poleAt, {}, 'a pan'); assert.equal((await recOf(page, 's7')).lat, r0.lat); assert.notEqual((await page.evaluate(() => window.__polecam.drawView())).cx, v0.cx);
   await page.evaluate((v) => { window.__polecam.drwView(v); window.__polecam.drwRedraw(); }, v0);
-  // selected, then dragged: moved on the plan
-  await select(page, 'pole:s7', 's7'); const n0 = (await pl(page)).n, sc = (await page.evaluate(() => window.__polecam.drwPh().sc)), q0 = await page.evaluate(() => window.__polecam.drwPt('s7')), d0 = (await full(page, 'pole:s7')).box;
-  await drag(page, q0[0], q0[1], -40, 0); const K = await kept(page);
-  assert.ok(K.poleAt.s7, 'kept'); near(K.poleAt.s7[0], d0[0] - 40 / sc, 0.15, 'where let go (E)'); near(K.poleAt.s7[1], d0[1], 0.15, 'N');
-  const p1 = await page.evaluate(() => window.__polecam.drwPt('s7')); near(p1[0], q0[0] - 40, 1.5, 'drawn where let go'); near(p1[1], q0[1], 1.5, 'y');
-  const L = (await mvOf(page)).lifted.map((x) => x.id); assert.ok(L.includes('pole:s7') && L.includes('lbl:s7'), `the pole and what is on it shown there until the plan made with it comes: ${L}`);
-  const r1 = await recOf(page, 's7'); assert.equal(r1.lat, r0.lat); assert.equal(r1.lon, r0.lon); assert.equal(r1.updated, r0.updated, 'the record as it was');
-  await again(page, n0); const e = await exportPlan(page);
-  assert.deepEqual(e.job.poleAt, K.poleAt, 'the export\'s job'); near(e.drawnAt.s7[0], K.poleAt.s7[0], 0.01, 'drawn there'); near(e.drawnAt.s7[1], K.poleAt.s7[1], 0.01, 'N');
-  assert.equal(e.pts.find((p) => p.id === 's7').E, e0s7.E, 'its record\'s place in the job as surveyed');
-  // Back to automatic
-  await drawing(page); await shown(page); await select(page, 'pole:s7', 's7'); await tbClick(page, 'auto'); await page.waitForTimeout(200);
-  assert.deepEqual((await kept(page)).poleAt, {}, 'back');
+  // selected, then dragged: the point itself moved (the owner, beta 7.12: "after edit or update or delete. the kmz and other related docs must be updated as well")
+  await select(page, 'pole:s7', 's7'); const n0 = (await pl(page)).n, sc = (await page.evaluate(() => window.__polecam.drwPh().sc)), q0 = await page.evaluate(() => window.__polecam.drwPt('s7'));
+  await drag(page, q0[0], q0[1], -40, 0); let r1 = null; for (let k = 0; k < 40; k++) { await page.waitForTimeout(100); r1 = await recOf(page, 's7'); if (r1.lon !== r0.lon) break; }
+  assert.ok(r1.lon < r0.lon, `the record moved west: ${r1.lon} < ${r0.lon}`); near(r1.lat, r0.lat, 2e-6, 'as far north as before'); assert.equal(r1.adjusted, true); assert.notEqual(r1.updated, r0.updated, 'updated');
+  assert.deepEqual((await kept(page)).poleAt, {}, 'no plan-only place');
+  // the plan made with it draws it there (beside its road as the plan puts any point: within a few metres of where it was let go), the Drawing where the plan draws it
+  await again(page, n0); const d1 = (await full(page, 'pole:s7')).box, p1 = await page.evaluate(() => window.__polecam.drwPt('s7'));
+  near(d1[0], (await page.evaluate(() => window.__polecam.drwPh())).xy.s7[0], 3, 'the plan draws it at its record\'s new place'); near(p1[0], q0[0] - 40, 3 * sc, 'about where let go');
+  const pd = await page.evaluate(([E, N]) => window.__polecam.drwPx(E, N), [d1[0], d1[1]]); near(p1[0], pd[0], 1.5, 'the Drawing: where the plan draws it'); near(p1[1], pd[1], 1.5, 'y');
+  const e = await exportPlan(page), s7 = e.pts.find((p) => p.id === 's7');
+  near(s7.E, e0s7.E - 40 / sc, 0.15, 'its record\'s place in the job (E)'); near(s7.N, e0s7.N, 0.15, 'N'); assert.ok(!('poleAt' in e.job), 'no plan-only place'); near(e.drawnAt.s7[0], d1[0], 0.01, 'the export draws it as the preview');
+  // Undo: the record as it was; Redo: moved again
+  await drawing(page); await shown(page); await page.click('#drawUndo'); await page.waitForTimeout(500); let r2 = await recOf(page, 's7'); assert.equal(r2.lon, r0.lon, 'Undo: back'); assert.equal(r2.lat, r0.lat);
+  await page.click('#drawRedo'); await page.waitForTimeout(500); r2 = await recOf(page, 's7'); assert.equal(r2.lon, r1.lon, 'Redo: moved again');
   // a tower: its model moved (its pin, from its point as drawn), its point stays where it is surveyed
   await select(page, 'site:t1', 't1'); const t0 = await full(page, 'site:t1'), m0 = await itemOf(page, 'site:t1'), n1 = (await pl(page)).n;
   await drag(page, m0.x, m0.y, 0, 45); const Kt = await kept(page); assert.ok(!Kt.poleAt.t1, 'not its point'); assert.ok(Kt.mvPin['site:t1'] && Kt.mvPin['site:t1'].at, `its model's pin: ${JSON.stringify(Kt.mvPin)}`);
@@ -398,16 +399,16 @@ test('kept with the project (another project, a reload), left out of what the te
   await drawing(page); await shown(page);
   const mv = await mvOf(page), cab = mv.items.find((m) => m.kind === 'cable').id;
   await select(page, cab); await tbClick(page, 'h+'); await select(page, 'clo:s2'); await tbClick(page, 's+'); await select(page, 'lbl:s5'); await tbClick(page, 'rot+');
-  await select(page, 'pole:s7', 's7'); const p7 = await page.evaluate(() => window.__polecam.drwPt('s7')); await drag(page, p7[0], p7[1], 30, 0);
-  const K = await kept(page); assert.ok(K.mvStyle[cab] && K.mvStyle['clo:s2'] && K.lblPin.s5 && K.poleAt.s7, JSON.stringify(K));
+  const n7 = await see(page, 'num:s7'); await drag(page, n7.x, n7.y, 30, 0); // ((beta 7.12) a pole dragged moves its record: a number placed by hand here, a plan-only change)
+  const K = await kept(page); assert.ok(K.mvStyle[cab] && K.mvStyle['clo:s2'] && K.lblPin.s5 && K.numPin.s7, JSON.stringify(K));
   await shown(page); assert.equal((await pl(page)).phAll, '4 items changed by hand · Back to automatic', 'styled, turned and moved: changed');
-  assert.deepEqual((await mvOf(page)).undo, ['style h+', 'style s+', 'turned +15°', 'pole moved']);
+  assert.deepEqual((await mvOf(page)).undo, ['style h+', 'style s+', 'turned +15°', 'number moved']);
   // shared: none of it
   const sh = await page.evaluate(() => window.__polecam.shareMeta()); for (const k of ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'lblPin', 'planGrid']) assert.ok(!(k in sh), `shareMeta: no ${k}`);
   // another project and back; a reload: the same
   await openProject(page, OTHER); await openProject(page, NAME); assert.deepEqual(await kept(page), K, 'after another project');
   await page.reload(); await boot(page); await hook(page); assert.deepEqual(await kept(page), K, 'after a reload');
-  const e1 = await exportPlan(page); assert.deepEqual(e1.job.poleAt, K.poleAt); assert.deepEqual(e1.job.style, K.mvStyle);
+  const e1 = await exportPlan(page); assert.deepEqual(e1.job.style, K.mvStyle);
   // Undo: one change at a time
   await drawing(page); await shown(page); await select(page, 'clo:s2'); await tbClick(page, 's+'); assert.equal((await kept(page)).mvStyle['clo:s2'].scale, 1.5);
   await page.click('#drawUndo'); await page.waitForTimeout(200); assert.equal((await kept(page)).mvStyle['clo:s2'].scale, 1.25, 'Undo: the last change');

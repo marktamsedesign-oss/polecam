@@ -2188,6 +2188,7 @@
     const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
       planAt: rep.photoAt, fileId: Object.fromEntries([...Object.entries(job.photos || {}).map(([id, x]) => [x.file, id]), ...(job.notes || []).filter((n) => n.photo && n.photo.file).map((n) => [n.photo.file, `note:${n.id}`])]), /* ((beta 7.12, Drawing edit) and each photo note's) */ lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (beta 7.10, Plan kept) the labels and split it was made with)
       mv: Array.isArray(rep.movable) ? rep.movable : null, mvIdx: new Map((rep.movable || []).map((m, i) => [m.id, i])), // ((beta 7.10, Drawing labels) the items the Drawing may move, and each one's place in that list)
+      ptsAt: Object.fromEntries((job.pts || []).filter((q) => Number.isFinite(+q.E) && Number.isFinite(+q.N)).map((q) => [String(q.id), [+q.E, +q.N]])), // ((beta 7.12, Drawing edit) each point's record place it was made with: a point moved since is drawn moved as much)
       tools: JSON.parse(JSON.stringify({ pins: job.pins || null, style: job.style || null, styleKind: job.styleKind || null, poleAt: job.poleAt || null, text: job.text || null, notes: job.notes || null, order: job.order || null })) }; // ((beta 7.11, Drawing tools) what it was made with: what changed since is drawn so until the next one comes; (beta 7.12, Drawing edit) its texts, notes, draw order)
     for (const [k, v] of drwPhMem) if (k !== proj && v.plan) drwPhMem.set(k, { ...v, plan: null, sig: '' }); // (one project's plan kept at a time: another one opened makes its own again)
     drwPhMem.set(proj, ph); planGridKeep(proj, ph.grid, ph.lab, ph.split); /* ((beta 7.10, Plan kept) photos placed by hand and no grid kept yet, e.g. placed before: this one's) */ LOG.info('draw.photos', { n: Object.keys(ph.at).length, byHand: Object.values(ph.at).filter((a) => a.how === 'by hand').length, prep: t0 - tA, ms: ph.ms, pts: job.pts.length, force: !!force, ...(plan ? { plan: { ...plan.count, ms: res.plan.ms } } : {}) }); // (prep: the job made on the screen's thread, most of it waiting for the phone; ms: the plan, in its worker; plan: its display list, made in ms after the plan)
@@ -2330,7 +2331,7 @@
   /** A photo moved since the plan shown was made (let go, back to automatic): the plan's picture is not where it is now. */
   const drwPhMoved = (id) => !!(drw && drw.ph && drw.ph.planAt && drw.ph.at[id] !== drw.ph.planAt[id]);
   /** Where the Drawing shows a point: where the plan draws it while the plan is shown, else where it was surveyed (metres). */
-  const drwAt = (it) => { if (!drwPlanOn()) return it.xy; const id = String(it.p.id), q = (pmeta(drw.project).poleAt || {})[id]; return (Array.isArray(q) ? q : null) || (drw.ph.drawnAt && drw.ph.drawnAt[id]) || it.xy; }; // ((beta 7.11, Drawing tools) a pole moved on the plan: where the plan draws it now)
+  const drwAt = (it) => { if (!drwPlanOn()) return it.xy; const id = String(it.p.id), a = drw.ph.drawnAt && drw.ph.drawnAt[id]; if (!a) return it.xy; const d = drwPtShift(id, pmeta(drw.project)); return [a[0] + d[0], a[1] + d[1]]; }; // ((beta 7.11, Drawing tools) a pole moved on the plan: where the plan draws it now; (beta 7.12) its record moved: there too)
   /** The plan's GEO sheets from its report: [{ sheet, name, box: [x0, y0, x1, y1] }] (null: a builder that does not say). */
   const drwGridOf = (rep) => (rep && rep.grid && Array.isArray(rep.grid.sheets) ? { cell: rep.grid.cell, sheets: rep.grid.sheets, geo: Array.isArray(rep.grid.geo) ? rep.grid.geo.slice() : null, n: +rep.grid.n || ((rep.tidy || {}).grid || {}).n || 1, kept: !!rep.grid.kept } : null); // ((beta 7.10, Plan kept) + the GEO cells' origin, the split, whether it was the grid kept)
   /* (beta 7.10, Plan kept) Once a photo ((beta 7.10, Drawing labels) or a label, a number, a pole's details) is placed by hand on the Drawing, the plan keeps its grid: the GEO cells' origin and (Tidy) its split, as the plan shown
@@ -2733,10 +2734,14 @@
     for (const c of C) { if (c.pt) return null; if (c.photo) return { photo: c.photo }; if (c.id && mv(c.id) && !/^(pole|site):/.test(c.id)) return { id: c.id }; }
     return null;
   }
+  /** (beta 7.12, Drawing edit) How far the plan shown would draw point pid now from where it drew it (metres): to its plan-only place (poleAt, 7.11), or as far as its
+   *  record's place moved since the plan was made (report pts at made time, ptsAt), or as given (SH: a move being kept); [0, 0]: where it is. */
+  const drwPtShift = (pid, M, SH) => { const id = String(pid); if (SH && SH.has(id)) return SH.get(id); const P = drw && drw.ph, a = P && P.drawnAt ? P.drawnAt[id] : null; if (!a) return [0, 0];
+    const q = ((M || {}).poleAt || {})[id]; if (Array.isArray(q)) return [q[0] - a[0], q[1] - a[1]]; const s0 = P.ptsAt && P.ptsAt[id], it = s0 ? drwEdById(id) : null; return it ? [it.xy[0] - s0[0], it.xy[1] - s0[1]] : [0, 0]; };
   /** (beta 7.11, Drawing tools) Where an item's pin is measured from now (metres): its anchor as the plan shown has it, moved with its pole (a cable label, a span
    *  length: with its span's poles) where a pole was moved since (M: pmeta(); job.poleAt then; report.drawnAt: where the plan shown draws each point). */
-  function drwAnchorNow(m, M) {
-    const P = drw.ph, D = (pid) => { const q = ((M || {}).poleAt || {})[pid], a = P && P.drawnAt ? P.drawnAt[pid] : null; return q && a ? [q[0] - a[0], q[1] - a[1]] : [0, 0]; };
+  function drwAnchorNow(m, M, SH) {
+    const D = (pid) => drwPtShift(pid, M, SH); // ((beta 7.12, Drawing edit) its plan-only place (poleAt), its record moved since, or a move being kept (SH))
     const sp = Array.isArray(m.span) && m.span.length === 2 ? m.span : m.kind === 'span' && /^span:/.test(m.id) ? m.id.slice(5).split('|') : null;
     if (m.kind === 'cable' || m.kind === 'span') { if (!sp) return m.anchor.slice(); const A = D(String(sp[0])), B = D(String(sp[1])); return [m.anchor[0] + (A[0] + B[0]) / 2, m.anchor[1] + (A[1] + B[1]) / 2]; }
     const pid = pidOf(m); if (pid == null) return m.anchor.slice(); const d = D(pid); return [m.anchor[0] + d[0], m.anchor[1] + d[1]];
@@ -2753,7 +2758,7 @@
   function drwMvShowPins() {
     const P = drw && drw.ph, PL = P && P.plan; if (!PL || !PL.lifted || !P.mv || !P.mvIdx) return;
     const M = pmeta(drw.project), want = new Map(), J = P.tools || {}, moved = new Map();
-    for (const [pid, q] of Object.entries(M.poleAt || {})) { const a = P.drawnAt ? P.drawnAt[pid] : null; if (a && Math.hypot(q[0] - a[0], q[1] - a[1]) > 0.02) moved.set(String(pid), [q[0] - a[0], q[1] - a[1]]); } // (the poles moved since: by how much)
+    for (const pid of Object.keys(P.drawnAt || {})) { const d = drwPtShift(pid, M); if (Math.hypot(d[0], d[1]) > 0.02) moved.set(String(pid), d); } // (the poles moved since: by how much ((beta 7.12) on the plan only, or their record))
     const zNow = drwOrderNow(M), zMade = drwOrderNow({ mvOrder: J.order || [] }); // ((beta 7.12, Drawing edit) each item's last draw order op, now and as the plan shown was made)
     P.mv.forEach((m, i) => {
       if (isNote(m)) { want.set(i, drwNoteLift(m, M)); return; } // ((beta 7.12, Drawing edit) a note: where, how turned and sized it is now, from the note itself; deleted: hidden)
@@ -2818,7 +2823,7 @@
   function drwMvSay(m) {
     if (isNote(m)) { const info = $('drawInfo'); info.textContent = `${drwMvName(m)}${drwSels().length === 1 && drw.tbMore ? ' · tap more to add' : ''} · your own, not from a record: drag it to move it${canText(m) ? ', double-tap to edit it' : ''}; Delete takes it off (↶ brings it back)`; info.hidden = false; $('drawHint').hidden = true; return; } // ((beta 7.12, Drawing edit) a note)
     const i = mvIx(m.id), M = pmeta(drw.project), pin = drwPinOf(m), hand = !!pin || drwHandOf(m, M), info = $('drawInfo'), cut = pin ? drwMvCut(m, i) : null; // ((beta 7.10, Plan kept) across a sheet's edge: said, as a photo's)
-    const pole = ptMoves(m), how = hand ? (pole && (M.poleAt || {})[pidOf(m)] ? 'moved on the plan (its record\'s place stays)' : pin ? 'placed by hand on the plan' : 'changed by hand on the plan') : `where the plan puts it: ${pole ? 'drag it to move it on the plan (its record\'s place stays)' : 'drag it to place it by hand'}`;
+    const pole = ptMoves(m), how = hand ? (pole && (M.poleAt || {})[pidOf(m)] ? 'moved on the plan (its record\'s place stays)' : pin ? 'placed by hand on the plan' : 'changed by hand on the plan') : `where the plan puts it: ${pole ? 'drag it to move it (its record\'s place moves with it: ↶ undoes)' : 'drag it to place it by hand'}`;
     info.textContent = `${drwMvName(m)}${drwSels().length === 1 && drw.tbMore ? ' · tap more to add' : ''} · ${how}${cut ? ` · across the edge of sheets ${andList(cut)}: it prints cut on both, drag it inside one` : ''}${m.empty ? ' · its texts left off (Edit text, or Automatic, brings them back)' : ''}${drwZSay(m)}`; // ((beta 7.12, Drawing edit) nothing of it drawn; what it is drawn over and under)
     if (hand) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawMvAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwMvAuto(m.id)); info.appendChild(b); }
     info.hidden = false; $('drawHint').hidden = true;
@@ -2851,25 +2856,36 @@
     const P = drw && drw.ph, i = P && P.mvIdx ? P.mvIdx.get(id) : null, m = i != null ? P.mv[i] : null; if (!m || (m.kind === 'photo' && !(G && G.grp && G.grp.length > 1))) { if (drw) drawDrawing(); return; }
     const grp = (G && G.grp && G.grp.length ? G.grp : [id]).map(mvById).filter((q) => q && canOf(q).move !== false), sc = drw.view.sc, dE = dx / sc, dN = -dy / sc, proj = drw.project, PL = P.plan;
     if (!grp.length) { drawDrawing(); return; }
-    drwUndoPush(grp.length > 1 ? `${grp.length} items moved` : `${m.kind} moved`); const m0 = pmeta(proj), nm = { ...m0 };
     const offOf = (q) => { const L = PL && PL.lifted ? PL.lifted.get(mvIx(q.id)) : null; return L ? L.off : [0, 0]; }; let at = null; // (the photos' places, new: the preview kept for this job stays as it was made)
-    // the poles and sites first: where the plan draws them (the items on them are measured from there)
-    for (const q of grp) { if (!ptMoves(q)) continue; const pid = pidOf(q), a = P.drawnAt && P.drawnAt[pid] ? P.drawnAt[pid] : q.anchor, o = offOf(q); nm.poleAt = { ...(nm.poleAt || {}), [pid]: [+(a[0] + o[0] + dE).toFixed(2), +(a[1] + o[1] + dN).toFixed(2)] }; }
+    // the poles and sites first ((beta 7.12, Drawing edit) the point itself, as its pin moved on the map: its record's place moved as far as it was dragged from where
+    // the plan draws it, adjusted, updated by this user; its plan-only place (7.11's poleAt) let go. SH: how far each is drawn from where the plan shown has it, now:
+    // the items on it are measured from there. The other items as before; one step of Undo for all of it)
+    const recs = [], prev = [], SH = new Map(), now = new Date().toISOString(), lock = [];
+    for (const q of grp) {
+      if (!ptMoves(q)) continue; const pid = pidOf(q), p = points.find((x) => String(x.id) === String(pid)), it = drwEdById(pid); if (!p || !it) continue;
+      const lk = tmHooks.locked ? tmHooks.locked(p.id, 'edit') : ''; if (lk) { lock.push(lk); continue; }
+      const o = offOf(q), s0 = P.ptsAt && P.ptsAt[pid], E = (s0 ? s0[0] + o[0] : it.xy[0]) + dE, N = (s0 ? s0[1] + o[1] : it.xy[1]) + dN, ll = C.utmInverse(E, N, drw.zone, !!drw.south);
+      prev.push(JSON.parse(JSON.stringify(p))); recs.push({ ...p, lat: +(+ll[0]).toFixed(7), lon: +(+ll[1]).toFixed(7), adjusted: true, updated: now, updatedBy: byLine() }); SH.set(String(pid), [o[0] + dE, o[1] + dN]);
+    }
+    if (lock.length && !recs.length && grp.every(ptMoves)) { toast(lock[0], 6500); drwMvShowPins(); drawDrawing(); return; }
+    drwUndoPush(grp.length > 1 ? `${grp.length} items moved` : `${m.kind} moved`, prev.length ? prev : null); const m0 = pmeta(proj), nm = { ...m0 };
+    if (recs.length && nm.poleAt) { const Q = { ...nm.poleAt }; for (const pid of SH.keys()) delete Q[pid]; if (Object.keys(Q).length) nm.poleAt = Q; else delete nm.poleAt; }
     let NT = null; // ((beta 7.12, Drawing edit) the notes moved: the note itself)
     for (const q of grp) {
       if (ptMoves(q)) continue;
       if (isNote(q)) { NT = NT || notesOf(nm).map((x) => ({ ...x })); const n = NT.find((x) => `note:${x.id}` === q.id); if (n) n.at = [+(+n.at[0] + dE).toFixed(2), +(+n.at[1] + dN).toFixed(2)]; continue; }
       if (q.kind === 'photo') { const A = P.at && P.at[q.point]; if (!A) continue; const off = [+(A.x - A.dp[0] + dE).toFixed(2), +(A.y - A.dp[1] + dN).toFixed(2)]; nm.phPin = { ...(nm.phPin || {}), [q.point]: off };
         at = { ...(at || P.at), [q.point]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null, cut: null } }; continue; } // (as a photo let go: drwPhDrop)
-      const o = offOf(q), an = drwAnchorNow(q, nm), c = [q.box[0] + o[0] + dE, q.box[1] + o[1] + dN], off = [+(c[0] - an[0]).toFixed(2), +(c[1] - an[1]).toFixed(2)], ang = +(+q.box[4] || 0).toFixed(3), key = PIN_OF[q.kind];
+      const o = offOf(q), an = drwAnchorNow(q, nm, SH), c = [q.box[0] + o[0] + dE, q.box[1] + o[1] + dN], off = [+(c[0] - an[0]).toFixed(2), +(c[1] - an[1]).toFixed(2)], ang = +(+q.box[4] || 0).toFixed(3), key = PIN_OF[q.kind];
       if (key) { const k = q.kind === 'cable' ? q.key : q.point, rk = drwRotOf(q, nm); nm[key] = { ...(nm[key] || {}), [k]: q.kind === 'cable' ? { at: off, rot: rk != null ? rk : ang } : q.kind === 'details' ? [off[0], off[1], rk != null ? rk : ang] : off }; } // (as it was let go: where, and its angle)
       else { const t = { ...((nm.mvPin || {})[q.id] || {}), at: off }; if (canOf(q).about) delete t.at; nm.mvPin = { ...(nm.mvPin || {}), [q.id]: t }; } // ((beta 7.11) an attachment turns about its pole and stays on it: not moved on its own)
     }
     if (NT) nm.notes = NT;
     S.meta = S.meta || {}; S.meta[proj] = nm; persist(); // (as it was let go: where, and its angle)
     if (at) drw.ph = { ...drw.ph, sig: '', at }; // (the photos where they were let go, until the plan's own places come)
-    LOG.info('draw.label.pin', { kind: m.kind, n: grp.length, ...(PIN_OF[m.kind] ? { kept: Object.keys(nm[PIN_OF[m.kind]] || {}).length } : {}) });
+    LOG.info('draw.label.pin', { kind: m.kind, n: grp.length, recs: recs.length, ...(PIN_OF[m.kind] ? { kept: Object.keys(nm[PIN_OF[m.kind]] || {}).length } : {}) });
     planGridKeep(proj, P.grid, P.lab, P.split); // ((beta 7.10, Plan kept) the first item placed by hand: the plan keeps the grid it shows)
+    if (recs.length) { const sel = grp.length > 1 ? grp.map((q) => q.id) : [id]; drwRecsPut(recs).then((ok) => { if (!ok || !drw) return; drw.mvSels = sel.filter((x) => drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(x)); drw.mvSel = drw.mvSels.length ? drw.mvSels[drw.mvSels.length - 1] : null; drwSelSay(); drwTbRender(); drawDrawing(); if (lock.length) toast(lock[0], 6500); else toast(`${recs.length === 1 ? `${recName(recs[0]) || elemOf(recs[0])} moved` : `${recs.length} points moved`}: its record's place, the KMZ, the BOQ and the plan follow (↶ undoes)`, 3500); }); return; } // ((beta 7.12) the Drawing made again with the record moved)
     drwMvShowPins(); drwPlanUi(); if (grp.length > 1) { drw.mvSels = grp.map((q) => q.id); drw.mvSel = id; drwSelSay(); drwTbRender(); drawDrawing(); } else if (m.kind === 'photo') drwPhTap(m.point); else drwMvTap(id); drwPhSoon(250);
   }
   /** Back to automatic: the item placed by hand goes back where the plan puts it ((beta 7.11, Drawing tools) its place, its turn, its arrow's tip, its style, a pole's
