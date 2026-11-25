@@ -232,6 +232,11 @@ test('the icon tools, as the CEF plan editor draws its tools: the row over the p
       const m = await see(page, 'lbl:s5'); await select(page, 'lbl:s5'); await page.waitForTimeout(400); await page.touchscreen.tap(m.x, m.y); await page.waitForTimeout(90); await page.touchscreen.tap(m.x, m.y); await page.waitForTimeout(300);
       const X = await txtOf(page); assert.ok(X.open, 'a double-tap: the editor'); assert.match(X.title, /CC-9005/); assert.deepEqual((await mvOf(page)).sels, ['lbl:s5'], 'still the one selected');
       await shot(page, 'notes-phone-editor.png'); await txtSave(page, null, 'drawTxtNo'); assert.equal((await txtOf(page)).open, false);
+      // a text added with a finger: Text, a tap on the plan (the click the phone sends after it does not press the editor's buttons), typed, Add; selected once the plan has it
+      await drawing(page); await shown(page); await rowClick(page, 'addtext'); const P = await freeAt(page, 0.0011, 2.6 * DD), n0 = (await pl(page)).n; assert.equal(await page.evaluate(([x, y]) => (document.elementFromPoint(x, y) || {}).id, P), 'drawCanvas', 'a free place on the plan'); await page.touchscreen.tap(P[0], P[1]); await page.waitForTimeout(150);
+      assert.equal((await txtOf(page)).open, true, 'the editor stays open'); await txtSave(page, 'DEMO PHONE NOTE'); const N = (await notesOf(page)).notes; assert.equal(N.length, 1); assert.deepEqual(N[0].lines, ['DEMO PHONE NOTE']);
+      await again(page, n0); assert.deepEqual((await mvOf(page)).sels, [`note:${N[0].id}`], 'selected'); await shot(page, 'notes-phone-note.png');
+      const T2 = (await icoOf(page)).tb.filter((t) => !t.hidden).map((t) => t.a); for (const a of ['h-', 'h+', 'color', 'text', 'rot+', 'rot-', 'del', 'done']) assert.ok(T2.includes(a), `a text note: ${a}`);
     }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'no page sideways');
     assert.deepEqual(errors, []);
@@ -244,7 +249,7 @@ test('Edit text: the item\'s text as the plan writes it; Save reaches job.text, 
   const e0 = await exportPlan(page); assert.ok(!('text' in e0.job), 'no texts edited yet'); const rec0 = await page.evaluate(() => JSON.stringify(window.__polecam.points.find((p) => p.id === 's3')));
   await drawing(page); await shown(page);
   await select(page, 'lbl:s3'); const f = await full(page, 'lbl:s3'); assert.ok(f.canNow.text, 'it has texts');
-  await tbClick(page, 'text'); let X = await txtOf(page); assert.ok(X.open, 'Edit text: the editor'); assert.equal(X.auto, false, 'no Automatic yet');
+  await tbClick(page, 'text'); let X = await txtOf(page); assert.ok(X.open, 'Edit text: the editor'); assert.equal(X.auto, false, 'no Automatic yet'); await shot(page, 'notes-laptop-editor.png');
   const own = Array.isArray(f.text) ? f.text : X.text.split('\n'); assert.equal(X.text, own.join('\n'), 'its text as the plan writes it, one line per line'); assert.ok(own.length >= 2, `its lines: ${own}`);
   const L = ['DEMO EDITED POLE', ...own.slice(1), 'DEMO EXTRA LINE']; let n0 = (await pl(page)).n;
   await txtSave(page, L.join('\n')); assert.deepEqual((await kept(page)).mvText, { 'lbl:s3': L }, 'kept: the plan only');

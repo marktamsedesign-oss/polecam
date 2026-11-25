@@ -2823,9 +2823,10 @@
     if (hand) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawMvAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwMvAuto(m.id)); info.appendChild(b); }
     info.hidden = false; $('drawHint').hidden = true;
   }
-  /** (beta 7.12, Drawing edit) What an item is drawn over and under, among the items its box touches (report.movable z: its place in the draw order), or ''. */
+  /** (beta 7.12, Drawing edit) What an item whose draw order was changed by hand is drawn over and under, among the items its box touches (report.movable z: its
+   *  place in the draw order), or '' (as the plan draws it: not said). */
   function drwZSay(m) {
-    if (m.z == null || !drw || !drw.ph) return ''; const ext = (B) => { const a = B[4] * Math.PI / 180, ex = (Math.abs(Math.cos(a)) * B[2] + Math.abs(Math.sin(a)) * B[3]) / 2, ey = (Math.abs(Math.sin(a)) * B[2] + Math.abs(Math.cos(a)) * B[3]) / 2; return [B[0] - ex, B[1] - ey, B[0] + ex, B[1] + ey]; };
+    if (m.z == null || !drw || !drw.ph || !(pmeta(drw.project).mvOrder || []).some((o) => o && o.id === m.id)) return ''; const ext = (B) => { const a = B[4] * Math.PI / 180, ex = (Math.abs(Math.cos(a)) * B[2] + Math.abs(Math.sin(a)) * B[3]) / 2, ey = (Math.abs(Math.sin(a)) * B[2] + Math.abs(Math.cos(a)) * B[3]) / 2; return [B[0] - ex, B[1] - ey, B[0] + ex, B[1] + ey]; };
     const A = ext(m.box); let over = 0, under = 0;
     for (const q of drw.ph.mv || []) { if (q === m || q.z == null || q.empty) continue; const Q = ext(q.box); if (Q[0] > A[2] || Q[2] < A[0] || Q[1] > A[3] || Q[3] < A[1]) continue; if (q.z < m.z) over++; else under++; }
     return over || under ? ` · drawn ${[over ? `over ${over}` : '', under ? `under ${under}` : ''].filter(Boolean).join(' and ')} of what it touches` : '';
