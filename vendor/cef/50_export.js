@@ -904,6 +904,14 @@ const CefTpl = (() => {
       OS2.push([[0, 'IMAGEDEF_REACTOR'], [5, rh], [330, ih], [100, 'AcDbRasterImageDefReactor'], [90, I(2)], [330, ih]]);
       const k1 = df.findIndex(p => p[0] === 102 && p[1] === '{ACAD_REACTORS'); if (k1 > 0) df.splice(k1 + 1, 0, [330, rh]); else { const k2 = df.findIndex(p => p[0] === 330); df.splice(k2 > 0 ? k2 : df.length, 0, [102, '{ACAD_REACTORS'], [330, rh], [102, '}']); }
     }
+    /* a sheet plotted as Layout (no plot window) is printed by dxfpdf.js from what it holds, and a long field (the line of who exported) took
+       room from the page: its window set to the sheet's limits when they are its paper (AutoCAD does not use the window for a Layout plot) */
+    const plotWin = rec => {
+      if (fnum(rec, 140, 0) - fnum(rec, 48, 0) > 1 && fnum(rec, 141, 0) - fnum(rec, 49, 0) > 1) return;
+      const k = rec.findIndex(p => p[0] === 100 && p[1] === 'AcDbLayout'); if (k < 0) return; const sub = rec.slice(k), lim = [fnum(sub, 10, 0), fnum(sub, 20, 0), fnum(sub, 11, 0), fnum(sub, 21, 0)];
+      const big = Math.max(fnum(rec, 44, 0), fnum(rec, 45, 0)) / sd.u, lw = lim[2] - lim[0], lh = lim[3] - lim[1];
+      if (lw > 1 && lh > 1 && big > 1 && Math.abs(Math.max(lw, lh) - big) < 0.25 * big) for (const [c, v] of [[48, lim[0]], [49, lim[1]], [140, lim[2]], [141, lim[3]]]) setIn(rec, 'AcDbPlotSettings', c, n(v));
+    };
     const pageVp = () => { const W = sd.W / sd.u, Hh = sd.H / sd.u, c = [fnum(sd.vp, 10, 0), fnum(sd.vp, 20, 0)];      /* (a template with no viewport of its sheet's own) */
       return [[0, 'VIEWPORT'], [5, 'PAGEVP'], [330, tBr], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbViewport'], [10, n(c[0])], [20, n(c[1])], [30, '0.0'], [40, n(W * 1.2)], [41, n(Hh * 1.2)], [68, I(1)], [69, I(1)], [12, n(c[0])], [22, n(c[1])], [13, '0.0'], [23, '0.0'], [14, '10.0'], [24, '10.0'], [15, '10.0'], [25, '10.0'], [16, '0.0'], [26, '0.0'], [36, '1.0'], [17, '0.0'], [27, '0.0'], [37, '0.0'], [42, '50.0'], [43, '0.0'], [44, '0.0'], [45, n(Hh * 1.2)], [50, '0.0'], [51, '0.0'], [72, I(1000)], [90, I(32864)], [1, ''], [281, I(0)], [71, I(1)], [74, I(0)], [110, '0.0'], [120, '0.0'], [130, '0.0'], [111, '1.0'], [121, '0.0'], [131, '0.0'], [112, '0.0'], [122, '1.0'], [132, '0.0'], [79, I(0)], [146, '0.0']]; };
     if (!sd.page) tRecs.unshift(pageVp());
@@ -922,7 +930,7 @@ const CefTpl = (() => {
       }
       /* its layout: the template's page setup (paper, plot window), its name and its place among the tabs */
       const body = remap(strip(tRec), map), kb = body.findIndex(p => p[0] === 100 && p[1] === 'AcDbPlotSettings'), lay2 = body.slice(kb >= 0 ? kb : 0);
-      setIn(lay2, 'AcDbLayout', 1, name); setIn(lay2, 'AcDbLayout', 71, I(++tab));
+      setIn(lay2, 'AcDbLayout', 1, name); setIn(lay2, 'AcDbLayout', 71, I(++tab)); plotWin(lay2);
       if (first) {
         const k1 = P.rec.findIndex(p => p[0] === 100 && p[1] === 'AcDbPlotSettings'), head = P.rec.slice(0, k1 > 0 ? k1 : 2).map(p => [p[0], p[1]]), at = OS2.indexOf(P.rec);
         const rec = head.concat(lay2); if (at >= 0) OS2[at] = rec; else OS2.push(rec);
