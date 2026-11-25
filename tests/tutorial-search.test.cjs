@@ -123,6 +123,7 @@ const LINES = [
   ['Drawing edit', '!line to its pole · photo lines · remove photo line', 'planstyle drawing'],
   // (beta 7.12, Drawing edit, the owner's later asks): the keys and Redo, a pole moved on the Drawing moves its record (the KMZ follows), a closure and a loop slide along their cable
   ['Drawing edit', '!redo on the drawing · !ctrl z · cmd z · ctrl y · !move pole record · snap closure · !slide along the cable', 'drawing'],
+  ['Drawing edit', '!delete on the drawing · delete from the plan · delete a guy on the drawing · !edit text record', 'drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];

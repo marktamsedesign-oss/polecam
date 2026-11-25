@@ -83,7 +83,7 @@ const OVERPASS = { version: 0.6, elements: [way(1, 'MADE-UP ST', 'residential', 
   way(2, 'SAMPLE AVE', 'tertiary', [[LA0 - 0.00008, LO0 + 4 * DD + 0.00008], [LA0 + 3 * DD + 0.0006, LO0 + 4 * DD + 0.00008]]),
   way(3, 'DEMO RD', 'residential', [[7.1230 - 0.00008, 125.6194], [7.1230 - 0.00008, 125.6200 + 3 * DD]]),
   { type: 'node', id: 9, lat: LA0 + 0.0002, lon: LO0 + 2 * DD, tags: { name: 'MADE-UP CHAPEL', amenity: 'place_of_worship' } }] };
-const NEW_JOB = ['text', 'notes', 'order', 'leaders', 'style', 'styleKind', 'pins'];
+const NEW_JOB = ['text', 'notes', 'order', 'leaders', 'style', 'styleKind', 'pins', 'hide'];
 /** The app with the made-up project (and the other one), the made-up template on the phone (o.desk: a computer; o.exp: Export settings; o.meta: the project's kept
  *  fields; o.pl: Plan style); each export's job (its new fields), report, DXF and the PDF's report kept. */
 async function open(o) {
@@ -306,6 +306,86 @@ test('every element can be selected and styled: a span\'s cable (its colour and 
   assert.ok(H.length && H.some((x) => x.col === 5), `the DXF: its line blue: ${JSON.stringify(H.map((x) => [x.type, x.col]))}`);
   const raw = e.text.split(/\r?\n/), lw = H.map((x) => { for (let i = 0; i + 1 < raw.length; i += 2) if (raw[i].trim() === '5' && raw[i + 1].trim() === x.h0) { for (let j = i + 2; j + 1 < raw.length && raw[j].trim() !== '0'; j += 2) if (raw[j].trim() === '370') return +raw[j + 1]; } return null; });
   assert.ok(lw.includes(100), `its line weight 100: ${lw}`);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+/** The askBox's question and its buttons (a point's Delete asks first). */
+const askOf = (page) => page.evaluate(() => { const b = document.getElementById('askBox'); return b.hidden ? null : { text: b.textContent.replace(/\s+/g, ' '), buttons: [...b.querySelectorAll('.row button')].map((x) => x.textContent.trim()) }; });
+const askClick = (page, label) => page.evaluate((l) => { const B = [...document.querySelectorAll('#askBox .row button')]; const b = B.find((x) => x.textContent.trim() === l); if (!b) throw new Error(`${l}: not asked`); b.click(); }, label);
+const delTip = async (page) => { const t = (await icoOf(page)).tb.find((x) => x.a === 'del'); return t && !t.hidden ? t.title : null; };
+
+test('Delete, each as the plan says: a field of its record (a grounding, a guy), the point itself (asked first, naming it), from the plan only (a pole\'s details: job.hide, More › Hidden, Show); a loop the plan puts there by its own rule; Undo and Redo; the KMZ follows', async () => {
+  const { ctx, page, errors } = await open({ desk: true });
+  const k0 = await exportKml(page), d3 = k0['CC-9003'].data; assert.equal(d3.grounding, 'Yes', JSON.stringify(d3)); assert.equal(d3.guying, 'Down guy'); assert.ok(k0['CC-9008'], 'CC-9008 in the KMZ');
+  await drawing(page); await shown(page);
+  // a field: the grounding (its form's No grounding), then the guy (the pole's only one)
+  await select(page, 'gnd:s3'); assert.match(await delTip(page), /off in its record/, 'Delete says what it does');
+  let n0 = (await pl(page)).n; await tbClick(page, 'del'); const r1 = await recWait(page, 's3', (r) => r && r.boq.ground === 'No'); assert.equal(typeof r1.updatedBy, 'string', 'updated by this user');
+  await again(page, n0); assert.ok(!(await itemOf(page, 'gnd:s3')), 'the plan without the grounding');
+  await select(page, 'guy:s3'); n0 = (await pl(page)).n; await tbClick(page, 'del'); await recWait(page, 's3', (r) => r && !r.boq.guy); await again(page, n0); assert.ok(!(await itemOf(page, 'guy:s3')), 'the plan without the guy');
+  assert.equal((await recOf(page, 's3')).boq.ground, 'No', 'its grounding still off');
+  const k1 = await exportKml(page); assert.equal(k1['CC-9003'].data.grounding, 'No', 'the KMZ: no grounding'); assert.ok(!k1['CC-9003'].data.guying, `the KMZ: no guy (${k1['CC-9003'].data.guying})`);
+  // Undo, Undo: both back (the KMZ too); Redo: the grounding off again, the guy kept
+  await drawing(page); await shown(page); await page.click('#drawUndo'); await recWait(page, 's3', (r) => r.boq.guy === 'Down guy'); await page.click('#drawUndo'); await recWait(page, 's3', (r) => r.boq.ground === 'Yes');
+  const k2 = await exportKml(page); assert.equal(k2['CC-9003'].data.grounding, 'Yes'); assert.equal(k2['CC-9003'].data.guying, 'Down guy');
+  await drawing(page); await shown(page); await page.click('#drawRedo'); await recWait(page, 's3', (r) => r.boq.ground === 'No' && r.boq.guy === 'Down guy');
+  // the point: asked first, naming it; Cancel keeps it; Delete: its record gone (its spans with it), the KMZ without it; Undo brings it back, Redo takes it again
+  await selectPt(page, 'pole:s8', 's8'); assert.match(await delTip(page), /Delete the point/);
+  await tbClick(page, 'del'); await page.waitForTimeout(300); let q = await askOf(page); assert.ok(q && /Delete CC-9008\?/.test(q.text) && q.buttons.includes('Cancel'), `asked: ${JSON.stringify(q)}`);
+  await askClick(page, 'Cancel'); await page.waitForTimeout(300); assert.ok(await recOf(page, 's8'), 'Cancel: kept');
+  await tbClick(page, 'del'); await page.waitForTimeout(300); await askClick(page, 'Delete'); await recWait(page, 's8', (r) => !r);
+  assert.ok(!(await keptAll(page)).links.some((l) => l[0] === 's8' || l[1] === 's8'), 'off its span');
+  const k3 = await exportKml(page); assert.ok(!k3['CC-9008'], 'the KMZ without it'); assert.ok(k3['CC-9007']);
+  await drawing(page); await shown(page); await page.click('#drawUndo'); const r8 = await recWait(page, 's8', (r) => !!r); assert.equal(r8.poleId, 'CC-9008');
+  assert.ok((await keptAll(page)).links.some((l) => (l[0] === 's7' && l[1] === 's8') || (l[0] === 's8' && l[1] === 's7')), 'its span back');
+  const k4 = await exportKml(page); assert.ok(k4['CC-9008'], 'Undo: in the KMZ again');
+  await drawing(page); await shown(page); await page.click('#drawRedo'); await recWait(page, 's8', (r) => !r); await page.click('#drawUndo'); await recWait(page, 's8', (r) => !!r);
+  // from the plan only: a pole's details (job.hide; the DXF without it); More › Hidden lists it; Show brings it back
+  await shown(page); await select(page, 'lbl:s5'); assert.match(await delTip(page), /from the plan only/); n0 = (await pl(page)).n; await tbClick(page, 'del');
+  assert.deepEqual(Object.keys((await keptAll(page)).mvHide || {}), ['lbl:s5'], 'kept as deleted from the plan'); assert.equal((await recOf(page, 's5')).poleId, 'CC-9005', 'its record as it was');
+  await again(page, n0); assert.equal((await full(page, 'lbl:s5')).hidden, true, 'the plan leaves it off');
+  await rowClick(page, 'more'); await page.waitForTimeout(150); await page.click('#drawIcoPop [data-a="hidden"]'); await page.waitForTimeout(150);
+  assert.match(await page.textContent('#drawIcoPop'), /Deleted from the plan \(1\)/); await shot(page, 'records-laptop-hidden.png');
+  const e1 = await exportPlan(page); assert.deepEqual(e1.job.hide, ['lbl:s5'], 'the export\'s job'); assert.ok(!e1.text.includes('PROP.POLE CC-9005'), 'the DXF without it'); assert.ok(e1.text.includes('PROP.POLE CC-9006'), 'the others kept');
+  await drawing(page); await shown(page); n0 = (await pl(page)).n; await rowClick(page, 'more'); await page.waitForTimeout(150); await page.click('#drawIcoPop [data-a="hidden"]'); await page.waitForTimeout(150);
+  await page.click('#drawIcoPop [data-a="unhide"][data-id="lbl:s5"]'); await page.waitForTimeout(150); assert.deepEqual(Object.keys((await keptAll(page)).mvHide || {}), [], 'shown again');
+  await again(page, n0); assert.ok(!(await full(page, 'lbl:s5')).hidden, 'on the plan again');
+  // a loop with its NAP (its own loop: the record has no No loop for it): left off the plan only, its record as it was
+  const r6 = await recOf(page, 's6'); await select(page, 'loopsym:s6'); n0 = (await pl(page)).n; await tbClick(page, 'del'); await page.waitForTimeout(300);
+  assert.ok((await keptAll(page)).mvHide['loopsym:s6'], 'left off the plan'); assert.deepEqual(await recOf(page, 's6'), r6, 'its record as it was');
+  await again(page, n0); assert.equal((await full(page, 'loopsym:s6')).hidden, true);
+  await page.click('#drawUndo'); await page.waitForTimeout(200); assert.ok(!((await keptAll(page)).mvHide || {})['loopsym:s6'], 'Undo: back');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('Edit text writes the lines that show a record\'s field into the record (a pole\'s ID in its details, a NAP\'s ID, a loop\'s length); the KMZ follows; a line in no record\'s form stays the plan\'s; Undo and Redo', async () => {
+  const { ctx, page, errors } = await open({ desk: true });
+  await drawing(page); await shown(page);
+  const t3 = (await full(page, 'lbl:s3')).text; assert.equal(t3[0], 'PROP.POLE CC-9003');
+  await select(page, 'lbl:s3'); await tbClick(page, 'text'); await page.waitForTimeout(200);
+  assert.match(await page.textContent('#drawTxtSub'), /Line 1 \(its ID\) is from its record/, 'the editor says which line changes the record'); await shot(page, 'records-laptop-text.png');
+  let n0 = (await pl(page)).n; await txtSave(page, ['PROP.POLE CC-9103', t3[1], 'BESIDE MADE-UP ST', t3[3]].join('\n'));
+  const r3 = await recWait(page, 's3', (r) => r.poleId === 'CC-9103'); assert.equal(typeof r3.updatedBy, 'string');
+  assert.deepEqual((await keptAll(page)).mvText['lbl:s3'], ['PROP.POLE CC-9103', t3[1], 'BESIDE MADE-UP ST', t3[3]], 'the line from no record: the plan\'s (job.text)');
+  await again(page, n0); assert.deepEqual((await full(page, 'lbl:s3')).text, ['PROP.POLE CC-9103', t3[1], 'BESIDE MADE-UP ST', t3[3]], 'the plan shows it');
+  // a NAP's ID (typed small: in capitals, as its form writes it); a loop's length ('{v}m LOOP'): its record's
+  await select(page, 'nap:s6'); await tbClick(page, 'text'); n0 = (await pl(page)).n; await txtSave(page, 'nap-9002'); await recWait(page, 's6', (r) => r.napId === 'NAP-9002');
+  await again(page, n0); await select(page, 'loop:s6'); await tbClick(page, 'text'); n0 = (await pl(page)).n; await txtSave(page, '20m LOOP'); await recWait(page, 's6', (r) => r.boq.mloopM === '20');
+  await again(page, n0); assert.deepEqual((await full(page, 'loop:s6')).text, ['20m LOOP'], 'the plan writes the record\'s length');
+  assert.ok(!((await keptAll(page)).mvText || {})['loop:s6'] && !((await keptAll(page)).mvText || {})['nap:s6'], 'nothing kept for the plan: the record says it');
+  // not in its form: the plan's only, its record as it was
+  const r2 = await recOf(page, 's2'); await select(page, 'loop:s2'); await tbClick(page, 'text'); await txtSave(page, 'MAINTENANCE LOOP'); await page.waitForTimeout(300);
+  assert.deepEqual((await keptAll(page)).mvText['loop:s2'], ['MAINTENANCE LOOP']); assert.deepEqual(await recOf(page, 's2'), r2, 'its record as it was');
+  const k1 = await exportKml(page); assert.ok(k1['CC-9103'] && !k1['CC-9003'], `the KMZ: its new ID (${Object.keys(k1)})`); assert.equal(k1['CC-9006'].data.nap_id, 'NAP-9002', JSON.stringify(k1['CC-9006'].data)); assert.equal(k1['CC-9006'].data.mloop_length_m, '20');
+  const e1 = await exportPlan(page); assert.ok(e1.text.includes('NAP-9002') && e1.text.includes('CC-9103'), 'the DXF follows');
+  // Undo four times: each back; the KMZ as it was; Redo: the ID again
+  await drawing(page); await shown(page); for (let k = 0; k < 4; k++) { await page.click('#drawUndo'); await page.waitForTimeout(250); }
+  const r3b = await recWait(page, 's3', (r) => r.poleId === 'CC-9003'); assert.ok(r3b); assert.equal((await recOf(page, 's6')).napId, 'NAP-9001'); assert.ok(!(await recOf(page, 's6')).boq.mloopM, 'the loop as before');
+  assert.ok(!((await keptAll(page)).mvText || {})['lbl:s3'], 'the plan\'s own text again');
+  const k2 = await exportKml(page); assert.ok(k2['CC-9003'] && !k2['CC-9103']); assert.equal(k2['CC-9006'].data.nap_id, 'NAP-9001');
+  await drawing(page); await shown(page); await page.click('#drawRedo'); await recWait(page, 's3', (r) => r.poleId === 'CC-9103');
   assert.deepEqual(errors, []);
   await ctx.close();
 });

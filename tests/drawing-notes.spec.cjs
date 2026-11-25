@@ -6,7 +6,7 @@
    say, sent to back, backward, sent to front or forward".
    The app (a phone, 412 x 915; a computer, 1280 x 900), the made-up As-Plan project of drawing-tools.spec.cjs (8 poles, a closure, a guying, a NAP, a tower, a made-up
    photo each) and the made-up template with the plan's blocks on the phone:
-   - the row of tools (Select, Text, Photo, Undo, More) and the toolbar of what is selected as icons with a caption, a name and a tip each; on a phone the ones used
+   - the row of tools (Select, Text, Photo, Undo, Redo, More) and the toolbar of what is selected as icons with a caption, a name and a tip each; on a phone the ones used
      less under More; screenshots of both sizes (SHOTS_DIR=folder);
    - Edit text (the toolbar, a double-tap, a double-click): the editor shows the item's text as the plan writes it; Save reaches job.text and the exported DXF and its
      PDF's drawing; Automatic puts the plan's own back (the DXF as before, byte for byte); Undo; the chip;
@@ -206,7 +206,7 @@ test('the icon tools, as the CEF plan editor draws its tools: the row over the p
     const { ctx, page, errors } = await open({ desk }), sz = desk ? 'laptop' : 'phone';
     await drawing(page); await shown(page, (x) => x.count && x.count.pictures === 8);
     let I = await icoOf(page); assert.equal(I.hidden, false, `${sz}: the row`);
-    assert.deepEqual(I.tools.map((t) => t.a), ['sel', 'addtext', 'addphoto', 'undo', 'more'], 'Select, Text, Photo, Undo, More');
+    assert.deepEqual(I.tools.map((t) => t.a), ['sel', 'addtext', 'addphoto', 'undo', 'redo', 'more'], 'Select, Text, Photo, Undo, Redo, More');
     for (const t of I.tools) { assert.ok(t.label && t.title && t.cap && t.icon, `${sz} ${t.a}: a name, a tip, a caption, an icon: ${JSON.stringify(t)}`); assert.ok(t.w >= 44 && t.h >= 44, `${sz} ${t.a}: finger-sized ${t.w}x${t.h}`); }
     assert.equal(I.tools.find((t) => t.a === 'sel').pressed, 'true', 'Select pressed'); assert.equal(I.tools.find((t) => t.a === 'undo').disabled, true, 'Undo greyed: nothing to take back');
     const cv = await page.evaluate(() => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
