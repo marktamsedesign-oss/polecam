@@ -138,9 +138,15 @@ test('the editor\'s files on the project\'s CEF template: the DXF a sheet for ea
 
 test('the editor\'s buttons: Both (ZIP) says the files are on the client\'s template; a template the CEF cannot be printed on: the app\'s frame, and why', async () => {
   const { ctx, page, errors } = await open(), fr = await cef(page);
-  const zip = async () => fr.evaluate(async () => { const got = []; dl.save = async (o) => { got.push(o); }; await doExport('zip'); return { n: got.length, name: got[0] && got[0].filename, msg: (msg && msg.t) || document.body.innerText.match(/The ZIP is ready[^\n]*/)?.[0] || '' }; });
+  const zip = async (kind) => fr.evaluate(async (kind) => { const got = []; dl.save = async (o) => { got.push(o); }; await doExport(kind || 'zip'); return { n: got.length, name: got[0] && got[0].filename, msg: (msg && msg.t) || '' }; }, kind);
   await setTpl(page, { name: 'DEMO CLIENT A3', text: SEED, look: null });
   let r = await zip(); assert.equal(r.n, 1); assert.match(r.msg, /The ZIP is ready: .*_CEF\.zip\. On the client's template DEMO CLIENT A3\./);
+  r = await zip('pdf'); assert.match(r.msg, /The PDF is ready: .*_CEF\.pdf\. On the client's template DEMO CLIENT A3\./);
+  // the DXF of the older kind (no layouts): on the app's frame, and the note says so; the PDF printer failing: the PDF on the app's frame, and why
+  await fr.evaluate(() => { APP.dxf = { old: true }; }); r = await zip(); assert.match(r.msg, /On the client's template DEMO CLIENT A3\. The DXF of the older kind has no layouts: it is on the app's own frame\./);
+  await fr.evaluate(() => { APP.dxf = {}; }); await page.evaluate(() => { window.__cefHost.cefPdf0 = window.__cefHost.cefPdf; window.__cefHost.cefPdf = async () => { throw new Error('demo printer failure'); }; });
+  r = await zip(); assert.match(r.msg, /The PDF could not be made on the client's template DEMO CLIENT A3 \(demo printer failure\): on the app's own frame\./);
+  await page.evaluate(() => { window.__cefHost.cefPdf = window.__cefHost.cefPdf0; });
   await setTpl(page, { name: 'DEMO BROKEN', text: SEED.replace(/\nCEF\r?\n/g, '\nNOT A CEF SHEET\n'), look: null });
   r = await zip(); assert.equal(r.n, 1); assert.match(r.msg, /The client's template could not be used \(the template has no CEF sheet\): the sheets are on the app's own frame\./);
   const F = await files(fr); assert.equal(F.tpl, ''); assert.match(pick(F, /_CEF_sheets\.dxf$/), /G-eSAA CEF DXF R2000/);
