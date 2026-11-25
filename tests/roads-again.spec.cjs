@@ -17,6 +17,8 @@
    - A small phone: the button beside Regenerate (its top, to its left, on the drawing), what Regenerate says left of both; not in Edit route,
      nor with the roads off (Plan style). Export's checks with the plan picked: "Roads kept with this project since …" with Get again ›: asked,
      got (B kept).
+   - Two places 2 km apart (project C): each place's kept part asked for its own area; one not answered: neither replaced, said; both answered:
+     both replaced (the same areas), the roads counted as the plan joins them.
    No page errors, no page sideways. Uses an isolated browser profile and a local HTTP server on a free port; every name, number and place is made up. */
 'use strict';
 const { test, before, after } = require('node:test');
@@ -30,14 +32,16 @@ const { chromium } = require('playwright');
 const root = path.resolve(__dirname, '..');
 const SEED_SQ = fs.readFileSync(path.join(__dirname, 'fixtures', 'plan-seed-made-up-square.dxf'), 'utf8');
 
-const A = 'DEMO PLAN A', B = 'DEMO PLAN B', T0 = '2026-11-01T08:00:00.000Z';
+const A = 'DEMO PLAN A', B = 'DEMO PLAN B', C = 'DEMO PLAN C', T0 = '2026-11-01T08:00:00.000Z';
 const USER = { name: 'Juan Dela Cruz', mobile: '09170000001', email: 'juan@demo-contractor.example', company: 'DEMO CONTRACTOR' };
 const LA0 = 7.10465, LO0 = 125.6010, D = 0.00036; // project A: 12 poles about 40 m apart, 5 east then 7 north (an L); B: 5 poles 2 km away
 const PA = []; for (let i = 0; i < 12; i++) PA.push([`a${i + 1}`, `CC-${9101 + i}`, LA0 + (i > 4 ? (i - 4) * D : 0), LO0 + Math.min(i, 4) * D]);
 const PB = []; for (let i = 0; i < 5; i++) PB.push([`b${i + 1}`, `CC-${9301 + i}`, 7.1230, 125.6200 + i * D]);
 const rec = (proj) => ([id, poleId, lat, lon], i) => ({ id, project: proj, element: 'Pole', poleId, poleType: 'Concrete', status: i % 5 === 2 ? 'Existing' : 'Proposed', lat, lon, accuracy: 4.2, created: `2026-11-01T08:${String(i).padStart(2, '0')}:00.000Z`, updated: T0, takenAt: T0, by: USER.name, boq: { owner: 'Electric', clamp: '8-10' } });
-const RECS = PA.map(rec(A)).concat(PB.map(rec(B)));
+const PC = PA.concat(PB).map(([, poleId, lat, lon], i) => [`c${i + 1}`, poleId.replace('CC-9', 'CC-8'), lat, lon]); // C: A's poles and B's, two places 2 km apart
+const RECS = PA.map(rec(A)).concat(PB.map(rec(B)), PC.map(rec(C)));
 const linksOf = (P) => P.slice(1).map((p, i) => [P[i][0], p[0], 'F12']);
+const LC = linksOf(PC.slice(0, 12)).concat(linksOf(PC.slice(12)));
 // OpenStreetMap as Overpass answers it, made up. A: a street 9 m south of A's first poles, an avenue 9 m east of its others, a road along B, a chapel.
 // B: the street renamed and 7 m further south, the avenue 6 m further east, no chapel (and no road at B's poles).
 const way = (id, name, hw, pts) => ({ type: 'way', id, tags: { highway: hw, name }, geometry: pts.map(([lat, lon]) => ({ lat, lon })) });
@@ -72,7 +76,7 @@ after(async () => { if (browser) await browser.close(); if (server) await new Pr
 const hold = (net) => { const h = {}; h.p = new Promise((r) => { h.go = r; }); net.hold = h; return () => { net.hold = null; h.go(); }; };
 /** A new phone (o.phone: 360 x 740, else a computer, 1280 x 900) with projects A and B, a made-up photo for every pole, the made-up template.
  *  Overpass answered as net.mode says ('A', 'B', 'down': no answer, 'error': 504, 'part': B cut short by Overpass), each query's area kept in
- *  net.calls; net.hold: the answers wait. The toasts said are kept (window.__toasts); the builder on the page for the exports: each export's job kept. */
+ *  net.calls (net.seq: the next answers' modes, one each, before net.mode); net.hold: the answers wait. The toasts said are kept (window.__toasts); the builder on the page for the exports: each export's job kept. */
 async function open(o) {
   o = o || {};
   const ctx = await browser.newContext({ viewport: o.phone ? { width: 360, height: 740 } : { width: 1280, height: 900 }, isMobile: !!o.phone, hasTouch: !!o.phone, deviceScaleFactor: 1, acceptDownloads: true, serviceWorkers: 'block' });
@@ -82,7 +86,7 @@ async function open(o) {
     if (u.startsWith('https://overpass-api.de/')) {
       const q = decodeURIComponent(String(r.request().postData() || '').replace(/^data=/, '').replace(/\+/g, ' ')), m = /way\["highway"\]\(([^)]*)\)/.exec(q); net.calls.push(m ? m[1] : q.slice(0, 80));
       const h = net.hold; if (h) await h.p;
-      const md = net.mode;
+      const md = net.seq && net.seq.length ? net.seq.shift() : net.mode;
       if (md === 'down') return r.abort();
       if (md === 'error') return r.fulfill({ status: 504, contentType: 'text/plain', body: 'Gateway Timeout' });
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(md === 'part' ? { ...SET_B, remark: 'runtime error: Query timed out in "query" at line 1 after 91 seconds.' } : md === 'B' ? SET_B : SET_A) });
@@ -92,13 +96,13 @@ async function open(o) {
   const page = await ctx.newPage(), errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(base + 'manifest.json');
-  await page.evaluate(async ({ RECS, A, B, USER, LA, LB }) => {
+  await page.evaluate(async ({ RECS, A, B, C, USER, LA, LB, LC, open }) => {
     await new Promise((res, rej) => { const r = indexedDB.open('polecam', 2); r.onupgradeneeded = () => { const d = r.result; for (const [n, k] of [['points', 'id'], ['photos', 'id'], ['tiles', 'k'], ['packs', 'k']]) if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, { keyPath: k }); };
       r.onsuccess = () => { const d = r.result, tx = d.transaction('points', 'readwrite'), st = tx.objectStore('points'); st.clear(); RECS.forEach((x) => st.put(x)); tx.oncomplete = () => { d.close(); res(); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); });
     const meta = (l) => ({ mode: 'survey', purpose: 'As-plan', contractor: 'DEMO CONTRACTOR', links: l, linksAt: '2026-11-01T08:00:00.000Z', cables24: true });
-    localStorage.setItem('polecam.settings', JSON.stringify({ projects: [A, B], project: A, sampleDone: true, saveCheck: false, zone: 51, user: USER, v17: 1, v20: 1, v64addr: 1, plNotice: 1, routeTip: true, rtGrabTip: true, drawHintOff: false, drawMapKind: 'off', drawLegendOpen: false,
-      exp: { dxfMode: 'tpl', dxfPdf: true, dxfCef: false, planOut: 'files', dxfLabels: 'std' }, meta: { [A]: meta(LA), [B]: meta(LB) } }));
-  }, { RECS, A, B, USER, LA: linksOf(PA), LB: linksOf(PB) });
+    localStorage.setItem('polecam.settings', JSON.stringify({ projects: [A, B, C], project: open, sampleDone: true, saveCheck: false, zone: 51, user: USER, v17: 1, v20: 1, v64addr: 1, plNotice: 1, routeTip: true, rtGrabTip: true, drawHintOff: false, drawMapKind: 'off', drawLegendOpen: false,
+      exp: { dxfMode: 'tpl', dxfPdf: true, dxfCef: false, planOut: 'files', dxfLabels: 'std' }, meta: { [A]: meta(LA), [B]: meta(LB), [C]: meta(LC) } }));
+  }, { RECS, A, B, C, USER, LA: linksOf(PA), LB: linksOf(PB), LC, open: o.open || A });
   await page.goto(base + 'index.html');
   await page.waitForFunction(() => !!window.__polecam && !!document.getElementById('exportBtn') && window.__polecam.points.length > 0, null, { timeout: 60000 });
   await page.waitForTimeout(1200);
@@ -113,7 +117,7 @@ async function open(o) {
     try { const g = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine').get; Object.defineProperty(Navigator.prototype, 'onLine', { configurable: true, get() { return window.__offline ? false : g.call(this); } }); } catch (e) { /* as it is */ }
   });
   await page.evaluate(async (ids) => { for (const [id, k] of ids) { const c = document.createElement('canvas'); c.width = k % 4 === 3 ? 800 : 600; c.height = k % 4 === 3 ? 600 : 800; const g = c.getContext('2d'); g.fillStyle = '#d8e4ee'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#7a8796'; g.fillRect(c.width / 2 - 15, 60, 30, c.height - 100);
-    const b = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9)); await window.__polecam.cef.keep(id, b); } }, PA.concat(PB).map((p, k) => [p[0], k]));
+    const b = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9)); await window.__polecam.cef.keep(id, b); } }, PA.concat(PB, PC).map((p, k) => [p[0], k]));
   await page.evaluate(async (text) => { // the made-up template on the phone, as a loaded template file is kept
     await new Promise((res, rej) => { const r = indexedDB.open('polecam'); r.onsuccess = () => { const d = r.result, tx = d.transaction('packs', 'readwrite'); tx.objectStore('packs').put({ k: '~dxfseed', text }); tx.oncomplete = () => { d.close(); res(); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); });
     const S = window.__polecam.S; S.dxfSeed = { name: 'plan-seed-made-up-square.dxf', size: text.length, at: '2026-11-01T08:00:00.000Z', from: 'file', id: '' }; window.__polecam.persist();
@@ -369,6 +373,31 @@ test('a small phone (360 x 740): beside Regenerate plan preview, what it says le
   assert.deepEqual((await kept(page, A)).roads[0].names, NAMES_B);
   L = (await chk()).find(([t]) => /^Roads kept/.test(t)); assert.ok(L, 'still said');
   assert.equal(await sideways(page), false, 'no page sideways');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('two places 2 km apart: every kept part got again, kept only when every one came back; one not answered: none kept, said', async () => {
+  const { ctx, page, errors, net } = await open({ open: C });
+  await drawing(page); await shown(page);
+  const k0 = await kept(page, C); assert.equal(k0.roads.length, 2, `a part for each place: ${JSON.stringify(k0.roads.map((x) => x.bb))}`);
+  // the first place answered, the second not: neither part replaced
+  net.seq = ['B', 'down']; let c0 = net.calls.length, n = await made(page);
+  const r1 = await getAgain(page);
+  assert.equal(r1.said, 'Roads not got again: OpenStreetMap did not answer, and no road pack on this phone covers the area. The plan keeps the roads it has.');
+  assert.deepEqual(net.calls.slice(c0), k0.roads.map((x) => x.bb.map((v) => v.toFixed(6)).join(',')), 'each place asked, for its own area');
+  assert.deepEqual((await kept(page, C)).roads, k0.roads, 'neither part replaced');
+  await page.waitForTimeout(800); assert.equal(await made(page), n, 'the preview not made again');
+  // both answered: both kept, each for its own area; the plan made again with them
+  net.seq = ['B', 'B']; c0 = net.calls.length; n = await made(page);
+  const r2 = await getAgain(page);
+  assert.equal(r2.said, 'Roads got again: 2 roads from OpenStreetMap (before: 3 roads and 1 named place).', 'the roads counted as the plan joins them');
+  assert.equal(net.calls.length - c0, 2);
+  const k1 = await kept(page, C);
+  assert.deepEqual(k1.roads.map((x) => [x.bb, x.nb, x.zone]), k0.roads.map((x) => [x.bb, x.nb, x.zone]), 'the same areas');
+  assert.ok(k1.roads.every((x) => x.src === 'osm' && x.names.join() === NAMES_B.join()), JSON.stringify(k1.roads));
+  const s1 = await shown(page, n); assert.ok(s1.on);
+  assert.deepEqual((await undoList(page)).undo, ['roads got again']);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
