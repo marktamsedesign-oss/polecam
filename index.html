@@ -245,28 +245,30 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 #drawInfo .btn{margin:4px 0 0 8px;vertical-align:middle;white-space:nowrap}@media (max-width:700px){#drawInfo .btn{display:block;margin:6px 0 0}}
 /* (beta 7.11, Drawing tools) the toolbar of what is selected on the plan: finger-sized, at the top of the plan (or at its bottom while the selection is under it),
    wrapping on a phone; its colour palette under it (above it at the bottom) */
-.drwtb{position:absolute;left:8px;right:8px;top:8px;z-index:7;display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:5px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.2)}
+.drwtb{position:absolute;left:8px;right:14px;top:14px;z-index:7;display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:5px 22px 5px 5px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.2)}
 .drwtb[hidden],.drwtb [hidden]{display:none!important}
 .drwtb.bot{right:calc(var(--tap) + 24px)}
 @media (min-width:900px){.drwtb,.drwtb.bot{left:50%;right:auto;transform:translateX(-50%);width:max-content;max-width:calc(100% - 24px)}}
 .drwtbb{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:42px;height:42px;padding:0 6px;border:1px solid transparent;border-radius:10px;background:transparent;color:inherit;font:700 calc(13px * var(--fs)) system-ui,sans-serif;cursor:pointer;flex:none}
 .drwtbb:hover{background:var(--soft)}.drwtbb:focus-visible,.drwtbseg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .drwtbb[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}.drwtbb[disabled]{opacity:.4;cursor:default}.drwtbb[disabled]:hover{background:transparent}
-.drwtbb svg{width:20px;height:20px;flex:none}.drwtbb.wide{padding:0 10px}.drwtbb.wide span{white-space:nowrap}
+.drwtbb svg{width:20px;height:20px;flex:none}.drwtbb.wide{padding:0 8px}.drwtbb.wide span{white-space:nowrap}
 .drwtbb .tx{font:800 calc(15px * var(--fs))/1 Georgia,'Times New Roman',serif}.drwtbb .tx.big{font-size:calc(19px * var(--fs))}.drwtbb .tx.it{font-style:italic;font-weight:700}
 .drwtbb .pm{font:800 calc(14px * var(--fs))/1 system-ui,sans-serif;margin-left:1px}.drwtbb small{font:700 calc(10.5px * var(--fs))/1 system-ui,sans-serif}.drwtbb small.w{font-size:calc(13px * var(--fs))}
 .drwtbb .sw{width:22px;height:22px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1.5px var(--muted)}
 .drwtbsep{width:1px;align-self:stretch;margin:6px 2px;background:var(--line);flex:none}
 .drwtbseg{display:inline-flex;border:1.5px solid var(--line);border-radius:10px;overflow:hidden;flex:none;height:42px}
-.drwtbseg button{border:0;background:transparent;color:inherit;padding:0 10px;font:700 calc(12.5px * var(--fs)) system-ui,sans-serif;cursor:pointer;white-space:nowrap}
+.drwtbseg button{border:0;background:transparent;color:inherit;padding:0 8px;font:700 calc(12.5px * var(--fs)) system-ui,sans-serif;cursor:pointer;white-space:nowrap}
 .drwtbseg button+button{border-left:1.5px solid var(--line)}.drwtbseg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+/* ✕: a round badge on the toolbar's corner (it takes no row of its own) */
+.drwtb .drwtbx{position:absolute;top:-10px;right:-10px;min-width:0;width:34px;height:34px;padding:0;border-radius:50%;background:var(--surface);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.2)}.drwtb .drwtbx svg{width:16px;height:16px}.drwtb .drwtbx:hover{background:var(--soft)}
 .drwtbn{font:800 calc(12px * var(--fs)) system-ui,sans-serif;color:var(--muted);padding:0 6px;white-space:nowrap}
 .drwtbpal{position:absolute;left:6px;top:calc(100% + 6px);display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.2);max-width:calc(100vw - 40px)}
 .drwtb.bot .drwtbpal{top:auto;bottom:calc(100% + 6px)}
 .drwtbpal button{width:36px;height:36px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1.5px var(--line);cursor:pointer;padding:0}
 .drwtbpal button[aria-pressed=true]{box-shadow:0 0 0 3px var(--accent)}
 .drwtbpal button.asplan{background:conic-gradient(#e03131,#f59f00,#2f9e44,#1098ad,#1c7ed6,#ae3ec9,#e03131);position:relative}.drwtbpal button.asplan::after{content:'';position:absolute;inset:9px;border-radius:50%;background:var(--surface)}
-@media (pointer:coarse){.drwtbb,.drwtbseg{min-width:44px;height:44px}.drwtbpal button{width:40px;height:40px}}
+@media (pointer:coarse){.drwtbb,.drwtbseg{min-width:44px;height:44px}.drwtbpal button{width:40px;height:40px}.drwtb .drwtbx{width:40px;height:40px;top:-12px;right:-12px}}
 #drawWrap.tbtop > .drwxhid{top:calc(var(--tbh, 64px) + 8px)}#drawWrap.tbtop:has(> #drawXHid:not([hidden])) > #drawPhAll{top:calc(var(--tbh, 64px) + 52px)} /* (the chips at the upper right, below the toolbar at the top) */
 .strow.sthl,.stgrp.sthl,.psrow.sthl{outline:2px solid #f08c00;outline-offset:3px;border-radius:8px;background:rgba(240,140,0,.09)}#stPrev [data-st]{cursor:pointer}.dscap .dspk{color:#e8590c;font-weight:600}
 .drwbar{align-items:center;gap:8px;flex-wrap:nowrap;position:relative}.drwbar select{min-height:44px;flex:0 1 128px;min-width:84px;padding:0 6px}
@@ -1974,7 +1976,7 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
       <div class="drwtbseg" data-a="scope" role="group" aria-label="Style this one or all like it"><button type="button" data-v="one" aria-pressed="true">This one</button><button type="button" data-v="kind" aria-pressed="false">All like it</button></div>
       <button type="button" class="drwtbb wide" data-a="auto" title="Back to automatic: where and how the plan puts it" aria-label="Back to automatic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span>Automatic</span></button>
       <button type="button" class="drwtbb wide" data-a="more" aria-pressed="false" title="Select more: each tap adds an item or takes it off (on a computer: Shift or Ctrl + click)" aria-label="Select more">Select more</button>
-      <button type="button" class="drwtbb" data-a="done" title="Done (Esc)" aria-label="Done: nothing selected"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <button type="button" class="drwtbb drwtbx" data-a="done" title="Done (Esc)" aria-label="Done: nothing selected"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       <div class="drwtbpal" id="drawTbPal" data-a="pal" role="group" aria-label="Colour" hidden></div>
     </div>
     <!-- v2.42.28: the drawing of the export shown here; ‹ › go through them -->
