@@ -290,3 +290,22 @@ test('a closure and a loop on the cable slide along it only (job.pins along); th
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test('every element can be selected and styled: a span\'s cable (its colour and weight: Thinner / Thicker), the loops on the cable an element of their own; the DXF follows', async () => {
+  const { ctx, page, errors } = await open({ desk: true });
+  await drawing(page); await shown(page);
+  const mv = await mvOf(page), kinds = new Set(mv.items.map((m) => m.kind));
+  for (const k of ['cableline', 'loopsym']) assert.ok(kinds.has(k), `${k} on the plan: ${[...kinds]}`);
+  const cl = mv.items.find((m) => m.id === 'cableline:s3|s4') || mv.items.find((m) => m.kind === 'cableline');
+  await select(page, cl.id); const T = (await icoOf(page)).tb.filter((t) => !t.hidden).map((t) => t.a);
+  for (const a of ['color', 'lw-', 'lw+']) assert.ok(T.includes(a), `a cable: ${a}`); for (const a of ['h+', 'rot+', 's+', 'text']) assert.ok(!T.includes(a), `a cable: no ${a}`);
+  assert.match((await mvOf(page)).info, /^Cable /, 'said');
+  await tbClick(page, 'lw+'); await tbClick(page, 'color'); await tbClick(page, 'pal', 5); await page.waitForTimeout(150);
+  assert.deepEqual((await keptAll(page)).mvStyle[cl.id], { lw: 100, color: 5 }, 'thicker (0.70 → 1.00 mm) and blue'); await shot(page, 'records-laptop-cable.png');
+  const e = await exportPlan(page), D = dxfOf(e.text), H = handlesOf(e, cl.id).map((h) => D.ents.get(h)).filter(Boolean);
+  assert.ok(H.length && H.some((x) => x.col === 5), `the DXF: its line blue: ${JSON.stringify(H.map((x) => [x.type, x.col]))}`);
+  const raw = e.text.split(/\r?\n/), lw = H.map((x) => { for (let i = 0; i + 1 < raw.length; i += 2) if (raw[i].trim() === '5' && raw[i + 1].trim() === x.h0) { for (let j = i + 2; j + 1 < raw.length && raw[j].trim() !== '0'; j += 2) if (raw[j].trim() === '370') return +raw[j + 1]; } return null; });
+  assert.ok(lw.includes(100), `its line weight 100: ${lw}`);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
