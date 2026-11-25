@@ -2240,7 +2240,7 @@
   function drwPhHint() {
     if (!drw || drw.hint0 == null) return;
     const pl = drwPlanOn(), G = pl && drw.ph.grid ? drw.ph.grid.sheets : [], n = drw.ph ? Object.keys(drw.ph.at || {}).length : 0; // ((beta 7.9, Drawing preview) the plan shown: what it is; its photos: drag them)
-    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.${drwMvs().some((m) => m.kind !== 'photo') ? ` Drag a cable label, a pole number or a pole's details to place it by hand; ↶ undoes.` : ''}` : drw.hint0)
+    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.${drwMvs().some((m) => m.kind !== 'photo') ? ` Drag a cable label, a pole number or a pole's details to place it by hand; ↶ undoes. Select anything to style, turn, order or edit its text (double-tap it); Text and Photo add your own.` : ''}` : drw.hint0)
       + (n ? ' Photos sit where the plan puts them: drag one to place it by hand.' : '');
   }
   /** The plan's place of this point's photo (report.photoAt), for the drawing shown; null: none (no preview yet, or the plan has none). */
@@ -3197,7 +3197,8 @@
   /** An item's text as the plan writes it: report.movable text (one string a line), else its own texts on the plan shown, from the top. */
   function drwTextOf(m) {
     if (Array.isArray(m.text)) return m.text.map(String);
-    return drwOwnTexts(m).map((t) => ({ t, y: t.m[5] })).sort((a, b) => b.y - a.y).map((x) => String(x.t.s));
+    const T = drwOwnTexts(m); if (!T.length) return []; const u = [T[0].m[2], T[0].m[3]], l = Math.hypot(u[0], u[1]) || 1; // (a builder that does not say: its texts from the top, along their own up, turned or not)
+    return T.map((t) => ({ t, y: (t.m[4] * u[0] + t.m[5] * u[1]) / l })).sort((a, b) => b.y - a.y).map((x) => String(x.t.s));
   }
   /** The editor opened (o: title, sub, lines, auto: Automatic offered, need: a line needed, onSave(lines), onAuto()). */
   function drwTxtOpen(o) {
@@ -3367,7 +3368,7 @@
     const now = Date.now(), PT = drw.tapLast, many = !!add0 || !!drw.tbMore;
     if (!many && PT && e.pointerType !== 'mouse' && now - PT.t < DBL_MS && Math.hypot(PT.x - e.clientX, PT.y - e.clientY) < 16 && drwDblText(PT)) { drw.tapLast = null; return; }
     const S0 = drwSels(); drwTapAt0(e, add0); if (!drw) return; const S2 = drwSels();
-    drw.tapPrev = PT; drw.tapLast = { t: now, x: e.clientX, y: e.clientY, id: S2.length === 1 ? S2[0] : null, before: S0.length === 1 ? S0[0] : null, cyc: !!(drw.tapC && drw.tapC.k) }; // (cyc: this tap went on to the next item under it)
+    drw.tapPrev = PT; drw.tapLast = { t: now, x: e.clientX, y: e.clientY, id: S2.length === 1 ? S2[0] : null, before: S0.length === 1 ? S0[0] : null, cyc: !!drw.tapCyc }; // (cyc: this tap went on to the next item under it)
   }
   /** (beta 7.12, Drawing edit) A double-tap or a double-click whose first tap was A: the item it is on (the one A selected; A went on from the one selected to the next
    *  under it: that one), selected again if the second went on, and its text editor opened when it has texts. True when opened. */
@@ -3377,7 +3378,7 @@
   }
   function drwTapAt0(e, add0) {
     const add = !!add0 || !!drw.tbMore, C = drwCands(e), key = C.map((c) => c.id || c.photo || c.pt).join(','), T = drw.tapC;
-    let k = 0; if (!add && T && C.length > 1 && T.key === key && Math.hypot(T.x - e.clientX, T.y - e.clientY) < 8) k = (T.k + 1) % C.length;
+    let k = 0; drw.tapCyc = false; if (!add && T && C.length > 1 && T.key === key && Math.hypot(T.x - e.clientX, T.y - e.clientY) < 8) { k = (T.k + 1) % C.length; drw.tapCyc = true; } // ((beta 7.12, Drawing edit) tapCyc: went on to the next, for a double-tap)
     drw.tapC = C.length ? { x: e.clientX, y: e.clientY, key, k } : null; const c = C[k];
     if (c && c.pt) { drwPtTap(c.pt, c.id, add); return; }
     if (c && c.photo) { drwPhTap(c.photo, add ? 'add' : ''); return; }
