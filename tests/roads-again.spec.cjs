@@ -28,6 +28,7 @@ const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { editOn } = require('./drawing-edit.cjs'); // (beta 7.14, View / Edit) dragging a photo on the Drawing needs Edit on
 
 const root = path.resolve(__dirname, '..');
 const SEED_SQ = fs.readFileSync(path.join(__dirname, 'fixtures', 'plan-seed-made-up-square.dxf'), 'utf8');
@@ -161,6 +162,7 @@ async function getAgain(page, label) {
 }
 /** Drag a photo by (dx, dy) page pixels and wait for the preview with it placed by hand. */
 async function dragPhoto(page, id, dx, dy) {
+  await editOn(page);
   const F = (await ph(page)).frames.find((f) => f.id === id); assert.ok(F, `${id}'s frame on the Drawing`);
   const n = await made(page); await page.mouse.move(F.x, F.y); await page.mouse.down(); for (let k = 1; k <= 10; k++) { await page.mouse.move(F.x + dx * k / 10, F.y + dy * k / 10); await page.waitForTimeout(16); } await page.mouse.up(); await page.waitForTimeout(300);
   assert.ok(Array.isArray((await ph(page)).pins[id]), `${id} kept`);

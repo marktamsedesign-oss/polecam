@@ -2115,8 +2115,10 @@
     // a NAP or closure pin stands on its pole: the nearest pole of the route within 30 m (as the plan draws it)
     const onRoute = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), poles = items.filter((it) => it.el === 'Pole' && onRoute.has(it.p.id));
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
+    const was = again && drw && drw.project === S.project ? drw : null; // ((beta 7.14, View / Edit) drawn anew in the same visit (its records changed, Edit route): as it was; else View)
     drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), ia: String(h.a), ib: String(h.b), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     drw.blocks = drwBlocks(items, R, U); // v2.42.24: the dummy NAPs and closures on the cable
+    drw.mode = was && was.mode === 'edit' ? 'edit' : 'view'; drw.modeSaid = !!(was && was.modeSaid); if (!was) { drwModeSay(null); drwChgOpen(false); } // ((beta 7.14, View / Edit) the Drawing opens in View, every time (another project, another visit))
     $('drawTb').hidden = true; $('drawTbPal').hidden = true; $('drawWrap').classList.remove('tbtop'); // ((beta 7.11, Drawing tools) nothing selected on it yet: no toolbar)
     { const M = drwPhMem.get(S.project); drw.ph = M && M.row === rowIdx() && dxfMode() === 'tpl' ? M : null; drw.selPh = null; drw.phHit = []; drw.plWant = !!drw.ph; drwPlanUi(); } // (beta 7.8, Drawing photos) where the plan put the photos last time, until the preview comes (drwPhRun) ((beta 7.10, Plan kept) its roads: those kept with the project, planRoadsOf)
     { const byI = new Map(items.map((it) => [String(it.p.id), it])); // beta 6.9: each pull-off and cross-over, its poles on the Drawing
@@ -2188,6 +2190,7 @@
     const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
       planAt: rep.photoAt, fileId: Object.fromEntries([...Object.entries(job.photos || {}).map(([id, x]) => [x.file, id]), ...(job.notes || []).filter((n) => n.photo && n.photo.file).map((n) => [n.photo.file, `note:${n.id}`])]), /* ((beta 7.12, Drawing edit) and each photo note's) */ lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (beta 7.10, Plan kept) the labels and split it was made with)
       mv: Array.isArray(rep.movable) ? rep.movable : null, mvIdx: new Map((rep.movable || []).map((m, i) => [m.id, i])), // ((beta 7.10, Drawing labels) the items the Drawing may move, and each one's place in that list)
+      fonts: Array.isArray(rep.fonts) && rep.fonts.length ? rep.fonts : null, // ((beta 7.14, Text editor) the fonts a text may take: the template's, then the app's)
       ptsAt: Object.fromEntries((job.pts || []).filter((q) => Number.isFinite(+q.E) && Number.isFinite(+q.N)).map((q) => [String(q.id), [+q.E, +q.N]])), // ((beta 7.12, Drawing edit) each point's record place it was made with: a point moved since is drawn moved as much)
       tools: JSON.parse(JSON.stringify({ pins: job.pins || null, style: job.style || null, styleKind: job.styleKind || null, poleAt: job.poleAt || null, text: job.text || null, notes: job.notes || null, order: job.order || null, hide: job.hide || null })) }; // ((beta 7.11, Drawing tools) what it was made with: what changed since is drawn so until the next one comes; (beta 7.12, Drawing edit) its texts, notes, draw order)
     for (const [k, v] of drwPhMem) if (k !== proj && v.plan) drwPhMem.set(k, { ...v, plan: null, sig: '' }); // (one project's plan kept at a time: another one opened makes its own again)
@@ -2241,8 +2244,8 @@
   function drwPhHint() {
     if (!drw || drw.hint0 == null) return;
     const pl = drwPlanOn(), G = pl && drw.ph.grid ? drw.ph.grid.sheets : [], n = drw.ph ? Object.keys(drw.ph.at || {}).length : 0; // ((beta 7.9, Drawing preview) the plan shown: what it is; its photos: drag them)
-    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.${drwMvs().some((m) => m.kind !== 'photo') ? ` Drag a cable label, a pole number or a pole's details to place it by hand; ↶ undoes. Select anything for its tools (double-tap a text to edit it); Text and Photo add your own.` : ''}` : drw.hint0)
-      + (n ? ' Photos sit where the plan puts them: drag one to place it by hand.' : '');
+    $('drawHint').textContent = (pl ? `The plan as its PDF prints it (UTM ${drw.zone}N metres): ${drw.items.filter((it) => it.el === 'Pole').length} poles, ${drw.spans.length} spans, ${G.length} sheet${G.length === 1 ? '' : 's'}${G.length ? ` (${G.slice(0, 6).map((x) => x.name).join(', ')}${G.length > 6 ? '…' : ''})` : ''}. Drag to pan, pinch or scroll to zoom, tap a point. Regenerate plan preview makes it again now.${!drwEditing() && drwModeOn() ? ' View: nothing on the plan moves; tap Edit to select, move or change what is on it.' : drwMvs().some((m) => m.kind !== 'photo') ? ` Drag a cable label, a pole number or a pole's details to place it by hand; ↶ undoes. Select anything for its tools (double-tap a text to edit it); Text and Photo add your own.` : ''}` : drw.hint0)
+      + (n && (drwEditing() || !drwModeOn()) ? ' Photos sit where the plan puts them: drag one to place it by hand.' : ''); // ((beta 7.14, View / Edit) in View: Edit to change it)
   }
   /** The plan's place of this point's photo (report.photoAt), for the drawing shown; null: none (no preview yet, or the plan has none). */
   const drwPhOf = (it) => (drw && drw.ph && drw.ph.row === rowIdx() ? drw.ph.at[String(it.p.id)] || null : null);
@@ -2461,7 +2464,7 @@
   function drwGridPaint(g, d, cv) {
     const G = drw.ph.grid; drw.gridDrawn = []; if (!G || S.drawGrid === false) return;
     const fs = 12 * d, m = 4 * d, h = fs + 8 * d; g.save(); g.setLineDash([]); g.lineWidth = 1.6 * d; g.font = `800 ${fs}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
-    const cr = cv.getBoundingClientRect(), chips = ['drawXHid', 'drawPhAll'].map((id) => $(id)).filter((el) => !el.hidden).map((el) => { const r = el.getBoundingClientRect(); return [(r.left - cr.left) * d, (r.top - cr.top) * d, (r.right - cr.left) * d, (r.bottom - cr.top) * d]; }); // (the chips at the upper right: the names below them)
+    const cr = cv.getBoundingClientRect(), chips = ['drawXHid', 'drawChg'].map((id) => $(id)).filter((el) => el && !el.hidden).map((el) => { const r = el.getBoundingClientRect(); return [(r.left - cr.left) * d, (r.top - cr.top) * d, (r.right - cr.left) * d, (r.bottom - cr.top) * d]; }); // (the chips at the upper right: the names below them)
     for (const s of G.sheets) {
       const [x0, y1] = drwPx([s.box[0], s.box[1]]), [x1, y0] = drwPx([s.box[2], s.box[3]]); if (x1 < 0 || x0 > cv.width || y1 < 0 || y0 > cv.height) continue;
       g.strokeStyle = 'rgba(174,62,201,.85)'; g.strokeRect(x0, y0, x1 - x0, y1 - y0);
@@ -2541,12 +2544,12 @@
   /** The Drawing's plan tools: Regenerate plan preview (busy while it is made), Sheet grid, the photos placed by hand. */
   function drwPlanUi() {
     if (!drw) return;
-    const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen'), C = drwPinsN(drw.project), n = C.n; // ((beta 7.10, Drawing labels) everything placed by hand: photos, numbers, pole details, cable labels)
+    const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen');
     rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
     { const rd = $('drawRoads'), on = !!rkAgainOn; rd.hidden = rg.hidden || !$('dxfRoads').checked; rd.disabled = on; rd.setAttribute('aria-busy', String(on)); rg.classList.toggle('withrd', !rd.hidden); } // ((beta 7.14, Roads again) Get the roads again beside it, while the plan has roads (Plan style); not while they are being got)
     if (busy) $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = '';
     $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
-    $('drawPhAll').hidden = !(pl && n); $('drawPhAllT').textContent = `${drwPinsSay(C)} ${C.chg ? 'changed' : 'placed'} by hand · Back to automatic`; // ((beta 7.11, Drawing tools) styled or turned: changed)
+    drwChgRender(pl); // ((beta 7.14, Changed by hand) in Edit: how many moved and changed by hand, its list (7.9–7.13's chip "placed by hand · Back to automatic": its Put all back))
     drwIcoRender(); // ((beta 7.10, Drawing labels) Undo, while there is a change to take back; (beta 7.12, Drawing edit) in the row of the Drawing's tools)
   }
   /** Back to automatic for every photo placed by hand on this project's plan, asked first. */
@@ -2555,15 +2558,19 @@
     const one = n === 1 && !C.lbl, it1 = one ? 'it' : 'them'; // (one photo, number or cable label: "it"; a pole's details, several: "them")
     if (!(await ask(`Back to automatic: ${drwPinsSay(C)}?`, `The ${n === 1 ? drwPinsSay(C).replace(/^1 /, '') : drwPinsSay(C, true)} ${C.chg ? 'changed' : 'placed'} by hand ${one ? 'goes' : 'go'} back ${C.chg ? 'where and as' : 'where'} the plan puts ${it1}, and the plan's sheets are worked out again (kept as they were while things were placed by hand). The next export has ${it1} there too. Undo (↶) brings ${it1} back.`, [{ label: 'Cancel', value: false }, { label: 'Back to automatic', value: true, primary: true }]))) return;
     if (!drw || drw.project !== proj) return;
-    drwUndoPush('all back to automatic');
-    const m = { ...pmeta(proj) }; MV_KEYS.forEach((k) => { if (k !== 'notes') delete m[k]; }); delete m.planGrid; /* ((beta 7.12, Drawing edit) the texts edited and the draw order too; the notes stay: the user's own) */ S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', { n, ph: C.ph, num: C.num, lbl: C.lbl, cab: C.cab, more: C.more, kinds: C.kind }); // ((beta 7.10, Plan kept) and the grid kept: worked out again) ((beta 7.11, Drawing tools) and every item turned or styled, every pole moved)
+    drwAllBack(proj, 'all back to automatic', { n, ph: C.ph, num: C.num, lbl: C.lbl, cab: C.cab, more: C.more, kinds: C.kind });
+  }
+  /** Everything changed by hand on a project's plan back where and as the plan puts it, one Undo step (what); the notes stay (the user's own), and what the Drawing
+   *  changed in records ((beta 7.14, Changed by hand) Put all back, and More › All automatic). */
+  function drwAllBack(proj, what, log) {
+    drwUndoPush(what);
+    const m = { ...pmeta(proj) }; MV_KEYS.forEach((k) => { if (k !== 'notes') delete m[k]; }); delete m.planGrid; delete m.mvTurn; /* ((beta 7.12, Drawing edit) the texts edited and the draw order too; the notes stay: the user's own) */ S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', log); // ((beta 7.10, Plan kept) and the grid kept: worked out again) ((beta 7.11, Drawing tools) and every item turned or styled, every pole moved)
     if (drw.ph) drw.ph = { ...drw.ph, sig: '', at: Object.fromEntries(Object.entries(drw.ph.at).map(([k, a]) => [k, a.how === 'by hand' ? { ...a, how: 'auto' } : a])) }; // (where they are until the plan's places come)
     drwMvShowPins(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel && drwSels().length <= 1) drwMvTap(drw.mvSel); else if (drwSels().length) { drwSelSay(); drwTbRender(); } drwPlanUi(); drawDrawing(); drwPhSoon(0);
   }
   $('drawRegen').addEventListener('click', () => { if (!drw || drw.phBusy) return; LOG.info('draw.plan.regen', {}); clearTimeout(drwPhT); drwPhForce = true; drw.phBusy = true; drwPlanUi(); drwPhGo(true); });
   $('drawRoads').addEventListener('click', () => { if (drw && !rkAgainOn) guardRun(() => roadsAgain('drawing'), 'Roads not got again'); }); // ((beta 7.14, Roads again) asked first; the preview being made is made again after)
   $('drawGrid').addEventListener('change', () => { S.drawGrid = !!$('drawGrid').checked; persist(); LOG.info('draw.plan.grid', { on: S.drawGrid }); drwPlanUi(); drawDrawing(); });
-  $('drawPhAll').addEventListener('click', () => { drwPhAutoAll(); });
   /* (beta 7.10, Drawing labels) Labels, numbers and pole details placed by hand on the Drawing (the owner: "I want the drawing to be the preview of pdf export plan
      that is editable and can be rearranged per user desires… for editing and polishing"). Over the plan shown (the template plan on the phone; not in
      Edit route nor while a pull-off's poles are tapped; Labels on), each item the plan's report.movable lists (a cable's label, a pole's number, a
@@ -2637,7 +2644,7 @@
   const notesOf = (m) => (m && Array.isArray(m.notes) ? m.notes.filter((n) => n && n.id && Array.isArray(n.at) && n.at.length === 2) : []);
   /** A note as the plan's job has it (job.notes): its photo by the file the export writes next to the DXF (NOTE_<id>.jpg; its bytes made from the photo store). */
   const noteJob = (n) => { const o = { id: String(n.id), kind: n.kind === 'photo' ? 'photo' : 'text', at: [+n.at[0], +n.at[1]] }; if (+n.rot) o.rot = +n.rot;
-    if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map(String); for (const k of ['h', 'bold', 'italic', 'color']) if (n[k] != null) o[k] = n[k]; }
+    if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map(String); for (const k of ['h', 'bold', 'italic', 'color', 'align', 'wrap', 'spacing', 'font', 'underline']) if (n[k] != null) o[k] = n[k]; } // ((beta 7.14, Text editor) its format: align, wrap, spacing, font, underline)
     else { o.photo = { file: `NOTE_${n.id}.jpg`, px: +((n.photo || {}).px) || 800, py: +((n.photo || {}).py) || 600 }; if (+n.size > 0) o.size = +n.size; }
     return o; };
   /** (beta 7.12, Drawing edit) A note's item on the plan (report.movable id note:<id>, kind note or notephoto). */
@@ -2890,15 +2897,15 @@
     // the poles and sites first ((beta 7.12, Drawing edit) the point itself, as its pin moved on the map: its record's place moved as far as it was dragged from where
     // the plan draws it, adjusted, updated by this user; its plan-only place (7.11's poleAt) let go. SH: how far each is drawn from where the plan shown has it, now:
     // the items on it are measured from there. The other items as before; one step of Undo for all of it)
-    const recs = [], prev = [], SH = new Map(), now = new Date().toISOString(), lock = [];
+    const recs = [], prev = [], SH = new Map(), now = new Date().toISOString(), lock = [], recIds = []; // ((beta 7.14, Changed by hand) recIds: the elements whose record moved)
     for (const q of grp) {
       if (!ptMoves(q)) continue; const pid = pidOf(q), p = points.find((x) => String(x.id) === String(pid)), it = drwEdById(pid); if (!p || !it) continue;
       const lk = tmHooks.locked ? tmHooks.locked(p.id, 'edit') : ''; if (lk) { lock.push(lk); continue; }
       const o = offOf(q), s0 = P.ptsAt && P.ptsAt[pid], E = (s0 ? s0[0] + o[0] : it.xy[0]) + dE, N = (s0 ? s0[1] + o[1] : it.xy[1]) + dN, ll = C.utmInverse(E, N, drw.zone, !!drw.south);
-      prev.push(JSON.parse(JSON.stringify(p))); recs.push({ ...p, lat: +(+ll[0]).toFixed(7), lon: +(+ll[1]).toFixed(7), adjusted: true, updated: now, updatedBy: byLine() }); SH.set(String(pid), [o[0] + dE, o[1] + dN]);
+      prev.push(JSON.parse(JSON.stringify(p))); recs.push({ ...p, lat: +(+ll[0]).toFixed(7), lon: +(+ll[1]).toFixed(7), adjusted: true, updated: now, updatedBy: byLine() }); SH.set(String(pid), [o[0] + dE, o[1] + dN]); recIds.push([q.id, [String(pid)]]);
     }
     if (lock.length && !recs.length && grp.every(ptMoves)) { toast(lock[0], 6500); drwMvShowPins(); drawDrawing(); return; }
-    drwUndoPush(grp.length > 1 ? `${grp.length} items moved` : `${m.kind} moved`, prev.length ? prev : null); const m0 = pmeta(proj), nm = { ...m0 };
+    drwUndoPush(grp.length > 1 ? `${grp.length} items moved` : `${m.kind} moved`, prev.length ? prev : null); const m0 = pmeta(proj), nm = drwRecLog({ ...m0 }, recIds, 'moved');
     if (recs.length && nm.poleAt) { const Q = { ...nm.poleAt }; for (const pid of SH.keys()) delete Q[pid]; if (Object.keys(Q).length) nm.poleAt = Q; else delete nm.poleAt; }
     let NT = null; // ((beta 7.12, Drawing edit) the notes moved: the note itself)
     for (const q of grp) {
@@ -2933,6 +2940,7 @@
       if (withKind) drop('mvKind', m.kind);
     }
     if (!n) return; drwUndoPush(L.length > 1 ? `${L.length} items back to automatic` : `${L[0].kind} back to automatic`);
+    if (nm.mvTurn) { const Q = { ...nm.mvTurn }; for (const m of L) delete Q[m.id]; if (Object.keys(Q).length) nm.mvTurn = Q; else delete nm.mvTurn; } // ((beta 7.14, Changed by hand) its turn's note with it)
     if (!pinsAny(nm)) delete nm.planGrid; // ((beta 7.10, Plan kept) nothing placed by hand left: the grid is worked out again)
     S.meta[proj] = nm; persist(); LOG.info('draw.label.auto', { kind: L[0].kind, n: L.length });
     for (const m of L) if (m.kind === 'photo' && drw.ph && drw.ph.at && drw.ph.at[m.point]) drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [m.point]: { ...drw.ph.at[m.point], how: 'auto' } } }; // (where it is until the plan's place comes)
@@ -2945,7 +2953,8 @@
    *  more.ph: the photos of a record to come back; more.route: the spans and cables as they were). Undo puts the step back and keeps the change for Redo; a new
    *  change drops the steps to redo. */
   const drwRedoStack = [];
-  const drwPinsSnap = (M) => Object.fromEntries([...MV_KEYS, 'planGrid'].map((k) => [k, M[k] ? JSON.parse(JSON.stringify(M[k])) : null])); // ((beta 7.10, Plan kept) the grid kept with them, as it was)
+  const SNAP_KEYS = [...MV_KEYS, 'mvTurn', 'mvRec']; // ((beta 7.14, Changed by hand) and what tells a label turned from one moved, the records the Drawing changed)
+  const drwPinsSnap = (M) => Object.fromEntries([...SNAP_KEYS, 'planGrid'].map((k) => [k, M[k] ? JSON.parse(JSON.stringify(M[k])) : null])); // ((beta 7.10, Plan kept) the grid kept with them, as it was)
   function drwUndoPush(what, recs, more) {
     if (!drw) return; const M = pmeta(drw.project);
     drwUndoStack.push({ project: drw.project, what, pins: drwPinsSnap(M), ...(recs ? { recs } : {}), ...(more && more.ph && more.ph.length ? { ph: more.ph } : {}), ...(more && more.route ? { route: more.route } : {}) });
@@ -2968,7 +2977,7 @@
   async function drwStepApply(proj, U) {
     if (U.roads) await rkSet(proj, () => U.roads.slice()).catch((e) => LOG.warn('plan.roads.undo', errInfo(e))); // ((beta 7.14, Roads again) the roads kept as they were then: the preview made next uses them)
     const m = { ...pmeta(proj) };
-    for (const k of MV_KEYS) { if (U.pins[k] && Object.keys(U.pins[k]).length) m[k] = U.pins[k]; else delete m[k]; }
+    for (const k of SNAP_KEYS) { if (U.pins[k] && Object.keys(U.pins[k]).length) m[k] = U.pins[k]; else delete m[k]; }
     if (!pinsAny(m)) delete m.planGrid; else if (U.pins.planGrid) m.planGrid = U.pins.planGrid; // ((beta 7.10, Plan kept) the grid as it was kept then (none kept then: the one kept now); none placed by hand: worked out again)
     S.meta = S.meta || {}; S.meta[proj] = m; persist();
     if (!(U.recs && U.recs.length) && !U.route) return false;
@@ -3122,7 +3131,7 @@
   /** (beta 7.11, Drawing tools) The project's tools kept anew (nm: its pmeta() with them): saved, the grid kept from the first change by hand, the items drawn as
    *  changed until the plan made with them comes (made again in 250 ms), the information line, the toolbar and the chip. */
   function drwKeep(nm) {
-    const proj = drw.project; for (const k of TOOL_KEYS) if (nm[k] && !Object.keys(nm[k]).length) delete nm[k];
+    const proj = drw.project; for (const k of [...TOOL_KEYS, 'mvTurn', 'mvRec']) if (nm[k] && !Object.keys(nm[k]).length) delete nm[k];
     S.meta = S.meta || {}; S.meta[proj] = nm; persist(); const P = drw.ph; if (P) planGridKeep(proj, P.grid, P.lab, P.split);
     drwMvShowPins(); drwPlanUi(); drwSelSay(); drwTbRender(); drawDrawing(); drwPhSoon(250);
   }
@@ -3141,7 +3150,9 @@
       if (isNote(m)) { nm.notes = notesOf(nm).map((x) => (`note:${x.id}` === m.id ? (() => { const y = { ...x }; if (dg == null) delete y.rot; else y.rot = dg; return y; })() : x)); n++; continue; } // ((beta 7.12, Drawing edit) a note turned: the note itself)
       if (m.kind === 'details' || m.kind === 'cable') { const key = PIN_OF[m.kind], k = m.kind === 'cable' ? m.key : m.point, v = (nm[key] || {})[k];
         const at = m.kind === 'cable' ? (v && Array.isArray(v.at) ? v.at : atNow(m)) : Array.isArray(v) ? [v[0], v[1]] : atNow(m);
-        nm[key] = { ...(nm[key] || {}), [k]: m.kind === 'cable' ? (dg == null ? { at } : { at, rot: dg }) : dg == null ? [at[0], at[1]] : [at[0], at[1], dg] }; n++; continue; }
+        nm[key] = { ...(nm[key] || {}), [k]: m.kind === 'cable' ? (dg == null ? { at } : { at, rot: dg }) : dg == null ? [at[0], at[1]] : [at[0], at[1], dg] };
+        if (dg != null) { const Tn = { ...(nm.mvTurn || {}) }; if (v == null) Tn[m.id] = [at[0], at[1]]; else if (Tn[m.id] == null) Tn[m.id] = 1; nm.mvTurn = Tn; } // ((beta 7.14, Changed by hand) turned where the plan put it ([E, N]: its place then, not moved), or after it was placed (1))
+        n++; continue; }
       const t = { ...((nm.mvPin || {})[m.id] || {}) }; if (dg == null) delete t.rot; else t.rot = dg; const P2 = { ...(nm.mvPin || {}) }; if (Object.keys(t).length) P2[m.id] = t; else delete P2[m.id]; nm.mvPin = P2; n++;
     }
     LOG.info('draw.tools.turn', { n, what }); drwKeep(nm);
@@ -3230,6 +3241,7 @@
     if (!recs.size) { if (why.length) toast(why[0], 6000); return; }
     const prev = [...recs.keys()].map((pid) => JSON.parse(JSON.stringify(points.find((x) => String(x.id) === pid))));
     drwUndoPush(`${to} (${recs.size === 1 ? 'its record' : `${recs.size} records`})`, prev); LOG.info('draw.tools.status', { to, n: recs.size });
+    { const pj = drw.project; S.meta = S.meta || {}; S.meta[pj] = drwRecLog({ ...pmeta(pj) }, T.filter((m) => recs.has(String(canOf(m).status.point))).map((m) => [m.id, [String(canOf(m).status.point)]]), 'status'); persist(); } // ((beta 7.14, Changed by hand) in the record)
     if (await drwRecsPut([...recs.values()])) toast(`${recs.size === 1 ? `${recName([...recs.values()][0]) || 'The record'} is` : `${recs.size} records are`} ${to} now: its record, the BOQ and the plan (↶ undoes)`, 3500);
   }
   /** Records saved (as the record editor saves one: the approval of a task after the change cancelled), the map, and the Drawing made again with them (its view and
@@ -3245,7 +3257,7 @@
      can take (report.movable can), over the plan at its top, or at its bottom while the selection is under it. */
   const TB_COLS = [[0, 'As the plan'], [1, 'Red'], [2, 'Yellow'], [3, 'Green'], [4, 'Cyan'], [5, 'Blue'], [6, 'Magenta'], [7, 'Black (white in CAD)'], [8, 'Grey']];
   function drwTbRender() {
-    const tb = $('drawTb'); if (!tb) return; const L = drw ? drwSels().map(mvById).filter(Boolean) : [], on = !!drw && drwPlanOn() && L.length > 0 && drw.labels !== false;
+    const tb = $('drawTb'); if (!tb) return; const L = drw ? drwSels().map(mvById).filter(Boolean) : [], on = !!drw && drwPlanOn() && L.length > 0 && drw.labels !== false && drwEditing(); // ((beta 7.14, View / Edit) in Edit only)
     if (!on) { if (!tb.hidden) { tb.hidden = true; drwTbPal(false); } $('drawWrap').classList.remove('tbtop'); return; }
     const C = L.map(canOf), any = (f) => C.some((c) => !!c[f]), M = pmeta(drw.project), pl = plStyle();
     const vis = { 'lw-': any('lw'), 'lw+': any('lw'), 'h-': any('text'), 'h+': any('text'), bold: any('text'), italic: any('text'), color: any('color'), 'rot-': any('rotate'), 'rot+': any('rotate'), rot0: L.some((m) => canOf(m).rotate && drwRotOf(m, M) != null), 's-': any('scale'), 's+': any('scale'), status: L.some((m) => stOk(canOf(m).status)), callout: any('callout'), lead: any('lead') };
@@ -3266,8 +3278,18 @@
     seg('scope', drw.tbAll ? 'kind' : 'one');
     const ab = tb.querySelector('[data-a="auto"]'); ab.disabled = !L.some((m) => drwHandOf(m, M)) && !(drw.tbAll && L.some((m) => (M.mvKind || {})[m.kind]));
     $('drawTbN').textContent = L.length > 1 ? `${L.length} selected` : ''; $('drawTbN').hidden = L.length < 2;
-    tb.hidden = false; drwTbPlace();
+    tb.hidden = false; drwTbOv(); drwTbPlace();
   }
+  /* (beta 7.14, View / Edit) A phone 360-400 px wide: the toolbar on one line (the owner's phones; 7.12 fitted a label's at 412 px, wider phones as before):
+     what does not fit waits under More too (class ov), the least used first: the line weight, the turn (its round handle turns it too), the size, the font
+     size, Delete, Edit text, Colour; More shows them all, as it shows the tools used less. */
+  const TB_OV = [['lw-', 'lw+'], ['rot+', 'rot-'], ['s-', 's+'], ['h-', 'h+'], ['del'], ['text'], ['color']];
+  function drwTbOv() {
+    const tb = $('drawTb'); if (!tb || tb.hidden) return; tb.querySelectorAll('.ov').forEach((b) => b.classList.remove('ov')); if (!matchMedia('(max-width:400px)').matches || tb.classList.contains('xopen')) return;
+    const xb = tb.querySelector('[data-a="xtra"]'), one = () => { const B = [...tb.children].filter((c) => c.offsetWidth && c.offsetHeight && c.id !== 'drawTbPal'); return B.length < 2 || Math.max(...B.map((c) => c.offsetTop)) - Math.min(...B.map((c) => c.offsetTop)) < 8; };
+    for (const G of TB_OV) { if (one()) break; const L = G.map((a) => tb.querySelector(`[data-a="${a}"]`)).filter((b) => b && !b.hidden && b.offsetWidth); if (!L.length) continue; L.forEach((b) => b.classList.add('ov')); if (xb.hidden) xb.hidden = false; }
+  }
+  window.addEventListener('resize', () => { if (drw && !$('drawTb').hidden) { drwTbOv(); drwTbPlace(); } }); // (a phone turned: as wide as it is now)
   /** Where the toolbar goes: at the top of the plan, at its bottom (above the information line, clear of the round tools) while the selection is under it. */
   function drwTbPlace() {
     const tb = $('drawTb'); if (!tb || tb.hidden || !drw || !drw.view) return; const wr = $('drawWrap').getBoundingClientRect(), cr = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1, sc = drw.view.sc;
@@ -3364,26 +3386,131 @@
     const T = drwOwnTexts(m); if (!T.length) return []; const u = [T[0].m[2], T[0].m[3]], l = Math.hypot(u[0], u[1]) || 1; // (a builder that does not say: its texts from the top, along their own up, turned or not)
     return T.map((t) => ({ t, y: (t.m[4] * u[0] + t.m[5] * u[1]) / l })).sort((a, b) => b.y - a.y).map((x) => String(x.t.s));
   }
+  /* (beta 7.14, Text editor) The owner: "add text editor (center line, left, or right , wrap text and so on) . Add also a font style selection." The Edit text sheet
+     (a plan item's, a text note's, Add text's) has a format bar over the text: Align left / centre / right (the item's lines aligned to each other on that side, its
+     middle where it was), Wrap (off, or on at a width in metres on the plan: the builder breaks the lines at spaces with the measure it places labels with, so AutoCAD,
+     the PDF and the Drawing show the same lines; the text stays as written, the editor edits that), Line spacing (− / +: 0.5× to 3×, 1× as the plan spaces them), Font
+     (report.fonts: the template's text styles first, then the app's seven; an SHX font has no bold or italic in AutoCAD: B and I greyed), B / I / U, size (A− / A+,
+     the toolbar's steps) and colour (the toolbar's), This one / All like it (a plan item). The text box shows the look as near as a browser can (the font's family as
+     the PDF prints it, its alignment, bold, italic, underline, spacing, colour, the lines as the width breaks them). Save: one Undo step for the lines (job.text, as
+     7.12) and the format: a plan item's job.style[id] (All like it: job.styleKind[kind]); a note's own fields (job.notes[i]: align, wrap, spacing, font, underline, h,
+     bold, italic, color). Kept per project as 7.12's edits are (pmeta mvStyle, mvKind, notes), out of shareMeta as they are. Automatic: the plan's own text and format
+     back (this one's). */
+  const FMT_KEYS = ['align', 'wrap', 'spacing', 'font', 'underline', 'bold', 'italic', 'h', 'color'], SPC_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+  /** The app's fonts, as the builder adds them after the template's (until a plan says report.fonts). */
+  const FONTS_APP = [['Arial', 'arial.ttf'], ['Arial Narrow', 'arialn.ttf'], ['Times New Roman', 'times.ttf'], ['Courier New', 'cour.ttf'], ['Romans', 'romans.shx'], ['Simplex', 'simplex.shx'], ['ISOCP', 'isocp.shx']].map(([name, file]) => ({ name, file, kind: /\.shx$/.test(file) ? 'shx' : 'ttf', from: 'app' }));
+  /** The fonts a text may take: the plan shown's (report.fonts), else the app's. */
+  const drwFonts = () => { const F = drw && drw.ph && Array.isArray(drw.ph.fonts) && drw.ph.fonts.length ? drw.ph.fonts : FONTS_APP; return F.filter((f) => f && f.name); };
+  const drwFontOf = (nm) => (nm ? drwFonts().find((f) => String(f.name).toLowerCase() === String(nm).toLowerCase()) || null : null);
+  /** A font as a browser shows it, as the PDF prints it: serif TrueType in Times, monospaced in Courier, narrow in Helvetica narrowed, the rest (SHX too) in Helvetica. */
+  const drwFontCss = (f) => { const t = `${(f && (f.family || f.name)) || ''} ${(f && f.file) || ''}`.toLowerCase();
+    if (!f || f.kind === 'shx') return { family: 'Arial, Helvetica, sans-serif', narrow: false };
+    if (/cour|consol|mono/.test(t)) return { family: "'Courier New', Courier, monospace", narrow: false };
+    if (/narrow|condensed|arialn/.test(t)) return { family: "'Arial Narrow', Arial, Helvetica, sans-serif", narrow: true };
+    if (!/sans/.test(t) && /times|georgia|garamond|serif|roman|cambria|book/.test(t)) return { family: "'Times New Roman', Times, serif", narrow: false };
+    return { family: 'Arial, Helvetica, sans-serif', narrow: false }; };
+  const fmtX = (x) => String(+(+x).toFixed(2));
+  let drwFmt = null; // (the format being edited: v now, v0 as opened, m its item (null: a text being added), note, scope 'one' | 'kind', emM: an em of its text in metres at h0, boxW)
+  /** A plan item's format as drawn now (report.movable fmt; the styles kept since, on top), a note's own, a text being added's (as the plan draws a note). */
+  function drwFmtOf(m) {
+    const D = { align: 'center', wrap: 0, spacing: 1, font: '', underline: false, bold: false, italic: false, h: 1, color: 0 }; if (!m) return D;
+    const F = m.fmt || {};
+    if (isNote(m)) { const n = noteNow(m) || {}; return { ...D, align: n.align || F.align || 'center', wrap: +n.wrap || 0, spacing: +n.spacing || 1, font: n.font || '', underline: !!n.underline, bold: !!n.bold, italic: !!n.italic, h: +n.h || 1, color: +n.color || 0 }; }
+    const M = pmeta(drw.project), st = styOf(m, M.mvStyle, M.mvKind);
+    return { align: st.align || F.align || '', wrap: +(st.wrap != null ? st.wrap : F.wrap) || 0, spacing: +(st.spacing != null ? st.spacing : F.spacing) || 1, font: st.font != null ? String(st.font) : '', underline: st.underline != null ? !!st.underline : !!F.underline, bold: drwBoldNow(m), italic: drwItalNow(m), h: +st.h || 1, color: +st.color || 0 };
+  }
+  /** The format bar opened for f: { m (null: a text being added), scope (This one / All like it offered: a plan item) }. */
+  function drwFmtOpen(f) {
+    const m = f.m || null, v = drwFmtOf(m), own = m ? drwOwnTexts(m) : [], em = own.length ? Math.hypot(own[0].m[2], own[0].m[3]) : 0;
+    const hM = m && m.fmt && +m.fmt.height > 0 ? +m.fmt.height : null; // (its first line's height on the plan, metres: what a wrap width is measured against)
+    drwFmt = { m, note: !m || isNote(m), v: { ...v }, v0: { ...v }, scope: f.scope && drw && drw.tbAll ? 'kind' : 'one', scopeOk: !!f.scope, emM: hM ? hM / 0.718 : em > 0 ? em : 3.05 * (v.h || 1), hM: hM || (em > 0 ? em * 0.718 : 2.2 * (v.h || 1)), h0: v.h || 1, boxW: m ? +m.box[2] || 20 : 20, pal: false };
+    const sel = $('drawTxtFont'), L = drwFonts(), plan = m && m.fmt && m.fmt.font ? m.fmt.font : m ? '' : 'Arial'; sel.textContent = '';
+    const opt = (p, val, t) => { const o = document.createElement('option'); o.value = val; o.textContent = t; p.appendChild(o); };
+    opt(sel, '', `As the plan${plan ? ` (${plan})` : ''}`);
+    for (const [lab, G] of [['In the template', L.filter((x) => x.from === 'template')], ['The app\'s', L.filter((x) => x.from !== 'template')]]) { if (!G.length) continue; const g = document.createElement('optgroup'); g.label = lab; G.forEach((x) => opt(g, x.name, `${x.name}${x.kind === 'shx' ? ' (SHX)' : ''}`)); sel.appendChild(g); }
+    if (v.font && !drwFontOf(v.font)) opt(sel, v.font, v.font); // (one kept that this template has not: still shown)
+    $('drawTxtFmt').hidden = false; drwFmtRender();
+  }
+  /** The bar as the format is now, and the text box's look. */
+  function drwFmtRender() {
+    const B = $('drawTxtFmt'), F = drwFmt; if (!B || !F) return; const v = F.v, f = drwFontOf(v.font), shx = !!f && f.kind === 'shx', one = (sel) => B.querySelector(sel);
+    B.querySelectorAll('[data-f="align"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v.align)));
+    const wi = $('drawTxtWrapM'); one('[data-f="wrap"]').setAttribute('aria-pressed', String(v.wrap > 0)); wi.disabled = !(v.wrap > 0); if (document.activeElement !== wi) wi.value = v.wrap > 0 ? fmtX(v.wrap) : '';
+    $('drawTxtSpc').textContent = `${fmtX(v.spacing)}×`; one('[data-f="spc-"]').disabled = v.spacing <= SPC_STEPS[0]; one('[data-f="spc+"]').disabled = v.spacing >= SPC_STEPS[SPC_STEPS.length - 1];
+    $('drawTxtFont').value = v.font || '';
+    for (const k of ['bold', 'italic']) { const b = one(`[data-f="${k}"]`), w = k === 'bold' ? 'Bold' : 'Italic', t = shx ? `${w}: not with an SHX font (AutoCAD cannot)` : w; b.disabled = shx; b.setAttribute('aria-pressed', String(!shx && !!v[k])); if (b.title !== t) { b.title = t; b.setAttribute('aria-label', t); } }
+    one('[data-f="underline"]').setAttribute('aria-pressed', String(!!v.underline));
+    $('drawTxtH').textContent = `${fmtX(v.h)}×`; one('[data-f="h-"]').disabled = v.h <= H_STEPS[0]; one('[data-f="h+"]').disabled = v.h >= H_STEPS[H_STEPS.length - 1];
+    const sw = $('drawTxtSw'), cb = one('[data-f="color"]'), cn = v.color > 0 ? ((TB_COLS.find((x) => x[0] === v.color) || [0, `colour ${v.color}`])[1]).toLowerCase() : 'as the plan';
+    sw.style.background = v.color > 0 ? drwAciCss(v.color) : ''; sw.classList.toggle('mix', !(v.color > 0)); cb.title = `Colour: ${cn}`; cb.setAttribute('aria-label', `Colour: ${cn}`); cb.setAttribute('aria-expanded', String(!!F.pal));
+    const P = $('drawTxtPal'); P.hidden = !F.pal;
+    if (F.pal && !P.childElementCount) TB_COLS.forEach(([c, nm]) => { const b = document.createElement('button'); b.type = 'button'; b.dataset.f = 'pal'; b.dataset.v = String(c); b.title = nm; b.setAttribute('aria-label', nm); if (c) b.style.background = drwAciCss(c); else b.classList.add('asplan'); P.appendChild(b); });
+    P.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === (v.color || 0))));
+    one('.fscope').hidden = !F.scopeOk; B.querySelectorAll('[data-f="scope"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === F.scope)));
+    drwFmtLook();
+  }
+  /** The text box as the plan will show the text, as near as a browser can (none being formatted: as 7.12's box). */
+  function drwFmtLook() {
+    const t = $('drawTxtArea'), F = drwFmt; if (!t) return; if (!F) { t.removeAttribute('style'); t.wrap = 'soft'; if ($('drawTxtWrapPrev')) $('drawTxtWrapPrev').hidden = true; return; }
+    const v = F.v, f = drwFontOf(v.font), shx = !!f && f.kind === 'shx', c = drwFontCss(f || (v.font ? null : drwFontOf((F.m && F.m.fmt && F.m.fmt.font) || 'Arial')));
+    Object.assign(t.style, { fontFamily: c.family, fontStretch: c.narrow ? 'condensed' : '', textAlign: v.align || 'left', fontWeight: v.bold && !shx ? '700' : '400', fontStyle: v.italic && !shx ? 'italic' : 'normal', textDecoration: v.underline ? 'underline' : 'none', lineHeight: String(+(1.3 * v.spacing).toFixed(2)), color: v.color > 0 ? (ACI_INK[v.color] || drwAciCss(v.color)) : '' });
+    const T = window.GeDxfTpl, P = $('drawTxtWrapPrev'), exact = v.wrap > 0 && !!T && typeof T.wrapLine === 'function'; // ((beta 7.14, Text editor) the builder's own breaks, when it has them: shown under the text)
+    if (P) { P.hidden = !exact; if (exact) { const L = drwTxtLines(), H = F.hM * (v.h / (F.h0 || 1)), out = []; for (const line of L.length ? L : ['']) { try { out.push(...T.wrapLine(line, v.wrap, H, !!v.bold && !shx)); } catch (e) { out.push(line); } }
+      const B = $('drawTxtWrapLines'); B.textContent = ''; out.forEach((x) => { const d = document.createElement('div'); d.textContent = x; B.appendChild(d); }); Object.assign(B.style, { fontFamily: c.family, fontStretch: c.narrow ? 'condensed' : '', textAlign: v.align || 'left', fontWeight: v.bold && !shx ? '700' : '400', fontStyle: v.italic && !shx ? 'italic' : 'normal', textDecoration: v.underline ? 'underline' : 'none', lineHeight: String(+(1.3 * v.spacing).toFixed(2)), color: v.color > 0 ? (ACI_INK[v.color] || drwAciCss(v.color)) : '' });
+      $('drawTxtWrapSay').textContent = `As the plan wraps it at ${fmtX(v.wrap)} m: ${out.length} line${out.length === 1 ? '' : 's'}`; } }
+    if (v.wrap > 0 && !exact) { const fs = parseFloat(getComputedStyle(t).fontSize) || 15, em = F.emM * (v.h / (F.h0 || 1)), w = Math.max(40, Math.round(v.wrap / Math.max(em, 0.01) * fs)); t.wrap = 'soft'; Object.assign(t.style, { whiteSpace: 'pre-wrap', overflowWrap: 'normal', wordBreak: 'normal', overflowX: 'auto', width: `min(100%, ${w + 22}px)` }); } // (as wide as the width on the plan, in its letters (+ the box's padding); a word wider than it stays whole, as the builder keeps it)
+    else { t.wrap = 'off'; Object.assign(t.style, { whiteSpace: 'pre', overflowWrap: 'normal', wordBreak: 'normal', overflowX: 'auto', width: '' }); } // (no wrap, or the plan's breaks shown under it: its lines as written)
+  }
+  /** The format as changed in the bar: { scope, set: { field: value } } (only what changed), or null (no bar). */
+  const drwFmtOut = () => { const F = drwFmt; if (!F) return null; const set = {}; for (const k of FMT_KEYS) if (JSON.stringify(F.v[k]) !== JSON.stringify(F.v0[k])) set[k] = F.v[k]; return { scope: F.scope, set }; };
+  /** A plan item's format kept (nm: its project's pmeta, changed here): F.set into job.style[id] (All like it: job.styleKind[kind]), a value as the plan's dropped
+   *  (unless its kind's is set); F.clear: this one's format fields dropped. True when something changed. */
+  function drwFmtPut(nm, m, F) {
+    if (!F || !m || isNote(m) || (!F.clear && !Object.keys(F.set || {}).length)) return false; const all = F.scope === 'kind' && !F.clear, key = all ? m.kind : m.id, K = all ? 'mvKind' : 'mvStyle';
+    const P = { ...(nm[K] || {}) }, o = { ...(P[key] || {}) }, inh = all ? {} : ((nm.mvKind || {})[m.kind] || {}), js = JSON.stringify(o), DF = { wrap: 0, spacing: 1, underline: false, h: 1, color: 0, font: '' };
+    if (F.clear) { for (const k of FMT_KEYS) delete o[k]; } else for (const [k, v] of Object.entries(F.set)) { if (k in DF && v === DF[k] && inh[k] == null) delete o[k]; else o[k] = v; }
+    if (JSON.stringify(o) === js) return false; if (Object.keys(o).length) P[key] = o; else delete P[key]; if (Object.keys(P).length) nm[K] = P; else delete nm[K]; return true;
+  }
+  /** A note's fields from the format changed (fresh: a note being added, the plan's values left out; else null: taken off the note). */
+  const noteFmt = (F, fresh) => { const o = {}; if (!F || !F.set) return o; const DF = { wrap: 0, spacing: 1, underline: false, bold: false, italic: false, h: 1, color: 0, font: '' };
+    for (const [k, v] of Object.entries(F.set)) { if (k in DF && v === DF[k]) { if (!fresh) o[k] = null; } else o[k] = v; } return o; };
+  $('drawTxtFmt').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-f]'); if (!b || b.disabled || !drwFmt || drwTxtGhost()) return; e.preventDefault(); const f = b.dataset.f, v = drwFmt.v;
+    if (f === 'align') v.align = b.dataset.v;
+    else if (f === 'wrap') { if (v.wrap > 0) { drwFmt.wrapLast = v.wrap; v.wrap = 0; } else v.wrap = drwFmt.wrapLast || Math.max(1, Math.round(drwFmt.boxW * 0.6 * 2) / 2); } // (on: the width it had, else six tenths of the item's)
+    else if (f === 'spc-' || f === 'spc+') v.spacing = stepOf(SPC_STEPS, v.spacing, f === 'spc+' ? 1 : -1);
+    else if (f === 'bold' || f === 'italic' || f === 'underline') v[f] = !v[f];
+    else if (f === 'h-' || f === 'h+') v.h = stepOf(H_STEPS, v.h, f === 'h+' ? 1 : -1);
+    else if (f === 'color') drwFmt.pal = !drwFmt.pal;
+    else if (f === 'pal') { v.color = +b.dataset.v || 0; drwFmt.pal = false; }
+    else if (f === 'scope') drwFmt.scope = b.dataset.v === 'kind' ? 'kind' : 'one';
+    drwFmtRender();
+  });
+  $('drawTxtFont').addEventListener('change', () => { if (drwFmt) { drwFmt.v.font = $('drawTxtFont').value; drwFmtRender(); } });
+  $('drawTxtWrapM').addEventListener('input', () => { if (!drwFmt) return; const x = parseFloat($('drawTxtWrapM').value); if (x > 0) { drwFmt.v.wrap = Math.min(999, +x.toFixed(2)); drwFmt.wrapLast = drwFmt.v.wrap; drwFmtLook(); } });
+  $('drawTxtWrapM').addEventListener('change', () => { if (drwFmt) drwFmtRender(); });
   /** The editor opened (o: title, sub, lines, auto: Automatic offered, need: a line needed, onSave(lines), onAuto()). */
   function drwTxtOpen(o) {
     drwTxtCb = o; drwTxtAt = Date.now(); $('drawTxtTitle').textContent = o.title; $('drawTxtSub').textContent = o.sub || ''; $('drawTxtArea').value = (o.lines || []).join('\n');
+    if (o.fmt) drwFmtOpen(o.fmt); else { drwFmt = null; $('drawTxtFmt').hidden = true; drwFmtLook(); } // ((beta 7.14, Text editor) its format bar: o.fmt { m (none: a text being added), scope: This one / All like it offered })
     $('drawTxtAuto').hidden = !o.auto; $('drawTxtYes').textContent = o.ok || 'Save'; $('drawTxtBox').hidden = false; drwTxtCheck();
     setTimeout(() => { const t = $('drawTxtArea'); if ($('drawTxtBox').hidden) return; try { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } catch (e) { /* not focusable yet */ } }, 40);
   }
   /** Its lines as typed: one a line, the spaces at their ends and the empty lines at the end left off. */
   const drwTxtLines = () => { const L = $('drawTxtArea').value.replace(/\r/g, '').split('\n').map((x) => x.replace(/\s+$/, '')); while (L.length && !L[L.length - 1].trim()) L.pop(); return L; };
   const drwTxtCheck = () => { const cb = drwTxtCb; $('drawTxtYes').disabled = !!(cb && cb.need && !drwTxtLines().some((x) => x.trim())); };
-  function drwTxtEnd(how) { const cb = drwTxtCb; if (!cb) return; const L = drwTxtLines(); if (how === 'save' && cb.need && !L.some((x) => x.trim())) return; drwTxtCb = null; $('drawTxtBox').hidden = true; if (how === 'save') cb.onSave(L); else if (how === 'auto' && cb.onAuto) cb.onAuto(); else if (cb.onCancel) cb.onCancel(); }
+  function drwTxtEnd(how) { const cb = drwTxtCb; if (!cb) return; const L = drwTxtLines(); if (how === 'save' && cb.need && !L.some((x) => x.trim())) return; const F = drwFmtOut(); drwTxtCb = null; drwFmt = null; $('drawTxtBox').hidden = true; drwFmtLook(); if (how === 'save') cb.onSave(L, F); else if (how === 'auto' && cb.onAuto) cb.onAuto(); else if (cb.onCancel) cb.onCancel(); } // ((beta 7.14, Text editor) F: the format as changed, with the lines)
   const drwTxtGhost = () => Date.now() - drwTxtAt < 450; // (opened by a tap on the plan: the click a phone sends after that tap lands on the editor, maybe on a button: not taken)
   $('drawTxtYes').addEventListener('click', () => { if (!drwTxtGhost()) drwTxtEnd('save'); }); $('drawTxtNo').addEventListener('click', () => { if (!drwTxtGhost()) drwTxtEnd('no'); }); $('drawTxtAuto').addEventListener('click', () => { if (!drwTxtGhost()) drwTxtEnd('auto'); });
-  $('drawTxtArea').addEventListener('input', drwTxtCheck);
+  $('drawTxtArea').addEventListener('input', () => { drwTxtCheck(); if (drwFmt && drwFmt.v.wrap > 0) drwFmtLook(); }); // ((beta 7.14, Text editor) the plan's breaks follow the typing)
   $('drawTxtBox').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); drwTxtEnd('no'); } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); drwTxtEnd('save'); } }); // (Esc: Cancel; Ctrl + Enter: Save)
   /** Edit text of an item (a plan item with texts, or a text note). */
   function drwTxtEdit(m) {
     if (!m || !drw || !canText(m)) return;
-    if (isNote(m)) { const n = noteNow(m); if (!n) return; drwTxtOpen({ title: 'Edit the note', sub: 'One line per line, as it goes on the plan (the DXF, its PDF and the One PDF).', lines: n.lines || [], need: true, onSave: (L) => drwNoteSet(m, { lines: L }, 'note edited') }); return; }
+    if (isNote(m)) { const n = noteNow(m); if (!n) return; drwTxtOpen({ title: 'Edit the note', sub: 'One line per line, as it goes on the plan (the DXF, its PDF and the One PDF); its format over it.', lines: n.lines || [], need: true, fmt: { m }, onSave: (L, F) => drwNoteSet(m, { lines: L, ...noteFmt(F) }, 'note edited') }); return; } // ((beta 7.14, Text editor) its format: the note's own)
     const had = (pmeta(drw.project).mvText || {})[m.id], own = drwTextOf(m), S0 = own.map((_, k) => srcOf(m, k)), recL = S0.map((x, k) => (x ? `${k + 1} (${x.point === pidOf(m) ? 'its' : `${recName(x.rec) || x.rec.poleId || elemOf(x.rec)}'s`} ${x.R.say})` : '')).filter(Boolean); // ((beta 7.12) the lines from its record)
-    drwTxtOpen({ title: `Edit text · ${drwMvName(m)}`, sub: `As it goes on the plan (the DXF, its PDF and the One PDF), one line per line; ${had ? 'changed by hand: Automatic puts the plan\'s own text back' : 'the plan\'s own text now'}. ${recL.length ? `Line${recL.length > 1 ? 's' : ''} ${andList(recL)} ${recL.length > 1 ? 'are' : 'is'} from its record: changed, ${recL.length > 1 ? 'they are' : 'it is'} written into the record (the KMZ, the BOQ and every export follow); the others change the plan only.` : 'The record stays as it is.'}`, lines: had || own, auto: !!had, onSave: (L) => drwTextSave(m, L), onAuto: () => drwTextSet(m, null) });
+    const hadF = FMT_KEYS.some((k) => k in (((pmeta(drw.project).mvStyle || {})[m.id]) || {})); // ((beta 7.14, Text editor) its format changed by hand: Automatic too)
+    drwTxtOpen({ title: `Edit text · ${drwMvName(m)}`, fmt: { m, scope: true }, sub: `As it goes on the plan (the DXF, its PDF and the One PDF), one line per line, its format over it (the plan only); ${had || hadF ? `changed by hand: Automatic puts the plan's own ${had && hadF ? 'text and format' : had ? 'text' : 'format'} back` : 'the plan\'s own text now'}. ${recL.length ? `Line${recL.length > 1 ? 's' : ''} ${andList(recL)} ${recL.length > 1 ? 'are' : 'is'} from its record: changed, ${recL.length > 1 ? 'they are' : 'it is'} written into the record (the KMZ, the BOQ and every export follow); the others change the plan only.` : 'The record stays as it is.'}`, lines: had || own, auto: !!had || hadF, onSave: (L, F) => drwTextSave(m, L, F), onAuto: () => drwTextSet(m, had ? null : undefined, { scope: 'one', clear: true }) });
   }
   /* (beta 7.12, Drawing edit) The owner: "after edit or update or delete. the kmz and other related docs must be updated as well": an item's text lines that show a field of
      a record (report.movable src) are written into that record when changed, as its form writes it (updated by this user; an ID in capitals, a size one of its form's),
@@ -3416,27 +3543,29 @@
     return v || null;
   }
   /** Edit text saved: its record's lines into the record, the rest kept for the plan (job.text). */
-  async function drwTextSave(m, L) {
+  async function drwTextSave(m, L, F) {
     const own = drwTextOf(m), had = (pmeta(drw.project).mvText || {})[m.id], recs = new Map(), errs = [], L2 = L.slice(); let plan = false;
     L.forEach((t, k) => {
       if (t === own[k]) return; const x = srcOf(m, k), v = x && t !== (had ? had[k] : own[k]) ? srcVal(x, t) : null; if (v == null) { plan = true; return; } // (not a record's, or not in its form: the plan's only)
       const cur = recs.get(x.point) || x.rec, r = x.R.put(cur, v); if (!r) plan = true; else if (r.err) errs.push(r.err); else if (JSON.stringify(r) !== JSON.stringify(cur)) recs.set(x.point, r); else L2[k] = own[k]; // (the record says it already, as its form writes it: the plan writes it so)
     });
     if (L.length !== own.length) plan = true; if (errs.length) { toast(`Not saved: ${errs[0]}`, 5000); return; }
-    if (!recs.size) { drwTextSet(m, JSON.stringify(L2) === JSON.stringify(own) && had ? null : L2); return; }
+    if (!recs.size) { drwTextSet(m, JSON.stringify(L2) === JSON.stringify(own) && had ? null : L2, F); return; } // ((beta 7.14, Text editor) and its format)
     const proj = drw.project, m0 = pmeta(proj), T = { ...(m0.mvText || {}) }, now = new Date().toISOString(), before = [...recs.keys()].map((pid) => JSON.parse(JSON.stringify(points.find((p) => String(p.id) === pid))));
     for (const b of before) { const lk = tmHooks.locked ? tmHooks.locked(b.id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
     const dup = [...recs.values()].filter((r) => r.poleId && r.poleId !== (before.find((b) => b.id === r.id) || {}).poleId && points.some((q) => q.project === r.project && q.id !== r.id && String(q.poleId || '').toUpperCase() === r.poleId)).map((r) => r.poleId); // (as its form warns: the ID already used in this project)
-    drwUndoPush('text written into its record', before); if (plan) T[m.id] = L2.slice(); else delete T[m.id]; S.meta = S.meta || {}; S.meta[proj] = { ...m0, mvText: T }; if (!Object.keys(T).length) delete S.meta[proj].mvText; persist();
+    drwUndoPush('text written into its record', before); if (plan) T[m.id] = L2.slice(); else delete T[m.id]; S.meta = S.meta || {}; const nm = { ...m0, mvText: T }; if (!Object.keys(T).length) delete nm.mvText;
+    drwFmtPut(nm, m, F); drwRecLog(nm, [[m.id, [...recs.keys()]]], 'text'); S.meta[proj] = nm; persist(); // ((beta 7.14, Text editor; Changed by hand) its format in the same step; the record's lines: in the record)
     LOG.info('draw.text.rec', { kind: m.kind, recs: recs.size, plan });
     if (await drwRecsPut([...recs.values()].map((r) => ({ ...r, updated: now, updatedBy: byLine() })))) toast(`${recs.size === 1 ? `${recName([...recs.values()][0]) || 'Its record'}` : `${recs.size} records`}: written, the KMZ, the BOQ and the plan follow (↶ undoes)${dup.length ? `. ${dup[0]} is already used in this project.` : ''}`, dup.length ? 6000 : 3500);
   }
   /** An item's text kept as edited (L: its lines; [] its texts left off) or, null, the plan's own again. */
-  function drwTextSet(m, L) {
-    const proj = drw.project, m0 = pmeta(proj), T = { ...(m0.mvText || {}) }, had = T[m.id], js = (x) => JSON.stringify(x || null);
-    if (L == null) { if (!had) return; delete T[m.id]; } else { if (had ? js(L) === js(had) : js(L) === js(drwTextOf(m))) return; T[m.id] = L.slice(); }
-    drwUndoPush(L == null ? 'text back to automatic' : 'text edited'); LOG.info('draw.text', { kind: m.kind, lines: L ? L.length : null, auto: L == null });
-    drwKeep({ ...m0, mvText: T });
+  function drwTextSet(m, L, F) { // ((beta 7.14, Text editor) L undefined: the lines as they are; F: the format too (drwFmtPut), in the same Undo step)
+    const proj = drw.project, m0 = pmeta(proj), T = { ...(m0.mvText || {}) }, had = T[m.id], js = (x) => JSON.stringify(x || null); let tx = false;
+    if (L === null) { if (had) { delete T[m.id]; tx = true; } } else if (L !== undefined && !(had ? js(L) === js(had) : js(L) === js(drwTextOf(m)))) { T[m.id] = L.slice(); tx = true; }
+    const nm = { ...m0, mvText: T }, fx = drwFmtPut(nm, m, F); if (!tx && !fx) return;
+    drwUndoPush(tx && fx ? (L === null ? 'text and format back to automatic' : 'text and format edited') : fx ? (F && F.clear ? 'format back to automatic' : 'format edited') : L === null ? 'text back to automatic' : 'text edited'); LOG.info('draw.text', { kind: m.kind, lines: L ? L.length : null, auto: L === null, fmt: fx ? Object.keys((F && F.set) || {}) : null, all: !!(F && F.scope === 'kind') });
+    drwKeep(nm);
   }
   /** A note changed (o: its fields; null value: taken off), one Undo step (what). */
   function drwNoteSet(m, o, what) {
@@ -3451,7 +3580,7 @@
      the poles' photos are); selected, moved, turned, sized, styled, edited and deleted (↶ brings it back) with the toolbar, which changes the note itself. */
   const NOTE_W = () => +plStyle().photo.size || 18; // (a photo note drawn, until the plan has it, as wide as the plan's photos)
   function drwAddStart(o) {
-    if (!drw || !drwPlanOn()) return; drwSelClear(true); drw.add = o; $('drawWrap').classList.add('adding'); LOG.info('draw.note.adding', { kind: o.kind });
+    if (!drw || !drwPlanOn() || !drwEditing()) return; drwSelClear(true); drw.add = o; $('drawWrap').classList.add('adding'); LOG.info('draw.note.adding', { kind: o.kind }); // ((beta 7.14, View / Edit) in Edit only)
     const info = $('drawInfo'); info.textContent = o.kind === 'photo' ? 'Add photo: tap the plan where it goes' : 'Add text: tap the plan where it goes'; const b = document.createElement('button'); b.type = 'button'; b.id = 'drawAddNo'; b.className = 'btn small'; b.textContent = 'Cancel'; b.addEventListener('click', () => drwAddEnd()); info.appendChild(b);
     info.hidden = false; $('drawHint').hidden = true; drwTbRender(); drwIcoRender(); drawDrawing();
   }
@@ -3465,7 +3594,7 @@
   function drwAddAt(e) {
     const A = drw.add; if (!A) return; const at = drwEN(e).map((v) => +v.toFixed(2));
     if (A.kind === 'photo') { drwAddEnd(true); drwNoteAdd({ kind: 'photo', at, photo: { pid: A.pid, px: A.px, py: A.py } }); return; }
-    drwTxtOpen({ title: 'Add text', sub: 'One line per line. It goes where you tapped; drag it to move it, the toolbar turns, sizes and colours it.', lines: [], need: true, ok: 'Add', onSave: (L) => { drwAddEnd(); drwNoteAdd({ kind: 'text', at, lines: L }); }, onCancel: () => drwAddEnd() });
+    drwTxtOpen({ title: 'Add text', sub: 'One line per line, its format over it. It goes where you tapped; drag it to move it, the toolbar turns, sizes and colours it.', lines: [], need: true, ok: 'Add', fmt: { m: null }, onSave: (L, F) => { drwAddEnd(); drwNoteAdd({ kind: 'text', at, lines: L, ...noteFmt(F, true) }); }, onCancel: () => drwAddEnd() }); // ((beta 7.14, Text editor) with its format)
   }
   /** A note added to the project's plan (selected once the plan made with it is shown). */
   function drwNoteAdd(n0) {
@@ -3482,7 +3611,7 @@
       const im = await makeStoredImages(file), pid = `drwn${uid()}`; await dbPut('photos', { id: pid, clean: im.clean, thumb: im.thumb });
       const d = await phDims(pid); if (!d) { await dbDel('photos', pid).catch(() => {}); throw new Error('the picture could not be read'); }
       LOG.info('draw.note.photo', { kb: Math.round(im.clean.size / 1024), px: d.w, py: d.h }); busy(false);
-      if (!drw || !drwPlanOn()) { await dbDel('photos', pid).catch(() => {}); return; } if (drw.add) drwAddEnd(); drwAddStart({ kind: 'photo', pid, px: d.w, py: d.h });
+      if (!drw || !drwPlanOn() || !drwEditing()) { await dbDel('photos', pid).catch(() => {}); return; } if (drw.add) drwAddEnd(); drwAddStart({ kind: 'photo', pid, px: d.w, py: d.h }); // ((beta 7.14, View / Edit) back to View meanwhile: let go)
     } catch (e) { busy(false); LOG.warn('draw.note.photo', errInfo(e)); toast(`Photo not added: ${e.message || e}`, 4500); } finally { drwNotePrep--; }
   }
   for (const id of ['drawNoteCam', 'drawNotePick']) $(id).addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) drwNotePhoto(f); });
@@ -3560,6 +3689,7 @@
     drwUndoPush(what, before.length ? before : null, { ph, route: pts.length ? routeSnap() : null }); LOG.info('draw.delete', { n: T.length, how: [...new Set(T.map((x) => x.d.how))], rule: why.length });
     // the plan's own: left off, the notes
     const m0 = pmeta(proj), nm = { ...m0 }, H = { ...(nm.mvHide || {}) }; for (const x of T) if (x.d.how === 'hide' || x.hide) H[x.m.id] = true; if (Object.keys(H).length) nm.mvHide = H;
+    drwRecLog(nm, T.filter((x) => x.d.how === 'field' && recs.has(x.d.point)).map((x) => [x.m.id, [x.d.point]]), 'del'); // ((beta 7.14, Changed by hand) off in its record)
     const nid = new Set(T.filter((x) => x.d.how === 'note').map((x) => x.m.id)); if (nid.size) { nm.notes = notesOf(nm).filter((n) => !nid.has(`note:${n.id}`)); if (!nm.notes.length) delete nm.notes; }
     S.meta = S.meta || {}; S.meta[proj] = nm; persist(); drwSelClear(true); $('drawInfo').hidden = true; $('drawHint').hidden = !!S.drawHintOff; // (what was selected is gone: its line too)
     // a point deleted (as its record's Delete)
@@ -3598,18 +3728,188 @@
     drwUndoPush({ front: 'brought to front', forward: 'brought forward', backward: 'sent backward', back: 'sent to back' }[op]); LOG.info('draw.tools.order', { op, n: L.length, ops: O.length });
     drwKeep({ ...m0, mvOrder: O });
   }
+  /* (beta 7.14, View / Edit) The owner: "add view and edit button on drawing. The user need to click edit mode before going to select and do some editing. This is so
+     that the user cannot accidentally move or edit the element while dragging." The switch View | Edit heads the row of the Drawing's tools (Edit took Select's place).
+     The Drawing opens in View, every time (another project, another visit; drawn anew in the same visit, as after a record changed, it stays as it was): a drag pans,
+     a pinch or the wheel zooms, nothing on the plan is selected, moved, turned or changed (no toolbar, no handles; Text, Photo and More put away); Undo and Redo stay.
+     A tap on the plan's elements says, once a visit, a moment, by the switch: "Tap Edit to change the plan"; a point tapped still says what it is (its record's line,
+     a site's CEF plan, the splicing details) and a cable tapped still lights its run: looking, not changing. A right-click: a menu of one, "Edit this" (Edit on, it
+     selected), on the empty plan "Edit". ✎ Edit route (an editing tool, as Add Pin in it) turns Edit on first. Edit: as beta 7.13, a thin blue frame round the plan;
+     Edit pressed again while a text or a photo is being added: back to selecting (Select's job). Leaving Edit drops the selection and stops adding. Keys: E Edit,
+     V View (not while typing; E zoomed in on the Drawing before: + and = still do). Shown with the template plan, as the row (without it the Drawing is a viewer). */
+  let drwModeSayT = 0;
+  /** Whether the plan can be changed now: Edit on. */
+  const drwEditing = () => !!drw && drw.mode === 'edit';
+  /** The switch is there: the row of the Drawing's tools shown (the template plan; not in ✎ Edit route). */
+  const drwModeOn = () => !!drw && !!drw.plWant && !drwEd && !$('drawing').hidden;
+  /** View or Edit (why: what asked for it, for the log). Leaving Edit: the selection dropped, adding stopped, the trays, the menu and the list put away. */
+  function drwModeSet(mode, why) {
+    if (!drw) return; const m = mode === 'edit' ? 'edit' : 'view';
+    if (drw.mode === m) { if (m === 'edit' && drw.add) drwAddEnd(); drwIcoRender(); return; } // (Edit pressed again while adding a text or a photo: back to selecting, as Select did)
+    drw.mode = m; LOG.info('draw.mode', { mode: m, why: why || 'button' });
+    if (m === 'view') { drwCtxClose(); drwIcoPop(null); drwChgOpen(false); if (drw.add) drwAddEnd(); drw.mvDrag = null; drw.hDrag = null; drw.phDrag = null; drwSelClear(); drw.tbMore = false; drw.tapC = null; drw.tapLast = null; }
+    else drwModeSay(null);
+    drwIcoRender(); drwPlanUi(); drwPhHint(); drwTbRender(); drawDrawing();
+  }
+  /** Said by the switch, a moment, once a visit (Edit nudged with it); null: put away now. */
+  function drwModeSay(t) {
+    const P = $('drawModeSay'), E = $('drawModeEdit'); if (!P) return; clearTimeout(drwModeSayT);
+    if (t == null) { P.hidden = true; P.textContent = ''; if (E) E.classList.remove('nudge'); return; }
+    if (!drw || drw.modeSaid) return; drw.modeSaid = true; P.textContent = t; P.hidden = false; if (E) { E.classList.remove('nudge'); void E.offsetWidth; E.classList.add('nudge'); }
+    { const I = [$('drawInfo'), $('drawHint')].find((x) => x && !x.hidden && x.offsetHeight); P.style.bottom = matchMedia('(max-width:699px)').matches && I ? `${I.offsetHeight + 22}px` : ''; } // (a phone: by the switch under the plan, above the information line)
+    LOG.info('draw.mode.say', {}); drwModeSayT = setTimeout(() => { P.hidden = true; if (E) E.classList.remove('nudge'); }, 2600);
+  }
+  /** A tap in View: a point says what it is (its record's line, as before the plan's tools; nothing of the plan selected), elsewhere a cable's run lit or the line put
+   *  away; on the plan's elements also "Tap Edit to change the plan", once a visit. */
+  function drwTapView(e) {
+    const C = drwCands(e), pt = C.find((c) => c.pt), el = C.some((c) => c.id || c.photo); drw.tapC = null; drw.tapLast = null;
+    if (pt) drwPtTap(pt.pt, null); else drwTapNone(e, false);
+    if (el && drwModeOn()) drwModeSay('Tap Edit to change the plan');
+  }
+  /** The right-click menu in View (x, y: page pixels; hit: what is there, { clientX, clientY }, or null on the empty plan): Edit this, or Edit. */
+  function drwCtxView(x, y, hit) {
+    const M = $('drawCtx'); if (!M || !drw) return false; M.textContent = '';
+    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.dataset.a = 'edit'; const t = hit ? 'Edit this: Edit on, it selected' : 'Edit: select, move and change what is on the plan'; b.title = t; b.setAttribute('aria-label', t);
+    const ic = $('drawModeEdit').querySelector('svg.dpi'); if (ic) b.appendChild(ic.cloneNode(true)); const sp = document.createElement('span'); sp.textContent = hit ? 'Edit this' : 'Edit'; b.appendChild(sp);
+    b.addEventListener('click', () => { drwCtxClose(); if (!drw) return; drwModeSet('edit', 'menu'); if (hit) { drw.tapC = null; drwTapAt0({ clientX: hit.clientX, clientY: hit.clientY, pointerType: 'mouse' }, false); drw.tapLast = null; } });
+    M.appendChild(b); M.hidden = false; drwCtxPlace(x, y); M.dataset.x = String(x); M.dataset.y = String(y); b.focus({ preventScroll: true }); LOG.info('draw.ctx', { n: 1, view: true }); return true;
+  }
+  $('drawMode').addEventListener('click', (e) => { const b = e.target.closest('button[data-m]'); if (!b || !drw) return; e.preventDefault(); drwModeSet(b.dataset.m, 'button'); });
+  /* (beta 7.14, Changed by hand) The owner: "under edit, the # if edit items changed by hand . If possible an icon with number of move items." In Edit, a chip over the
+     plan (its upper right, where 7.9–7.13's "placed by hand · Back to automatic" chip was, clear of the round tools): a move icon with the number of the plan's
+     elements MOVED by hand (placed, slid along their cable, a cable label's arrow tip, a pole or a point drawn elsewhere or moved on the Drawing) and how many were
+     changed by hand in all (moved, turned, sized or styled, their text, left off the plan, their draw order; texts and photos of your own added; each element once;
+     a style for All like it, one each), following every change, Undo and Redo. Tapped: the list "Changed by hand": each element by its name and what was done
+     (Moved, Turned, Size and style, Text, Left off, Order, Added), Show (selected, brought into view) and Put back (its plan-only changes undone: one Undo step; a
+     text or photo of yours: Remove); Put all back at its foot (asked first; one Undo step; your own texts and photos stay). What the Drawing changed in a record
+     (Existing / Proposed, a field deleted, a pole moved on the Drawing, a line written into its record) is counted and listed too, "in the record": Undo takes it
+     back, Put back does not. Kept per project with the Drawing's other edits (pmeta: mvRec, the elements whose record the Drawing changed and how; mvTurn, a pole's
+     details or a cable label turned where the plan put it, so that it counts as turned, not moved), out of shareMeta as they are, in every Undo step. */
+  const CHG_DID = { moved: 'Moved', turned: 'Turned', style: 'Size and style', text: 'Text', hide: 'Left off', order: 'Order', added: 'Added' }, CHG_REC = { moved: 'Moved', status: 'Existing / Proposed', del: 'Deleted', text: 'Text' };
+  const CHG_PT = new Set(['ph', 'num', 'lbl', 'pole', 'site', 'sitelbl', 'sitename', 'nap', 'clo', 'clolbl', 'loop', 'loopsym', 'guy', 'gnd', 'arm', 'clamp', 'msg', 'msgtext']);
+  /** The point an element's id names (its first part after the kind), or null (a cable label, a span, a street, a landmark…). */
+  const chgPid = (id) => { const s0 = String(id), i = s0.indexOf(':'); return i > 0 && CHG_PT.has(s0.slice(0, i)) ? s0.slice(i + 1).split(':')[0] : null; };
+  /** What the Drawing changed in records, kept with the plan's edits (nm: the project's pmeta being kept, changed here; E: [[element id, [point ids]], …]; w: moved,
+   *  status, del, text). */
+  const drwRecLog = (nm, E, w) => { if (E && E.length) { const L = { ...(nm.mvRec || {}) }; for (const [id, P] of E) { const x = L[id] || { p: [], w: [] }; L[id] = { p: [...new Set([...x.p, ...P.map(String)])], w: [...new Set([...x.w, w])] }; } nm.mvRec = L; } return nm; };
+  /** The elements changed by hand on a project's plan: rows { id, kind, did (Set of CHG_DID), rec (Set of CHG_REC: in the record), moved, note, of (All like it: the
+   *  kind) }, in the plan's order (the others after, the styles for All like it last). An element of a point deleted since: not listed. */
+  function drwChgRows(proj) {
+    const m = pmeta(proj), R = new Map(), alive = new Set(points.filter((p) => p.project === proj).map((p) => String(p.id))), T = m.mvTurn || {}, NT = notesOf(m), N = new Set(NT.map((n) => `note:${n.id}`));
+    const row = (id) => { const k = String(id); let r = R.get(k); if (!r) { r = { id: k, did: new Set(), rec: new Set() }; R.set(k, r); } return r; };
+    const near = (a, b) => Array.isArray(a) && Array.isArray(b) && Math.hypot(+a[0] - +b[0], +a[1] - +b[1]) < 0.05;
+    for (const [pid, v] of Object.entries(m.phPin || {})) if (Array.isArray(v)) row(`ph:${pid}`).did.add('moved');
+    for (const [pid, v] of Object.entries(m.numPin || {})) if (Array.isArray(v)) row(`num:${pid}`).did.add('moved');
+    for (const [pid, v] of Object.entries(m.lblPin || {})) { if (!Array.isArray(v)) continue; const id = `lbl:${pid}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v))) r.did.add('moved'); if (t && v.length > 2 && v[2] != null) r.did.add('turned'); } // (turned where the plan put it: turned, not moved)
+    for (const [k, v] of Object.entries(m.cabPin || {})) { if (!v || !Array.isArray(v.at)) continue; const id = `cab:${k}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v.at))) r.did.add('moved'); if (t && v.rot != null) r.did.add('turned'); }
+    for (const [id, t] of Object.entries(m.mvPin || {})) { if (!t) continue; const r = row(id); if (Array.isArray(t.at) || t.along != null || t.tip != null) r.did.add('moved'); if (t.rot != null) r.did.add('turned'); } // (placed, slid along its cable, its arrow's tip; turned)
+    for (const pid of Object.keys(m.poleAt || {})) row(`${ptNoun(pid)}:${pid}`).did.add('moved');
+    for (const id of Object.keys(m.mvStyle || {})) row(id).did.add('style');
+    for (const id of Object.keys(m.mvText || {})) row(id).did.add('text');
+    for (const id of Object.keys(m.mvHide || {})) row(id).did.add('hide');
+    for (const o of Array.isArray(m.mvOrder) ? m.mvOrder : []) if (o && o.id) row(o.id).did.add('order');
+    for (const id of N) row(id).did.add('added');
+    for (const [id, x] of Object.entries(m.mvRec || {})) { const P = x && Array.isArray(x.p) ? x.p.map(String) : []; if (!P.some((q) => alive.has(q))) continue; const r = row(id); for (const w of (x && x.w) || []) if (CHG_REC[w]) r.rec.add(w); }
+    const out = [];
+    for (const r of R.values()) {
+      if (!r.did.size && !r.rec.size) continue; const note = /^note:/.test(r.id);
+      if (note ? !N.has(r.id) : (chgPid(r.id) != null && !alive.has(chgPid(r.id)) && !mvById(r.id))) continue; // (a note deleted since; a point deleted)
+      const kind = note ? ((NT.find((n) => `note:${n.id}` === r.id) || {}).kind === 'photo' ? 'notephoto' : 'note') : (mvById(r.id) || {}).kind || mvKindOf(r.id);
+      out.push({ ...r, kind, moved: r.did.has('moved') || r.rec.has('moved'), note });
+    }
+    const ix = (id) => { const i = mvIx(id); return i == null ? 1e9 : i; }; out.sort((a, b) => ix(a.id) - ix(b.id));
+    for (const k of Object.keys(m.mvKind || {})) out.push({ id: `kind:${k}`, kind: k, of: k, did: new Set(['style']), rec: new Set(), moved: false, note: false });
+    return out;
+  }
+  /** How many: moved, all (each element once), and the rows. */
+  const drwChgCount = (proj) => { const R = drwChgRows(proj); return { moved: R.filter((r) => r.moved).length, all: R.length, rows: R }; };
+  /** A row's name: the element as the information line names it; not on the plan shown, its kind and its point; All like it: "All <the kind>". */
+  function drwChgName(r) {
+    if (r.of) return `All ${(MV_NOUN[r.of] || ['item', 'items'])[1]}`;
+    const m = mvById(r.id); if (m) return drwMvName(m); if (r.note) return drwMvName({ id: r.id, kind: r.kind });
+    const pid = chgPid(r.id), p = pid != null ? points.find((x) => String(x.id) === pid) : null, nm = (MV_NOUN[r.kind] || ['item'])[0];
+    return `${nm.charAt(0).toUpperCase()}${nm.slice(1)}${p ? ` · ${recName(p) || p.poleId || elemOf(p)}` : ''}`;
+  }
+  /** What was done to it, in words (a change in its record: "… (in the record)"). */
+  const drwChgWhat = (r) => [...Object.keys(CHG_DID).filter((w) => r.did.has(w) && !(w === 'moved' && r.rec.has('moved'))).map((w) => CHG_DID[w]), ...Object.keys(CHG_REC).filter((w) => r.rec.has(w)).map((w) => `${CHG_REC[w]} (in the record)`)].join(', ');
+  /** The chip (pl: the plan shown): in Edit, how many moved and changed. */
+  function drwChgRender(pl) {
+    const ch = $('drawChg'); if (!ch || !drw) return; const on = !!pl && drwEditing() && drwModeOn(); if (ch.hidden !== !on) ch.hidden = !on; if (!on) { drwChgOpen(false); return; }
+    const C = drwChgCount(drw.project), say = `Changed by hand on this plan: ${C.moved} moved, ${C.all} changed in all${C.all ? ' (the list: Show, Put back)' : ''}`;
+    $('drawChgN').textContent = String(C.moved); $('drawChgT').textContent = `moved · ${C.all} changed`; if (ch.title !== say) { ch.title = say; ch.setAttribute('aria-label', say); } ch.classList.toggle('none', !C.all);
+    if (!$('drawChgBox').hidden) drwChgList();
+  }
+  /** The list opened (on) or put away; true when it was open and is put away now. */
+  function drwChgOpen(on) {
+    const B = $('drawChgBox'), ch = $('drawChg'); if (!B) return false;
+    if (!on) { const was = !B.hidden; if (was) { B.hidden = true; B.textContent = ''; } if (ch) ch.setAttribute('aria-expanded', 'false'); return was; }
+    if (!drw || !drwEditing()) return false; drwCtxClose(); drwIcoPop(null); drwTbPal(false); B.hidden = false; ch.setAttribute('aria-expanded', 'true'); drwChgList();
+    LOG.info('draw.chg.list', { n: drwChgRows(drw.project).length }); const f = B.querySelector('.chgl button:not([disabled]), .chgf button, button'); if (f) f.focus({ preventScroll: true }); return true;
+  }
+  /** Its rows, as the plan's edits are now. */
+  function drwChgList() {
+    const B = $('drawChgBox'); if (!B || B.hidden || !drw) return; const C = drwChgCount(drw.project), back = C.rows.some((r) => r.did.size && !r.note);
+    const btn = (c, id, t, lab, dis) => `<button type="button" data-c="${c}"${id ? ` data-id="${hEsc(id)}"` : ''} title="${hEsc(lab)}" aria-label="${hEsc(lab)}"${dis ? ' disabled' : ''}>${t}</button>`;
+    const rowH = (r) => { const nm = drwChgName(r), sh = r.of ? drwMvs().some((m) => m.kind === r.of && !m.hidden) : !!mvById(r.id);
+      return `<div class="chgr" data-id="${hEsc(r.id)}"><span><b>${hEsc(nm)}</b><small>${hEsc(drwChgWhat(r))}</small></span>${btn('show', r.id, 'Show', `Show ${nm}: selected, in view`, !sh)}${r.note ? btn('back', r.id, 'Remove', `Remove ${nm} (↶ Undo brings it back)`) : r.did.size ? btn('back', r.id, 'Put back', `Put back ${nm}: where and as the plan puts it (↶ Undo takes it back)`) : ''}</div>`; };
+    B.innerHTML = `<div class="chgh"><b id="drawChgH">Changed by hand</b><small>${C.moved} moved · ${C.all} changed</small><button type="button" data-c="close" aria-label="Close the list (Esc)" title="Close (Esc)">×</button></div>`
+      + (C.rows.length ? `<div class="chgl">${C.rows.map(rowH).join('')}</div>` : '<p class="none">Nothing changed by hand on this plan yet: what you move, turn, size, style, edit, leave off or add on it is listed here.</p>')
+      + (back ? `<div class="chgf">${btn('all', null, 'Put all back', 'Put all back: every element changed by hand where and as the plan puts it (asked first; your own texts and photos stay)')}</div>` : '')
+      + (C.rows.some((r) => r.rec.size) ? '<p class="hint">In the record: the Drawing changed its record; ↶ Undo takes it back (while the app is open), Put back leaves it.</p>' : '');
+  }
+  /** Show: the element selected and brought into view (All like it: every one of its kind on the plan, the style for all of them). */
+  function drwChgShow(id) {
+    if (!drw || !drw.view) return; drwChgOpen(false);
+    const k = /^kind:/.test(id) ? id.slice(5) : null, L = k ? drwMvs().filter((m) => m.kind === k && !m.hidden) : [mvById(id)].filter(Boolean); if (!L.length) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const m of L) { const B = drwMvBox(m, mvIx(m.id)), r = Math.hypot(B[2], B[3]) / 2; x0 = Math.min(x0, B[0] - r); x1 = Math.max(x1, B[0] + r); y0 = Math.min(y0, B[1] - r); y1 = Math.max(y1, B[1] + r); }
+    const cv = $('drawCanvas'), d = window.devicePixelRatio || 1, v = drw.view, w = Math.max(x1 - x0, 0.5), h = Math.max(y1 - y0, 0.5), fit = Math.min(cv.width / (w * 1.6), cv.height / (h * 1.6));
+    v.cx = (x0 + x1) / 2; v.cy = (y0 + y1) / 2; if (v.sc > fit) v.sc = fit; else if (Math.max(w, h) * v.sc < 48 * d) v.sc = Math.min(fit, 48 * d / Math.max(w, h)); // (all of it in view; a small one large enough to see)
+    if (k) { drw.sel = null; drw.selPh = null; drw.selRun = null; drw.mvSels = L.map((m) => m.id); drw.mvSel = drw.mvSels[drw.mvSels.length - 1]; drw.tbAll = true; drwSelSay(); drwTbRender(); drawDrawing(); }
+    else if (L[0].kind === 'photo') drwPhTap(L[0].point); else drwMvTap(L[0].id);
+    LOG.info('draw.chg.show', { kind: k || L[0].kind, n: L.length });
+  }
+  /** Put back: the element's plan-only changes undone (one Undo step); a text or photo of yours: removed; All like it: that kind's style. Its record stays. */
+  function drwChgBack(id) {
+    if (!drw) return; const proj = drw.project, s0 = String(id);
+    if (/^note:/.test(s0)) { drwNotesDel([mvById(s0) || { id: s0, kind: 'note' }]); return; }
+    const m0 = pmeta(proj), nm = { ...m0 }; let n = 0;
+    const drop = (key, k) => { if (!nm[key] || !(k in nm[key])) return; const Q = { ...nm[key] }; delete Q[k]; if (Object.keys(Q).length) nm[key] = Q; else delete nm[key]; n++; };
+    if (/^kind:/.test(s0)) drop('mvKind', s0.slice(5));
+    else {
+      const i = s0.indexOf(':'), pfx = s0.slice(0, i), rest = s0.slice(i + 1), key = { ph: 'phPin', num: 'numPin', lbl: 'lblPin', cab: 'cabPin' }[pfx];
+      if (key) drop(key, rest); drop('mvPin', s0); drop('mvStyle', s0); drop('mvText', s0); drop('mvHide', s0); if (pfx === 'pole' || pfx === 'site') drop('poleAt', rest);
+      if ((nm.mvOrder || []).some((o) => o && o.id === s0)) { nm.mvOrder = nm.mvOrder.filter((o) => !(o && o.id === s0)); if (!nm.mvOrder.length) delete nm.mvOrder; n++; }
+      if (n && nm.mvTurn && s0 in nm.mvTurn) { const Q = { ...nm.mvTurn }; delete Q[s0]; if (Object.keys(Q).length) nm.mvTurn = Q; else delete nm.mvTurn; }
+    }
+    if (!n) return; const kd = /^kind:/.test(s0) ? `style of all ${(MV_NOUN[s0.slice(5)] || ['', 'items'])[1]}` : mvKindOf(s0); drwUndoPush(`${kd} put back`);
+    if (!pinsAny(nm)) delete nm.planGrid; // ((beta 7.10, Plan kept) nothing placed by hand left: the grid is worked out again)
+    S.meta = S.meta || {}; S.meta[proj] = nm; persist(); LOG.info('draw.chg.back', { kind: kd });
+    const pid = s0.startsWith('ph:') ? s0.slice(3) : null; if (pid && drw.ph && drw.ph.at && drw.ph.at[pid]) drw.ph = { ...drw.ph, sig: '', at: { ...drw.ph.at, [pid]: { ...drw.ph.at[pid], how: 'auto' } } }; // (a photo: where it is until the plan's place comes)
+    drwMvShowPins(); drwPlanUi(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel && drwSels().length <= 1) drwMvTap(drw.mvSel); else if (drwSels().length) { drwSelSay(); drwTbRender(); } drawDrawing(); drwPhSoon(0);
+  }
+  /** Put all back: asked first (what stays: your own texts and photos, the changes in records); then every plan-only change undone, one Undo step. */
+  async function drwChgAllBack() {
+    if (!drw) return; const proj = drw.project, R = drwChgRows(proj), n = R.filter((r) => r.did.size && !r.note).length, nN = R.filter((r) => r.note).length, nR = R.filter((r) => r.rec.size).length; if (!n) return;
+    if (!(await ask(`Put all back: ${n} ${n === 1 ? 'element' : 'elements'}?`, `Every element changed by hand on this plan goes back where and as the plan puts it: its place, its turn, its size and style, its text and its draw order; one left off the plan comes back. The plan's sheets are worked out again.${nN ? ` Your ${nN === 1 ? 'text or photo added stays' : `${nN} texts and photos added stay`} (Remove takes one off).` : ''}${nR ? ` What the Drawing changed in ${nR === 1 ? 'a record stays' : 'records stays'} (↶ Undo takes it back).` : ''} ↶ Undo brings them all back.`, [{ label: 'Cancel', value: false }, { label: 'Put all back', value: true, primary: true }]))) return;
+    if (!drw || drw.project !== proj) return; drwAllBack(proj, 'all put back', { n, from: 'changed by hand' });
+  }
+  $('drawChg').addEventListener('click', () => { if (drw) drwChgOpen($('drawChgBox').hidden); });
+  $('drawChgBox').addEventListener('click', (e) => { const b = e.target.closest('button[data-c]'); if (!b || b.disabled || !drw) return; e.preventDefault(); const c = b.dataset.c, id = b.dataset.id;
+    if (c === 'close') drwChgOpen(false); else if (c === 'show') drwChgShow(id); else if (c === 'back') drwChgBack(id); else if (c === 'all') drwChgAllBack(); });
   /* (beta 7.12, Drawing edit) The Drawing's own tools in a row (the CEF editor's look): Select (pressed while nothing is being added), Add text, Add photo (its tray: the
-     camera, the gallery), Undo (while there is a change to take back), More (its tray: select several, the photos' lines, everything back to automatic). */
+     camera, the gallery), Undo (while there is a change to take back), More (its tray: select several, the photos' lines, everything back to automatic).
+     ((beta 7.14, View / Edit) the switch in Select's place; in View only Undo and Redo) */
   function drwIcoRender() {
     const R = $('drawIcons'); if (!R) return; const on = !!drw && !!drw.plWant && !drwEd && !$('drawing').hidden;
-    if (R.hidden !== !on) R.hidden = !on; if (!on) { drwIcoPop(null); if (drw && drw.add) drwAddEnd(); return; } // (Edit route, the Drawing closed: adding stops)
-    const pl = drwPlanOn() && drw.labels !== false, ad = drw.add ? drw.add.kind : '', b = (a) => R.querySelector(`[data-a="${a}"]`);
-    b('sel').setAttribute('aria-pressed', String(!ad)); b('addtext').setAttribute('aria-pressed', String(ad === 'text')); b('addphoto').setAttribute('aria-pressed', String(ad === 'photo' || drw.icoPop === 'photo'));
-    for (const a of ['sel', 'addtext', 'addphoto', 'more']) b(a).disabled = !pl;
+    if (R.hidden !== !on) R.hidden = !on; if (!on) { drwIcoPop(null); if (drw && drw.add) drwAddEnd(); $('drawWrap').classList.remove('editing'); return; } // (Edit route, the Drawing closed: adding stops)
+    const pl = drwPlanOn() && drw.labels !== false, ad = drw.add ? drw.add.kind : '', b = (a) => R.querySelector(`[data-a="${a}"]`), ed = drwEditing();
+    $('drawModeView').setAttribute('aria-pressed', String(!ed)); $('drawModeEdit').setAttribute('aria-pressed', String(ed)); $('drawWrap').classList.toggle('editing', ed); // ((beta 7.14, View / Edit))
+    b('addtext').setAttribute('aria-pressed', String(ad === 'text')); b('addphoto').setAttribute('aria-pressed', String(ad === 'photo' || drw.icoPop === 'photo'));
+    for (const a of ['addtext', 'addphoto', 'more']) { b(a).disabled = !pl; b(a).hidden = !ed; } R.querySelectorAll('i[data-e]').forEach((i) => { i.hidden = !ed; }); // ((beta 7.14) View: the editing tools put away)
     b('addphoto').setAttribute('aria-expanded', String(drw.icoPop === 'photo')); b('more').setAttribute('aria-expanded', String(drw.icoPop === 'more')); b('more').setAttribute('aria-pressed', String(drw.icoPop === 'more'));
     const nu = drwUndoStack.filter((u) => u.project === drw.project).length, ub = $('drawUndo'); ub.disabled = !nu; ub.title = nu ? `Undo (Ctrl + Z): where things were before the last change (${nu})` : 'Undo (Ctrl + Z): nothing to take back yet';
     const nr = drwRedoStack.filter((u) => u.project === drw.project).length, rb = $('drawRedo'); rb.disabled = !nr; rb.title = nr ? `Redo (Ctrl + Y): the change taken back, made again (${nr})` : 'Redo (Ctrl + Y): nothing to make again'; // ((beta 7.12, Drawing edit) Redo)
-    const say = ad === 'text' ? 'Tap the plan where the text goes' : ad === 'photo' ? 'Tap the plan where the photo goes' : drw.tbMore && !drwSels().length ? 'Select several: tap each one' : ''; if ($('drawIcoSay').textContent !== say) $('drawIcoSay').textContent = say;
+    const say = !ed ? 'View: nothing on the plan moves. Edit (E) to change it' : ad === 'text' ? 'Tap the plan where the text goes' : ad === 'photo' ? 'Tap the plan where the photo goes' : drw.tbMore && !drwSels().length ? 'Select several: tap each one' : ''; if ($('drawIcoSay').textContent !== say) $('drawIcoSay').textContent = say;
   }
   /** The row's tray (k: 'photo', 'more'; null: put away). */
   function drwIcoPop(k) {
@@ -3625,7 +3925,6 @@
   $('drawIcons').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-a]'); if (!b || b.disabled || !drw) return; const a = b.dataset.a; e.preventDefault();
     if (a === 'undo' || a === 'redo') { drwIcoPop(null); return; } // (Undo, Redo: their own listeners)
-    if (a === 'sel') { drwIcoPop(null); drwAddEnd(); drwIcoRender(); return; }
     if (a === 'addtext') { drwIcoPop(null); if (drw.add && drw.add.kind === 'text') drwAddEnd(); else { if (drw.add) drwAddEnd(); drwAddStart({ kind: 'text' }); } return; }
     if (a === 'addphoto' || a === 'more') { const k = a === 'addphoto' ? 'photo' : 'more'; drwIcoPop(drw.icoPop === k ? null : k); drwIcoRender(); }
   });
@@ -3663,6 +3962,7 @@
   /** A tap on the plan (not in Edit route): what is under the finger, tapped again on the same spot the next one under it (a point, a photo, an item), selected
    *  (add: Shift, Ctrl or Select more: added or taken off); on nothing, as 7.10 (a cable, or nothing: the selection cleared). */
   function drwTapAt(e, add0) {
+    if (!drwEditing()) { drwTapView(e); return; } // ((beta 7.14, View / Edit) View: nothing of the plan selected)
     // ((beta 7.12, Drawing edit) a finger's second tap on the same spot within DBL_MS, on the one item the first selected, an item with texts: its text editor (a double-tap);
     // the taps kept, for a mouse's double-click (dblclick: the item the first click selected))
     const now = Date.now(), PT = drw.tapLast, many = !!add0 || !!drw.tbMore;
@@ -3714,7 +4014,7 @@
   }
   function drawDrawing() {
     if (!drw || !drw.view) return;
-    { const sg = `${!!drw.plWant}|${drwEd}|${drwPlanOn()}|${drw.labels}|${drw.add ? drw.add.kind : ''}|${drw.icoPop || ''}|${drwUndoStack.length}|${drwRedoStack.length}|${!!drw.tbMore}|${(drw.mvSels || []).length}`; if (sg !== drw.icoSig) { drw.icoSig = sg; drwIcoRender(); } } // ((beta 7.12, Drawing edit) the row of tools as the Drawing is now: Edit route, Labels, adding, Undo)
+    { const sg = `${!!drw.plWant}|${drwEd}|${drwPlanOn()}|${drw.labels}|${drw.add ? drw.add.kind : ''}|${drw.icoPop || ''}|${drwUndoStack.length}|${drwRedoStack.length}|${!!drw.tbMore}|${(drw.mvSels || []).length}|${drw.mode}`; if (sg !== drw.icoSig) { drw.icoSig = sg; drwIcoRender(); } } // ((beta 7.12, Drawing edit) the row of tools as the Drawing is now: Edit route, Labels, adding, Undo)
     drw.phHit = []; // (beta 7.8, Drawing photos) the photo frames drawn, for a finger ((beta 7.11, Drawing tools) drwCands)
     if (drwEd) drw.selRun = fibAdd != null ? fibAdd : fibSel; // beta 6.7: Edit route: the cable in the bar (or lit) lit as on the map
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
@@ -4039,8 +4339,8 @@
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
     let ctxHere = false; // ((beta 7.13, Drawing fixes) this press opened the right-click menu (a Mac's Ctrl + click too): its release is not a tap)
     let last = null, moved = 0, pinch = null, phD = null, mvD = null, hD = null, add = false; // (beta 7.8, Drawing photos) phD: a photo frame pressed (outside Edit route), dragged rather than the drawing ((beta 7.10, Drawing labels) mvD: a label, number or pole's details, the same) ((beta 7.11, Drawing tools) hD: a handle of the item selected (its turn, its arrow's tip); add: Shift or Ctrl held, a tap adds to the selection)
-    cv.addEventListener('pointerdown', (e) => { if (!drw) return; ctxHere = false; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); drwTbPal(false); if (drw.icoPop) { drwIcoPop(null); drwIcoRender(); } drw.lastPtr = e.pointerType; cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0; // ((beta 7.12, Drawing edit) the row's tray put away; a mouse or a finger: for a double-click)
-      if (drw.ptrs.size === 1) { const ok = !drwEd && !jnPick && !drw.add && (e.pointerType !== 'mouse' || e.button === 0); add = !!(e.shiftKey || e.ctrlKey || e.metaKey); phD = null; mvD = null; hD = null; // ((beta 7.12) adding a text or a photo: nothing is taken, a tap places it, a drag pans)
+    cv.addEventListener('pointerdown', (e) => { if (!drw) return; ctxHere = false; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); drwTbPal(false); if (drw.icoPop) { drwIcoPop(null); drwIcoRender(); } drwChgOpen(false); drw.lastPtr = e.pointerType; cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0; // ((beta 7.12, Drawing edit) the row's tray put away; a mouse or a finger: for a double-click)
+      if (drw.ptrs.size === 1) { const ok = !drwEd && !jnPick && !drw.add && drwEditing() && (e.pointerType !== 'mouse' || e.button === 0); add = !!(e.shiftKey || e.ctrlKey || e.metaKey); phD = null; mvD = null; hD = null; // ((beta 7.12) adding a text or a photo: nothing is taken, a tap places it, a drag pans) ((beta 7.14, View / Edit) View: nothing is taken, a drag pans)
         const Hd = ok && drwPlanOn() ? drwHandleAt(e) : null; if (Hd) hD = drwHandleGrab(Hd, e); // ((beta 7.11, Drawing tools) a handle first)
         else if (ok) { const g = drwGrabAt(e); if (g && g.photo) phD = { id: g.photo, x0: e.clientX, y0: e.clientY }; else if (g && g.id) mvD = { id: g.id, x0: e.clientX, y0: e.clientY }; } } // ((beta 7.11) a selected item under the finger first; a pole or a site only when selected)
       if (drw.ptrs.size === 2) { if (phD) { phD = null; drw.phDrag = null; } if (mvD) { mvD = null; if (drw.mvDrag) { drw.mvDrag = null; drawDrawing(); } } if (hD) { hD = null; if (drw.hDrag) { drw.hDrag = null; drawDrawing(); } } const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc };
@@ -4075,7 +4375,7 @@
     };
     cv.addEventListener('pointerup', (e) => { up(e); drwPhNextShow(); }); cv.addEventListener('pointercancel', (e) => { up(e); drwPhNextShow(); }); // ((beta 7.11, Drawing tools) a preview kept while something was held: shown)
     cv.addEventListener('dblclick', (e) => { // ((beta 7.12, Drawing edit) a double-click on an item with texts: its text editor (the first click selected it; the second, which went on to the next one under it, is taken back). A finger: drwTapAt's double-tap)
-      if (!drw || drwEd || drw.add || drw.lastPtr !== 'mouse' || !drwPlanOn() || !$('drawTxtBox').hidden) return; const A = drw.tapPrev; if (!A || Date.now() - A.t > 900 || Math.hypot(A.x - e.clientX, A.y - e.clientY) > 12) return;
+      if (!drw || drwEd || drw.add || !drwEditing() || drw.lastPtr !== 'mouse' || !drwPlanOn() || !$('drawTxtBox').hidden) return; const A = drw.tapPrev; if (!A || Date.now() - A.t > 900 || Math.hypot(A.x - e.clientX, A.y - e.clientY) > 12) return; // ((beta 7.14, View / Edit) View: no editor)
       if (drwDblText(A)) e.preventDefault();
     });
     cv.addEventListener('contextmenu', (e) => { // ((beta 7.13, Drawing fixes) a right-click on the plan (a computer): the menu of what is under the pointer, never the browser's
@@ -4083,6 +4383,7 @@
       e.preventDefault(); drwCtxClose(); ctxHere = true;
       if (moved >= 8 || drw.add || jnPick || !drwPlanOn() || drw.labels === false || !drw.view) return; // (the right button dragged: the plan panned; adding a text or a photo; a pull-off's poles; no plan shown)
       const C = drwCands(e), S0 = new Set(drwSels());
+      if (!drwEditing()) { drwCtxView(e.clientX, e.clientY, C.length ? { clientX: e.clientX, clientY: e.clientY } : null); return; } // ((beta 7.14, View / Edit) View: Edit this (Edit on, it selected), or Edit)
       if (!C.length) { drwCtxOpen(e.clientX, e.clientY, { clientX: e.clientX, clientY: e.clientY }); return; } // (the empty plan: Add text here)
       if (!C.some((c) => c.id && S0.has(c.id))) { drw.tapC = null; drwTapAt0(e, false); drw.tapLast = null; } // (what a tap there selects; on one selected: the selection as it is)
       drwCtxOpen(e.clientX, e.clientY);
@@ -6878,7 +7179,7 @@
       S.drwEdTip = true; persist(); rtHint('Editing on the Drawing: one finger draws a cable along the poles, two fingers move it. Hold a cable, a pole or a tower to drag it. Done when finished', 7000); };
     setTimeout(() => go(0), 400);
   }
-  $('drawEdit').addEventListener('click', () => drwEditSet(!drwEd));
+  $('drawEdit').addEventListener('click', () => { if (!drwEd && drwModeOn() && !drwEditing()) drwModeSet('edit', 'route'); drwEditSet(!drwEd); }); // ((beta 7.14, View / Edit) an editing tool: Edit on first)
   /* ================= beta 6.7: Street View by dragging the little man =================
      The owner: "Street View at the pin works but is not user friendly: an icon where I can drop the man on the street". The little man
      on the map's column of buttons (and in the Drawing's tools): drag him onto a street and let go: Google Street View opens there, by
@@ -11481,7 +11782,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.notes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.notes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -21655,6 +21956,7 @@
     }
     if ((top === 'export' || top === 'drwStyle') && $(top).classList.contains('side')) { e.preventDefault(); closeSheet(); return; } // v2.42.28: a panel beside the plan (beta 6.7, UX step 4: Plan style)
     if (top === 'drawing' && drwCtxClose()) { e.preventDefault(); return; } // ((beta 7.13, Drawing fixes) Esc: the right-click menu put away first, the selection kept)
+    if (top === 'drawing' && drwChgOpen(false)) { e.preventDefault(); return; } // ((beta 7.14, Changed by hand) Esc: its list put away)
     if (top === 'drawing' && drw && drw.icoPop) { e.preventDefault(); drwIcoPop(null); drwIcoRender(); return; } // ((beta 7.12, Drawing edit) Esc: the row's tray put away, adding a text or a photo stopped)
     if (top === 'drawing' && drw && drw.add) { e.preventDefault(); drwAddEnd(); return; }
     if (top === 'drawing' && drw && drwSelClear()) { e.preventDefault(); return; } // ((beta 7.11, Drawing tools) Esc: nothing selected on the plan any more)
@@ -21666,6 +21968,7 @@
     if (e.key === 'Escape') { escKey(e); return; }
     if (typingIn(e.target) || !$('askBox').hidden || boxOpen()) return;
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if ((k === 'e' || k === 'v') && stack[stack.length - 1] === 'drawing' && drwModeOn()) { e.preventDefault(); drwModeSet(k === 'e' ? 'edit' : 'view', 'key'); return; } // ((beta 7.14, View / Edit) E: Edit, V: View (E zoomed in here before: + and = still do))
     const pan = { ArrowUp: [0, -1], w: [0, -1], ArrowDown: [0, 1], s: [0, 1], ArrowLeft: [-1, 0], a: [-1, 0], ArrowRight: [1, 0], d: [1, 0] }[k];
     const zin = k === 'e' || k === '+' || k === '=', zout = k === 'q' || k === '-' || k === '_';
     if (!pan && !zin && !zout) return;
@@ -22899,7 +23202,18 @@
   /* (beta 7.13, Drawing fixes) for tests: the right-click menu (shown, its place in page pixels, each item: its tool, choice, words, name, icon, ticked, greyed, place) */
   window.__polecam.drwCtx = () => { const M = $('drawCtx'), R = (el) => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
     return { open: !M.hidden, rect: M.hidden ? null : R(M), focus: M.contains(document.activeElement) ? (document.activeElement.dataset.a || null) : null, items: M.hidden ? [] : [...M.querySelectorAll('button')].map((b) => ({ a: b.dataset.a, v: b.dataset.v || null, cap: (b.querySelector('span:last-child') || {}).textContent || '', label: b.getAttribute('aria-label') || '', title: b.title, role: b.getAttribute('role'), icon: ((b.querySelector('svg use') || {}).getAttribute ? b.querySelector('svg use').getAttribute('href') : null) || (b.querySelector('.sw') ? 'swatch' : null), checked: b.getAttribute('aria-checked'), disabled: !!b.disabled, ...R(b) })) }; };
-  window.__polecam.drwTxt = () => ({ open: !$('drawTxtBox').hidden, title: $('drawTxtTitle').textContent, sub: $('drawTxtSub').textContent, text: $('drawTxtArea').value, auto: !$('drawTxtAuto').hidden, saveOff: !!$('drawTxtYes').disabled, ok: $('drawTxtYes').textContent });
+  /* (beta 7.14, View / Edit; Changed by hand) for tests: the switch (shown, View or Edit, what it said and whether it said it this visit, the frame round the plan, its
+     halves in page pixels; mode: View or Edit set as the switch sets it), the chip of what was changed by hand (shown, its numbers, words, place) and its list (open,
+     each row: the element, its name, what was done, Show offered, Put back or Remove offered; Put all back offered) */
+  window.__polecam.drwMode = (mode) => { if (mode && drw) drwModeSet(mode, 'test'); const R = (el) => { if (!el || !(el.offsetWidth || el.offsetHeight)) return null; const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
+    return { on: drwModeOn(), mode: drw ? drw.mode : null, pressed: { view: $('drawModeView').getAttribute('aria-pressed'), edit: $('drawModeEdit').getAttribute('aria-pressed') }, said: $('drawModeSay').hidden ? null : $('drawModeSay').textContent, saidVisit: !!(drw && drw.modeSaid), frame: $('drawWrap').classList.contains('editing'), view: R($('drawModeView')), edit: R($('drawModeEdit')) }; };
+  window.__polecam.drwChg = () => { const ch = $('drawChg'), B = $('drawChgBox'), b = ch.getBoundingClientRect(), C = drw ? drwChgCount(drw.project) : null;
+    return { shown: !ch.hidden && !!(ch.offsetWidth || ch.offsetHeight), moved: C ? C.moved : null, all: C ? C.all : null, n: $('drawChgN').textContent, text: ch.textContent.trim(), label: ch.getAttribute('aria-label'), rect: ch.hidden ? null : { x: b.left + b.width / 2, y: b.top + b.height / 2, left: b.left, right: b.right, top: b.top, bottom: b.bottom }, none: ch.classList.contains('none'),
+      rows: C ? C.rows.map((r) => ({ id: r.id, kind: r.kind, name: drwChgName(r), what: drwChgWhat(r), moved: r.moved, did: [...r.did], rec: [...r.rec] })) : [], open: !B.hidden,
+      list: B.hidden ? null : [...B.querySelectorAll('.chgr')].map((x) => ({ id: x.dataset.id, name: (x.querySelector('b') || {}).textContent, what: (x.querySelector('small') || {}).textContent, show: (() => { const q = x.querySelector('[data-c="show"]'); return q ? !q.disabled : null; })(), back: (() => { const q = x.querySelector('[data-c="back"]'); return q ? q.textContent : null; })() })), allBack: B.hidden ? null : !!B.querySelector('[data-c="all"]') }; };
+  window.__polecam.drwTxt = () => ({ open: !$('drawTxtBox').hidden, title: $('drawTxtTitle').textContent, sub: $('drawTxtSub').textContent, text: $('drawTxtArea').value, auto: !$('drawTxtAuto').hidden, saveOff: !!$('drawTxtYes').disabled, ok: $('drawTxtYes').textContent,
+    fmt: drwFmt ? { shown: !$('drawTxtFmt').hidden, v: { ...drwFmt.v }, v0: { ...drwFmt.v0 }, scope: drwFmt.scope, scopeOk: drwFmt.scopeOk, pal: !$('drawTxtPal').hidden, wrapPrev: $('drawTxtWrapPrev').hidden ? null : [...$('drawTxtWrapLines').children].map((d) => d.textContent), fonts: [...$('drawTxtFont').options].map((o) => ({ v: o.value, t: o.textContent, g: (o.parentElement && o.parentElement.label) || '' })), // ((beta 7.14, Text editor) for tests: the format bar (as now, as opened), the fonts offered, the text box's look
+      look: (() => { const t = $('drawTxtArea'), c = getComputedStyle(t); return { family: c.fontFamily, align: c.textAlign, weight: c.fontWeight, style: c.fontStyle, deco: c.textDecorationLine, lh: c.lineHeight, ws: c.whiteSpace, w: t.getBoundingClientRect().width, color: c.color }; })(), btn: Object.fromEntries([...$('drawTxtFmt').querySelectorAll('button[data-f]')].filter((b) => b.dataset.f !== 'pal').map((b) => [`${b.dataset.f}${b.dataset.v ? `:${b.dataset.v}` : ''}`, { pressed: b.getAttribute('aria-pressed'), disabled: !!b.disabled, hidden: !(b.offsetWidth || b.offsetHeight) }])) } : null });
   window.__polecam.drwNotes = () => ({ notes: drw ? JSON.parse(JSON.stringify(notesOf(pmeta(drw.project)))) : [], pend: drw ? (drw.notePend || []).slice() : [], made: drw && drw.ph && drw.ph.tools ? JSON.parse(JSON.stringify(drw.ph.tools.notes || null)) : null });
   window.__polecam.drwNotesSweep = () => drwNotesSweep();
   /* (beta 7.12, Drawing edit) for tests: what the plan shown draws of an item (its own items of the display list): its lines (each subpath's points in metres), how many texts and pictures */
@@ -22921,7 +23235,7 @@
   window.__polecam.drwPlan = () => { if (!drw) return null; const P = drw.ph && drw.ph.plan, r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1;
     return { on: drwPlanOn(), want: !!drw.plWant, busy: !!drw.phBusy, made: drwPlanN, n: drw.ph ? drw.ph.n || 0 : 0, ms: drw.ph ? drw.ph.ms : 0, count: P ? { ...P.count } : null, K: P ? P.K : 0, sheet: P ? P.sheet : null, origin: P ? P.origin.slice() : null,
       sheets: drw.ph && drw.ph.grid ? JSON.parse(JSON.stringify(drw.ph.grid.sheets)) : null, gridOn: S.drawGrid !== false, gridDrawn: (drw.gridDrawn || []).map((x) => ({ ...x, x: r.left + x.x / d, y: r.top + x.y / d })), drawn: drw.planDrawn || null,
-      regen: { hidden: $('drawRegen').hidden, disabled: $('drawRegen').disabled, say: $('drawRegenT').textContent }, phAll: $('drawPhAll').hidden ? null : $('drawPhAllT').textContent }; };
+      regen: { hidden: $('drawRegen').hidden, disabled: $('drawRegen').disabled, say: $('drawRegenT').textContent }, chg: $('drawChg').hidden ? null : $('drawChg').textContent.trim() }; }; // ((beta 7.14, Changed by hand) the chip (7.9–7.13: phAll, the placed by hand chip))
   /* (beta 7.10, Plan kept) for tests: what is kept with a project's plan (the grid, the roads: each place's area, where they came from, when, how many), a display
      list's hash (the Drawing's plan; or the one dxfpdf.js's planList makes of a DXF and its report, on the page: an export's) */
   window.__polecam.planKept = async (n) => { const nm = n || S.project, m = pmeta(nm), K = await rkGet(nm).catch(() => null);
