@@ -183,6 +183,15 @@ test('the company-like made-up seeds (no look): drawn as beta 7.13 drew them; th
   assert.equal(crypto.createHash('sha256').update(out.text).digest('hex'), PIN_TWO, 'byte for byte as beta 7.13 (dxftpl.js of 933ad3b)');
 });
 
+test('every layer dxftpl.js asks a seed for (a made-up plan, Standard and Tidy) is one the synthesizer puts in the seed (LAYER_CLASSES)', () => {
+  const m = made('b'), seen = new Set(), has0 = Map.prototype.has;
+  Map.prototype.has = function (k) { if (typeof k === 'string' && this.size) { const v = this.values().next().value; if (Array.isArray(v) && Array.isArray(v[0]) && v[0][1] === 'LAYER') seen.add(k); } return has0.call(this, k); }; // (the builder's S.layers.has: which layers it looks for)
+  try { for (const over of [{}, { labels: 'tidy' }]) T.build(m.plan, { ...G.madeUpJob(m.look), ...over }); } finally { Map.prototype.has = has0; }
+  const mine = new Set(G.LAYER_CLASSES.flatMap((c) => c.layers));
+  assert.ok(seen.size > 20, `${seen.size} layers asked for`); assert.deepEqual([...seen].filter((n) => n !== '0' && !mine.has(n)), []);
+  const out = T.build(m.plan, G.madeUpJob(m.look)), I = info(out.text), on0 = I.S.E.filter((r) => get(r, 330) === I.S.modelH && String(get(r, 67) || '0').trim() !== '1' && get(r, 8) === '0' && !/^(ATTRIB|SEQEND|VERTEX)$/.test(r[0][1]));
+  assert.equal(on0.length, 0, 'nothing of the plan on layer 0');
+});
 test('paint(): a sheet drawn by dxfpdf.js\'s page operators on a canvas (a stand-in context), its fields marked', () => {
   const PDF = require(path.join(root, 'dxfpdf.js')), page = PDF.layoutPages(SRC.b, { only: ['A3 SHEET'] }).pages[0], calls = { stroke: 0, fill: 0, text: 0, rect: 0 };
   const ctx = new Proxy({}, { get: (o, k) => (k in o ? o[k] : k === 'measureText' ? () => ({ width: 10 }) : (...a) => { if (k === 'stroke') calls.stroke++; if (k === 'fill') calls.fill++; if (k === 'fillText') calls.text++; if (k === 'strokeRect') calls.rect++; }), set: (o, k, v) => { o[k] = v; return true; } });

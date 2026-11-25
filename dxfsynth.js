@@ -50,7 +50,7 @@
   /** The client's file as text, or why it cannot be read: a binary DXF, a DWG, a DXB, R12 or older, not a drawing. bytes: Uint8Array /
       ArrayBuffer (decoded here: UTF-8 from AutoCAD 2007 on, the code page before) or a string. → { ok, text, version, release } | { ok: false, error } */
   function read(src) {
-    let text = typeof src === 'string' ? src : null;
+    let text = typeof src === 'string' ? src.replace(/^\ufeff/, '') : null; // (a byte order mark: not part of the drawing)
     if (text == null) {
       const u = src instanceof Uint8Array ? src : new Uint8Array(src || []);
       const head = String.fromCharCode(...u.subarray(0, 64));
@@ -652,6 +652,14 @@
         void k;
       }
     }
+    // a text that holds an AutoCAD field (its value worked out by AutoCAD: a date, the sheet's name…): its field dropped where a token or a blank
+    // took its place, or AutoCAD would write its own value over the app's (make_seed.py warns of them)
+    const fdict = new Set();
+    for (const f of list) {
+      const c = choose(f); if ((!c && !(f.kind === 'btext' && lift.has(f.handle))) || f.kind === 'label') continue; const r = d.byHandle.get(f.handle); if (!r) continue; // (a title block's own text lifted: emptied in its block)
+      let g = false; for (const [cc, v] of r) { if (cc === 102) { g = String(v) === '{ACAD_XDICTIONARY'; continue; } if (g && cc === 360) { const x = d.byHandle.get(v); if (x && typ(x) === 'DICTIONARY' && all(x, 3).includes('ACAD_FIELD')) fdict.add(v); } }
+    }
+    if (fdict.size) { for (const h of fdict) goneA.add(h); }
     if (goneA.size) { removeHandles(d, goneA); fixSeqends(d); }
     if (adds.length) { S = TPL().structure(d); addToSheet(d, S, S.layouts.find((x) => x.name === L.name), adds); }
   }
@@ -1078,7 +1086,7 @@
   function madeUpValues(look) {
     const v = { PROJECT_TYPE: 'DEMO FIBER PROJECT', LINK: 'DEMO FIBER PROJECT', LOCATION: 'DEMO CITY', SITE_NAME: 'DEMOSITE MIN9001', SITE_ID: 'PLA-9001', SERIAL: 'SN-9001', PROJECT_CODE: 'DEMO-CODE-01', DWG_NO: 'DWG-9001', ISSUE_NO: '0', REV: '0',
       PREPARED_BY: 'DEMO DRAFTER', DRAWN_BY: 'DEMO DRAFTER', CHECKED_BY: 'DEMO CHECKER', APPROVED_BY: 'DEMO APPROVER', CLIENT: 'DEMO CLIENT', COMPANY_NAME: 'DEMO CONTRACTOR', SHEET_TITLE: { KEYMAP: 'KEY MAP', '*': 'ROUTE PLAN' }, PLAN_KIND: 'AFI PLAN',
-      COORDINATES: '7°06\'00.00"N 125°36\'00.00"E', EXPORTED_BY: 'Exported by DEMO USER · G-eSAA', TITLE_CABLE: 'PROPOSED 12C FIG-8 FOC', NETWORK: '' };
+      COORDINATES: '7%%d06\'00.00"N 125%%d36\'00.00"E', EXPORTED_BY: 'Exported by DEMO USER · G-eSAA', TITLE_CABLE: 'PROPOSED 12C FIG-8 FOC', NETWORK: '' };
     if (look && look.sheet && look.sheet.cell) v.SCALE = { '*': '1 : 1,100 METERS', KEYMAP: '' };
     return v;
   }

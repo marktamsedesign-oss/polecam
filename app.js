@@ -12170,7 +12170,7 @@
         H.push(`<div class="r"><span class="ic" aria-hidden="true">🛣</span><span class="tx"><b>${e(nm)}</b> is not on this phone. Without it ${tpl ? 'the barangay and city / municipality table stays blank, and ' : ''}the roads come from the internet (none without signal).</span><button class="btn sm primary" type="button" data-need="roads" data-region="${e(rg)}">Get the roads</button></div>`);
       });
     }
-    if (tpl && !S.dxfSeed && !seedBusy) H.push(`<div class="r"><span class="ic" aria-hidden="true">📐</span><span class="tx"><b>No company template on this phone</b>${seedId() ? ': your admin shares it. Get it now (once: it stays on this phone), or the plan drawing gets it first.' : ': the plan is drawn on it. Ask your admin to share it, or load the file they sent you.'}</span><button class="btn sm primary" type="button" data-need="tpl">Get it</button></div>`); // beta 6.7 (UX step 3)
+    if (tpl && !S.dxfSeed && !seedBusy && !projTpl()) H.push(`<div class="r"><span class="ic" aria-hidden="true">📐</span><span class="tx"><b>No company template on this phone</b>${seedId() ? ': your admin shares it. Get it now (once: it stays on this phone), or the plan drawing gets it first.' : ': the plan is drawn on it. Ask your admin to share it, or load the file they sent you.'}</span><button class="btn sm primary" type="button" data-need="tpl">Get it</button></div>`); // beta 6.7 (UX step 3)
     if (N && N.map && tpl) H.push(`<div class="r"><span class="ic" aria-hidden="true">🗺</span><span class="tx"><b>The offline map of this area</b> is not on this phone. The vicinity map then needs the internet${navigator.onLine === false ? ' (offline now: it is drawn from the roads only)' : '; without signal it is drawn from the roads only'}.</span><button class="btn sm" type="button" data-need="map">Download the map</button></div>`);
     box.innerHTML = H.length ? `<p class="hd">Not downloaded yet for this drawing</p>${H.join('')}` : '';
     box.hidden = !H.length;
@@ -12363,7 +12363,9 @@
       if (hid) L.push(['no', `${hid} left out of the files (on no cable)`, 'Show ›', 'hidden']);
       if (xSel.includes('doDxf') || xSel.includes('xOnePdf')) {
         const tpl = dxfMode() === 'tpl'; let N = null; try { N = planNeeds(S.project); } catch (x) { N = null; }
-        if (tpl && !S.dxfSeed && !seedBusy) L.push(['no', 'No company template on this phone', 'Get it ›', 'tpl']);
+        const ctp = projTpl(); // ((beta 7.15, Client templates) the project's client template, on this phone)
+        if (tpl && ctp) L.push(['ok', `On ${ctp.name} (client template)`]);
+        else if (tpl && !S.dxfSeed && !seedBusy) L.push(['no', 'No company template on this phone', 'Get it ›', 'tpl']);
         else if (tpl && S.dxfSeed) L.push(['ok', 'On your company’s plan template']);
         if (N && N.roads && (tpl || $('dxfRoads').checked)) L.push(['no', `The road pack of ${N.roads.regions.length === 1 && REGION_BY[N.roads.regions[0]] ? REGION_BY[N.roads.regions[0]][2] : 'this area'} is not on this phone`, 'Get it ›', 'roads', N.roads.regions[0] || '']);
         if (N && N.map && tpl) L.push(['no', 'The offline map of this area is not on this phone', 'Get it ›', 'map']);
@@ -13769,9 +13771,9 @@
   function tplGet(id) { return dbGet('packs', tplKey(id)).catch(() => null); }
   /** The CEF seed of the project's client template (vendor/cef prints the CEF plan on it): { name, text, look }, or null (no client template, or
       it has no CEF sheet: the CEF's own frame, as before). */
-  async function tplCefText(proj) { const t = projTpl(proj); if (!t || !t.cef) return null; const r = await tplGet(t.id); return r && r.cef ? { name: r.name, text: r.cef, look: r.cefLook || r.look || null } : null; }
+  async function tplCefText(proj) { const t = projTpl(proj); if (!t || !t.cef) return null; const r = await tplGet(t.id); return r && r.cef ? { name: r.name, text: r.cef, look: r.cefLook || r.look || null, client: r.client || '' } : null; }
   /** The look of the project's client template (its plan sheet's cell for 1:1100, its fonts…), or null. */
-  async function tplLookOf(proj) { const t = projTpl(proj); if (!t) return null; if (t.look) return t.look; const r = await tplGet(t.id); return (r && r.look) || null; }
+  async function tplLookOf(proj) { const t = projTpl(proj); if (!t) return null; const r = await tplGet(t.id); return r && r.plan ? r.look || t.look || null : null; } // (its seed gone from this phone: the company template's, as seedText)
   async function synthReady() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeDxfPdf) await loadScript('dxfpdf.js'); if (!window.GeDxfSynth) await loadScript('dxfsynth.js'); return window.GeDxfSynth; }
   /** A project's template chosen ('' : the company's). */
   function tplChoose(proj, id) {
@@ -13817,6 +13819,7 @@
       if (rd.ok) { busy('Reading its sheets, fields and symbols…'); await sleep(30); dg = G.digest(rd.text, f.name); }
     } finally { busy(false); }
     if (!rd.ok) { await ask('This file cannot be used', rd.error, [{ label: 'OK', value: true, primary: true }]); return; }
+    if (!dg.sheets.some((s) => s.vps.length)) { await ask('This template cannot be used', 'None of its sheets (layouts) has a viewport for the map. In AutoCAD, put the title block on a layout with a viewport over the drawing area, then save it as DXF and add that file.', [{ label: 'OK', value: true, primary: true }]); return; }
     LOG.info('tpl.digest', { kb: Math.round(rd.text.length / 1024), sheets: dg.sheets.length, fields: dg.sheets.reduce((n, s) => n + s.fields.length, 0), blocks: dg.blocks.length });
     tprOpen({ text: rd.text, dg, map: window.GeDxfSynth.proposal(dg), file: f.name, size: f.size, id: null });
   }
@@ -14404,7 +14407,7 @@
     if (TPLK) {
       const sg = cefSign(), T0 = tmTeam(proj), chk = sg.chk || (T0 && T0.accepted ? String(T0.accepted.byName || T0.accepted.by || '') : ''), iss = sfGet(SF, /\b(issue|rev(ision)?)\b/i);
       const pname = values.PROJECT_TYPE || sfGet(SF, /project\s*name/i) || proj, who = e.name || sg.by || '';
-      const at = rows.find((r) => r.el === 'Site') || rows.find((r) => r.el === 'Pole') || rows[0], dms = (v, P, N) => { if (!Number.isFinite(+v)) return ''; const h = v < 0 ? N : P; let a = Math.abs(+v), d = Math.floor(a), mm = Math.floor((a - d) * 60), ss = (a - d - mm / 60) * 3600; if (ss >= 59.995) { ss = 0; mm++; } if (mm >= 60) { mm = 0; d++; } return `${d}°${String(mm).padStart(2, '0')}'${ss.toFixed(2).padStart(5, '0')}"${h}`; };
+      const at = rows.find((r) => r.el === 'Site') || rows.find((r) => r.el === 'Pole') || rows[0], dms = (v, P, N) => { if (!Number.isFinite(+v)) return ''; const h = v < 0 ? N : P; let a = Math.abs(+v), d = Math.floor(a), mm = Math.floor((a - d) * 60), ss = (a - d - mm / 60) * 3600; if (ss >= 59.995) { ss = 0; mm++; } if (mm >= 60) { mm = 0; d++; } return `${d}%%d${String(mm).padStart(2, '0')}'${ss.toFixed(2).padStart(5, '0')}"${h}`; }; // (%%d: AutoCAD's degree sign, read the same by every DXF version)
       const km = Object.fromEntries(['KEYMAP', ...Array.from({ length: 8 }, (_, k) => `KEYMAP (${k + 2})`)].map((n) => [n, '']));
       Object.assign(values, { PROJECT_TYPE: pname, LINK: pname, LOCATION: known ? [sName, sPla].filter(Boolean).join('_') : (m.site || ''), SITE_NAME: sName || m.site || '', SITE_ID: sPla, SERIAL: sSerial,
         DWG_NO: sfGet(SF, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss, PREPARED_BY: who, DRAWN_BY: who, CHECKED_BY: chk, APPROVED_BY: sg.apr || '',
