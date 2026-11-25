@@ -26,6 +26,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { editOn, chgOf, allAutomatic } = require('./drawing-edit.cjs'); // ((beta 7.14, View / Edit) the Drawing opens in View: Edit on to change the plan)
 
 const root = path.resolve(__dirname, '..');
 const FX = path.join(__dirname, 'fixtures');
@@ -146,7 +147,7 @@ async function drawing(page, mpp, fy) {
   await page.evaluate(([la, lo, m, y]) => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); window.__polecam.drwLook(la, lo, m, r.width * 0.5, r.height * y); }, [LA0 + 0.0006, LO0 + 0.0012, mpp || 0.4, fy || 0.5]);
 }
 async function shown(page, when) {
-  let s = null; for (let i = 0; i < 240; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); return pl(page); } }
+  let s = null; for (let i = 0; i < 240; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); await editOn(page); return pl(page); } } // ((beta 7.14, View / Edit) shown: Edit on, to change it)
   throw new Error(`no plan shown: ${JSON.stringify(s)}`);
 }
 const again = (page, n0) => shown(page, (x) => x.n > n0);
@@ -206,9 +207,9 @@ test('the icon tools, as the CEF plan editor draws its tools: the row over the p
     const { ctx, page, errors } = await open({ desk }), sz = desk ? 'laptop' : 'phone';
     await drawing(page); await shown(page, (x) => x.count && x.count.pictures === 8);
     let I = await icoOf(page); assert.equal(I.hidden, false, `${sz}: the row`);
-    assert.deepEqual(I.tools.map((t) => t.a), ['sel', 'addtext', 'addphoto', 'undo', 'redo', 'more'], 'Select, Text, Photo, Undo, Redo, More');
+    assert.deepEqual(I.tools.map((t) => t.a), ['addtext', 'addphoto', 'undo', 'redo', 'more'], 'Text, Photo, Undo, Redo, More ((beta 7.14, View / Edit) after the switch, in Select\'s place)');
     for (const t of I.tools) { assert.ok(t.label && t.title && t.cap && t.icon, `${sz} ${t.a}: a name, a tip, a caption, an icon: ${JSON.stringify(t)}`); assert.ok(t.w >= 44 && t.h >= 44, `${sz} ${t.a}: finger-sized ${t.w}x${t.h}`); }
-    assert.equal(I.tools.find((t) => t.a === 'sel').pressed, 'true', 'Select pressed'); assert.equal(I.tools.find((t) => t.a === 'undo').disabled, true, 'Undo greyed: nothing to take back');
+    { const M = await page.evaluate(() => window.__polecam.drwMode()); assert.deepEqual([M.mode, M.pressed.edit, M.pressed.view], ['edit', 'true', 'false'], 'Edit pressed (Select\'s job)'); assert.ok(M.view.w >= 44 && M.edit.w >= 44 && M.view.h >= 44, `${sz}: the switch finger-sized ${JSON.stringify(M)}`); } assert.equal(I.tools.find((t) => t.a === 'undo').disabled, true, 'Undo greyed: nothing to take back');
     const cv = await page.evaluate(() => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
     if (desk) assert.ok(I.rect.bottom <= cv.top + 1, `a computer: above the plan ${JSON.stringify(I.rect)} ${JSON.stringify(cv)}`); else assert.ok(I.rect.top >= cv.bottom - 1, `a phone: under the plan, by the thumb ${JSON.stringify(I.rect)} ${JSON.stringify(cv)}`);
     await shot(page, `notes-${sz}-row.png`);
@@ -253,7 +254,7 @@ test('Edit text: the item\'s text as the plan writes it; Save reaches job.text, 
   const own = Array.isArray(f.text) ? f.text : X.text.split('\n'); assert.equal(X.text, own.join('\n'), 'its text as the plan writes it, one line per line'); assert.ok(own.length >= 2, `its lines: ${own}`);
   const L = ['DEMO EDITED POLE', ...own.slice(1), 'DEMO EXTRA LINE']; let n0 = (await pl(page)).n;
   await txtSave(page, L.join('\n')); assert.deepEqual((await kept(page)).mvText, { 'lbl:s3': L }, 'kept: the plan only');
-  assert.equal((await pl(page)).phAll, '1 text changed by hand · Back to automatic', 'the chip counts it'); assert.deepEqual((await mvOf(page)).undo.slice(-1), ['text edited']);
+  { const C = await chgOf(page); assert.deepEqual([C.moved, C.all], [0, 1], 'the chip ((beta 7.14, Changed by hand)) counts it: changed, not moved'); assert.deepEqual(C.rows.map((r) => [r.id, r.what]), [['lbl:s3', 'Text']]); } assert.deepEqual((await mvOf(page)).undo.slice(-1), ['text edited']);
   await again(page, n0); assert.deepEqual((await page.evaluate(() => window.__polecam.drwJobTools())).text, { 'lbl:s3': L }, 'the preview made with it');
   const f1 = await full(page, 'lbl:s3'); if (Array.isArray(f1.text)) assert.deepEqual(f1.text, L, 'the plan writes it so');
   assert.equal(await page.evaluate(() => JSON.stringify(window.__polecam.points.find((p) => p.id === 's3'))), rec0, 'the record as it was');
@@ -280,7 +281,7 @@ test('Text and Photo: a note where the plan is tapped, in the preview and the ex
   const e0 = await exportPlan(page); assert.ok(!('notes' in e0.job), 'no notes yet');
   await drawing(page); await shown(page);
   // Text: tap the plan, type it, Add
-  await rowClick(page, 'addtext'); let I = await icoOf(page); assert.equal(I.adding, 'text'); assert.equal(I.tools.find((t) => t.a === 'addtext').pressed, 'true'); assert.equal(I.tools.find((t) => t.a === 'sel').pressed, 'false'); assert.match(I.say, /Tap the plan where the text goes/);
+  await rowClick(page, 'addtext'); let I = await icoOf(page); assert.equal(I.adding, 'text'); assert.equal(I.tools.find((t) => t.a === 'addtext').pressed, 'true'); assert.equal((await page.evaluate(() => window.__polecam.drwMode())).mode, 'edit', 'still Edit while adding'); assert.match(I.say, /Tap the plan where the text goes/);
   const P1 = await freeAt(page, 0.0011, 0.8 * DD);
   let n0 = (await pl(page)).n; await tap(page, P1[0], P1[1]); await page.waitForTimeout(200);
   let X = await txtOf(page); assert.ok(X.open, 'the editor'); assert.equal(X.title, 'Add text'); assert.equal(X.saveOff, true, 'nothing to add yet');
@@ -328,8 +329,8 @@ test('Text and Photo: a note where the plan is tapped, in the preview and the ex
   await openProject(page, OTHER); await openProject(page, NAME); assert.deepEqual(await kept(page), K, 'after another project');
   await page.reload(); await boot(page); await hook(page); assert.deepEqual(await kept(page), K, 'after a reload');
   const sh = await page.evaluate(() => window.__polecam.shareMeta()); for (const k of ['notes', 'mvText', 'mvOrder']) assert.ok(!(k in sh), `shareMeta: no ${k}`);
-  await drawing(page); await shown(page); assert.equal((await pl(page)).phAll, '1 text changed by hand · Back to automatic', 'the notes are not counted');
-  await page.click('#drawPhAll'); await page.waitForTimeout(300); await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
+  await drawing(page); await shown(page); { const C = await chgOf(page); assert.deepEqual([C.moved, C.all], [0, 3], '((beta 7.14, Changed by hand)) the text and the two notes, added'); assert.deepEqual(C.rows.filter((r) => /^note:/.test(r.id)).map((r) => r.what), ['Added', 'Added']); }
+  await allAutomatic(page); await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
   const K2 = await kept(page); assert.deepEqual(K2.mvText, {}, 'the text back'); assert.deepEqual(K2.notes, K.notes, 'the notes stay');
   await page.evaluate(() => window.__polecam.drwNotesSweep()); assert.ok(await page.evaluate((id) => window.__polecam.cef.has(id), p1.photo.pid), 'a note\'s photo kept while the note is');
   assert.deepEqual(errors, []);

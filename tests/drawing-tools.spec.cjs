@@ -27,6 +27,7 @@ const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { editOn, chgOf, allAutomatic } = require('./drawing-edit.cjs'); // ((beta 7.14, View / Edit) the Drawing opens in View: Edit on to change the plan)
 
 const root = path.resolve(__dirname, '..');
 const FX = path.join(__dirname, 'fixtures');
@@ -135,7 +136,7 @@ async function drawing(page, mpp, fy) {
 }
 /** Until the plan is shown and not being made again (when: what else it must show). */
 async function shown(page, when) {
-  let s = null; for (let i = 0; i < 240; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); return pl(page); } }
+  let s = null; for (let i = 0; i < 240; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); await editOn(page); return pl(page); } } // ((beta 7.14, View / Edit) shown: Edit on, to change it)
   throw new Error(`no plan shown: ${JSON.stringify(s)}`);
 }
 /** The plan made again after a change (n0: the preview shown before it). */
@@ -401,7 +402,7 @@ test('kept with the project (another project, a reload), left out of what the te
   await select(page, cab); await tbClick(page, 'h+'); await select(page, 'clo:s2'); await tbClick(page, 's+'); await select(page, 'lbl:s5'); await tbClick(page, 'rot+');
   const n7 = await see(page, 'num:s7'); await drag(page, n7.x, n7.y, 30, 0); // ((beta 7.12) a pole dragged moves its record: a number placed by hand here, a plan-only change)
   const K = await kept(page); assert.ok(K.mvStyle[cab] && K.mvStyle['clo:s2'] && K.lblPin.s5 && K.numPin.s7, JSON.stringify(K));
-  await shown(page); assert.equal((await pl(page)).phAll, '4 items changed by hand · Back to automatic', 'styled, turned and moved: changed');
+  await shown(page); { const C = await chgOf(page); assert.deepEqual([C.moved, C.all], [1, 4], '((beta 7.14, Changed by hand)) styled, turned and moved: 4 changed, the number moved (the details turned where the plan put them: not moved)'); }
   assert.deepEqual((await mvOf(page)).undo, ['style h+', 'style s+', 'turned +15°', 'number moved']);
   // shared: none of it
   const sh = await page.evaluate(() => window.__polecam.shareMeta()); for (const k of ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'lblPin', 'planGrid']) assert.ok(!(k in sh), `shareMeta: no ${k}`);
@@ -412,8 +413,8 @@ test('kept with the project (another project, a reload), left out of what the te
   // Undo: one change at a time
   await drawing(page); await shown(page); await select(page, 'clo:s2'); await tbClick(page, 's+'); assert.equal((await kept(page)).mvStyle['clo:s2'].scale, 1.5);
   await page.click('#drawUndo'); await page.waitForTimeout(200); assert.equal((await kept(page)).mvStyle['clo:s2'].scale, 1.25, 'Undo: the last change');
-  // the chip: all back to automatic, asked first
-  await page.click('#drawPhAll'); await page.waitForTimeout(300); assert.match(await page.evaluate(() => document.getElementById('askTitle').textContent), /^Back to automatic: 4 items\?$/);
+  // all back to automatic, asked first ((beta 7.14) More › All automatic: the question the chip of 7.9-7.13 asked)
+  await allAutomatic(page); assert.match(await page.evaluate(() => document.getElementById('askTitle').textContent), /^Back to automatic: 4 items\?$/);
   await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
   const K2 = await kept(page); for (const k of Object.keys(K2)) assert.deepEqual(K2[k], {}, `${k}: none left`);
   const e2 = await exportPlan(page); for (const k of TOOL_JOB) assert.ok(!(k in e2.job), `no ${k}`); assert.ok(!e2.pts.some((p) => 'cloSize' in p), 'no bubble: no closure size in the job'); assert.ok(e2.text === e0.text, 'the same DXF as before any change, byte for byte');

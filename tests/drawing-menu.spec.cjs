@@ -18,6 +18,7 @@ const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { editOn, chgOf, allAutomatic } = require('./drawing-edit.cjs'); // ((beta 7.14, View / Edit) the Drawing opens in View: Edit on to change the plan)
 
 const root = path.resolve(__dirname, '..');
 const SEED = fs.readFileSync(path.join(__dirname, 'fixtures', 'plan-seed-made-up-blocks.dxf'), 'utf8'); // (the made-up template with the plan's blocks)
@@ -95,7 +96,7 @@ async function drawing(page, mpp) {
   await page.evaluate(([la, lo, m]) => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); window.__polecam.drwLook(la, lo, m, r.width * 0.5, r.height * 0.5); }, [LA0 + 0.0006, LO0 + 0.0012, mpp || 0.4]);
 }
 async function shown(page, when) {
-  let s = null; for (let i = 0; i < 240; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); return pl(page); } }
+  let s = null; for (let i = 0; i < 240; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); await editOn(page); return pl(page); } } // ((beta 7.14, View / Edit) shown: Edit on, to change it)
   throw new Error(`no plan shown: ${JSON.stringify(s)}`);
 }
 const itemOf = async (page, id) => (await mvOf(page)).items.find((m) => m.id === id);

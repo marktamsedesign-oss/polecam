@@ -26,6 +26,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { chromium } = require('playwright');
+const { editOn, chgOf, allAutomatic } = require('./drawing-edit.cjs'); // ((beta 7.14, View / Edit) the Drawing opens in View: Edit on to change the plan)
 
 const root = path.resolve(__dirname, '..');
 const FX = path.join(__dirname, 'fixtures');
@@ -165,7 +166,7 @@ async function drawing(page) {
 }
 /** Until the plan is shown and not being made again (when: what else it must show). */
 async function shown(page, when) {
-  let s = null; for (let i = 0; i < 160; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); return pl(page); } }
+  let s = null; for (let i = 0; i < 160; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); await editOn(page); return pl(page); } } // ((beta 7.14, View / Edit) shown: Edit on, to change it)
   throw new Error(`no plan shown: ${JSON.stringify(s)}`);
 }
 /** Export › Plan drawing (each question answered as a user going on would): the job's pins, the report's photo places and sheets. */
@@ -238,15 +239,15 @@ test('Regenerate plan preview (busy at once, then made); a photo dragged is kept
   // a second one by hand: the chip says two; asked first (Cancel keeps them); Back to automatic takes both back
   await drawing(page); await shown(page); F = (await ph(page)).frames.find((f) => f.id === 's3'); await drag(page, F, -30, 60); // (s3's: clear of the round tools)
   assert.equal(Object.keys((await ph(page)).pins).length, 2, JSON.stringify({ F, pins: (await ph(page)).pins }));
-  for (let i = 0; i < 40 && !(await pl(page)).phAll; i++) await page.waitForTimeout(250);
-  assert.equal((await pl(page)).phAll, '2 photos placed by hand · Back to automatic');
-  await page.click('#drawPhAll'); await page.waitForTimeout(300);
+  for (let i = 0; i < 40 && (await chgOf(page)).moved !== 2; i++) await page.waitForTimeout(250);
+  { const C = await chgOf(page); assert.deepEqual([C.moved, C.all], [2, 2], 'the chip ((beta 7.14, Changed by hand)): 2 moved'); assert.deepEqual(C.rows.map((r) => r.name).sort(), ['Photo of CC-9002', 'Photo of CC-9003']); }
+  await allAutomatic(page); // ((beta 7.14) More › All automatic: the question the chip of 7.9-7.13 asked)
   assert.match(await page.evaluate(() => document.getElementById('askTitle').textContent), /^Back to automatic: 2 photos\?$/);
   await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Cancel').click()); await page.waitForTimeout(250);
   assert.equal(Object.keys((await ph(page)).pins).length, 2, 'Cancel: kept');
-  await page.click('#drawPhAll'); await page.waitForTimeout(300);
+  await allAutomatic(page);
   await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
-  assert.deepEqual((await ph(page)).pins, {}); assert.equal((await pl(page)).phAll, null, 'the chip gone');
+  assert.deepEqual((await ph(page)).pins, {}); { const C = await chgOf(page); assert.deepEqual([C.moved, C.all], [0, 0], 'the chip: nothing changed by hand'); }
   assert.equal(await page.evaluate(() => 'phPin' in JSON.parse(localStorage.getItem('polecam.settings')).meta['DEMO DRAW TEST']), false, 'no pin kept');
   const s3 = await shown(page, () => true); for (let i = 0; i < 80 && Object.values((await ph(page)).at).some((a) => a.how === 'by hand'); i++) await page.waitForTimeout(250);
   assert.ok(Object.values((await ph(page)).at).every((a) => a.how === 'auto'), 'all back where the plan puts them'); void s3;

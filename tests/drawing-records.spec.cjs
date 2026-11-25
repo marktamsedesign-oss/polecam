@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { editOn, chgOf, allAutomatic } = require('./drawing-edit.cjs'); // ((beta 7.14, View / Edit) the Drawing opens in View: Edit on to change the plan)
 
 const root = path.resolve(__dirname, '..');
 const FX = path.join(__dirname, 'fixtures');
@@ -141,7 +142,7 @@ async function drawing(page, mpp, fy) {
   await page.evaluate(([la, lo, m, y]) => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); window.__polecam.drwLook(la, lo, m, r.width * 0.5, r.height * y); }, [LA0 + 0.0006, LO0 + 0.0012, mpp || 0.4, fy || 0.5]);
 }
 async function shown(page, when) {
-  let s = null; for (let i = 0; i < 240; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); return pl(page); } }
+  let s = null; for (let i = 0; i < 240; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); await editOn(page); return pl(page); } } // ((beta 7.14, View / Edit) shown: Edit on, to change it)
   throw new Error(`no plan shown: ${JSON.stringify(s)}`);
 }
 const again = (page, n0) => shown(page, (x) => x.n > n0);
@@ -224,7 +225,7 @@ async function exportKml(page) {
 test('keys and Redo: Ctrl + Z / Cmd + Z undo, Ctrl + Y / Cmd + Y / Ctrl + Shift + Z redo every change (a style, a pole moved, Existing / Proposed), one at a time; not while typing', async () => {
   const { ctx, page, errors } = await open({ desk: true });
   await drawing(page); await shown(page);
-  let I = await icoOf(page); assert.deepEqual(I.tools.map((t) => t.a), ['sel', 'addtext', 'addphoto', 'undo', 'redo', 'more'], 'Redo beside Undo'); assert.equal(I.tools.find((t) => t.a === 'redo').disabled, true, 'nothing to redo');
+  let I = await icoOf(page); assert.deepEqual(I.tools.map((t) => t.a), ['addtext', 'addphoto', 'undo', 'redo', 'more'], 'Redo beside Undo ((beta 7.14, View / Edit) the switch in Select\'s place)'); assert.equal(I.tools.find((t) => t.a === 'redo').disabled, true, 'nothing to redo');
   // three changes: a label larger (plan only), a pole moved (its record), a pole existing → proposed (its record)
   await select(page, 'lbl:s3'); await tbClick(page, 'h+'); await page.waitForTimeout(150);
   const r7 = await recOf(page, 's7'), p7 = await selectPt(page, 'pole:s7', 's7'); await drag(page, p7[0], p7[1], 0, -30); const r7b = await recWait(page, 's7', (r) => r.lat !== r7.lat);

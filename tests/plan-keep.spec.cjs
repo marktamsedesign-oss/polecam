@@ -26,6 +26,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { chromium } = require('playwright');
+const { editOn, chgOf, allAutomatic } = require('./drawing-edit.cjs'); // ((beta 7.14, View / Edit) the Drawing opens in View: Edit on to change the plan)
 
 const root = path.resolve(__dirname, '..');
 const FX = path.join(__dirname, 'fixtures');
@@ -232,7 +233,7 @@ const look = (page, lat, lon, mpp) => page.evaluate(([la, lo, m]) => { const r =
 async function shown(page, n, waitS) {
   let s = null; for (let i = 0; i < (waitS || 60) * 4; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && s.made > (n == null ? -1 : n)) break; s = null; }
   if (!s) throw new Error(`no plan shown: ${JSON.stringify(await pl(page))}`);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(400); await editOn(page); // ((beta 7.14, View / Edit) shown: Edit on, to change it)
   return { ...(await pl(page)), ph: await ph(page), hash: await page.evaluate(() => window.__polecam.drwPlanHash()) };
 }
 const made = async (page) => { const s = await pl(page); return s ? s.made : 0; };
@@ -366,8 +367,8 @@ test('a photo dragged into a cell with no sheet: that sheet prints and the Drawi
   assert.match(await page.evaluate(() => document.getElementById('drawInfo').textContent), new RegExp(`placed by hand on the plan · across the edge of sheets ${C.cut[0]} and ${C.cut[1]}: it prints cut on both, drag it inside one`));
   assert.match(await page.evaluate(() => document.getElementById('drawLegendBody').textContent), /A photo across a sheet’s edge \(orange\): it prints cut on both sheets/);
   // Back to automatic for all: asked (the sheets worked out again), then no pin, no grid kept, the plan as before the edits
-  for (let i = 0; i < 40 && !(await pl(page)).phAll; i++) await page.waitForTimeout(250);
-  const n1 = await made(page); await page.click('#drawPhAll'); await page.waitForTimeout(300);
+  for (let i = 0; i < 40 && !(await chgOf(page)).all; i++) await page.waitForTimeout(250);
+  const n1 = await made(page); await allAutomatic(page); // ((beta 7.14) More › All automatic: the question the chip of 7.9-7.13 asked)
   assert.match(await page.evaluate(() => document.getElementById('askTitle').textContent), /^Back to automatic: 2 photos\?$/);
   assert.match(await page.evaluate(() => document.getElementById('askText').textContent), /the plan's sheets are worked out again/);
   await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
