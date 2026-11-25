@@ -115,6 +115,9 @@ const LINES = [
   ['Drawing preview', '!regenerate plan preview · plan preview · sheet grid · drawing grid · pdf preview on the drawing', 'drawing'],
   // (beta 7.10, Drawing labels): on the Drawing, drag a cable label, a pole number or a pole's details to place it by hand; Undo; Back to automatic for all
   ['Drawing labels', '!drag a label · !move pole details · move cable label · move pole number · undo on the drawing · labels placed by hand', 'drawing'],
+  // (beta 7.11, Drawing tools): select anything on the plan, its toolbar (font size, bold, italic, colour, turn, size, Existing / Proposed, This one / All like it), poles moved on the plan, a cable label's arrow tip; Plan style › Lines to the pole, Closure labels
+  ['Drawing tools', '!select more · !drawing toolbar · font size on the drawing · rotate label · turn a label · move pole on the drawing · !arrow tip · arrow pointer · all like it', 'drawing'],
+  ['Drawing tools', '!lines to the pole · closure labels · !closure bubble', 'planstyle drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];
