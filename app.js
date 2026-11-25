@@ -2537,11 +2537,13 @@
     if (drw.selWant && drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.selWant) && !drw.add && !drwSels().length) { const w = drw.selWant; drw.selWant = null; drwMvTap(w); } // ((beta 7.12, Drawing edit) a note just added: selected once the plan has it)
     if (said && drw.ph) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
   }
+  let rkAgainOn = ''; // ((beta 7.14, Roads again) the project whose roads are being got again ('': none), roadsAgain)
   /** The Drawing's plan tools: Regenerate plan preview (busy while it is made), Sheet grid, the photos placed by hand. */
   function drwPlanUi() {
     if (!drw) return;
     const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen'), C = drwPinsN(drw.project), n = C.n; // ((beta 7.10, Drawing labels) everything placed by hand: photos, numbers, pole details, cable labels)
     rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
+    { const rd = $('drawRoads'), on = !!rkAgainOn; rd.hidden = rg.hidden || !$('dxfRoads').checked; rd.disabled = on; rd.setAttribute('aria-busy', String(on)); rg.classList.toggle('withrd', !rd.hidden); } // ((beta 7.14, Roads again) Get the roads again beside it, while the plan has roads (Plan style); not while they are being got)
     if (busy) $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = '';
     $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
     $('drawPhAll').hidden = !(pl && n); $('drawPhAllT').textContent = `${drwPinsSay(C)} ${C.chg ? 'changed' : 'placed'} by hand · Back to automatic`; // ((beta 7.11, Drawing tools) styled or turned: changed)
@@ -2559,6 +2561,7 @@
     drwMvShowPins(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel && drwSels().length <= 1) drwMvTap(drw.mvSel); else if (drwSels().length) { drwSelSay(); drwTbRender(); } drwPlanUi(); drawDrawing(); drwPhSoon(0);
   }
   $('drawRegen').addEventListener('click', () => { if (!drw || drw.phBusy) return; LOG.info('draw.plan.regen', {}); clearTimeout(drwPhT); drwPhForce = true; drw.phBusy = true; drwPlanUi(); drwPhGo(true); });
+  $('drawRoads').addEventListener('click', () => { if (drw && !rkAgainOn) guardRun(() => roadsAgain('drawing'), 'Roads not got again'); }); // ((beta 7.14, Roads again) asked first; the preview being made is made again after)
   $('drawGrid').addEventListener('change', () => { S.drawGrid = !!$('drawGrid').checked; persist(); LOG.info('draw.plan.grid', { on: S.drawGrid }); drwPlanUi(); drawDrawing(); });
   $('drawPhAll').addEventListener('click', () => { drwPhAutoAll(); });
   /* (beta 7.10, Drawing labels) Labels, numbers and pole details placed by hand on the Drawing (the owner: "I want the drawing to be the preview of pdf export plan
@@ -2957,10 +2960,13 @@
       o.recs = U.recs.map((r) => { const cur = points.find((x) => String(x.id) === String(r.id)); return cur ? JSON.parse(JSON.stringify(cur)) : { id: r.id, gone: true, project: proj }; });
       const ph = []; for (const r of U.recs) { if (!r.gone) continue; const cur = points.find((x) => String(x.id) === String(r.id)); if (cur) for (const pid of allPids(cur)) { const x = await dbGet('photos', pid).catch(() => null); if (x) ph.push(x); } } if (ph.length) o.ph = ph;
     }
-    if (U.route) o.route = routeSnap(); return o;
+    if (U.route) o.route = routeSnap();
+    if (U.roads) { const K = await rkGet(proj).catch(() => null); o.roads = K ? K.parts.slice() : []; } // ((beta 7.14, Roads again) the roads kept now, for the way back)
+    return o;
   }
   /** (beta 7.12, Drawing edit) A step applied: the pins, then each record as it was (one marked gone: deleted, as its record's Delete does), its photos back, the route. */
   async function drwStepApply(proj, U) {
+    if (U.roads) await rkSet(proj, () => U.roads.slice()).catch((e) => LOG.warn('plan.roads.undo', errInfo(e))); // ((beta 7.14, Roads again) the roads kept as they were then: the preview made next uses them)
     const m = { ...pmeta(proj) };
     for (const k of MV_KEYS) { if (U.pins[k] && Object.keys(U.pins[k]).length) m[k] = U.pins[k]; else delete m[k]; }
     if (!pinsAny(m)) delete m.planGrid; else if (U.pins.planGrid) m.planGrid = U.pins.planGrid; // ((beta 7.10, Plan kept) the grid as it was kept then (none kept then: the one kept now); none placed by hand: worked out again)
@@ -2985,6 +2991,7 @@
     const U = A.splice(j, 1)[0]; B.push(await drwStepNow(proj, U)); if (B.length > 60) B.shift();
     LOG.info(dir === 1 ? 'draw.redo' : 'draw.undo', { what: U.what, left: A.filter((u) => u.project === proj).length });
     const recs = await drwStepApply(proj, U), m = pmeta(proj);
+    if (U.roads) toast(dir === 1 ? 'Redo: the roads got again are back' : 'Undo: the roads before are back', 4000); // ((beta 7.14, Roads again) said: the change can be away from what the Drawing shows)
     if (recs) { drwRecsShow(); return; } // ((beta 7.11, Drawing tools) the records as they were: the Drawing made again with them)
     if (drw.ph && drw.ph.at) { // (the photos where their pins put them, until the plan's places come)
       const pp = m.phPin || {}, at = {};
@@ -12366,6 +12373,8 @@
         else if (tpl && S.dxfSeed) L.push(['ok', 'On your company’s plan template']);
         if (N && N.roads && (tpl || $('dxfRoads').checked)) L.push(['no', `The road pack of ${N.roads.regions.length === 1 && REGION_BY[N.roads.regions[0]] ? REGION_BY[N.roads.regions[0]][2] : 'this area'} is not on this phone`, 'Get it ›', 'roads', N.roads.regions[0] || '']);
         if (N && N.map && tpl) L.push(['no', 'The offline map of this area is not on this phone', 'Get it ›', 'map']);
+        const RK = tpl && $('dxfRoads').checked ? rkKnown(S.project) : null; // ((beta 7.14, Roads again) the roads the plan keeps (since its first preview or export), got again from here too)
+        if (RK) L.push(['ok', `Roads kept with this project since ${dateOnly(RK.at)} (${RK.from})`, 'Get again ›', 'roadsAgain']);
       }
     }
     xChk = L; box.hidden = !L.length;
@@ -12377,6 +12386,7 @@
     if (what === 'loose') { const ids = loosePoles().map((p) => p.id); if (ids.length) xfStart(ids, null, false); }
     else if (what === 'hidden') { $('listSearch').value = 'not exported'; renderList(); openSheet('list'); }
     else if (what === 'tpl') { if (seedId()) $('dxfTplGet').click(); else openStyle('advanced', 'stFile'); }
+    else if (what === 'roadsAgain') { if (!rkAgainOn) guardRun(() => roadsAgain('export'), 'Roads not got again'); } // ((beta 7.14, Roads again) asked first, as on the Drawing)
     else guard(() => mapsGuide(what, x[4] || ''), 'Maps not opened');
   });
   // a tile: picked or not (a solo tile alone); Everything: every main tile, or none; a quick pick: its tiles
@@ -13824,6 +13834,104 @@
     LOG.info('plan.roads.kept', { src: part.src, roads: part.roads.length, pois: part.pois.length, parts: parts.length });
     return part;
   }
+  /* (beta 7.14, Roads again) The owner (beta 7.13): "the 'Get the roads again' button for a project's plan." The roads kept with a plan (above) never change
+     by themselves (beta 7.10: "There's no 'get the roads again' button"; the owner: "Yes, add it next"). Get the roads again (on the Drawing beside Regenerate
+     plan preview; in Export's checks beside the roads kept) asks first: the plan may change once (poles on a road that moved follow it), the changes made by
+     hand stay. Then each kept part is got again for its own area, not quietly (the busy screen, as an export's: a road pack on the phone, else
+     OpenStreetMap), and the parts are kept in place of the old ones (one write) only when every one came from a road pack or OpenStreetMap; else the roads
+     kept stay and why is said (offline, OpenStreetMap did not answer or sent only part). The plan's places with no roads kept yet (none at all: the first
+     time) are got as the first preview online gets them. Then the preview is made again and what came is said. One Undo step on the Drawing puts the roads
+     before back while the app is open (drwStepApply). One at a time (rkAgainOn): a second press while it runs does nothing. */
+  const rkKey = (x) => JSON.stringify([x.zone, x.bb, x.nb, x.at]); // (a kept part: its place and when it was got)
+  /** Every kept part of a project's roads changed at once (fn: the parts now → the parts to keep), in turn with rkPut: { was, parts }, or null with none kept. */
+  function rkSet(proj, fn) {
+    const r = rkChain.then(async () => {
+      const id = (pmeta(proj).planRoads || {}).id; if (!id) return null;
+      const K = (await rkGet(proj)) || { id, parts: [] }, was = K.parts.slice(), parts = fn(K.parts.slice());
+      await dbPut('packs', { k: RK_PRE + id, project: proj, parts }); rkMem.set(id, { id, parts }); return { was, parts };
+    });
+    rkChain = r.catch(() => {}); return r;
+  }
+  /** The roads and named places of kept parts as the plan counts them (a road in two places' parts once, as planJob joins them). */
+  function rkCount(parts) {
+    const R = new Set(), P = new Set(), at = (q) => `${Math.round(q[0])},${Math.round(q[1])}`;
+    for (const x of parts) {
+      for (const r of x.roads || []) if (r.pts && r.pts.length) R.add(`${r.name}|${r.pts.length}|${at(r.pts[0])}|${at(r.pts[r.pts.length - 1])}`);
+      for (const q of x.pois || []) P.add(`${q.name}|${Math.round(q.E)},${Math.round(q.N)}`);
+    }
+    return { r: R.size, p: P.size };
+  }
+  const rkSay = (n) => `${n.r} road${n.r === 1 ? '' : 's'}${n.p ? ` and ${n.p} named place${n.p === 1 ? '' : 's'}` : ''}`;
+  const rkFrom = (parts) => { const s = new Set(parts.map((x) => x.src)); return [...(s.has('pack') ? ['a road pack'] : []), ...(s.has('osm') ? ['OpenStreetMap'] : [])].join(' and ') || 'OpenStreetMap'; };
+  /** Why the roads did not come (planRoads' answer), in the app's words. */
+  const rkWhy = (r) => (r && r.src === 'osm-part' ? 'OpenStreetMap was busy and sent only part of them (try again later)' : navigator.onLine === false ? 'this phone is offline, and no road pack on it covers the area' : 'OpenStreetMap did not answer, and no road pack on this phone covers the area');
+  /** The roads kept with a project's plan as far as known now, without waiting (Export's checks): { n, at: the oldest part's, from }, or null; read for next time. */
+  const rkReading = new Set();
+  function rkKnown(proj) {
+    const id = (pmeta(proj).planRoads || {}).id; if (!id) return null;
+    const K = rkMem.get(id);
+    if (!K) { if (!rkReading.has(id)) { rkReading.add(id); rkGet(proj).catch(() => null).finally(() => { rkReading.delete(id); if (!$('export').hidden && S.project === proj) xChecksRender(); }); } return null; }
+    const P = K.parts.filter((x) => x.zone === S.zone); return P.length ? { n: P.length, at: P.map((x) => x.at).sort()[0], from: rkFrom(P) } : null;
+  }
+  /** Get the roads again (from: 'drawing' or 'export'), asked first: see above. */
+  async function roadsAgain(from) {
+    const proj = S.project; if (!proj || rkAgainOn) return; // (a second press while it runs: nothing more)
+    if (!$('dxfRoads').checked) { toast('Roads are left off this plan: Plan style › More settings › Plan file › Roads from OpenStreetMap around the poles', 6000); return; }
+    const zone = S.zone, K0 = await rkGet(proj).catch(() => null), had = K0 ? K0.parts.filter((x) => x.zone === zone) : [];
+    const keptNow = had.length ? `\nKept now: ${rkSay(rkCount(had))} from ${rkFrom(had)}, since ${dateOnly(had.map((x) => x.at).sort()[0])}.` : '';
+    if (!(await ask(had.length ? 'Get the roads again?' : 'Get the roads?', had.length
+      ? `The roads of this project's plan are got again: from a road pack on this phone, else from OpenStreetMap (internet).${keptNow}\nThe plan may change once: poles on a road that moved follow it. The changes made by hand stay.\nUndo (↶) on the Drawing puts the roads back as they were.`
+      : 'This project\'s plan has no roads kept yet: they are got now, from a road pack on this phone, else from OpenStreetMap (internet), and kept with the project.\nThe plan may change once: poles follow their road. The changes made by hand stay.',
+    [{ label: 'Cancel', value: false }, { label: had.length ? 'Get the roads again' : 'Get the roads', value: true, primary: true }]))) return;
+    if (S.project !== proj || rkAgainOn) return; // (another project open meanwhile, or under way already)
+    rkAgainOn = proj; if (drw) drwPlanUi(); LOG.info('plan.roads.again', { from, parts: had.length });
+    let say = '', bad = false, changed = false;
+    try {
+      busy(had.length ? 'Getting the roads again…' : 'Getting the roads…');
+      if (!window.GeDxfTpl) await loadScript('dxftpl.js');
+      const areas = S.project === proj ? await xNow(() => planJob(projPoints(), { preview: true, areas: true })) : []; // (the plan's places now, as its preview and export find them)
+      // each kept part got again for its own area; kept in place of the old ones only when every one came from a road pack or OpenStreetMap
+      const K = await rkGet(proj).catch(() => null), mine = K ? K.parts.filter((x) => x.zone === zone) : [], got = new Map(), at = new Date().toISOString();
+      let fail = null;
+      for (let k = 0; k < mine.length && !fail; k++) {
+        busy(mine.length > 1 ? `Getting the roads again: place ${k + 1} of ${mine.length}…` : 'Getting the roads again…');
+        const r = await planRoads(mine[k].bb, mine[k].nb, false, false);
+        if (r.src === 'pack' || r.src === 'osm') got.set(rkKey(mine[k]), { ...mine[k], src: r.src, at, note: r.note, roads: r.roads, pois: r.pois }); else fail = r;
+      }
+      if (fail) { bad = true; say = `Roads not got again: ${rkWhy(fail)}. The plan keeps the roads it has.`; LOG.warn('plan.roads.again.kept', { src: fail.src, parts: mine.length }); }
+      else if (got.size) {
+        const nw = [...got.values()], same = JSON.stringify(mine.map((x) => [x.roads, x.pois])) === JSON.stringify(nw.map((x) => [x.roads, x.pois]));
+        const W = await rkSet(proj, (P) => P.map((x) => got.get(rkKey(x)) || x));
+        if (W && !same) { // (one Undo step: the roads as they were; a new change: nothing to redo)
+          drwUndoStack.push({ project: proj, what: 'roads got again', pins: drwPinsSnap(pmeta(proj)), roads: W.was }); if (drwUndoStack.length > 60) drwUndoStack.shift();
+          for (let k = drwRedoStack.length - 1; k >= 0; k--) if (drwRedoStack[k].project === proj) drwRedoStack.splice(k, 1);
+        }
+        changed = !same; LOG.info('plan.roads.again.got', { parts: nw.length, same, roads: rkCount(nw).r, was: rkCount(mine).r });
+        say = same ? `Roads got again: the same ${rkSay(rkCount(nw))} from ${rkFrom(nw)}: the plan does not change.` : `Roads got again: ${rkSay(rkCount(nw))} from ${rkFrom(nw)} (before: ${rkSay(rkCount(mine))}).`;
+      }
+      // the plan's places with no roads kept (none at all: the first time): got and kept as the first preview online gets them
+      if (!fail) {
+        const K2 = await rkGet(proj).catch(() => null), have = K2 ? K2.parts : [], miss = (areas || []).filter(([bb, nb]) => !have.some((x) => x.zone === zone && rkBox(bb, x.bb) && rkBox(nb, x.nb)));
+        const firstGot = []; let firstBad = null;
+        for (let k = 0; k < miss.length; k++) {
+          busy(miss.length > 1 ? `Getting the roads: place ${k + 1} of ${miss.length}…` : 'Getting the roads…');
+          const [bb, nb] = miss[k]; rkFail.delete(`${proj}|${zone}|${JSON.stringify([bb, nb])}`); // (the preview's 3 minutes without the internet after a failed try: not for this)
+          let r = await planRoadsOf(proj, bb, nb, false);
+          if ((r.src === 'map' || r.src === 'none') && !r.tried && navigator.onLine !== false) r = await planRoadsOf(proj, bb, nb, false); // (the preview's quiet get, under way, did not try the internet: tried now)
+          if (r.src === 'pack' || r.src === 'osm') firstGot.push({ src: r.src, roads: r.roads || [], pois: r.pois || [] }); else firstBad = firstBad || r;
+        }
+        if (firstGot.length) changed = true;
+        if (miss.length && !got.size) { bad = !firstGot.length; say = firstGot.length ? `Roads got: ${rkSay(rkCount(firstGot))} from ${rkFrom(firstGot)}, kept with this project${firstBad ? `; ${miss.length - firstGot.length} of ${miss.length} places not (${rkWhy(firstBad)})` : ''}.` : `Roads not got: ${rkWhy(firstBad)}.`; }
+        else if (miss.length) say += ` ${miss.length === 1 ? 'A place' : `${miss.length} places`} of the plan with no roads kept yet: ${firstBad ? `${firstGot.length ? 'some ' : ''}not got (${rkWhy(firstBad)})` : 'got and kept too'}.`;
+        else if (!got.size) say = 'No roads to get: the plan has no points with a place yet.';
+        LOG.info('plan.roads.again.first', { places: miss.length, got: firstGot.length });
+      }
+    } finally { rkAgainOn = ''; busy(false); }
+    if (changed && drw && drw.project === proj && !$('drawing').hidden && drw.plWant) { clearTimeout(drwPhT); drwPhForce = true; drw.phBusy = true; drwPlanUi(); drwPhGo(true); } // (the preview made again now with them; one being made stops)
+    else if (drw) drwPlanUi();
+    if (!$('export').hidden) xChecksRender();
+    if (say) toast(S.project !== proj ? `${proj}: ${say}` : say, bad ? 8000 : 6500);
+  }
   /** Roads and named places read from the downloaded map packs (Protomaps vector tiles, zoom 14) that cover the area. Each road is
       cut exactly at its tile's edge, so the pieces of neighbouring tiles meet (the plan joins them again). Every pack at once:
       each tile comes from one pack (PackSet), so where two packs overlap no road is there twice. */
@@ -14127,6 +14235,7 @@
     // the whole vicinity area
     const south = rows.some((r) => r.lat < 0), locs = window.GeDxfTpl.locations(rows, spans), nLoc = locs.length;
     const llBox = (b, m) => { const c = [[b[0] - m, b[1] - m], [b[2] + m, b[1] - m], [b[0] - m, b[3] + m], [b[2] + m, b[3] + m]].map(([E, N]) => C.utmInverse(E, N, zone, south)); return [Math.min(...c.map((q) => q[0])), Math.min(...c.map((q) => q[1])), Math.max(...c.map((q) => q[0])), Math.max(...c.map((q) => q[1]))]; };
+    if (o && o.areas) return locs.map((l) => [llBox(l.box, 500), llBox(l.box, 250)]); // ((beta 7.14, Roads again) only the places whose roads the plan gets, as the loop below asks planRoadsOf)
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), isNew = (p) => ['Proposed', 'New'].includes(p.status), exist = poles.filter((p) => !isNew(p));
     const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = isGlobePole; // (beta 6.6: Globe's own poles, as the numbers' colours: its type, or Globe as owner)
     const m1 = (v) => `${(Math.round(v * 10) / 10).toFixed(1)}m`;
@@ -22816,7 +22925,7 @@
   /* (beta 7.10, Plan kept) for tests: what is kept with a project's plan (the grid, the roads: each place's area, where they came from, when, how many), a display
      list's hash (the Drawing's plan; or the one dxfpdf.js's planList makes of a DXF and its report, on the page: an export's) */
   window.__polecam.planKept = async (n) => { const nm = n || S.project, m = pmeta(nm), K = await rkGet(nm).catch(() => null);
-    return { grid: m.planGrid ? JSON.parse(JSON.stringify(m.planGrid)) : null, id: (m.planRoads || {}).id || null, roads: K ? K.parts.map((x) => ({ bb: x.bb, nb: x.nb, zone: x.zone, src: x.src, at: x.at, roads: x.roads.length, pois: x.pois.length, note: x.note })) : null }; };
+    return { grid: m.planGrid ? JSON.parse(JSON.stringify(m.planGrid)) : null, id: (m.planRoads || {}).id || null, roads: K ? K.parts.map((x) => ({ bb: x.bb, nb: x.nb, zone: x.zone, src: x.src, at: x.at, roads: x.roads.length, pois: x.pois.length, note: x.note, names: x.roads.map((r) => r.name) })) : null }; }; // ((beta 7.14, Roads again) and the roads' names)
   window.__polecam.drwPlanHash = () => (drw && drw.ph && drw.ph.plan ? planListHash(drw.ph.plan) : null);
   window.__polecam.planListHash = (text, report) => (window.GeDxfPdf ? planListHash(window.GeDxfPdf.planList(text, report)) : null);
   window.__polecam.drwPx = (E, N) => { if (!drw || !drw.view) return null; const [x, y] = drwPx([E, N]), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; };

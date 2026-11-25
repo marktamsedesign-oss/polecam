@@ -126,6 +126,8 @@ const LINES = [
   ['Drawing edit', '!delete on the drawing · delete from the plan · delete a guy on the drawing · !edit text record', 'drawing'],
   // (beta 7.13, Drawing fixes): a right-click on the plan, on a computer: the tools of what is under the pointer as a menu there
   ['Drawing fixes', '!right-click on the plan · !context menu on the drawing · right click menu · options menu on the drawing', 'drawing'],
+  // (beta 7.14, Roads again): the roads a plan keeps got again (the Drawing, beside Regenerate plan preview; Export's checks)
+  ['Roads again', '!get the roads again · !roads again · refresh the roads · update the roads · new roads from openstreetmap · download the roads again', 'drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];
