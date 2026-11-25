@@ -540,7 +540,7 @@
     const lwOf = (n) => { const l = dg.layers.find((x) => x.name === n); return l && l.lw > 0 ? l.lw : null; };
     const lw = {}; for (const c of LAYER_CLASSES) if (c.lw && layers[c.k] && lwOf(layers[c.k])) lw[c.lw] = lwOf(layers[c.k]);
     if (ex && lwOf(ex.name)) lw.cableExisting = lwOf(ex.name);
-    const med = dg.heights.modelMedian, scale = med ? Math.min(1.4, Math.max(0.7, Math.round(med / 2.5 * 20) / 20)) : 1;
+    const med = dg.heights.modelMedian, scale = med ? Math.min(1.25, Math.max(0.8, Math.round(med / 2.5 * 20) / 20)) : 1; // (gently: a sample may be drawn at another scale; the review says its size)
     const keepG = dg.model.groups.filter((g) => g.kind !== 'drawing' && g.shown.some((x) => keepSheets.has(x.sheet) && !(x.main && x.sheet === sp.plan))).map((g) => g.id);
     return { v: 1, name: name.slice(0, 60), client: clientF ? clientF.value.slice(0, 60) : name.slice(0, 60), plan: sp.plan, keymap: sp.keymap, cef: sp.cef, keep: sp.keep, fields, symbols, tags,
       look: { font: dg.font.main, bold: dg.font.bold, scale, lw, layers, cableEx: ex ? ex.name : '' }, model: { keep: keepG }, exported: true };
@@ -737,7 +737,7 @@
       for (const s of ['TABLES', 'OBJECTS']) for (const r of d.sec(s).recs) if (typ(r) !== 'BLOCK_RECORD') for (const p of r) if (HANDLE_CODES(p[0])) ptr.add(p[1]);
       const gone = new Set();
       for (const [n, b] of S.blocks) {
-        if (/^\*/.test(n) || used.has(n)) continue; const br = S.brByName.get(n); if (!br || ptr.has(get(br, 5))) continue;
+        if (/^\*/.test(n) || used.has(n) || ptr.has(n)) continue; const br = S.brByName.get(n); if (!br || ptr.has(get(br, 5))) continue; // (one the header names, e.g. $DIMBLK: kept)
         [get(br, 5), handleOf(b.begin), handleOf(b.end), ...b.ents.map(handleOf)].filter(Boolean).forEach((h) => gone.add(h));
       }
       if (!gone.size) return; removeHandles(d, gone);
@@ -818,11 +818,20 @@
   /* ---------------- the client's symbols as the plan's ---------------- */
   /** The plan's symbols in the seed: the client's block chosen for each, renamed to the plan's block name (its inserts and attribute tags with it),
       its drawing on its base point and at the size the plan places its own at; or the app's own plain shape. → look.blocks */
+  /** Block names dxftpl.js uses as the company template's own (other kinds of NAP, LCP, manhole, service box, OLT, HDD, the title block PAGING, its own
+      G-ESAA blocks): a client block of such a name would be drawn as one of them at the company's scale, or filled as the company's title block. */
+  const BUILDER_NAMES = /^(1_16NAP|dummy nap|AUGMENT NAP 1X16|proposed Double NAP|existing Double NAP|proposed LCP|existing LCP|LCP 2|HANDHOLE|PROPOSED MAN HOLE|MH|proposed service box|SB|7|proposed HDD Directional Boring|existing HDD Directional Boring|PAGING|G-ESAA .*)$/;
   function applySymbols(d, map, style, notes) {
     const T = TPL(), done = new Map(), rec = {};
     const exists = (n) => T.structure(d).blocks.has(n);
+    const syms = { ...(map.symbols || {}) }, want0 = new Set(Object.values(syms).filter(Boolean)); // (a copy: the review's choices stay as they were)
+    for (const n of [...T.structure(d).blocks.keys()]) if (!/^\*/.test(n) && BUILDER_NAMES.test(n) && !SYM.has(n)) { // (one the review chose is renamed to the plan's name below)
+      let k = 1; while (exists(`${n} (CLIENT${k > 1 ? ` ${k}` : ''})`)) k++; const to = `${n} (CLIENT${k > 1 ? ` ${k}` : ''})`; renameBlock(d, n, to);
+      if (want0.has(n)) for (const s0 of Object.keys(syms)) if (syms[s0] === n) syms[s0] = to;
+      notes.push(`The client's block ${n} renamed ${to}: the plan uses that name for its own`);
+    }
     for (const s of SYMBOLS) {
-      let want = map.symbols ? map.symbols[s.name] : null; if (want && !exists(want) && !done.has(want)) want = null;
+      let want = syms[s.name] || null; if (want && !exists(want) && !done.has(want)) want = null;
       if (exists(s.name) && want !== s.name) { let k = 1; while (exists(`${s.name} (CLIENT${k > 1 ? ` ${k}` : ''})`)) k++; renameBlock(d, s.name, `${s.name} (CLIENT${k > 1 ? ` ${k}` : ''})`); } // (a client block of that name that is not it)
       if (!want) { addBlock(d, s.name, s.g, style); rec[s.name] = { name: null, tags: {} }; continue; }
       if (done.has(want)) copyBlockDef(d, done.get(want), s.name); else if (want !== s.name) { renameBlock(d, want, s.name); done.set(want, s.name); } else done.set(want, s.name);

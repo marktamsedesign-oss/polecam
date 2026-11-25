@@ -57,7 +57,7 @@ test('digest (a): A1 in mm, the title block\'s attributes by tag and label, ROMA
   assert.equal(P.symbols['P-Joint'], 'SPLICE-CLOSURE'); assert.deepEqual(P.tags['P-Joint'], { JT_ID: 'CL_TYPE', JOINT: 'CL_ID' }); assert.equal(P.symbols['proposed Handhole'], 'HANDHOLE');
   assert.equal(P.symbols.loopp, null); assert.equal(P.symbols['X-BTS'], null);
   assert.deepEqual(P.look.layers, { cable: 'FO-CABLE-PROP', pole: 'POLE', symbol: '', text: 'TEXT', road: 'ROAD', grid: '', photo: '' });
-  assert.deepEqual(P.look.lw, { cable: 50, cableExisting: 35, pole: 35, leader: 18, road: 13 }); assert.equal(P.look.scale, 0.7); // (its sample texts 1.8 m high)
+  assert.deepEqual(P.look.lw, { cable: 50, cableExisting: 35, pole: 35, leader: 18, road: 13 }); assert.equal(P.look.scale, 0.8); // (its sample texts 1.8 m high: smaller, gently)
   assert.equal(D.model.groups.length, 2);
   const legend = D.model.groups.find((g) => g.kind === 'legend'), sample = D.model.groups.find((g) => g.kind === 'drawing');
   assert.deepEqual(P.model.keep, [legend.id]); assert.ok(sample.shown.some((x) => x.sheet === 'PLAN' && x.main));
@@ -156,6 +156,12 @@ test('make (b): a value added beside each label that had none; the client\'s NAP
   const bb = T.blockBox(S, 'proposed NAP', 0); assert.ok(Math.abs((bb[2] - bb[0]) - 10) < 1e-6, `the NAP 10 m wide: ${bb}`);
 });
 
+test('a client block named as one of the builder\'s own (SB, PAGING): renamed "… (CLIENT)", so the plan does not draw it as the company\'s', () => {
+  const src = SRC.a.replace(/\nNORTH-A\r?\n/g, '\nSB\n').replace(/\nDEMO-LOGO-A\r?\n/g, '\nPAGING\n'), D = G.digest(src, 'a2.dxf'), m = G.make(src, G.proposal(D), D), I = info(m.plan);
+  assert.ok(!I.S.blocks.has('SB') && !I.S.blocks.has('PAGING'), 'not under the builder\'s names'); assert.ok(I.S.blocks.has('SB (CLIENT)') && I.S.blocks.has('PAGING (CLIENT)'));
+  assert.ok(m.notes.some((t) => /SB renamed SB \(CLIENT\)/.test(t)), m.notes.join(' | ')); assert.deepEqual(G.structCheck(m.plan), []);
+  assert.equal(G.check(m, G.proposal(D)).ok, true);
+});
 test('a key map copied for a second place keeps the client\'s sheet (its sheet the active one, dxftpl.js copies it with its entities)', () => {
   for (const k of ['b', 'c']) {
     const m = made(k), j = G.madeUpJob(m.look);

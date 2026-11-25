@@ -164,8 +164,8 @@ async def main():
         await pg.click('label[for="psCA"]'); await W(pg, 300); ca1 = await pg.evaluate("__polecam.S.exp.dxfClampType"); await pg.click('label[for="psCA"]'); await W(pg, 200); ca2 = await pg.evaluate("__polecam.S.exp.dxfClampType")
         await pg.click('#plMore > summary'); await W(pg, 400); sty = await pg.evaluate("document.getElementById('plMore').open")
         await pg.keyboard.press('Escape'); await W(pg, 400); shut = await pg.evaluate("[document.getElementById('drwStyle').hidden, document.body.classList.contains('drwside')]")
-        check('P1. Plan style (its button on the Drawing): beside the plan on a computer; the 8 main rows in their cards, 7 cards and 6 sections in More settings (template, logo, kind of drawing and zone in it); the clamp types switch; Esc closes',
-              'side' in st['cls'] and st['w'] >= 720 and st['rows'] == BASIC and len(st['secs']) == 13 and st['ca'] and st['num']
+        check('P1. Plan style (its button on the Drawing): beside the plan on a computer; the 8 main rows in their cards, 8 cards ((beta 7.15) Template first) and 6 sections in More settings (template, logo, kind of drawing and zone in it); the clamp types switch; Esc closes',
+              'side' in st['cls'] and st['w'] >= 720 and st['rows'] == BASIC and len(st['secs']) == 14 and st['secs'][0] == 'Template' and st['ca'] and st['num']
               and st['tpl'].startswith('✓') and st['kind'] == 'Company plan' and st['inside'] and ca1 is False and ca2 is True and sty and shut == [True, False], (st, ca1, ca2, sty, shut))
         await close_sheets(pg); await pg.click('#drawBtn'); await W(pg, 1500); await pg.click('#drawSetBtn'); await W(pg, 500)
         await pg.click('#stPole > summary'); await W(pg, 300); await pg.click('label[for="psCA"]'); await W(pg, 300)
