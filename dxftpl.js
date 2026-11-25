@@ -1299,8 +1299,9 @@
   /** (beta 7.15, Template look) the look's style for a style the plan asks for (s: 'arial', 'G-ESAA BOLD', a block's attribute's style…): bold / italic as that
       style is (the plan's bold ones by name, else its font's flags or file) */
   function lookFor(d, s) {
+    const C = d.look.memo || (d.look.memo = new Map()), k = String(s == null ? '' : s); if (C.has(k)) return C.get(k); // (once per style asked for: every text the plan writes asks)
     const r = styleRec(d, s), f = r ? styleFont(r) : null, lb = lookBI(d, s);
-    return lookStyle(d, (lb && lb.b) || /^G-ESAA (BOLD|ARIAL BI?)$/.test(s || '') || !!(f && f.bold), (lb && lb.i) || /^G-ESAA ARIAL B?I$/.test(s || '') || !!(f && f.italic));
+    const v = lookStyle(d, (lb && lb.b) || /^G-ESAA (BOLD|ARIAL BI?)$/.test(s || '') || !!(f && f.bold), (lb && lb.i) || /^G-ESAA ARIAL B?I$/.test(s || '') || !!(f && f.italic)); C.set(k, v); return v;
   }
   /** (beta 7.15, Template look) the MTEXT font code of the look for a part bold b, italic i: \F<file>; (an SHX font), \f<Family>|b…|i…|c0|p…; (a TrueType one;
       its bold style's font for a bold part when it has one); '' a TrueType font of no known family (the part left to the MTEXT's style); null: no look */
