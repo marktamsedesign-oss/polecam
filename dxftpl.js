@@ -1274,7 +1274,8 @@
     const n = (q) => (q != null && q !== '' && typeof q !== 'boolean' && Number.isFinite(+q) ? +q : null), tx = v.text && typeof v.text === 'object' ? v.text : {}, sm = styleRec(d, tx.style), sb = styleRec(d, tx.bold);
     const fontOf = (r) => { if (!r) return null; const f = styleFont(r), app = APP_FONTS.find((a) => a.file === fontBase(f.file)); return { style: String(get(r, 2)), file: f.file, shx: f.shx, bold: f.bold, family: f.shx ? null : f.family || (app && app.family) || null, pf: f.flags != null && (f.flags & 0xff) ? f.flags & 0xff : app && app.pf ? app.pf : 34, flags: f.flags, v: app ? app.v : null }; };
     const lw = {}; if (v.lw && typeof v.lw === 'object') for (const k of ['cable', 'cableExisting', 'pole', 'symbol', 'leader', 'road']) { const w = n(v.lw[k]); if (w != null && w >= 0 && w <= 211) lw[k] = LW_SNAP.reduce((a, b) => (Math.abs(b - w) < Math.abs(a - w) ? b : a), 0); }
-    const layers = {}; if (v.layers && typeof v.layers === 'object' && !Array.isArray(v.layers)) for (const [k, c] of Object.entries(v.layers)) if (typeof c === 'string' && c && c !== k && S.layers.has(c)) layers[k] = c;
+    const LN = new Set(d.sec('TABLES').recs.filter((r) => typ(r) === 'LAYER').map((r) => String(get(r, 2, '')))); // (the seed's layers, read from its table)
+    const layers = {}; if (v.layers && typeof v.layers === 'object' && !Array.isArray(v.layers)) for (const [k, c] of Object.entries(v.layers)) if (typeof c === 'string' && c && c !== k && LN.has(c)) layers[k] = c;
     const sh = v.sheet && typeof v.sheet === 'object' ? v.sheet : null, mm = sh ? n(sh.mm) : null, sc = n(tx.scale);
     return { name: String(v.name || ''), style: sm ? String(get(sm, 2)) : null, bold: sm && sb ? String(get(sb, 2)) : null, main: fontOf(sm), boldF: sm ? fontOf(sb) : null, scale: sc != null && sc > 0 ? Math.max(0.5, Math.min(3, sc)) : 1, lw, layers, sheet: mm > 0 ? { mm } : null };
   }
@@ -5838,7 +5839,7 @@
     if (LOOK && Object.keys(LOOK.layers).length) {
       const KEEPL = new Set([VLAY, VMAP, KMLAY, 'GRIDNO', 'GRIDNO.', 'G-ESAA RTA LEGEND']), MAPL = new Map(Object.entries(LOOK.layers).filter(([k]) => !KEEPL.has(k))), moved = new Map();
       for (const sec of ['ENTITIES', 'BLOCKS']) for (const r of d.sec(sec).recs) { const h = r[1] && r[1][0] === 5 ? r[1][1] : null; if (!h || seedH.has(h)) continue; const k8 = r.findIndex((q, i) => i > 0 && q[0] === 8); if (k8 < 0) continue; const to = MAPL.get(r[k8][1]); if (!to) continue; moved.set(r[k8][1], to); r[k8][1] = to; }
-      if (moved.size) { S = structure(d); const lh = (n) => (S.layers.has(n) ? get(S.layers.get(n), 5) : null);
+      if (moved.size) { const LH = new Map(d.sec('TABLES').recs.filter((r) => typ(r) === 'LAYER').map((r) => [String(get(r, 2, '')), get(r, 5)])), lh = (n) => LH.get(n) || null;
         for (const sec of ['ENTITIES', 'BLOCKS']) for (const vp of d.sec(sec).recs) { if (typ(vp) !== 'VIEWPORT') continue; const fz = new Set([...all(vp, 331), ...all(vp, 341)]), add = [];
           for (const [from, to] of moved) { const hf = lh(from), ht = lh(to); if (hf && ht && fz.has(hf) && !fz.has(ht) && !add.includes(ht)) add.push(ht); } vpFreeze(vp, add); }
         rep.lookLayers = Object.fromEntries(moved); }
