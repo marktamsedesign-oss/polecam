@@ -2646,8 +2646,8 @@
   /** Whether an item's text can be edited (a plan item with texts, report.movable can.text; a text note). */
   const canText = (m) => !!m && (isNote(m) ? m.kind !== 'notephoto' && !(noteNow(m) && noteNow(m).kind === 'photo') : !!canOf(m).text);
   /** (beta 7.11, Drawing tools) An item's kind from its id (the contract's prefixes), and the nouns the counts use. */
-  const MV_PFX = { ph: 'photo', num: 'number', lbl: 'details', cab: 'cable', pole: 'pole', site: 'site', sitelbl: 'sitedetails', sitename: 'sitename', nap: 'nap', clo: 'closure', clolbl: 'closurelabel', loop: 'loop', span: 'span', guy: 'guy', gnd: 'ground', arm: 'arm', lm: 'landmark', road: 'road', note: 'note', loopsym: 'loopsym' };
-  const MV_NOUN = { photo: ['photo', 'photos'], number: ['number', 'numbers'], details: ['pole\'s details', 'poles\' details'], cable: ['cable label', 'cable labels'], pole: ['pole', 'poles'], site: ['site', 'sites'], sitedetails: ['site\'s details', 'sites\' details'], sitename: ['site name', 'site names'], nap: ['NAP', 'NAPs'], closure: ['closure', 'closures'], closurelabel: ['closure label', 'closure labels'], loop: ['loop', 'loops'], span: ['span length', 'span lengths'], guy: ['guying', 'guyings'], ground: ['grounding', 'groundings'], arm: ['arm', 'arms'], landmark: ['landmark', 'landmarks'], road: ['street name', 'street names'], note: ['note', 'notes'], notephoto: ['photo note', 'photo notes'], text: ['text', 'texts'], loopsym: ['loop on the cable', 'loops on the cable'] }; // ((beta 7.12, Drawing edit) the notes; a text edited)
+  const MV_PFX = { ph: 'photo', num: 'number', lbl: 'details', cab: 'cable', pole: 'pole', site: 'site', sitelbl: 'sitedetails', sitename: 'sitename', nap: 'nap', clo: 'closure', clolbl: 'closurelabel', loop: 'loop', span: 'span', guy: 'guy', gnd: 'ground', arm: 'arm', lm: 'landmark', road: 'road', note: 'note', loopsym: 'loopsym', clamp: 'clamp', msg: 'messenger', msgtext: 'msgtext', cabname: 'cablename', cableline: 'cableline' };
+  const MV_NOUN = { photo: ['photo', 'photos'], number: ['number', 'numbers'], details: ['pole\'s details', 'poles\' details'], cable: ['cable label', 'cable labels'], pole: ['pole', 'poles'], site: ['site', 'sites'], sitedetails: ['site\'s details', 'sites\' details'], sitename: ['site name', 'site names'], nap: ['NAP', 'NAPs'], closure: ['closure', 'closures'], closurelabel: ['closure label', 'closure labels'], loop: ['loop', 'loops'], span: ['span length', 'span lengths'], guy: ['guying', 'guyings'], ground: ['grounding', 'groundings'], arm: ['arm', 'arms'], landmark: ['landmark', 'landmarks'], road: ['street name', 'street names'], note: ['note', 'notes'], notephoto: ['photo note', 'photo notes'], text: ['text', 'texts'], loopsym: ['loop on the cable', 'loops on the cable'], clamp: ['clamp tag', 'clamp tags'], messenger: ['messenger arm', 'messenger arms'], msgtext: ['messenger text', 'messenger texts'], cablename: ['cable name', 'cable names'], cableline: ['cable', 'cables'] }; // ((beta 7.12, Drawing edit) every element of the plan) // ((beta 7.12, Drawing edit) the notes; a text edited)
   const mvKindOf = (id) => { const s = String(id), k = s.indexOf(':'); return MV_PFX[k > 0 ? s.slice(0, k) : s] || 'item'; };
   /** (beta 7.11, Drawing tools) An item moved where the plan draws its point (poleAt: a pole, an OLT, an ODC, an ODF), not a tower (its model moved by its pin, a line
    *  or arrow back to its point, as the plan draws a tower set aside). */
@@ -2680,7 +2680,7 @@
     // ((beta 7.11, Drawing tools) the other kinds: by their point's ID (an attachment, a closure, a NAP: its pole's) or the plan's name for them)
     const pid = pidOf(m), q = pid != null ? drwEdById(pid) : null, at = q ? q.p.poleId || elemOf(q.p) : m.name || '';
     return { pole: `Pole ${at}`, site: `${at || 'Site'}`, sitedetails: `Details of ${at}`, sitename: `Site name ${m.name || at}`, nap: `NAP at ${at}`, closure: `Closure at ${at}`, closurelabel: `Closure label at ${at}`, loop: `Loop at ${at}`,
-      span: `Span length ${m.name || ''}`.trim(), loopsym: `Loop on the cable at ${at}`, guy: `Guying at ${at}`, ground: `Grounding at ${at}`, arm: `Arm at ${at}`, landmark: `Landmark ${m.name || ''}`.trim(), road: `Street name ${m.name || ''}`.trim() }[m.kind] || `${m.kind} ${m.name || at}`.trim();
+      span: `Span length ${m.name || ''}`.trim(), loopsym: `Loop on the cable at ${at}`, clamp: `Clamp tag at ${at}`, messenger: `Messenger arm of ${at}`, msgtext: `Messenger text of ${at}`, cablename: `Cable name ${m.name || ''}`.trim(), cableline: `Cable ${String(m.key || m.name || '').replace('|', ' – ')}`.trim(), guy: `Guying at ${at}`, ground: `Grounding at ${at}`, arm: `Arm at ${at}`, landmark: `Landmark ${m.name || ''}`.trim(), road: `Street name ${m.name || ''}`.trim() }[m.kind] || `${m.kind} ${m.name || at}`.trim();
   }
   /** (beta 7.11, Drawing tools) What an item can do (report.movable can): the builder's; a builder that does not say (7.10): its four kinds, moved (and turned: the details, a cable label). */
   const CAN_710 = { photo: { move: true }, number: { move: true }, details: { move: true, rotate: true }, cable: { move: true, rotate: true } };
@@ -2739,9 +2739,10 @@
     if (on) {
       const M = drwMvs(), v = drw.view, sc = v.sc, E = v.cx + (x - cv.width / 2) / sc, N = v.cy - (y - cv.height / 2) / sc, mg = (e.pointerType === 'mouse' ? 5 : 9) * d / sc, hit = [], hid = new Set(Object.keys(pmeta(drw.project).mvHide || {}));
       M.forEach((m, i) => {
-        if (m.kind === 'photo' || Math.min(m.box[2], m.box[3]) * sc < 3 * d || (pt && pt.id === m.id) || (isNote(m) && !noteNow(m)) || hid.has(m.id)) return; // ((beta 7.12, Drawing edit) a note deleted since the plan shown was made, an item deleted from the plan: not there)
+        const line = m.kind === 'cableline' || m.kind === 'messenger'; // ((beta 7.12, Drawing edit) a line (a span's cable, a messenger arm): taken within a finger of it; after what is on it)
+        if (m.kind === 'photo' || (!line && Math.min(m.box[2], m.box[3]) * sc < 3 * d) || (line && m.box[2] * sc < 6 * d) || (pt && pt.id === m.id) || (isNote(m) && !noteNow(m)) || hid.has(m.id)) return; // ((beta 7.12, Drawing edit) a note deleted since the plan shown was made, an item deleted from the plan: not there)
         const B = drwMvBox(m, i), a = B[4] * Math.PI / 180, dx = E - B[0], dy = N - B[1], u = dx * Math.cos(a) + dy * Math.sin(a), w = -dx * Math.sin(a) + dy * Math.cos(a);
-        if (Math.abs(u) <= B[2] / 2 + mg && Math.abs(w) <= B[3] / 2 + mg) hit.push({ id: m.id, i, ar: B[2] * B[3] });
+        if (Math.abs(u) <= B[2] / 2 + mg && Math.abs(w) <= B[3] / 2 + mg) hit.push({ id: m.id, i, ar: line ? B[2] * Math.max(B[3], 2 * mg) * 4 : B[2] * B[3] });
       });
       hit.sort((p, q) => p.ar - q.ar).forEach((h) => out.push({ id: h.id, i: h.i }));
     }
@@ -3145,7 +3146,9 @@
   /* The toolbar's styles: font size steps (a factor of the plan's size), symbol size steps; what each tool needs of the item (report.movable can). */
   const H_STEPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3], S_STEPS = [0.5, 0.6, 0.75, 0.9, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
   const stepOf = (A, v, dir) => { let k = 0, best = Infinity; A.forEach((x, j) => { const dd = Math.abs(Math.log(x / (+v || 1))); if (dd < best) { best = dd; k = j; } }); return A[Math.max(0, Math.min(A.length - 1, k + dir))]; };
-  const TB_NEED = { 'h-': 'text', 'h+': 'text', bold: 'text', italic: 'text', color: 'color', 's-': 'scale', 's+': 'scale', callout: 'callout', lead: 'lead' };
+  const TB_NEED = { 'h-': 'text', 'h+': 'text', bold: 'text', italic: 'text', color: 'color', 's-': 'scale', 's+': 'scale', callout: 'callout', lead: 'lead', 'lw-': 'lw', 'lw+': 'lw' };
+  /** (beta 7.12, Drawing edit) A line's weight (a span's cable, a messenger arm: style lw, 1/100 mm as AutoCAD's), its steps, and what the plan draws without one. */
+  const LW_STEPS = [13, 18, 25, 35, 50, 70, 100, 140, 200], LW_BASE = { cableline: 70, messenger: 18 };
   /** An item's own texts on the plan shown (display list texts), for its bold / italic now. */
   const drwOwnTexts = (m) => { const P = drw.ph, PL = P && P.plan, i = mvIx(m.id); if (!PL || !PL.byOwn || i == null || !PL.byOwn.has(i)) return []; const IT = PL.raw.items; return PL.byOwn.get(i).filter((k) => IT[4 * k] === 3).map((k) => PL.texts[IT[4 * k + 1]]).filter(Boolean); };
   const drwStyNow = (m) => { if (isNote(m)) { const n = noteNow(m) || {}; return { h: n.h, bold: n.bold, italic: n.italic, color: n.color }; } const M = pmeta(drw.project); return styOf(m, M.mvStyle, M.mvKind); }; // ((beta 7.12, Drawing edit) a note: its own)
@@ -3181,6 +3184,7 @@
       else if (a === 'color') { if (+v > 0) o.color = +v; else if (inh.color != null) o.color = 0; else delete o.color; } // (0 with a kind's colour: this one as the plan)
       else if (a === 'callout') put('callout', v === 'bubble' ? 'bubble' : 'arrow', plStyle().clo.style);
       else if (a === 'lead') put('lead', !!tgt, true);
+      else if (a === 'lw-' || a === 'lw+') { const w0 = +eff.lw || LW_BASE[m.kind] || 35, w = stepOf(LW_STEPS, w0, a === 'lw+' ? 1 : -1); if (w !== w0) o.lw = w; } // ((beta 7.12) thinner, thicker)
       if (JSON.stringify(o) !== js) n++; if (Object.keys(o).length) B[key] = o; else delete B[key];
     }
     if (!n) { drwTbRender(); return; }
@@ -3236,11 +3240,11 @@
     const tb = $('drawTb'); if (!tb) return; const L = drw ? drwSels().map(mvById).filter(Boolean) : [], on = !!drw && drwPlanOn() && L.length > 0 && drw.labels !== false;
     if (!on) { if (!tb.hidden) { tb.hidden = true; drwTbPal(false); } $('drawWrap').classList.remove('tbtop'); return; }
     const C = L.map(canOf), any = (f) => C.some((c) => !!c[f]), M = pmeta(drw.project), pl = plStyle();
-    const vis = { 'h-': any('text'), 'h+': any('text'), bold: any('text'), italic: any('text'), color: any('color'), 'rot-': any('rotate'), 'rot+': any('rotate'), rot0: L.some((m) => canOf(m).rotate && drwRotOf(m, M) != null), 's-': any('scale'), 's+': any('scale'), status: L.some((m) => stOk(canOf(m).status)), callout: any('callout'), lead: any('lead') };
+    const vis = { 'lw-': any('lw'), 'lw+': any('lw'), 'h-': any('text'), 'h+': any('text'), bold: any('text'), italic: any('text'), color: any('color'), 'rot-': any('rotate'), 'rot+': any('rotate'), rot0: L.some((m) => canOf(m).rotate && drwRotOf(m, M) != null), 's-': any('scale'), 's+': any('scale'), status: L.some((m) => stOk(canOf(m).status)), callout: any('callout'), lead: any('lead') };
     // ((beta 7.12, Drawing edit) Edit text: one item with texts (or a text note); the draw order: anything; Delete: notes only (the plan's own items are not deleted); Automatic: not for notes)
     Object.assign(vis, { text: L.length === 1 && canText(L[0]), front: true, forward: true, backward: true, back: true, del: L.every((m) => !!delOf(m)), auto: !L.every(isNote) }); // ((beta 7.12) Delete: as the plan says for each)
     { const db = tb.querySelector('[data-a="del"]'), t = vis.del ? delSay(L) : 'Delete'; if (db.title !== t) { db.title = t; db.setAttribute('aria-label', t); } }
-    vis.scope = vis['h-'] || vis.color || vis['s-'] || vis.callout || vis.lead; vis.sep1 = vis['h-'] || vis.color || vis.text; vis.sep2 = vis['rot-']; vis.sep3 = vis['s-']; vis.sep4 = vis.status || vis.callout || vis.lead; vis.sep5 = true;
+    vis.scope = vis['h-'] || vis.color || vis['s-'] || vis.callout || vis.lead || vis['lw-']; vis.sep1 = vis['h-'] || vis.color || vis.text || vis['lw-']; vis.sep2 = vis['rot-']; vis.sep3 = vis['s-']; vis.sep4 = vis.status || vis.callout || vis.lead; vis.sep5 = true;
     tb.querySelectorAll('[data-a]').forEach((b) => { const a = b.dataset.a; if (a in vis) b.hidden = !vis[a]; });
     const xb = tb.querySelector('[data-a="xtra"]'); xb.hidden = ![...tb.querySelectorAll('.lo')].some((b) => !b.hidden); tb.classList.toggle('xopen', !!drw.tbX); xb.setAttribute('aria-expanded', String(!!drw.tbX)); xb.setAttribute('aria-pressed', String(!!drw.tbX)); // ((beta 7.12) a phone: the tools used less under More)
     const press = (a, on2) => tb.querySelectorAll(`[data-a="${a}"]`).forEach((b) => b.setAttribute('aria-pressed', String(!!on2))), seg = (a, v) => tb.querySelectorAll(`[data-a="${a}"] button`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
