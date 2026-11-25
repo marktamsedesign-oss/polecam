@@ -151,3 +151,21 @@ test('delete: report.movable[i].del for each kind (a field of its pole\'s record
     assert.ok(by(r2b.report.movable, 'site:t1').handles.length > 0, 'the tower stays');
   }
 });
+
+test('text to record: report.movable[i].src per text line ({ point, field } and how the line is written from the value; a span\'s; null)', () => {
+  for (const v of [{}, { labels: 'tidy' }]) {
+    const j = fullJob({ ...v, cloStyle: 'bubble' }); Object.assign(j.pts.find((p) => p.id === 's9'), { status: 'Existing', label1: '' }); Object.assign(j.pts.find((p) => p.id === 's4'), { nap: true, napId: 'NAP-01' }); j.pts.find((p) => p.id === 's2').cloSize = '72C';
+    const r = T.build(SEED_BL, j), M = r.report.movable, S = (id) => by(M, id).src, X = (id) => by(M, id).text;
+    for (const m of M) if (m.text) { assert.ok(Array.isArray(m.src) && m.src.length === m.text.length, `${m.id}: one for each line`); }
+    assert.deepEqual(S('lbl:s3')[0], { point: 's3', field: 'label1' }, 'a proposed pole\'s first line');
+    const t9 = X('lbl:s9'), s9 = S('lbl:s9'); assert.deepEqual(s9[t9.indexOf('9009')], { point: 's9', field: 'tag', value: 'CC-{v}' }, 'an existing pole\'s tag without its material'); assert.deepEqual(s9[t9.indexOf('CC')], { point: 's9', field: 'mat' });
+    assert.ok(t9.filter((x) => /°$/.test(x)).every((x) => s9[t9.indexOf(x)] === null), 'its lat / long: none');
+    assert.deepEqual(S('loop:s2'), [{ point: 's2', field: 'mloopM', line: '{v}m LOOP' }]); assert.deepEqual(S('span:s1|s2'), [{ span: ['s1', 's2'], field: 'lenW', line: '{v}m' }]);
+    assert.deepEqual(S('sitelbl:t1').slice(0, 2), [{ point: 't1', field: 'siteName' }, { point: 't1', field: 'plaId' }]); assert.deepEqual(S('nap:s4'), [{ point: 's4', field: 'napId' }]);
+    const b = S('clolbl:s2'); assert.deepEqual(b[0], { point: 's2', field: 'cloSize', line: 'PROPOSE {v}' }); assert.equal(b[1], null); assert.deepEqual(b[2], { point: 't1', field: 'siteName', line: 'FACING {v}' }); assert.equal(b[3], null);
+    assert.deepEqual(S('num:s3'), [null], 'a number: not a record field');
+    if (!v.labels) assert.deepEqual(S('clamp:s3'), [{ point: 's3', field: 'clamp' }]);
+  }
+  // a cable label: its span's runLbls
+  const r2 = T.build(SEED_BL, snapJob({})), cab = r2.report.movable.find((m) => m.kind === 'cable'); assert.ok(cab, 'a cable label'); assert.deepEqual(cab.src, [{ span: cab.span.map(String), field: 'runLbls', i: 0 }]);
+});
