@@ -4009,7 +4009,7 @@
           L.forEach((l, i) => { const y = best.G.y1 - i * BUB_LS * th, ha = best.G.ha; if (l.c === 3) o.text(CLY, best.G.xa + so, y - so, th, l.s, { ha, va: 2, style: 'arial', color: BUBK }); o.text(CLY, best.G.xa, y, th, l.s, { ha, va: 2, style: 'arial', color: l.c }); });
         });
         spots.add([best.G.bx], 'label'); spots.add([best.tb]);
-        nBub++; (rep._cloB || (rep._cloB = [])).push({ cid: String(cid), old: !!old, lines: L.map((l) => l.s.replace(/%%d/g, '°')), r: +rb.toFixed(2), at: at.map((x) => +x.toFixed(2)), side: +deg(best.v).toFixed(1), clear: best.n < 1 });
+        nBub++; B.rep = { cid: String(cid), old: !!old, lines: L.map((l) => l.s.replace(/%%d/g, '°')), r: +rb.toFixed(2), at: at.map((x) => +x.toFixed(2)), side: +deg(best.v).toFixed(1), clear: best.n < 1 }; (rep._cloB || (rep._cloB = [])).push(B.rep); // (B.rep: its radius and side as drawn at the end, DT)
       };
       for (const { at, R: Rp, cid, p: cp, old } of cloLbl) { // (Rp: the pentagon's reach)
         if (BUB(cp)) { bubDraw(at, Rp, cid, cp, old); continue; } // ((beta 7.11, Drawing tools) the bubble callout)
@@ -4372,7 +4372,7 @@
       const bubTurn = (E) => {
         const B = E.bub, c = [E.box.cx, E.box.cy], v = E.how === 'by hand' && dist2(c, B.at) > 1e-6 ? unit(B.at, c) : B.v, /* (where the plan put it: the way it was drawn) */ tip = add2(B.at, v, B.rb * BUB_TIP), arc = bubArc(B.at, B.rb, v), put = (r, P) => { const ks = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((kk, j) => { r[kk][1] = F(P[j][0]); r[kk + 1][1] = F(P[j][1]); }); };
         B.parts.forEach((r, k) => { const Q = [tip, arc[k], arc[k + 1], arc[k + 1]]; [10, 11, 12, 13].forEach((cx, j) => { const kk = r.findIndex((q, i) => i > 0 && q[0] === cx); if (kk > 0) { r[kk][1] = F(Q[j][0]); r[kk + 1][1] = F(Q[j][1]); } }); });
-        if (B.edge) put(B.edge, [tip, ...arc.slice().reverse()]); B.v = v;
+        if (B.edge) put(B.edge, [tip, ...arc.slice().reverse()]); B.v = v; if (B.rep) B.rep.side = +deg(v).toFixed(1);
       };
       /** a thin line from a label moved away from what it names (q: a point; or a line [a, b]: its nearest point) to it, where its box is further than gap from it */
       const thinTo = (E, tgt, gap) => {
@@ -4428,7 +4428,7 @@
         if (E.bub && st.scale && Math.abs(st.scale - 1) > 1e-9) { // (a bubble callout's size: its circle and pointer; its lines, where the plan put them, follow its tip)
           const B = E.bub, rb1 = B.rb * st.scale, G0 = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H), G1 = bubGeo(B.at, rb1, B.th, B.v, B.W, B.H);
           for (const r of B.circles) { setFirst(r, 40, F(rb1)); const kk = r.findIndex((q, i) => i > 0 && q[0] === 48); if (kk > 0) r[kk][1] = F(+r[kk][1] * st.scale); }
-          for (const r of E.recs) if (!LEAD.has(r)) xformRec(r, { t: [G1.xa - G0.xa, G1.y1 - G0.y1] }); B.rb = rb1; E.box = boxOf(E); }
+          for (const r of E.recs) if (!LEAD.has(r)) xformRec(r, { t: [G1.xa - G0.xa, G1.y1 - G0.y1] }); B.rb = rb1; E.box = boxOf(E); if (B.rep) B.rep.r = +rb1.toFixed(2); } // (report.closureLabels.bubbles: as drawn)
         if (st.h && Math.abs(st.h - 1) > 1e-9) { if (E.bub) { const B = E.bub, G = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H); scaleRecs(E.recs, (r) => LEAD.has(r), G.pv, st.h, st.h); } /* (a bubble's lines grow away from its tip) */ else if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
         fontOn(E.recs, st.bold, st.italic);
         if (st.color) colorOn(E.recs, st.color);

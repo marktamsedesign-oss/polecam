@@ -280,6 +280,7 @@ test('the closure bubble callout (job.cloStyle bubble): dashed circle, pointer, 
   const r4 = T.build(SEED_BL, richJob({ cloStyle: 'bubble', style: { 'clolbl:s8': { scale: 0.5, h: 1.25 } } })), E4 = entsOf(r4.text), m4 = by(r4.report.movable, 'clolbl:s8'), e4 = m4.handles.map((h) => E4.get(h)), es0 = m0.handles.map((h) => entsOf(r0.text).get(h));
   const rad = (es) => +g1(es.find((e) => e.type === 'CIRCLE'), 40), tip4 = (() => { const sd = e4.find((e) => e.type === 'SOLID'); return [+g1(sd, 10), +g1(sd, 20)]; })(), c4 = [+g1(e4.find((e) => e.type === 'CIRCLE'), 10), +g1(e4.find((e) => e.type === 'CIRCLE'), 20)];
   near(rad(e4), rad(es0) / 2, 1e-5, 'half as large'); near(Math.hypot(tip4[0] - c4[0], tip4[1] - c4[1]), 1.24 * rad(e4), 1e-3, 'its pointer with it');
+  assert.equal(r4.report.closureLabels.bubbles.find((b) => b.cid === 'CL-02').r, +rad(e4).toFixed(2), 'report.closureLabels: its radius as drawn');
   const t40 = es0.filter((e) => e.type === 'TEXT' && g1(e, 62) !== '   250'), t4 = e4.filter((e) => e.type === 'TEXT' && g1(e, 62) !== '   250');
   near(+g1(t4[0], 40), +g1(t40[0], 40) * 1.25, 1e-5, 'h: its texts'); near(+g1(t4[0], 21), tip4[1], 1e-5, 'its first line level with its tip'); near(Math.abs(+g1(t4[0], 11) - tip4[0]), 0.8 * +g1(t40[0], 40), 1e-5, 'just past it');
   assert.equal(by(T.build(SEED_BL, richJob({})).report.movable, 'clolbl:s2').can.scale, false, 'an arrow label: no size of its own');
