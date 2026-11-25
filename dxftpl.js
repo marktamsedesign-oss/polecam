@@ -1823,6 +1823,19 @@
    *   attribute another item has stays with its INSERT). Items' places: their first entity. With a SORTENTSTABLE of the model space in the template
    *   (AutoCAD draws by it): the plan's entities given sort handles in that order (report.sortents). report.movable[i].z: the item's place in the draw
    *   order now (0: drawn first; null: nothing of it drawn), always.
+   * (beta 7.12, the owner's "Closure and loop does not follow cable orientation… double check every plan element and ensure that it can be edit, delete
+   * or update") A closure (clo:<pid>) and a loop's symbol (loopsym:<pid>, new; loop:<pid> stays its "15m LOOP") on the cable: report path (the cable
+   *   through its pole as drawn: its spans on both sides as they run, from the side toward the homing) and along (its place on it, metres from the
+   *   pole); job.pins[id].along (or a pin's at, taken to the nearest point of the path) slides it there, turned as the cable runs there (a closure as the
+   *   plan turns one, a loop's circle on the same side); a closure's label and a loop's length go with it (one placed by hand: its pin from there); a
+   *   closure taken off its pole joins the cable there. More elements: clamp:<pid> (a clamp tag, its callout its lead), msg:<pull-off>:<pole> (a
+   *   messenger arm), msgtext:<pull-off>:<pole> (its EXTENDED MESSENGER), cabname:<first>|<last>#<n> (the cable's name along its run), cableline:<a>|<b>
+   *   (each span's cable: path, colour and line weight only; lines: the plan's run line drawing it with other spans; handles: its own part once its
+   *   look differs, the run line cut at its poles). style lw: a line's weight (1/100 mm). Owned by no item: the roads, their source's line, the grid,
+   *   the vicinity map. report.movable[i].del: how the app deletes it ({ how: 'field', point, field, off, also? } a field of its pole's record; { how:
+   *   'point', point } the record; { how: 'note' }; { how: 'hide' } left off the plan; none: a span's cable). job.hide [ids]: left off the plan (their
+   *   lines and arrows too; a block's attribute hidden in it), still listed with hidden: true and their box. report.movable[i].src: for each text line,
+   *   the record field it shows ({ point, field, line?: '{v}m LOOP'…, value?: 'CC-{v}' } or { span: [a, b], field: 'lenW' | 'runLbls', i? }) or null.
    */
   /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
       every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
@@ -4801,16 +4814,31 @@
       for (const m of MV) { const st = stOf(m.id, m.kind), lp = LDS && LEADK[m.kind] && LDS[LEADK[m.kind]] === false; if ((st && st.lead === false) || (lp && !(st && st.lead === true))) { m.handles.forEach((h) => { const r = recOfH.get(h); if (r && ld7(r)) drop.add(r); }); if (m.kind === 'photo' && m.p && rep.photoAt[String(m.p.id)]) rep.photoAt[String(m.p.id)].line = null; } } // (a photo's line in photoAt too)
       for (const E of EL) { const st = stOf(E.id, E.kind), k = E.kind; if (st && st.lead === false && (k === 'span' || k === 'loop' || k === 'closurelabel' || k === 'note' || k === 'notephoto')) E.recs.forEach((r) => { if (LEAD.has(r) && !BUBC.has(r)) drop.add(r); }); } // (a bubble keeps its circle: its pointer goes)
       if (drop.size) { o.model = o.model.filter((r) => !drop.has(r)); for (const m of MV) m.handles = m.handles.filter((h) => !drop.has(recOfH.get(h))); for (const E of EL) E.recs = E.recs.filter((r) => !drop.has(r)); for (const m of MV) if (m.line && m.handles.every((h) => !ld7(recOfH.get(h)))) m.line = null; }
+      /* (beta 7.12, Drawing edit) job.hide [ids]: those items left off the plan (all their entities, their lines and arrows with them; an attribute of a
+         block that stays: hidden in it), the plan only; report.movable keeps each with hidden: true and its box, so the app can show and bring it back.
+         A span's cable is not left off (its span is deleted from the record instead). */
+      const HIDE = new Set(Array.isArray(job.hide) ? job.hide.map(String) : []);
+      if (HIDE.size) {
+        const gone = new Set(), mark = (r) => { if (r) gone.add(r); };
+        for (const m of MV) if (HIDE.has(m.id)) { m.handles.forEach((h) => mark(recOfH.get(h))); m.hidden = true; if (m.kind === 'photo' && m.p && rep.photoAt[String(m.p.id)]) Object.assign(rep.photoAt[String(m.p.id)], { line: null, hidden: true }); }
+        for (const E of EL) if (HIDE.has(E.id) && E.kind !== 'cableline') { E.recs.forEach(mark); E.hidden = true; }
+        if (gone.size) {
+          const ix = new Map(o.model.map((r, i) => [r, i]));
+          for (const r of [...gone]) { if (typ(r) === 'INSERT') { for (let i = ix.get(r) + 1; i < o.model.length && (typ(o.model[i]) === 'ATTRIB' || typ(o.model[i]) === 'SEQEND'); i++) gone.add(o.model[i]); } } // (a block: its attributes and end with it)
+          for (const r of [...gone]) { if (typ(r) !== 'ATTRIB' && typ(r) !== 'SEQEND') continue; const ins = o.model.find((x) => typ(x) === 'INSERT' && x[1][1] === owner(r)); if (ins && !gone.has(ins)) { gone.delete(r); if (typ(r) === 'ATTRIB') { const f = r.findIndex((q, i) => i > 0 && q[0] === 70); if (f > 0) r[f][1] = I((parseInt(r[f][1], 10) || 0) | 1); } } } // (its block stays: hidden in it)
+          o.model = o.model.filter((r) => !gone.has(r)); for (const m of MV) m.handles = m.handles.filter((h) => !gone.has(recOfH.get(h))); for (const E of EL) { E.recs = E.recs.filter((r) => !gone.has(r)); if (E.lines) E.lines = E.lines.filter((r) => !gone.has(r)); }
+        }
+      }
       /* (beta 7.10, Plan kept) as a photo placed by hand: a label, number, pole's details or (beta 7.11) other element placed by hand, its box (turned with it)
          and its line or arrow; across a sheet's edge, the sheets it prints cut on (cut, report.movable); in a cell no sheet prints: that sheet added (build) */
       const { off: offM, offAt, frameCells } = OFFC, lineCells = (L, lk) => { if (L) for (let s2 = 0; s2 + 1 < L.length; s2++) { const u = L[s2], v = L[s2 + 1], n = Math.max(1, Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]))); for (let k = 0; k <= n; k++) offAt(ci(u[0] + (v[0] - u[0]) * k / n), cj(u[1] + (v[1] - u[1]) * k / n), lk); } };
       for (const m of MV) {
-        if (m.how !== 'by hand' || m.kind === 'photo' || m.empty) continue; // ((beta 7.12) nothing of it drawn: no sheet for it)
+        if (m.how !== 'by hand' || m.kind === 'photo' || m.empty || m.hidden) continue; // ((beta 7.12) nothing of it drawn: no sheet for it)
         const lk = (m.p && locOfPt.get(m.p)) || (m.kind === 'cable' && byId.get(String(m.span[0])) ? locOfPt.get(byId.get(String(m.span[0]))) || 0 : 0), C = frameCells({ x: m.box.cx, y: m.box.cy, w: m.box.w, h: m.box.h, rot: m.box.a });
         C.forEach(([i, j]) => offAt(i, j, lk)); m.cells = C; lineCells(m.line, lk);
       }
       for (const E of EL) {
-        if (E.how !== 'by hand' || E.empty) continue;
+        if (E.how !== 'by hand' || E.empty || E.hidden) continue;
         const lk = E.lk != null ? E.lk : (E.p && locOfPt.get(E.p)) || (E.sp ? locOfPt.get(E.sp[0]) || 0 : 0), C = frameCells({ x: E.box.cx, y: E.box.cy, w: E.box.w, h: E.box.h, rot: E.box.a }); // ((beta 7.12, Drawing edit) a note: the place of the point nearest it)
         C.forEach(([i, j]) => offAt(i, j, lk)); E.cells = C; for (const r of E.recs) if (LEAD.has(r) && typ(r) === 'LWPOLYLINE') { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); lineCells(X.map((x, i) => [x, Y[i]]), lk); }
       }
@@ -4822,6 +4850,47 @@
          (beta 7.11) Tidy: a pole's number in its block is an item of its own (num:…, block: true), carried with its block (with), as its photo beside it. */
       const cut = [], off = [], NAME = { pole: 'symbol', site: 'symbol', sitedetails: 'details', sitename: 'name', nap: 'NAP', closure: 'closure', closurelabel: 'closure label', loop: 'loop', guy: 'guy', ground: 'grounding', arm: 'arm' };
       const nm = (m) => (m.kind === 'cableline' ? `cable ${m.key}` : m.kind === 'cablename' ? `cable name ${m.name || ''}`.trim() : m.kind === 'note' ? `note "${String(m.nt.lines[0] || '').trim().slice(0, 40)}"` : m.kind === 'notephoto' ? `photo note ${m.nt.photo.file}` : m.kind === 'cable' ? `${m.name} label` : m.kind === 'number' ? `No. ${m.seq}` : m.kind === 'details' ? `${m.p.poleId || m.p.id} details` : m.kind === 'span' ? `${m.recs.find(isTxt) ? get(m.recs.find(isTxt), 1, '') : ''} span length` : m.kind === 'road' || m.kind === 'landmark' ? String(m.id.slice(m.id.indexOf(':') + 1)) : `${m.p ? m.p.poleId || m.p.id : m.id} ${NAME[m.kind] || m.kind}`);
+      /** (beta 7.12, Drawing edit) how an element is deleted (report.movable[i].del): a field of its pole's record set to off ({ how: 'field', point, field, off,
+          also? }: what the record editor changes), the record itself ({ how: 'point' }: a pole, pull-off, cross-over, site, a NAP or closure pin), a note
+          of the user's ({ how: 'note' }), else left off the plan only ({ how: 'hide' }: job.hide); a span's cable: none (its span is the record's) */
+      const delOf = (E) => {
+        const k = E.kind, p = E.p, pid = p ? String(p.id) : null, onP = p && p.el === 'Pole';
+        if (k === 'cableline') return null; if (E.nt) return { how: 'note' };
+        if (k === 'pole' || k === 'site' || ((k === 'nap' || k === 'closure') && p && !onP)) return { how: 'point', point: pid };
+        if (k === 'nap') return { how: 'field', point: pid, field: 'nap', off: false, also: { napId: '', nap2: false, nap2Id: '' } };
+        if (k === 'closure') return { how: 'field', point: pid, field: 'closure', off: false, also: { closureId: '' } };
+        if (k === 'loopsym') return { how: 'field', point: pid, field: 'mloop', off: false };
+        if (k === 'ground') return { how: 'field', point: pid, field: 'ground', off: false };
+        if (k === 'guy') { const parts = String(p.guy || '').split(/\s*\+\s*/).filter(Boolean), known = parts.map((x, i) => (GUYS.some((g) => g.re.test(x)) ? i : -1)).filter((i) => i >= 0), n = +(/:(\d+)$/.exec(E.id.slice(4 + pid.length)) || [0, 1])[1], at = known[n - 1];
+          return { how: 'field', point: pid, field: 'guy', off: parts.filter((x, i) => i !== at).join(' + ') }; } // (the pole's other guys kept)
+        if (k === 'arm') { const ins = E.recs.find((r) => typ(r) === 'INSERT'), bn = ins ? String(get(ins, 2, '')) : '';
+          if (/TELCO ARM/i.test(bn)) return { how: 'field', point: pid, field: 'telcoArm', off: false }; if (/riser/i.test(bn)) return { how: 'field', point: pid, field: 'riser', off: false };
+          return E.status && E.status.field === 'armText' ? { how: 'field', point: pid, field: 'armText', off: '' } : { how: 'field', point: pid, field: 'armType', off: '' }; }
+        if (k === 'messenger') return { how: 'field', point: pid, field: 'att', off: (p.att || []).map(String).filter((x) => x !== String(E.to)) };
+        return { how: 'hide' };
+      };
+      /** (beta 7.12, Drawing edit) where each of an item's lines comes from (report.movable[i].src, aligned with its text): { point, field } when the line is
+          exactly a record field's value (a pole's ID, tag, its first line, height, clamp size, a NAP's or closure's ID, a site's name and PLA ID…), with
+          line ('{v}m LOOP', 'PROPOSED CLOSURE · {v}', 'FACING {v}'…: how the line is written from the value v) or value ('CC-{v}': how the field is made from
+          the line's v, a pole's tag shown without its material) where the line is not the bare value; { span: [a, b], field } for a span's written length
+          (lenW, '{v}m') and a cable label that is one of its span's runLbls (i: which); null: not a record field's (lat / long, a number, a street name,
+          the plan's own words). The app writes those lines into the record (the KMZ, the BOQ and the rest follow) and keeps job.text for the others. */
+      const SRC_F = ['poleId', 'tag', 'napId', 'nap2Id', 'closureId', 'siteName', 'plaId', 'label1', 'height', 'mat', 'clamp', 'armText', 'ownerName', 'hw'];
+      const srcOf = (x, L) => {
+        const p = x.p || null, pid = p ? String(p.id) : null, sk = x.kind === 'span' && x.key ? x.key : x.kind === 'cable' && Array.isArray(x.span) ? K2(x.span[0], x.span[1]) : null, sr = sk ? spans.find((s0) => K2(s0.ia, s0.ib) === sk) : null;
+        return (L || []).map((ln) => {
+          const t = String(ln).trim(); let m; if (!t) return null;
+          if (p) {
+            for (const f of SRC_F) { const v = p[f]; if (v != null && v !== '' && typeof v !== 'object' && String(v).trim() === t) return { point: pid, field: f }; }
+            const tg = String(p.tag || p.poleId || ''), pre = tg.length > t.length && tg.toUpperCase().endsWith(t.toUpperCase()) ? tg.slice(0, tg.length - t.length) : ''; if (pre && /^[A-Za-z]+[-_ .]?$/.test(pre)) return { point: pid, field: p.tag ? 'tag' : 'poleId', value: `${pre}{v}` }; // (a pole's tag without its material, as the stack writes it)
+            if ((m = /^(\d+(?:\.\d+)?)m LOOP$/.exec(t)) && p.mloopM != null && p.mloopM !== '' && +p.mloopM === +m[1]) return { point: pid, field: 'mloopM', line: '{v}m LOOP' };
+            if ((m = /^PROPOSED CLOSURE · (.+)$/.exec(t)) && String(p.closureId || '') === m[1]) return { point: pid, field: 'closureId', line: 'PROPOSED CLOSURE · {v}' };
+            if ((m = /^PROPOSE (.+)$/.exec(t)) && p.cloSize && String(p.cloSize) === m[1]) return { point: pid, field: 'cloSize', line: 'PROPOSE {v}' };
+            if ((m = /^FACING (.+)$/.exec(t))) { if (p.cloFacing && String(p.cloFacing) === m[1]) return { point: pid, field: 'cloFacing', line: 'FACING {v}' }; const st = pts.find((q) => (q.el === 'Site' || q.el === 'ODF' || q.el === 'ODC') && String(q.siteName || q.poleId || '') === m[1]); if (st) return { point: String(st.id), field: st.siteName ? 'siteName' : 'poleId', line: 'FACING {v}' }; }
+          }
+          if (sr) { const sp = [String(sr.ia), String(sr.ib)]; if (x.kind === 'span' && /^\d+(?:\.\d+)?m$/.test(t)) return { span: sp, field: 'lenW', line: '{v}m' }; const k = (sr.runLbls || []).findIndex((v) => String(v).trim() === t); if (k >= 0) return { span: sp, field: 'runLbls', i: k }; }
+          return null; });
+      };
       const cutOf = (m, B) => { if (m.how !== 'by hand' || m.kind === 'photo') return null; const C = m.cells || [[ci(B.cx), cj(B.cy)]]; let cutOn = null; if (C.length > 1) { cutOn = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort(); cut.push(nm(m)); } if (C.some(([i, j]) => !used.has(key(i, j)))) off.push(nm(m)); return cutOn; }; // ((beta 7.10, Plan kept) as a photo's photoAt[id].cut; on no sheet: build adds the sheet, see its _offCells)
       const CAN0 = { photo: { move: true, rotate: true, scale: false, text: false, color: false, lead: true }, number: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, details: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, cable: { move: true, rotate: true, scale: false, text: true, color: true, lead: true } };
       const out = MV.map((m) => {
@@ -4832,7 +4901,8 @@
         if (m.kind === 'number' || m.number) o2.seq = m.seq != null ? String(m.seq) : null; if (m.kind === 'details') { o2.number = !!m.number; o2.with = m.with || []; } if (m.block) o2.block = true; if (cutOn) o2.cut = cutOn;
         o2.can = { ...CAN0[m.kind] }; if (m.p && m.p.el === 'Pole') o2.pole = String(m.p.id);
         if (m.kind === 'cable' && m.spanPts) { o2.spanPts = m.spanPts.map((q) => [q[0], q[1]]); if (m.tip) o2.tip = [m.tip[0], m.tip[1]]; }
-        if (o2.can.text) o2.text = linesOf(m.handles.map((h) => recOfH.get(h)).filter(Boolean)).map((x) => x.s); if (m.empty) o2.empty = true; // ((beta 7.12, Drawing edit) its lines as they read, what the editor shows; empty: nothing of it drawn)
+        if (o2.can.text) { o2.text = linesOf(m.handles.map((h) => recOfH.get(h)).filter(Boolean)).map((x) => x.s); o2.src = srcOf(m, o2.text); } if (m.empty) o2.empty = true; // ((beta 7.12, Drawing edit) its lines as they read, what the editor shows, and where each comes from; empty: nothing of it drawn)
+        o2.del = { how: 'hide' }; if (m.hidden) o2.hidden = true; // ((beta 7.12) deleted: left off the plan only (job.hide))
         return o2;
       });
       const kidsOf = new Map(), outE = []; for (const x of [...out, ...EL]) { const pid = x.pole; if (pid) (kidsOf.get(pid) || kidsOf.set(pid, []).get(pid)).push(x.id); }
@@ -4846,7 +4916,8 @@
         o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k) || !!E.bub, /* (a bubble callout: its circle and pointer) */ text: !!E.hadText, color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) }; // ((beta 7.12) text: it had texts as the plan wrote it, so that those left off can come back)
         if (E.nt) o2.can = { move: true, rotate: true, scale: true, text: k === 'note', color: k === 'note', delete: true, ...(E.lead ? { lead: true } : {}) }; // ((beta 7.12, Drawing edit) a note of the user's: moved, turned, sized, edited, coloured, deleted by changing the note itself (or pins and styles))
         if (k === 'cableline' || k === 'messenger') o2.can = { move: false, rotate: false, scale: false, text: false, color: true, lw: true }; // ((beta 7.12) a line: its colour and weight only)
-        if (o2.can.text) o2.text = linesOf(E.recs).map((x) => x.s); if (E.empty) o2.empty = true;
+        if (o2.can.text) { o2.text = linesOf(E.recs).map((x) => x.s); o2.src = srcOf(E, o2.text); } if (E.empty) o2.empty = true;
+        { const d0 = delOf(E); if (d0) o2.del = d0; } if (E.hidden) o2.hidden = true; // ((beta 7.12, Drawing edit) how the app deletes it; left off by job.hide)
         const w = k === 'pole' && p ? (kidsOf.get(String(p.id)) || []).filter((id) => id !== E.id) : k === 'site' && p ? [`sitelbl:${p.id}`, `sitename:${p.id}`].filter((id) => EL.some((x) => x.id === id)) : null; if (w && w.length) o2.with = w;
         if (cutOn) o2.cut = cutOn;
         outE.push(o2);

@@ -89,6 +89,8 @@ function fullJob(over) {
   j.pts.push({ id: 'j1', poleId: 'PO-1', el: 'Pull-off', status: 'Proposed', E: E0 + 90, N: N0 - 40, att: ['s3', 's4'], ...ll(E0 + 90, N0 - 40) });
   j.spans.push({ ia: 'j1', ib: 's3', a: [E0 + 90, N0 - 40], b: [E0 + 72, N0], len: 44, lenW: 44, cable: 'F12', runLbls: ['PROPOSED 12C FIG-8 AE'] });
   j.pts.push({ id: 'x1', poleId: 'CO-1', el: 'Cross-over', status: 'Proposed', E: E0 + 150, N: N0 + 40, att: ['s5', 's6'], ...ll(E0 + 150, N0 + 40) });
+  j.pts.unshift({ id: 't1', poleId: 'DEMO-TWR', el: 'Site', status: 'Existing', siteName: 'DEMOSITE MIN9001', plaId: 'PLA-9001', E: E0 - 60, N: N0 + 30, ...ll(E0 - 60, N0 + 30) }); // (a tower, its name and PLA ID its block's attributes)
+  j.spans.unshift({ ia: 't1', ib: 's1', a: [E0 - 60, N0 + 30], b: [E0, N0], len: 67, lenW: 67, cable: 'F12', runLbls: ['PROPOSED 12C FIG-8 AE'] }); j.runs[0].pts = [[E0 - 60, N0 + 30], ...j.runs[0].pts];
   return j;
 }
 /** the model space's entities no item has (in its handles or, a span's cable, its lines), but the grid's: [type | layer | text] */
@@ -122,4 +124,48 @@ test('every element of the plan selectable: the loop\'s symbol, clamp tags, mess
     near(len(r), len(r0), 1e-3, 'the cable as long as before'); const t1 = by(M, 'cableline:s3|s4'); assert.ok([...t1.handles, ...t1.lines].every((h) => +g1(E.get(h), 62) !== 3), 'the rest of its run as it was');
     for (const id of ['msg:j1:s3', 'msg:x1:s5']) { const x = E.get(by(M, id).handles[0]); assert.equal(+g1(x, 62), 4); assert.equal(+g1(x, 370), 35); }
   }
+});
+
+test('delete: report.movable[i].del for each kind (a field of its pole\'s record, the record, a note, left off the plan); job.hide leaves items off, still listed', () => {
+  const r = T.build(SEED_BL, fullJob({})), M = r.report.movable, D = (id) => by(M, id).del;
+  assert.deepEqual(D('clo:s2'), { how: 'field', point: 's2', field: 'closure', off: false, also: { closureId: '' } });
+  assert.deepEqual(D('loopsym:s2'), { how: 'field', point: 's2', field: 'mloop', off: false });
+  assert.deepEqual(D('pole:s1'), { how: 'point', point: 's1' }); assert.deepEqual(D('pole:j1'), { how: 'point', point: 'j1' });
+  assert.deepEqual(D('msg:j1:s3'), { how: 'field', point: 'j1', field: 'att', off: ['s4'] });
+  for (const id of ['lbl:s3', 'num:s3', 'ph:s3', 'span:s3|s4', 'clolbl:s2', 'loop:s2', 'clamp:s3', 'msgtext:j1:s4', 'road:MADE-UP ST#1']) assert.deepEqual(D(id), { how: 'hide' }, id);
+  assert.equal(D('cableline:s1|s2'), undefined, 'a span\'s cable: not deleted here');
+  // guys, groundings, arms, NAPs (the made-up route with its attachments)
+  const j = fullJob({}), set = (id, o) => Object.assign(j.pts.find((p) => p.id === id), o); set('s3', { guy: 'side guy + head guy', ground: true }); set('s4', { nap: true, napId: 'NAP-01', napType: 'NAP 1x8' }); set('s5', { telcoArm: true, armText: 'TELCO ARM' }); set('s7', { armType: 'single arm' });
+  const r2 = T.build(SEED_BL, j), D2 = (id) => by(r2.report.movable, id).del;
+  assert.deepEqual(D2('guy:s3'), { how: 'field', point: 's3', field: 'guy', off: 'head guy' }); assert.deepEqual(D2('guy:s3:2'), { how: 'field', point: 's3', field: 'guy', off: 'side guy' });
+  assert.deepEqual(D2('gnd:s3'), { how: 'field', point: 's3', field: 'ground', off: false }); assert.equal(D2('nap:s4').field, 'nap');
+  assert.deepEqual(D2('arm:s5'), { how: 'field', point: 's5', field: 'telcoArm', off: false }); assert.deepEqual(D2('arm:s7'), { how: 'field', point: 's7', field: 'armType', off: '' });
+  // job.hide: left off (their lines and arrows too), still listed, hidden, their box kept; a block's attribute hidden in it; a span's cable stays
+  for (const v of [{}, { labels: 'tidy' }]) {
+    const ids = ['lbl:s3', 'clolbl:s2', 'loopsym:s2', 'pole:s1', 'ph:s5', 'span:s4|s5', 'msg:j1:s3', 'cableline:s2|s3'], r0 = T.build(SEED_BL, fullJob(v)), r1 = T.build(SEED_BL, fullJob({ ...v, hide: ids })), E = entsOf(r1.text);
+    for (const id of ids) { const m = by(r1.report.movable, id), m0 = by(r0.report.movable, id); assert.deepEqual(m.box, m0.box, `${id}: its box kept`);
+      if (id.startsWith('cableline:')) { assert.ok(!m.hidden && m.handles.length + m.lines.length > 0, 'a span\'s cable stays'); continue; }
+      assert.equal(m.hidden, true, id); assert.deepEqual(m.handles, [], `${id}: nothing of it drawn`); assert.equal(m.z, null); for (const h of m0.handles) assert.ok(!E.has(h), `${id}: ${h} left off`); }
+    assert.equal(r1.report.photoAt.s5.hidden, true); const all = [...E.values()]; all.forEach((e, i) => { if (e.type === 'ATTRIB' || e.type === 'SEQEND') assert.ok(['INSERT', 'ATTRIB'].includes(all[i - 1].type)); });
+    const r2b = T.build(SEED_BL, fullJob({ ...v, hide: ['sitelbl:t1'] })), t = by(r2b.report.movable, 'sitelbl:t1'), E2 = entsOf(r2b.text); assert.equal(t.hidden, true); assert.ok(t.handles.map((h) => E2.get(h)).every((e) => e.type === 'ATTRIB' && (+g1(e, 70) & 1)), 'the tower\'s attributes hidden in its block');
+    assert.ok(by(r2b.report.movable, 'site:t1').handles.length > 0, 'the tower stays');
+  }
+});
+
+test('text to record: report.movable[i].src per text line ({ point, field } and how the line is written from the value; a span\'s; null)', () => {
+  for (const v of [{}, { labels: 'tidy' }]) {
+    const j = fullJob({ ...v, cloStyle: 'bubble' }); Object.assign(j.pts.find((p) => p.id === 's9'), { status: 'Existing', label1: '' }); Object.assign(j.pts.find((p) => p.id === 's4'), { nap: true, napId: 'NAP-01' }); j.pts.find((p) => p.id === 's2').cloSize = '72C';
+    const r = T.build(SEED_BL, j), M = r.report.movable, S = (id) => by(M, id).src, X = (id) => by(M, id).text;
+    for (const m of M) if (m.text) { assert.ok(Array.isArray(m.src) && m.src.length === m.text.length, `${m.id}: one for each line`); }
+    assert.deepEqual(S('lbl:s3')[0], { point: 's3', field: 'label1' }, 'a proposed pole\'s first line');
+    const t9 = X('lbl:s9'), s9 = S('lbl:s9'); assert.deepEqual(s9[t9.indexOf('9009')], { point: 's9', field: 'tag', value: 'CC-{v}' }, 'an existing pole\'s tag without its material'); assert.deepEqual(s9[t9.indexOf('CC')], { point: 's9', field: 'mat' });
+    assert.ok(t9.filter((x) => /°$/.test(x)).every((x) => s9[t9.indexOf(x)] === null), 'its lat / long: none');
+    assert.deepEqual(S('loop:s2'), [{ point: 's2', field: 'mloopM', line: '{v}m LOOP' }]); assert.deepEqual(S('span:s1|s2'), [{ span: ['s1', 's2'], field: 'lenW', line: '{v}m' }]);
+    assert.deepEqual(S('sitelbl:t1').slice(0, 2), [{ point: 't1', field: 'siteName' }, { point: 't1', field: 'plaId' }]); assert.deepEqual(S('nap:s4'), [{ point: 's4', field: 'napId' }]);
+    const b = S('clolbl:s2'); assert.deepEqual(b[0], { point: 's2', field: 'cloSize', line: 'PROPOSE {v}' }); assert.equal(b[1], null); assert.deepEqual(b[2], { point: 't1', field: 'siteName', line: 'FACING {v}' }); assert.equal(b[3], null);
+    assert.deepEqual(S('num:s3'), [null], 'a number: not a record field');
+    if (!v.labels) assert.deepEqual(S('clamp:s3'), [{ point: 's3', field: 'clamp' }]);
+  }
+  // a cable label: its span's runLbls
+  const r2 = T.build(SEED_BL, snapJob({})), cab = r2.report.movable.find((m) => m.kind === 'cable'); assert.ok(cab, 'a cable label'); assert.deepEqual(cab.src, [{ span: cab.span.map(String), field: 'runLbls', i: 0 }]);
 });
