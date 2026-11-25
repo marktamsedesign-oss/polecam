@@ -4582,6 +4582,15 @@
         return R.add.flatMap(([, cs]) => cs);
       };
       const tBody = (recs, isLead) => recs.filter((r) => !isLead(r)), tBox = (recs, a) => ptsBox(recs.flatMap((r) => recOutline(S, r)), a);
+      /** the point of a box { cx, cy, w, h, a }'s edge nearest q (q inside it: pushed out to its nearest side) */
+      const toEdge = (B, q) => { const A = (B.a || 0) * Math.PI / 180, c = Math.cos(A), sn = Math.sin(A), dx = q[0] - B.cx, dy = q[1] - B.cy, hw = B.w / 2, hh = B.h / 2; let u = dx * c + dy * sn, v = -dx * sn + dy * c;
+        if (Math.abs(u) <= hw && Math.abs(v) <= hh) { if (hw - Math.abs(u) < hh - Math.abs(v)) u = (u < 0 ? -1 : 1) * hw; else v = (v < 0 ? -1 : 1) * hh; } else { u = Math.max(-hw, Math.min(hw, u)); v = Math.max(-hh, Math.min(hh, v)); }
+        return [B.cx + u * c - v * sn, B.cy + u * sn + v * c]; };
+      /** where a point at a box's edge (B0, by its nearest side) is at the same side of the box as edited (B1): as far out from it, as far along it from the middle */
+      const reEdge = (B0, B1, q) => { const A = (B0.a || 0) * Math.PI / 180, c = Math.cos(A), sn = Math.sin(A), dx = q[0] - B0.cx, dy = q[1] - B0.cy; let u = dx * c + dy * sn, v = -dx * sn + dy * c; const su = u < 0 ? -1 : 1, sv = v < 0 ? -1 : 1;
+        const ou = Math.abs(u) - B0.w / 2, ov = Math.abs(v) - B0.h / 2; // (out of it: the side it is out of most; in it: its nearest side)
+        if (ou > 0 || ov > 0 ? ou >= ov : ou >= ov) u = su * B1.w / 2 + (u - su * B0.w / 2); else v = sv * B1.h / 2 + (v - sv * B0.h / 2);
+        return [B1.cx + u * c - v * sn, B1.cy + u * sn + v * c]; };
       for (const m of MV) m.hadText = m.kind !== 'photo';
       for (const E of EL) E.hadText = E.recs.some(isTxt);
       if (JT) for (const [id, L] of Object.entries(JT)) {
@@ -4594,7 +4603,15 @@
           if (!tBody(now, isL).length && now.length) { const g2 = new Set(now); o.model = o.model.filter((r) => !g2.has(r)); m.handles = []; m.line = null; } // (nothing left but its line to its pole: that goes too)
           const b1 = tBox(tBody(now, isL), m.box.a || 0);
           if (!b1) { m.empty = !m.handles.length; continue; } // (its texts all left off: its box kept, where it was)
-          if (b0) { const d0 = [b1.cx - b0.cx, b1.cy - b0.cy]; m.box = { ...m.box, w: Math.max(0, m.box.w + b1.w - b0.w), h: Math.max(0, m.box.h + b1.h - b0.h) }; if (m.how === 'by hand') { for (const r of tBody(now, isL)) xformRec(r, { t: [-d0[0], -d0[1]] }); } else m.box = { ...m.box, cx: m.box.cx + d0[0], cy: m.box.cy + d0[1] }; } // (placed by hand: its box's middle where it was put)
+          const B0 = { ...m.box, a: m.box.a || 0 };
+          if (b0) { const d0 = [b1.cx - b0.cx, b1.cy - b0.cy]; m.box = { ...m.box, w: Math.max(0, m.box.w + b1.w - b0.w), h: Math.max(0, m.box.h + b1.h - b0.h) }; if (m.how === 'by hand') { // (placed by hand: its box's middle where it was put; a Tidy block's number and photo in it with it)
+            for (const r of tBody(now, isL)) xformRec(r, { t: [-d0[0], -d0[1]] });
+            for (const w of m.kind === 'details' ? m.with || [] : []) { const x = MV.find((y) => y.id === w && y.block); if (!x) continue; for (const h of x.handles) { const r = hRec.get(h); if (r) xformRec(r, { t: [-d0[0], -d0[1]] }); } x.box = { ...x.box, cx: x.box.cx - d0[0], cy: x.box.cy - d0[1] }; const pa = x.kind === 'photo' && x.p && rep.photoAt[String(x.p.id)]; if (pa) { pa.x -= d0[0]; pa.y -= d0[1]; } }
+          } else m.box = { ...m.box, cx: m.box.cx + d0[0], cy: m.box.cy + d0[1] };
+            if (m.kind === 'details' || m.kind === 'cable') for (const r of now) { if (typ(r) !== 'LWPOLYLINE' || !isL(r)) continue; // (its line or arrow to what it names: its end at the label as far from the label's edge as before)
+              const ks = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); if (ks.length < 2) continue; const P = ks.map((k) => [+r[k][1], +r[k + 1][1]]), dE = (q) => dist2(q, toEdge(B0, q)), j = dE(P[0]) <= dE(P[P.length - 1]) ? 0 : P.length - 1, q1 = reEdge(B0, { ...m.box, a: m.box.a || 0 }, P[j]), t = [q1[0] - P[j][0], q1[1] - P[j][1]];
+              ks.forEach((k, i) => { if (i === P.length - 1 - j) return; r[k][1] = F(P[i][0] + t[0]); r[k + 1][1] = F(P[i][1] + t[1]); }); if (m.line) m.line = r.map((q, i) => (q[0] === 10 ? [+q[1], +r[i + 1][1]] : null)).filter(Boolean); } // (all but its far end with it: a cable label's shoulder too)
+          }
         } else {
           if (!E.hadText) continue;
           const R = textSet(E.recs, L); if (!R) continue; const nw = textPut(R); E.recs = [...E.recs.filter((r) => !R.gone.has(r)), ...nw]; E.edited = true;
