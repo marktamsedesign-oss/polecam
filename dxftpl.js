@@ -646,6 +646,21 @@
     d.index(); S.styles.add(name);
     return name;
   }
+  /** (beta 7.11, Drawing tools) an Arial text style bold and / or italic (Drawing tools › Style: B, I): its TrueType file (arialbd, ariali, arialbi) and
+      its font flags (1071: bold 0x2000000, italic 0x1000000, + pitch and family 34), as addBoldStyle's, so AutoCAD and the PDF (dxfpdf.js: Helvetica-Bold,
+      -Oblique, -BoldOblique) both show it; plain: the template's arial. Its name, or null. */
+  function addFontStyle(d, S, b, i) {
+    if (!b && !i && S.styles.has('arial')) return 'arial';
+    const name = `G-ESAA ARIAL${b || i ? ' ' : ''}${b ? 'B' : ''}${i ? 'I' : ''}`; if (S.styles.has(name)) return name;
+    const T = d.sec('TABLES').recs, tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'STYLE'), src = T.find((r) => typ(r) === 'STYLE' && /^arial$/i.test(get(r, 2) || '')) || T.find((r) => typ(r) === 'STYLE');
+    if (!tb || !src) return null;
+    const h = d.newHandle(), file = b && i ? 'arialbi.ttf' : b ? 'arialbd.ttf' : i ? 'ariali.ttf' : 'arial.ttf', fl = 34 + (b ? 0x2000000 : 0) + (i ? 0x1000000 : 0);
+    const r = src.map(([c, v]) => [c, c === 5 ? h : c === 2 ? name : c === 3 ? file : c === 1071 ? I(fl) : c === 70 ? I(0) : v]);
+    const last = T.reduce((k, x, j) => (typ(x) === 'STYLE' ? j : k), -1); T.splice(last + 1, 0, r);
+    setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
+    d.index(); S.styles.add(name);
+    return name;
+  }
   /** v2.36: moves a model-space entity by (dx, dy): every point of it (a direction or a size stays); false for a kind not handled. */
   const SHIFT_PTS = { LINE: [10, 11], LWPOLYLINE: [10], CIRCLE: [10], ARC: [10], ELLIPSE: [10], POINT: [10], TEXT: [10, 11], ATTRIB: [10, 11], ATTDEF: [10, 11], MTEXT: [10], INSERT: [10], SOLID: [10, 11, 12, 13], TRACE: [10, 11, 12, 13], SEQEND: [] };
   function shiftRec(r, dx, dy) {
@@ -1685,6 +1700,10 @@
    *   arrow (drawn again). job.poleAt { [pointId]: [E, N] }: the point drawn exactly there (a pole within 6 m of a road edge: its cable in that
    *   road's lane), its spans, cable, labels, photo, number and attachments with it; report.drawnAt says so; the lat / long and the lengths written
    *   stay the record's (a copy of the point is drawn, the job is not changed).
+   * job.style { [id]: { h, scale, bold, italic, color, lead, callout } }, job.styleKind { [kind]: the same } (the item's own wins, field by field): h its
+   *   texts' size (a label from its middle; a symbol's texts each where it stands), scale a symbol's size (a guy, grounding, arm from where it meets
+   *   its pole), bold / italic (an Arial style made for it, an MTEXT's own codes), color an AutoCAD colour for the whole item (a block: a copy of it in
+   *   that colour), lead false: no line or arrow to what it names; job.leaders { photo, details, number }: false, none for every one of them.
    */
   /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
       every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
@@ -4315,6 +4334,61 @@
         m.box = { ...m.box, a: norm((m.box.a || 0) + rot) }; m.how = 'by hand';
         if (m.kind === 'photo' && m.p && rep.photoAt[String(m.p.id)]) Object.assign(rep.photoAt[String(m.p.id)], { rot: m.box.a, how: 'by hand' }); // (the Drawing's photo turned with it)
       }
+      /* (beta 7.11, Drawing tools) styles (job.style { id: {…} }, job.styleKind { kind: {…} }: the item's own wins, field by field) and the lines to what an
+         item names (Plan style › job.leaders { photo, details, number }, an item's own lead). h: its texts' size (a label, a number, a span's length…, the
+         whole of it from its middle; a symbol's texts each where it is); scale: a symbol's size (pole, site, NAP, closure, guy, grounding, arm, landmark
+         icon; its texts move with it at their size; a guy, grounding or arm from where it meets its pole); bold, italic: its texts (an Arial style
+         bold / italic, an MTEXT's own font codes); color: the whole item in that AutoCAD colour (its blocks drawn in it: a copy of each); lead false: no
+         line or arrow from it to what it names. With none of them the plan is as before, byte for byte. */
+      const STK = job.styleKind && typeof job.styleKind === 'object' ? job.styleKind : null, STI = job.style && typeof job.style === 'object' ? job.style : null, LDS = job.leaders && typeof job.leaders === 'object' ? job.leaders : null;
+      const stOf = (id, kind) => { const a = STK && STK[kind] && typeof STK[kind] === 'object' ? STK[kind] : null, b = STI && STI[id] && typeof STI[id] === 'object' ? STI[id] : null; if (!a && !b) return null; const o3 = { ...(a || {}), ...(b || {}) }, f = (v, lo, hi) => (v != null && v !== '' && Number.isFinite(+v) && +v > 0 ? Math.max(lo, Math.min(hi, +v)) : null);
+        const st = { h: f(o3.h, 0.2, 5), scale: f(o3.scale, 0.2, 5), bold: typeof o3.bold === 'boolean' ? o3.bold : null, italic: typeof o3.italic === 'boolean' ? o3.italic : null, color: Number.isInteger(+o3.color) && +o3.color >= 1 && +o3.color <= 255 ? +o3.color : null, lead: typeof o3.lead === 'boolean' ? o3.lead : null, callout: o3.callout === 'bubble' || o3.callout === 'arrow' ? o3.callout : null };
+        return Object.values(st).some((v) => v != null) ? st : null; };
+      const recOfH = new Map(o.model.map((r) => [r[1][1], r])), TXTK = new Set(['span', 'loop', 'road', 'sitename', 'sitedetails', 'closurelabel', 'details', 'number', 'cable']);
+      const isTxtR = (r) => typ(r) === 'TEXT' || typ(r) === 'MTEXT' || (typ(r) === 'ATTRIB' && !(parseInt(get(r, 70, '0'), 10) & 1));
+      /** an MTEXT's text, written again (its 250-letter pieces) */
+      const setMt = (r, s2) => { const k = r.findIndex((q, i) => i > 0 && (q[0] === 3 || q[0] === 1)); for (let i = r.length - 1; i > 0; i--) if (r[i][0] === 3 || r[i][0] === 1) r.splice(i, 1); const ch = []; for (let i = 0; i < s2.length; i += 250) ch.push(s2.slice(i, i + 250)); if (!ch.length) ch.push(''); r.splice(k > 0 ? k : r.length, 0, ...ch.slice(0, -1).map((c) => [3, c]), [1, ch[ch.length - 1]]); };
+      const mtOf = (r) => all(r, 3).join('') + (get(r, 1) || '');
+      const boldSt = (nm) => /^G-ESAA (BOLD|ARIAL BI?)$/.test(nm || ''), italSt = (nm) => /^G-ESAA ARIAL B?I$/.test(nm || '');
+      /** the item's texts bold / italic as asked (null: as they are) */
+      const fontOn = (recs, b, i) => { if (b == null && i == null) return; for (const r of recs) { if (!isTxtR(r)) continue;
+        if (typ(r) === 'MTEXT') { let t = mtOf(r); if (/\\f[^;]*;/i.test(t)) t = t.replace(/\\f([^;|]*)((?:\|[^;|]*)*);/gi, (m0, nm, fl) => `\\f${nm}${fl.replace(/\|b[01]/, b == null ? (x) => x : `|b${b ? 1 : 0}`).replace(/\|i[01]/, i == null ? (x) => x : `|i${i ? 1 : 0}`)}${/\|b[01]/.test(fl) || b == null ? '' : `|b${b ? 1 : 0}`}${/\|i[01]/.test(fl) || i == null ? '' : `|i${i ? 1 : 0}`};`); else t = `{\\fArial|b${b ? 1 : 0}|i${i ? 1 : 0}|c0|p34;${t}}`; setMt(r, t); continue; }
+        const k = r.findIndex((q, j) => j > 0 && q[0] === 7), cur = k > 0 ? r[k][1] : 'Standard', nb = b == null ? boldSt(cur) : b, ni = i == null ? italSt(cur) : i; if (nb === boldSt(cur) && ni === italSt(cur)) continue;
+        const nm = addFontStyle(d, S, nb, ni); if (nm && k > 0) r[k][1] = nm; } };
+      /** the whole item in an AutoCAD colour: each record's own colour (a block: a copy of it in that colour; an MTEXT: its own colour codes out); its dark shadows (250) kept */
+      const colorOn = (recs, c) => { for (const r of recs) { const t = typ(r); if (t === 'SEQEND' || t === 'IMAGE' || get(r, 62) === I(250)) continue;
+        for (let i = r.length - 1; i > 0; i--) if (r[i][0] === 420) r.splice(i, 1);
+        const k = r.findIndex((q, i) => i > 0 && q[0] === 62); if (k > 0) r[k][1] = I(c); else { const l8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(l8 > 0 ? l8 + 1 : r.length, 0, [62, I(c)]); }
+        if (t === 'INSERT') { const bn = get(r, 2), nb = tintBlock(d, S, bn, c); if (nb) setFirst(r, 2, nb); }
+        if (t === 'MTEXT') setMt(r, mtOf(r).replace(/\\[Cc]\d+;/g, '')); } };
+      /** scaled about c: its geometry s times, its texts' heights times hs (an attribute of a block with its block) */
+      const scaleRecs = (recs, lead, c, s, hsT) => { for (const r of recs) { if (lead(r)) { if (typ(r) !== 'LWPOLYLINE') continue; const k0 = r.findIndex((q, i) => i > 0 && q[0] === 10), x0 = r[k0][1], y0 = r[k0 + 1][1]; xformRec(r, { c, s }); r[k0][1] = x0; r[k0 + 1][1] = y0; continue; } xformRec(r, { c, s, hs: typ(r) === 'TEXT' || typ(r) === 'MTEXT' ? hsT : s }); } };
+      /** each text's height times h where it stands (its own alignment point) */
+      const hEach = (recs, h) => { for (const r of recs) { if (!isTxtR(r)) continue; const al = typ(r) !== 'MTEXT' && (+get(r, 72, '0') || +get(r, typ(r) === 'ATTRIB' ? 74 : 73, '0')); xformRec(r, { c: [num(r, al ? 11 : 10, 0), num(r, al ? 21 : 20, 0)], s: 1, hs: h }); } };
+      const drop = new Set(); // (lines taken off: lead false)
+      const ld7 = (r) => typ(r) === 'SOLID' || (typ(r) === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1)); // (7.10's items: their open lines and arrowheads go to what they name)
+      const LEADK = { photo: 'photo', details: 'details', number: 'number' };
+      for (const m of MV) {
+        const st = stOf(m.id, m.kind), lp = LDS && LEADK[m.kind] && LDS[LEADK[m.kind]] === false; if (!st && !lp) continue;
+        const recs = m.handles.map((h) => recOfH.get(h)).filter(Boolean);
+        if ((st && st.lead === false) || (lp && !(st && st.lead === true))) recs.forEach((r) => { if (ld7(r)) drop.add(r); });
+        if (!st) continue;
+        if (st.h && m.kind !== 'photo' && Math.abs(st.h - 1) > 1e-9) { const c0 = [m.box.cx, m.box.cy]; scaleRecs(recs, ld7, c0, st.h, st.h); m.box = { ...m.box, w: m.box.w * st.h, h: m.box.h * st.h }; m.styled = true;
+          for (const w of m.kind === 'details' ? m.with || [] : []) { const n2 = MV.find((x) => x.id === w && x.kind === 'number'); if (!n2) continue; scaleRecs(n2.handles.map((h) => recOfH.get(h)).filter(Boolean), ld7, c0, st.h, st.h); n2.box = { ...n2.box, cx: c0[0] + (n2.box.cx - c0[0]) * st.h, cy: c0[1] + (n2.box.cy - c0[1]) * st.h, w: n2.box.w * st.h, h: n2.box.h * st.h }; } } // (a Tidy block's number in it, as large)
+        if (m.kind !== 'photo') fontOn(recs, st.bold, st.italic);
+        if (st.color && m.kind !== 'photo') colorOn(recs, st.color);
+      }
+      for (const E of EL) {
+        const st = stOf(E.id, E.kind); if (!st) continue; const k = E.kind;
+        if (st.lead === false && (k === 'span' || k === 'loop' || k === 'closurelabel')) E.recs.forEach((r) => { if (LEAD.has(r)) drop.add(r); });
+        if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const body = bodyOf(E), P = outl(body), c = ATTK.has(k) ? P.reduce((b2, q) => (!b2 || dist2(q, E.about) < dist2(b2, E.about) ? q : b2), null) || E.about : [E.box.cx, E.box.cy]; scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); }
+        if (st.h && Math.abs(st.h - 1) > 1e-9) { if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
+        fontOn(E.recs, st.bold, st.italic);
+        if (st.color) colorOn(E.recs, st.color);
+        E.box = boxOf(E); E.styled = true;
+        if (k === 'closurelabel' && E.at && (E.how === 'by hand' || st.h)) cloArrow(E);
+      }
+      if (drop.size) { o.model = o.model.filter((r) => !drop.has(r)); for (const m of MV) m.handles = m.handles.filter((h) => !drop.has(recOfH.get(h))); for (const E of EL) E.recs = E.recs.filter((r) => !drop.has(r)); for (const m of MV) if (m.line && m.handles.every((h) => !ld7(recOfH.get(h)))) m.line = null; }
       /* (beta 7.10, Plan kept) as a photo placed by hand: a label, number, pole's details or (beta 7.11) other element placed by hand, its box (turned with it)
          and its line or arrow; across a sheet's edge, the sheets it prints cut on (cut, report.movable); in a cell no sheet prints: that sheet added (build) */
       const { off: offM, offAt, frameCells } = OFFC, lineCells = (L, lk) => { if (L) for (let s2 = 0; s2 + 1 < L.length; s2++) { const u = L[s2], v = L[s2 + 1], n = Math.max(1, Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]))); for (let k = 0; k <= n; k++) offAt(ci(u[0] + (v[0] - u[0]) * k / n), cj(u[1] + (v[1] - u[1]) * k / n), lk); } };
