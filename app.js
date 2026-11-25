@@ -2718,7 +2718,7 @@
       const C = canOf(m), sw = styOf(m, M.mvStyle, M.mvKind), sm = styOf(m, J.style, J.styleKind), rw = drwRotOf(m, M), X = {};
       if (rw != null && Math.abs(((rw - m.box[4] + 540) % 360) - 180) > 0.05) { X.rot = ((rw - m.box[4] + 540) % 360) - 180; X.piv = C.about ? C.about.slice() : [m.box[0], m.box[1]]; }
       const fs = (+sw.scale || 1) / (+sm.scale || 1), fh = (+sw.h || 1) / (+sm.h || 1), f = C.scale && C.text ? fs * fh : C.scale ? fs : C.text ? fh : 1;
-      if (Math.abs(f - 1) > 1e-3) { X.sc = f; if (!X.piv) X.piv = C.about ? C.about.slice() : [m.box[0], m.box[1]]; } // (an attachment from where it meets its pole, as the plan sizes it)
+      if (Math.abs(f - 1) > 1e-3) { X.sc = f; if (!X.piv) X.piv = C.about ? C.about.slice() : m.kind === 'closurelabel' && Math.abs(fs - 1) > 1e-3 ? m.anchor.slice() : [m.box[0], m.box[1]]; } // (an attachment from where it meets its pole; a closure's bubble about its closure, its label with it: as the plan sizes them)
       if (sw.color && sw.color !== sm.color) X.col = drwAciCss(sw.color);
       if ((sw.bold != null || sw.italic != null) && (!!sw.bold !== !!sm.bold || !!sw.italic !== !!sm.italic)) X.font = (sw.bold ? 1 : 0) + (sw.italic ? 2 : 0);
       const xf = Object.keys(X).length ? X : null;

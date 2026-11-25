@@ -118,7 +118,7 @@ async function hook(page) {
   await page.evaluate(async (KEYS) => {
     if (!window.GeDxfTpl) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'dxftpl.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
     const T = window.GeDxfTpl, real = T.build; T.__w = true; window.__exp = []; // (__w: the export's plan made on the page, where this sees it)
-    T.build = function (seed, job) { const out = real.call(this, seed, job); window.__exp.push({ job: JSON.parse(JSON.stringify(Object.fromEntries(KEYS.filter((k) => k in job).map((k) => [k, job[k]])))), pts: JSON.parse(JSON.stringify(job.pts.map((p) => ({ id: p.id, status: p.status, closureOld: p.closureOld, E: p.E, N: p.N, ...('cloSize' in p ? { cloSize: p.cloSize } : {}) })))), phPin: JSON.parse(JSON.stringify(job.phPin || {})), cabPin: JSON.parse(JSON.stringify(job.cabPin || {})), movable: JSON.parse(JSON.stringify(out.report.movable)), drawnAt: JSON.parse(JSON.stringify(out.report.drawnAt || {})), text: out.text }); return out; };
+    T.build = function (seed, job) { const out = real.call(this, seed, job); window.__exp.push({ job: JSON.parse(JSON.stringify(Object.fromEntries(KEYS.filter((k) => k in job).map((k) => [k, job[k]])))), pts: JSON.parse(JSON.stringify(job.pts.map((p) => ({ id: p.id, status: p.status, closureOld: p.closureOld, E: p.E, N: p.N, ...('cloSize' in p ? { cloSize: p.cloSize } : {}) })))), phPin: JSON.parse(JSON.stringify(job.phPin || {})), cabPin: JSON.parse(JSON.stringify(job.cabPin || {})), movable: JSON.parse(JSON.stringify(out.report.movable)), drawnAt: JSON.parse(JSON.stringify(out.report.drawnAt || {})), bub: JSON.parse(JSON.stringify(((out.report.closureLabels || {}).bubbles) || [])), text: out.text }); return out; };
   }, TOOL_JOB);
 }
 const closeAll = async (page) => { for (let i = 0; i < 8; i++) { if (!(await page.evaluate(() => document.querySelectorAll('section.sheet:not([hidden])').length))) return; await page.goBack(); await page.waitForTimeout(500); } };
@@ -376,9 +376,17 @@ test('Plan style: Lines to the pole off and Closure labels Bubble reach the job;
   // back to the defaults: none in the job; one closure in a bubble from the toolbar
   await drawing(page); await shown(page); await page.click('#drawSetBtn'); await page.waitForTimeout(700); await page.evaluate(() => { document.getElementById('stPole').open = true; document.getElementById('stCab').open = true; });
   await page.click('#stLead [data-k="photo"]'); await page.click('#stLead [data-k="details"]'); await page.click('#stCloStyle [data-v="arrow"]'); await page.waitForTimeout(200);
-  await drawing(page); await shown(page); await select(page, 'clolbl:s2'); await tbClick(page, 'callout', 'bubble'); await page.waitForTimeout(150);
+  await drawing(page); await shown(page); await select(page, 'clolbl:s2'); assert.equal(shown1(await tbOf(page), 's+'), false, 'an arrow label: no Size'); let n6 = (await pl(page)).n;
+  await tbClick(page, 'callout', 'bubble'); await page.waitForTimeout(150);
   assert.deepEqual((await kept(page)).mvStyle['clolbl:s2'], { callout: 'bubble' });
-  const e2 = await exportPlan(page); assert.ok(!('leaders' in e2.job) && !('cloStyle' in e2.job), 'the defaults: as 7.10'); assert.deepEqual(e2.job.style['clolbl:s2'], { callout: 'bubble' });
+  // the bubble's size (can.scale in bubble mode): Size on the toolbar resizes its circle and pointer
+  await again(page, n6); assert.equal((await full(page, 'clolbl:s2')).canNow.scale, true, 'a bubble: its size'); assert.deepEqual((await mvOf(page)).sels, ['clolbl:s2'], 'still selected');
+  assert.equal(shown1(await tbOf(page), 's+'), true, 'Size on the toolbar'); await tbClick(page, 's+'); await page.waitForTimeout(150);
+  assert.deepEqual((await kept(page)).mvStyle['clolbl:s2'], { callout: 'bubble', scale: 1.25 });
+  await shot(page, 'tools-phone-bubble.png');
+  const e2 = await exportPlan(page); assert.ok(!('leaders' in e2.job) && !('cloStyle' in e2.job), 'the defaults: as 7.10'); assert.deepEqual(e2.job.style['clolbl:s2'], { callout: 'bubble', scale: 1.25 });
+  const ring = (ex) => { const E = entsOf(ex.text), m = ex.movable.find((x) => x.id === 'clolbl:s2'); return m.handles.map((h) => E.get(h)).filter((x) => x && x.type === 'CIRCLE').map((x) => x.h); }; // (its circle in the DXF)
+  assert.ok(e.bub.length === 1 && e2.bub.length === 1, 'a bubble each'); const r1 = ring(e), r2 = ring(e2); assert.ok(r1.length && r2.length, 'its circle'); near(r2[0] / r1[0], 1.25, 0.01, 'the bubble 1.25 times as large');
   assert.equal(e2.pts.find((p) => p.id === 's2').cloSize, '24C', 'its bubble says its size too');
   assert.deepEqual(errors, []);
   await ctx.close();

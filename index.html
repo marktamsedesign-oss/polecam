@@ -271,6 +271,8 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 @media (pointer:fine){.drwtb{gap:3px}.drwtbb{min-width:36px;height:38px;padding:0 5px}.drwtbb.wide{padding:0 7px}.drwtbseg{height:38px}.drwtbseg button{padding:0 7px}} /* (a mouse: a little smaller, one row on a laptop) */
 @media (pointer:coarse){.drwtbb,.drwtbseg{min-width:44px;height:44px}.drwtbpal button{width:40px;height:40px}.drwtb .drwtbx{width:40px;height:40px;top:-12px;right:-12px}}
 #drawWrap.tbtop > .drwxhid{top:calc(var(--tbh, 64px) + 8px)}#drawWrap.tbtop:has(> #drawXHid:not([hidden])) > #drawPhAll{top:calc(var(--tbh, 64px) + 52px)} /* (the chips at the upper right, below the toolbar at the top) */
+@media (max-width:699px){#drawWrap.tbtop > .drwxhid{right:calc(var(--tap) + 24px)}} /* (a phone: below a tall toolbar, clear of the round tools) */
+@media (max-width:480px){.drwtbb[data-a="auto"] span{display:none}.drwtbb[data-a="auto"]{padding:0 6px}} /* (a narrow phone: Back to automatic by its icon, as the chip's; its name in its label) */
 .strow.sthl,.stgrp.sthl,.psrow.sthl{outline:2px solid #f08c00;outline-offset:3px;border-radius:8px;background:rgba(240,140,0,.09)}#stPrev [data-st]{cursor:pointer}.dscap .dspk{color:#e8590c;font-weight:600}
 .drwbar{align-items:center;gap:8px;flex-wrap:nowrap;position:relative}.drwbar select{min-height:44px;flex:0 1 128px;min-width:84px;padding:0 6px}
 .drwicon{flex:none;width:52px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);display:grid;place-items:center;padding:0}.drwicon svg{width:34px;height:26px}
