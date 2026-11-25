@@ -2645,8 +2645,8 @@
   /** Whether an item's text can be edited (a plan item with texts, report.movable can.text; a text note). */
   const canText = (m) => !!m && (isNote(m) ? m.kind !== 'notephoto' && !(noteNow(m) && noteNow(m).kind === 'photo') : !!canOf(m).text);
   /** (beta 7.11, Drawing tools) An item's kind from its id (the contract's prefixes), and the nouns the counts use. */
-  const MV_PFX = { ph: 'photo', num: 'number', lbl: 'details', cab: 'cable', pole: 'pole', site: 'site', sitelbl: 'sitedetails', sitename: 'sitename', nap: 'nap', clo: 'closure', clolbl: 'closurelabel', loop: 'loop', span: 'span', guy: 'guy', gnd: 'ground', arm: 'arm', lm: 'landmark', road: 'road', note: 'note' };
-  const MV_NOUN = { photo: ['photo', 'photos'], number: ['number', 'numbers'], details: ['pole\'s details', 'poles\' details'], cable: ['cable label', 'cable labels'], pole: ['pole', 'poles'], site: ['site', 'sites'], sitedetails: ['site\'s details', 'sites\' details'], sitename: ['site name', 'site names'], nap: ['NAP', 'NAPs'], closure: ['closure', 'closures'], closurelabel: ['closure label', 'closure labels'], loop: ['loop', 'loops'], span: ['span length', 'span lengths'], guy: ['guying', 'guyings'], ground: ['grounding', 'groundings'], arm: ['arm', 'arms'], landmark: ['landmark', 'landmarks'], road: ['street name', 'street names'], note: ['note', 'notes'], notephoto: ['photo note', 'photo notes'], text: ['text', 'texts'] }; // ((beta 7.12, Drawing edit) the notes; a text edited)
+  const MV_PFX = { ph: 'photo', num: 'number', lbl: 'details', cab: 'cable', pole: 'pole', site: 'site', sitelbl: 'sitedetails', sitename: 'sitename', nap: 'nap', clo: 'closure', clolbl: 'closurelabel', loop: 'loop', span: 'span', guy: 'guy', gnd: 'ground', arm: 'arm', lm: 'landmark', road: 'road', note: 'note', loopsym: 'loopsym' };
+  const MV_NOUN = { photo: ['photo', 'photos'], number: ['number', 'numbers'], details: ['pole\'s details', 'poles\' details'], cable: ['cable label', 'cable labels'], pole: ['pole', 'poles'], site: ['site', 'sites'], sitedetails: ['site\'s details', 'sites\' details'], sitename: ['site name', 'site names'], nap: ['NAP', 'NAPs'], closure: ['closure', 'closures'], closurelabel: ['closure label', 'closure labels'], loop: ['loop', 'loops'], span: ['span length', 'span lengths'], guy: ['guying', 'guyings'], ground: ['grounding', 'groundings'], arm: ['arm', 'arms'], landmark: ['landmark', 'landmarks'], road: ['street name', 'street names'], note: ['note', 'notes'], notephoto: ['photo note', 'photo notes'], text: ['text', 'texts'], loopsym: ['loop on the cable', 'loops on the cable'] }; // ((beta 7.12, Drawing edit) the notes; a text edited)
   const mvKindOf = (id) => { const s = String(id), k = s.indexOf(':'); return MV_PFX[k > 0 ? s.slice(0, k) : s] || 'item'; };
   /** (beta 7.11, Drawing tools) An item moved where the plan draws its point (poleAt: a pole, an OLT, an ODC, an ODF), not a tower (its model moved by its pin, a line
    *  or arrow back to its point, as the plan draws a tower set aside). */
@@ -2678,7 +2678,7 @@
     // ((beta 7.11, Drawing tools) the other kinds: by their point's ID (an attachment, a closure, a NAP: its pole's) or the plan's name for them)
     const pid = pidOf(m), q = pid != null ? drwEdById(pid) : null, at = q ? q.p.poleId || elemOf(q.p) : m.name || '';
     return { pole: `Pole ${at}`, site: `${at || 'Site'}`, sitedetails: `Details of ${at}`, sitename: `Site name ${m.name || at}`, nap: `NAP at ${at}`, closure: `Closure at ${at}`, closurelabel: `Closure label at ${at}`, loop: `Loop at ${at}`,
-      span: `Span length ${m.name || ''}`.trim(), guy: `Guying at ${at}`, ground: `Grounding at ${at}`, arm: `Arm at ${at}`, landmark: `Landmark ${m.name || ''}`.trim(), road: `Street name ${m.name || ''}`.trim() }[m.kind] || `${m.kind} ${m.name || at}`.trim();
+      span: `Span length ${m.name || ''}`.trim(), loopsym: `Loop on the cable at ${at}`, guy: `Guying at ${at}`, ground: `Grounding at ${at}`, arm: `Arm at ${at}`, landmark: `Landmark ${m.name || ''}`.trim(), road: `Street name ${m.name || ''}`.trim() }[m.kind] || `${m.kind} ${m.name || at}`.trim();
   }
   /** (beta 7.11, Drawing tools) What an item can do (report.movable can): the builder's; a builder that does not say (7.10): its four kinds, moved (and turned: the details, a cable label). */
   const CAN_710 = { photo: { move: true }, number: { move: true }, details: { move: true, rotate: true }, cable: { move: true, rotate: true } };
@@ -2686,7 +2686,28 @@
   /** (beta 7.11, Drawing tools) An item's style: its kind's (All like it), then its own, field by field (St: job.style, Sk: job.styleKind; none: as the plan). */
   const styOf = (m, St, Sk) => ({ ...(((Sk || {})[m.kind]) || {}), ...(((St || {})[m.id]) || {}) });
   /** Item i drawn moved by (metres): lifted off the plan (L: moved since the plan was made), and by the finger while it (or the block carrying it) is dragged. */
-  function drwMvOff(i, L) { const D = drw.mvDrag, o = L.off; if (D && (D.i === i || (D.with && D.with.includes(i)))) { const sc = drw.view.sc; return [o[0] + D.dx / sc, o[1] - D.dy / sc]; } return o; }
+  function drwMvOff(i, L) { const D = drw.mvDrag, o = L.off; if (D && (D.i === i || (D.with && D.with.includes(i)))) { const sc = drw.view.sc, t = D.snap ? drwSnapDelta(D, D.dx / sc, -D.dy / sc) : [D.dx / sc, -D.dy / sc]; return [o[0] + t[0], o[1] + t[1]]; } return o; } // ((beta 7.12) a closure or a loop on its cable: along it only)
+  /* (beta 7.12, Drawing edit) The owner: "Closure and loop does not follow cable orientation. Cable is where that loop and closure should snap in to": a closure and a
+     loop's symbol (loopsym) are on their cable (report path: the cable through their pole as drawn; along: their place on it, metres from the pole). Dragged, they
+     slide along it only (the finger taken to the nearest point of the cable), what names them with them; let go, kept as their pin's along (job.pins[id].along),
+     the plan turning them as the cable runs there. */
+  const isSnap = (m) => !!m && (m.kind === 'closure' || m.kind === 'loopsym') && Array.isArray(m.path) && m.path.length > 1;
+  /** A path's ([E, N] points) point nearest q: { s: metres along it from its first point, q: the point }, or null. */
+  function pathNear(P, q) {
+    let best = null, cum = 0;
+    for (let k = 1; k < P.length; k++) { const a = P[k - 1], b = P[k], vx = b[0] - a[0], vy = b[1] - a[1], l2 = vx * vx + vy * vy; if (l2 < 1e-12) continue; const l = Math.sqrt(l2), t = Math.max(0, Math.min(1, ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / l2)), x = [a[0] + vx * t, a[1] + vy * t], d = Math.hypot(x[0] - q[0], x[1] - q[1]);
+      if (!best || d < best.d - 1e-9) best = { d, s: cum + t * l, q: x }; cum += l; }
+    return best;
+  }
+  /** The point s metres along a path (held to its ends). */
+  function pathAt(P, s) { let cum = 0; for (let k = 1; k < P.length; k++) { const a = P[k - 1], b = P[k], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (s <= cum + l || k === P.length - 1) { const t = l ? Math.max(0, Math.min(1, (s - cum) / l)) : 0; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; } cum += l; } return P[0].slice(); }
+  /** How far a closure or a loop dragged by (dE, dN) goes along its cable (metres, [dE, dN] on it), and its new along; cached for one place of the finger. */
+  function drwSnapDelta(D, dE, dN) {
+    const k = `${dE.toFixed(3)},${dN.toFixed(3)}`; if (D.snap.k === k) return D.snap.t; const A = pathNear(D.snap.P, D.snap.base), B = pathNear(D.snap.P, [D.snap.base[0] + dE, D.snap.base[1] + dN]);
+    D.snap.k = k; D.snap.t = A && B ? [B.q[0] - A.q[0], B.q[1] - A.q[1]] : [0, 0]; D.snap.ds = A && B ? B.s - A.s : 0; return D.snap.t;
+  }
+  /** A closure's or loop's along kept by hand (its pin), else as the plan has it. */
+  const drwAlongNow = (m, M) => { const t = ((M || pmeta(drw.project)).mvPin || {})[m.id]; return t && t.along != null && Number.isFinite(+t.along) ? +t.along : +m.along || 0; };
   /** (beta 7.11, Drawing tools) The matrix [a b c d e f] that draws lifted item i where it is now, in the plan's metres from its origin: moved (drwMvOff), turned
    *  and sized about its pivot (L.xf: rot degrees, sc, piv [E, N]) and, while its turn handle is held, turned by the finger. */
   function drwMvAff(i, L, PL) {
@@ -2765,7 +2786,8 @@
       const z = zNow.get(m.id) !== zMade.get(m.id) ? (/^(front|forward)$/.test(zNow.get(m.id) || '') ? 1 : /^(back|backward)$/.test(zNow.get(m.id) || '') ? -1 : 0) : 0; // ((beta 7.12) over or under the rest until the plan made with it comes)
       if (m.kind === 'photo') { if (!want.has(i)) want.set(i, z ? { off: [0, 0], xf: { z } } : null); return; }
       const pin = drwPinOf(m, M), pid = pidOf(m); let off = null;
-      if (ptMoves(m) && pid != null) { if (moved.has(pid)) off = moved.get(pid); }
+      if (isSnap(m)) { const al = drwAlongNow(m, M); if (Math.abs(al - (+m.along || 0)) > 0.02) { const A = pathNear(m.path, [m.box[0], m.box[1]]); if (A) { const q = pathAt(m.path, A.s + al - (+m.along || 0)); off = [q[0] - A.q[0], q[1] - A.q[1]]; } } else if (pid != null && moved.has(pid)) off = moved.get(pid); } // ((beta 7.12, Drawing edit) slid along its cable: there until the plan made with it comes)
+      else if (ptMoves(m) && pid != null) { if (moved.has(pid)) off = moved.get(pid); }
       else if (pin) { const an = drwAnchorNow(m, M), dx = an[0] + +pin[0] - m.box[0], dy = an[1] + +pin[1] - m.box[1]; if (Math.hypot(dx, dy) > 0.02) off = [dx, dy]; }
       else if (m.how === 'by hand') { const L = PL.lifted.get(i); off = L ? L.off : null; }
       else if (pid != null && moved.has(pid)) off = moved.get(pid); // (on a pole moved: with it until the plan made with it comes)
@@ -2823,7 +2845,7 @@
   function drwMvSay(m) {
     if (isNote(m)) { const info = $('drawInfo'); info.textContent = `${drwMvName(m)}${drwSels().length === 1 && drw.tbMore ? ' · tap more to add' : ''} · your own, not from a record: drag it to move it${canText(m) ? ', double-tap to edit it' : ''}; Delete takes it off (↶ brings it back)`; info.hidden = false; $('drawHint').hidden = true; return; } // ((beta 7.12, Drawing edit) a note)
     const i = mvIx(m.id), M = pmeta(drw.project), pin = drwPinOf(m), hand = !!pin || drwHandOf(m, M), info = $('drawInfo'), cut = pin ? drwMvCut(m, i) : null; // ((beta 7.10, Plan kept) across a sheet's edge: said, as a photo's)
-    const pole = ptMoves(m), how = hand ? (pole && (M.poleAt || {})[pidOf(m)] ? 'moved on the plan (its record\'s place stays)' : pin ? 'placed by hand on the plan' : 'changed by hand on the plan') : `where the plan puts it: ${pole ? 'drag it to move it (its record\'s place moves with it: ↶ undoes)' : 'drag it to place it by hand'}`;
+    const pole = ptMoves(m), how = hand ? (isSnap(m) && ((M.mvPin || {})[m.id] || {}).along != null ? 'slid along its cable by hand' : pole && (M.poleAt || {})[pidOf(m)] ? 'moved on the plan (its record\'s place stays)' : pin ? 'placed by hand on the plan' : 'changed by hand on the plan') : `where the plan puts it: ${pole ? 'drag it to move it (its record\'s place moves with it: ↶ undoes)' : isSnap(m) ? 'drag it along its cable' : 'drag it to place it by hand'}`;
     info.textContent = `${drwMvName(m)}${drwSels().length === 1 && drw.tbMore ? ' · tap more to add' : ''} · ${how}${cut ? ` · across the edge of sheets ${andList(cut)}: it prints cut on both, drag it inside one` : ''}${m.empty ? ' · its texts left off (Edit text, or Automatic, brings them back)' : ''}${drwZSay(m)}`; // ((beta 7.12, Drawing edit) nothing of it drawn; what it is drawn over and under)
     if (hand) { const b = document.createElement('button'); b.type = 'button'; b.id = 'drawMvAuto'; b.className = 'btn small'; b.textContent = 'Back to automatic'; b.addEventListener('click', () => drwMvAuto(m.id)); info.appendChild(b); }
     info.hidden = false; $('drawHint').hidden = true;
@@ -2874,6 +2896,8 @@
     for (const q of grp) {
       if (ptMoves(q)) continue;
       if (isNote(q)) { NT = NT || notesOf(nm).map((x) => ({ ...x })); const n = NT.find((x) => `note:${x.id}` === q.id); if (n) n.at = [+(+n.at[0] + dE).toFixed(2), +(+n.at[1] + dN).toFixed(2)]; continue; }
+      if (isSnap(q)) { const o = offOf(q), base = [q.box[0] + o[0], q.box[1] + o[1]], A = pathNear(q.path, base), B = pathNear(q.path, [base[0] + dE, base[1] + dN]); if (!A || !B) continue; // ((beta 7.12) a closure or a loop: its place along its cable)
+        const t = { ...((nm.mvPin || {})[q.id] || {}), along: +(drwAlongNow(q, nm) + B.s - A.s).toFixed(2) }; delete t.at; nm.mvPin = { ...(nm.mvPin || {}), [q.id]: t }; continue; }
       if (q.kind === 'photo') { const A = P.at && P.at[q.point]; if (!A) continue; const off = [+(A.x - A.dp[0] + dE).toFixed(2), +(A.y - A.dp[1] + dN).toFixed(2)]; nm.phPin = { ...(nm.phPin || {}), [q.point]: off };
         at = { ...(at || P.at), [q.point]: { ...A, x: A.dp[0] + off[0], y: A.dp[1] + off[1], how: 'by hand', line: null, cut: null } }; continue; } // (as a photo let go: drwPhDrop)
       const o = offOf(q), an = drwAnchorNow(q, nm, SH), c = [q.box[0] + o[0] + dE, q.box[1] + o[1] + dN], off = [+(c[0] - an[0]).toFixed(2), +(c[1] - an[1]).toFixed(2)], ang = +(+q.box[4] || 0).toFixed(3), key = PIN_OF[q.kind];
@@ -3001,7 +3025,8 @@
       const q = P.mv[j]; if (q.kind === 'pole' || q.kind === 'site') { const pid = pidOf(q); P.mv.forEach((r, k) => { if (k !== j && pidOf(r) === pid && r.kind !== 'pole' && r.kind !== 'site') W.add(k); }); } } // (what is on a pole goes with it)
     W.delete(i); const w = [...W];
     for (const j of [i, ...w]) { const L = PL.lifted ? PL.lifted.get(j) : null; drwPlanLift(PL, j, L ? L.off : [0, 0], L ? L.xf : null); }
-    return { id, i, with: w, grp, dx: 0, dy: 0 };
+    const L0 = PL.lifted ? PL.lifted.get(i) : null, o0 = L0 ? L0.off : [0, 0]; // ((beta 7.12, Drawing edit) a closure or a loop alone: along its cable only)
+    return { id, i, with: w, grp, dx: 0, dy: 0, ...(isSnap(m) && grp.length === 1 ? { snap: { P: m.path, base: [m.box[0] + o0[0], m.box[1] + o0[1]] } } : {}) };
   }
   /* (beta 7.11, Drawing tools) An item's pivot: where it turns about (its middle; a guying, grounding or arm: its pole's drawn centre, can.about) as the plan shown
      made it (drwPivMade: the lifted item's matrix turns it there, then moves it), and where that is now (moved with it, or with its pole). */
