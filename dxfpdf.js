@@ -374,7 +374,7 @@
       }
       const lw = lines.map(wOf), maxW = Math.max(0, ...lw), colW = refW > maxW * 0.5 ? refW : maxW;
       const Hh = h + pitch * (lines.length - 1), top = ri === 0 ? 0 : ri === 1 ? Hh / 2 : Hh, left = -(ci === 0 ? 0 : ci === 1 ? colW / 2 : colW);
-      const al = /\\p[^;]*q?c[;,]|\\pxqc|\\pqc/.test(raw) ? 'c' : /\\pxqr|\\pqr/.test(raw) ? 'r' : /\\pxql|\\pql/.test(raw) ? 'l' : 'lcr'[ci];
+      const pq = /\\p[^;]*?[x,]q([lcr])[;,]/.exec(raw), al = /\\p[^;]*q?c[;,]|\\pxqc|\\pqc/.test(raw) ? 'c' : /\\pxqr|\\pqr/.test(raw) ? 'r' : /\\pxql|\\pql/.test(raw) ? 'l' : pq ? pq[1] : 'lcr'[ci]; // ((beta 7.14, Text format) also a paragraph code with other options before its alignment: \\pxi-3,l3,qr;)
       let dir = [num(r, 11, 1), num(r, 21, 0)]; const k50 = r.findIndex((p) => p[0] === 50), k101 = r.findIndex((p) => p[0] === 101);
       if (k50 > 0 && (k101 < 0 || k50 < k101) && get(r, 11) == null) dir = [Math.cos(num(r, 50, 0)), Math.sin(num(r, 50, 0))];
       const ang = Math.atan2(dir[1], dir[0]), c = Math.cos(ang), sn = Math.sin(ang), ax = num(r, 10, 0), ay = num(r, 20, 0);

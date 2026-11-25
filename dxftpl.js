@@ -4990,7 +4990,7 @@
         if (!bub) { const B1 = boxU(allM); if (B0 && B1) { const t = wv((B0.u0 + B0.u1) / 2 - (B1.u0 + B1.u1) / 2, (B0.v0 + B0.v1) / 2 - (B1.v0 + B1.v1) / 2); for (const r of RS) { move(r, t); (SH.get(r) || []).forEach((q) => move(q, t)); } for (const ps of pieces.values()) for (const p of ps) { move(p.r, t); p.sh.forEach((q) => move(q, t)); } } }
         const f0 = rows.length ? rows[0].rs[0] : null, g0 = f0 && G0.get(f0), g1 = f0 && geo(f0), mv = g0 && g1 ? wv(g1.u0 - g0.u0, g1.v1 - g0.v1) : null;
         const lines = []; for (const r of RS) { if (isMt(r)) continue; lines.push({ r, sh: SH.get(r) || [] }); for (const p of pieces.get(r) || []) lines.push(p); }
-        return { gone: new Set(), add, lines, mv, text0: wrapped ? text0 : null };
+        return { gone: new Set(), add, lines, mv, text0: wrapped ? text0 : null, B0, B1: boxU(allM), fr, wv, deg: A * 180 / Math.PI };
       };
       for (const m of MV) {
         if (m.kind === 'photo' || !m.hadText) continue; const fm = fmtOf(m.id, m.kind); if (!fm) continue; FMTS.set(m.id, fm); if (!fmtLays(fm)) continue;
@@ -5015,6 +5015,14 @@
           const G = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H), x0 = G.ha === 2 ? G.xa - B.W : G.xa, ha = fm.align ? HA_OF[fm.align] : G.ha, xa = ha === 0 ? x0 : ha === 1 ? x0 + B.W / 2 : x0 + B.W;
           const put = (r, x, y) => { setFirst(r, 72, I(ha)); for (const cc of [10, 11]) { setFirst(r, cc, F(x)); setFirst(r, cc + 10, F(y)); } };
           L1.forEach((x, i) => { const y = G.y1 - i * ls; put(x.r, xa, y); x.sh.forEach((q) => put(q, xa + so, y - so)); });
+        }
+        if (E.kind === 'clamp' && R.B0 && R.B1) { // (a clamp tag's frame round its text as laid out now, as far out from it as before; its callout's end at the frame)
+          const fx = E.recs.find((r) => typ(r) === 'LWPOLYLINE' && (parseInt(get(r, 70, '0'), 10) & 1) && !LEAD.has(r)), V = fx ? vOf(fx).map(R.fr) : [];
+          if (V.length === 4) { const u0 = Math.min(...V.map((q) => q[0])), u1 = Math.max(...V.map((q) => q[0])), v0 = Math.min(...V.map((q) => q[1])), v1 = Math.max(...V.map((q) => q[1])), A0 = R.B0, A1 = R.B1;
+            const n0 = [A1.u0 - (A0.u0 - u0), A1.v0 - (A0.v0 - v0)], n1 = [A1.u1 + (u1 - A0.u1), A1.v1 + (v1 - A0.v1)], W2 = (u, v) => R.wv(u, v), P2 = [W2(n0[0], n0[1]), W2(n1[0], n0[1]), W2(n1[0], n1[1]), W2(n0[0], n1[1])];
+            const ks = fx.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((k, i) => { fx[k][1] = F(P2[i][0]); fx[k + 1][1] = F(P2[i][1]); });
+            const bx = (a, b) => { const c0 = R.wv((a[0] + b[0]) / 2, (a[1] + b[1]) / 2); return { cx: c0[0], cy: c0[1], w: b[0] - a[0], h: b[1] - a[1], a: R.deg }; }, F0 = bx([u0, v0], [u1, v1]), F1 = bx(n0, n1);
+            for (const r of E.recs) { if (!LEAD.has(r) || typ(r) !== 'LWPOLYLINE') continue; const kz = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0), P = kz.map((k) => [+r[k][1], +r[k + 1][1]]), dE = (q) => dist2(q, toEdge(F0, q)), j = dE(P[0]) <= dE(P[P.length - 1]) ? 0 : P.length - 1, q1 = reEdge(F0, F1, P[j]); r[kz[j]][1] = F(q1[0]); r[kz[j] + 1][1] = F(q1[1]); } }
         }
         E.box = boxOf(E); if (E.kind === 'closurelabel' && E.at && !E.bub) cloArrow(E); // (a closure's arrow from its label as laid out now)
       }
@@ -5068,6 +5076,21 @@
         if (!fm.font && fm.underline == null) continue; const m = MV.find((x) => x.id === id), E = m ? null : EL.find((x) => x.id === id), recs = m ? m.handles.map((h) => recOfH.get(h)).filter(Boolean) : E ? E.recs : [], st = m ? stOf(m.id, m.kind) : E ? stOf(E.id, E.kind) : null;
         for (const r of recs) { if (!isTxtR(r)) continue; if (fm.font) fontSet(r, fm.font, st ? st.bold : null, st ? st.italic : null); if (fm.underline != null) ulSet(r, fm.underline); }
       }
+      /** (beta 7.14, Text format) an item's format as drawn now (report.movable[i].fmt, what the text editor opens on): { align, font (its report.fonts
+          name), spacing, wrap, underline, bold, italic }: those asked (fm), else as its first text is (align: a TEXT's 72, 0 left, 1 / 4 center, 2 right; an
+          MTEXT's paragraph code, else its attachment's column; font: a TEXT's style's file, an MTEXT's first font code's family or file, else its style's;
+          spacing 1; wrap 0); underline, bold and italic as drawn (an SHX font: not bold, not italic) */
+      const fmtNow = (recs, fm) => {
+        const U = linesOf(recs), r = U.length ? U[0].r : null, o5 = { align: (fm && fm.align) || 'left', font: fm && fm.font ? fm.font.name : FONTS.length ? FONTS[0].name : null, /* (nothing of it drawn: the template's first font) */ spacing: fm && fm.spacing ? fm.spacing : 1, wrap: fm && fm.wrap ? fm.wrap : 0, underline: !!(fm && fm.underline), bold: false, italic: false };
+        if (!r) return o5;
+        const T = typ(r) === 'MTEXT' ? mtTokens(textOf(r)) : null, byFile = (file) => { const k = String(file || '').toLowerCase(); const f = FONTS.find((x) => String(x.file).toLowerCase() === k) || FONTS.find((x) => fontBase(x.file) === fontBase(k)) || FONTS.find((x) => k && String(x.file).toLowerCase().replace(/\.shx$/, '') === k.replace(/\.shx$/, '')); return f ? f.name : null; };
+        if (!(fm && fm.align)) { if (T) { const pc = T.find((t) => t.k === 'c' && /^\\p/.test(t.s) && /q[lcr](?=[;,])/.test(t.s)), q = pc ? /q([lcr])(?=[;,])/.exec(pc.s)[1] : null; o5.align = q ? { l: 'left', c: 'center', r: 'right' }[q] : ['left', 'center', 'right'][((parseInt(get(r, 71, '1'), 10) || 1) - 1) % 3]; } else { const ha = parseInt(get(r, 72, '0'), 10) || 0; o5.align = ha === 1 || ha === 4 ? 'center' : ha === 2 ? 'right' : 'left'; } }
+        if (!(fm && fm.font)) { const c0 = T && T.find((t) => t.k === 'c' && /^\\[fF]/.test(t.s)), L = stLook(get(r, 7)), fam = c0 && /^\\f([^|;]*)/.exec(c0.s); o5.font = c0 && /^\\F/.test(c0.s) ? byFile(c0.s.slice(2, -1).split('|')[0]) || c0.s.slice(2, -1) : fam ? ((FONTS.find((x) => x.family && x.family.toLowerCase() === fam[1].trim().toLowerCase()) || {}).name || fam[1]) : byFile(L.file || L.family) || String(get(r, 7, 'Standard')); }
+        const bi = biOf(r); o5.bold = bi.b; o5.italic = bi.i; o5.underline = T ? T.some((t) => t.k === 'c' && t.s === '\\L') : /%%u/i.test(String(get(r, 1, '')));
+        return o5;
+      };
+      for (const m of MV) if (m.kind !== 'photo') m.fmt0 = fmtNow(m.handles.map((h) => recOfH.get(h)).filter(Boolean), FMTS.get(m.id)); // (as drawn now, kept for the report: hiding an item takes its texts off)
+      for (const E of EL) if (E.hadText) E.fmt0 = fmtNow(E.recs, FMTS.get(E.id));
       for (const E of EL) {
         const pn = PINS.get(E.id); if (!pn || E.kind === 'cableline') continue; // ((beta 7.12) a span's cable is not moved)
         const k = E.kind, rot = pn.rot != null ? norm(pn.rot - E.a) : 0, mv = pn.at && !ATTK.has(k) && k !== 'pole' && k !== 'site' && !(SNAPK.has(k) && E.path), c0 = ATTK.has(k) ? E.about : k === 'loopsym' && E.on ? E.on : [E.box.cx, E.box.cy]; // ((beta 7.12) a closure or loop on its cable: its at taken above, along it)
@@ -5175,19 +5198,6 @@
           if (sr) { const sp = [String(sr.ia), String(sr.ib)]; if (x.kind === 'span' && /^\d+(?:\.\d+)?m$/.test(t)) return { span: sp, field: 'lenW', line: '{v}m' }; const k = (sr.runLbls || []).findIndex((v) => String(v).trim() === t); if (k >= 0) return { span: sp, field: 'runLbls', i: k }; }
           return null; });
       };
-      /** (beta 7.14, Text format) an item's format as drawn now (report.movable[i].fmt, what the text editor opens on): { align, font (its report.fonts
-          name), spacing, wrap, underline, bold, italic }: those asked (fm), else as its first text is (align: a TEXT's 72, 0 left, 1 / 4 center, 2 right; an
-          MTEXT's paragraph code, else its attachment's column; font: a TEXT's style's file, an MTEXT's first font code's family or file, else its style's;
-          spacing 1; wrap 0); underline, bold and italic as drawn (an SHX font: not bold, not italic) */
-      const fmtNow = (recs, fm) => {
-        const U = linesOf(recs), r = U.length ? U[0].r : null, o5 = { align: (fm && fm.align) || 'left', font: fm && fm.font ? fm.font.name : null, spacing: fm && fm.spacing ? fm.spacing : 1, wrap: fm && fm.wrap ? fm.wrap : 0, underline: !!(fm && fm.underline), bold: false, italic: false };
-        if (!r) return o5;
-        const T = typ(r) === 'MTEXT' ? mtTokens(textOf(r)) : null, byFile = (file) => { const k = String(file || '').toLowerCase(); const f = FONTS.find((x) => String(x.file).toLowerCase() === k) || FONTS.find((x) => fontBase(x.file) === fontBase(k)) || FONTS.find((x) => k && String(x.file).toLowerCase().replace(/\.shx$/, '') === k.replace(/\.shx$/, '')); return f ? f.name : null; };
-        if (!(fm && fm.align)) { if (T) { const pc = T.find((t) => t.k === 'c' && /^\\p/.test(t.s) && /q[lcr](?=[;,])/.test(t.s)), q = pc ? /q([lcr])(?=[;,])/.exec(pc.s)[1] : null; o5.align = q ? { l: 'left', c: 'center', r: 'right' }[q] : ['left', 'center', 'right'][((parseInt(get(r, 71, '1'), 10) || 1) - 1) % 3]; } else { const ha = parseInt(get(r, 72, '0'), 10) || 0; o5.align = ha === 1 || ha === 4 ? 'center' : ha === 2 ? 'right' : 'left'; } }
-        if (!(fm && fm.font)) { const c0 = T && T.find((t) => t.k === 'c' && /^\\[fF]/.test(t.s)), L = stLook(get(r, 7)), fam = c0 && /^\\f([^|;]*)/.exec(c0.s); o5.font = c0 && /^\\F/.test(c0.s) ? byFile(c0.s.slice(2, -1).split('|')[0]) || c0.s.slice(2, -1) : fam ? ((FONTS.find((x) => x.family && x.family.toLowerCase() === fam[1].trim().toLowerCase()) || {}).name || fam[1]) : byFile(L.file || L.family) || String(get(r, 7, 'Standard')); }
-        const bi = biOf(r); o5.bold = bi.b; o5.italic = bi.i; o5.underline = T ? T.some((t) => t.k === 'c' && t.s === '\\L') : /%%u/i.test(String(get(r, 1, '')));
-        return o5;
-      };
       const cutOf = (m, B) => { if (m.how !== 'by hand' || m.kind === 'photo') return null; const C = m.cells || [[ci(B.cx), cj(B.cy)]]; let cutOn = null; if (C.length > 1) { cutOn = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort(); cut.push(nm(m)); } if (C.some(([i, j]) => !used.has(key(i, j)))) off.push(nm(m)); return cutOn; }; // ((beta 7.10, Plan kept) as a photo's photoAt[id].cut; on no sheet: build adds the sheet, see its _offCells)
       const CAN0 = { photo: { move: true, rotate: true, scale: false, text: false, color: false, lead: true }, number: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, details: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, cable: { move: true, rotate: true, scale: false, text: true, color: true, lead: true } };
       const out = MV.map((m) => {
@@ -5198,7 +5208,7 @@
         if (m.kind === 'number' || m.number) o2.seq = m.seq != null ? String(m.seq) : null; if (m.kind === 'details') { o2.number = !!m.number; o2.with = m.with || []; } if (m.block) o2.block = true; if (cutOn) o2.cut = cutOn;
         o2.can = { ...CAN0[m.kind] }; if (m.p && m.p.el === 'Pole') o2.pole = String(m.p.id);
         if (m.kind === 'cable' && m.spanPts) { o2.spanPts = m.spanPts.map((q) => [q[0], q[1]]); if (m.tip) o2.tip = [m.tip[0], m.tip[1]]; }
-        if (o2.can.text) { const rs = m.handles.map((h) => recOfH.get(h)).filter(Boolean); o2.text = (!m.hidden && m.text0) || linesOf(rs).map((x) => x.s); o2.src = srcOf(m, o2.text); o2.fmt = fmtNow(rs, FMTS.get(m.id)); } if (m.empty) o2.empty = true; // ((beta 7.14, Text format) its lines as written before they were wrapped; its format as drawn) // ((beta 7.12, Drawing edit) its lines as they read, what the editor shows, and where each comes from; empty: nothing of it drawn)
+        if (o2.can.text) { const rs = m.handles.map((h) => recOfH.get(h)).filter(Boolean); o2.text = (!m.hidden && m.text0) || linesOf(rs).map((x) => x.s); o2.src = srcOf(m, o2.text); o2.fmt = m.fmt0 || fmtNow(rs, FMTS.get(m.id)); } if (m.empty) o2.empty = true; // ((beta 7.14, Text format) its lines as written before they were wrapped; its format as drawn) // ((beta 7.12, Drawing edit) its lines as they read, what the editor shows, and where each comes from; empty: nothing of it drawn)
         o2.del = { how: 'hide' }; if (m.hidden) o2.hidden = true; // ((beta 7.12) deleted: left off the plan only (job.hide))
         return o2;
       });
@@ -5213,7 +5223,7 @@
         o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k) || !!E.bub, /* (a bubble callout: its circle and pointer) */ text: !!E.hadText, color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) }; // ((beta 7.12) text: it had texts as the plan wrote it, so that those left off can come back)
         if (E.nt) o2.can = { move: true, rotate: true, scale: true, text: k === 'note', color: k === 'note', delete: true, ...(E.lead ? { lead: true } : {}) }; // ((beta 7.12, Drawing edit) a note of the user's: moved, turned, sized, edited, coloured, deleted by changing the note itself (or pins and styles))
         if (k === 'cableline' || k === 'messenger') o2.can = { move: false, rotate: false, scale: false, text: false, color: true, lw: true }; // ((beta 7.12) a line: its colour and weight only)
-        if (o2.can.text) { o2.text = (!E.hidden && E.text0) || linesOf(E.recs).map((x) => x.s); o2.src = srcOf(E, o2.text); o2.fmt = fmtNow(E.recs, FMTS.get(E.id)); } if (E.empty) o2.empty = true;
+        if (o2.can.text) { o2.text = (!E.hidden && E.text0) || linesOf(E.recs).map((x) => x.s); o2.src = srcOf(E, o2.text); o2.fmt = E.fmt0 || fmtNow(E.recs, FMTS.get(E.id)); } if (E.empty) o2.empty = true;
         { const d0 = delOf(E); if (d0) o2.del = d0; } if (E.hidden) o2.hidden = true; // ((beta 7.12, Drawing edit) how the app deletes it; left off by job.hide)
         const w = k === 'pole' && p ? (kidsOf.get(String(p.id)) || []).filter((id) => id !== E.id) : k === 'site' && p ? [`sitelbl:${p.id}`, `sitename:${p.id}`].filter((id) => EL.some((x) => x.id === id)) : null; if (w && w.length) o2.with = w;
         if (cutOn) o2.cut = cutOn;

@@ -152,6 +152,13 @@ test('wrap: lines broken at spaces as the plan measures them (TEXT copies, MTEXT
     assert.equal(+g1(t, 73), 2); return along(pt(t, 11), d) + +g1(t, 40) / 2 - (along(pt(mt, 10), d) + rw / 2 * H); };
   near(gap(r), 2 * gap(r0), 1e-6, 'the rows twice as far apart');
   for (const id of ['note:n1', 'lbl:s4']) { const a = by(r.report.movable, id), b = by(r0.report.movable, id); near(a.box[0], b.box[0], 1e-6, `${id}: its middle`); near(a.box[1], b.box[1], 1e-6, `${id}: its middle`); assert.equal(a.fmt.spacing, 2); }
+  // a clamp tag wrapped: its frame round its lines, taller and narrower; its callout to the frame's edge
+  const jc = (st) => { const j = fullJob({ style: st }); Object.assign(j.pts.find((p) => p.id === 's3'), { clampType: 'DEG GCA' }); return j; };
+  const fr = (out) => { const E = entsOf(out.text), es = by(out.report.movable, 'clamp:s3').handles.map((h) => E.get(h)), bx = es.find((e) => e.type === 'LWPOLYLINE' && (+g1(e, 70) & 1)), ld = es.find((e) => e.type === 'LWPOLYLINE' && !(+g1(e, 70) & 1)), X = gAll(bx, 10).map(Number), Y = gAll(bx, 20).map(Number), tx = es.filter((e) => e.type === 'TEXT');
+    return { n: tx.length, ys: tx.map((e) => +g1(e, 21)), x0: Math.min(...X), x1: Math.max(...X), y0: Math.min(...Y), y1: Math.max(...Y), lead: gAll(ld, 10).map(Number).concat(gAll(ld, 20).map(Number)) }; };
+  const c0 = fr(T.build(SEED_BL, jc({}))), c1 = fr(T.build(SEED_BL, jc({ 'clamp:s3': { wrap: 5 } })));
+  assert.equal(c0.n, 1); assert.equal(c1.n, 3, 'DEG / GCA / 8-10'); assert.ok(c1.ys.every((y) => y > c1.y0 && y < c1.y1), 'its lines inside its frame'); assert.ok(c1.y1 - c1.y0 > c0.y1 - c0.y0 && c1.x1 - c1.x0 < c0.x1 - c0.x0, 'its frame taller and narrower');
+  const ed = (c) => Math.min(...[c.lead[0], c.lead[1]].map((x) => Math.min(Math.abs(x - c.x0), Math.abs(x - c.x1)))); near(ed(c1), ed(c0), 1e-3, 'its callout ends at the frame, as before');
 });
 
 test('font and underline: a style made once per font (bold, italic: its files and flags), the template\'s own as it is, MTEXT codes; an SHX font not bold; %%u, \\L … \\l', () => {
