@@ -162,6 +162,26 @@ test('poleAt (and a pole\'s pin): the point drawn exactly there, its spans and c
   assert.ok(t1.handles.length > t0.handles.length, 'with its line or arrow to its point');
 });
 
+test('poleAt and site pins: nothing moves a point placed by hand aside (its NAP or closure on the cable, its arm, a road\'s edge, an ODF by its tower, a NAP or closure pin by a pole)', () => {
+  const E0 = 787300, N0 = 786100, ll = (E, N) => ({ lat: 7.1 + (N - N0) / 110574, lon: 125.6 + (E - E0) / 110400 });
+  const more = (j) => { j.pts.push({ id: 'f1', poleId: 'ODF-DEMO', el: 'ODF', status: 'Proposed', E: E0 - 50, N: N0 + 22, ...ll(E0 - 50, N0 + 22) }, // (an ODF by the tower: moved beside it, as drawn without a pin)
+    { id: 'n1', poleId: 'NAP-PIN', el: 'NAP', status: 'Proposed', E: E0 + 184, N: N0 + 140, ...ll(E0 + 184, N0 + 140) }, { id: 'c1', poleId: 'CL-PIN', el: 'Closure', status: 'Proposed', E: E0 + 184, N: N0 + 182, ...ll(E0 + 184, N0 + 182) }); return j; }; // (a NAP and a closure pin by poles: taken onto them)
+  const r0 = T.build(SEED_BL, more(richJob({}))), D0 = r0.report.drawnAt;
+  assert.ok(Math.hypot(D0.f1[0] - (E0 - 50), D0.f1[1] - (N0 + 22)) > 5, 'without a pin: the ODF beside its tower'); assert.ok(!r0.report.movable.some((m) => m.id === 'nap:n1'), 'the NAP pin on its pole');
+  const at = { s4: [E0 + 108, N0 - 1.2], s2: [E0 + 36, N0 - 0.8], s6: [E0 + 180, N0 - 1], s5: [E0 + 144, N0 - 1.2], s1: [E0, N0 - 2.6], f1: [E0 - 52, N0 + 20], n1: [E0 + 190, N0 + 136], c1: [E0 + 192, N0 + 184] }; // (s4 its NAP, s2 its closure on the cable, s6 an arm, s5 a telco arm, s1 at the road's edge)
+  for (const v of [{}, { labels: 'tidy' }]) {
+    const r = T.build(SEED_BL, more(richJob({ ...v, poleAt: at }))), M = r.report.movable, E = entsOf(r.text);
+    for (const [id, q] of Object.entries(at)) assert.deepEqual(r.report.drawnAt[id], q, `${JSON.stringify(v)} ${id}: drawn exactly there`);
+    for (const id of ['s4', 's2', 's6', 's5', 's1']) { const m = by(M, `pole:${id}`), ins = E.get(m.handles[0]); assert.equal(ins.type, 'INSERT'); near(+g1(ins, 10), at[id][0], 1e-5, `${id}: its symbol there`); near(+g1(ins, 20), at[id][1], 1e-5, `${id}: its symbol there`); }
+    const nap = by(M, 'nap:s4'), napI = E.get(nap.handles[0]); assert.ok(Math.hypot(+g1(napI, 10) - at.s4[0], +g1(napI, 20) - at.s4[1]) > 3, 'its NAP out from it, on its cable');
+    const odf = by(M, 'site:f1'), odfI = E.get(odf.handles[0]); near(+g1(odfI, 10), at.f1[0], 1e-5, 'the ODF where it was put'); near(+g1(odfI, 20), at.f1[1], 1e-5, 'the ODF where it was put');
+    for (const [id, pid] of [['nap:n1', 'n1'], ['clo:c1', 'c1']]) { const m = by(M, id); assert.ok(m, `${id}: drawn on its own`); const ins = E.get(m.handles[0]); near(+g1(ins, 10), at[pid][0], 1e-5, `${id} E`); near(+g1(ins, 20), at[pid][1], 1e-5, `${id} N`); }
+  }
+  // a site pin (the ODC: on the cable) as poleAt: its point there
+  const odc = by(r0.report.movable, 'site:o1'), r2 = T.build(SEED_BL, richJob({ pins: { 'site:o1': { at: [6, -8] } } }));
+  assert.deepEqual(r2.report.drawnAt.o1, [odc.anchor[0] + 6, odc.anchor[1] - 8], 'the ODC drawn at its place + at');
+});
+
 test('Tidy: a pole\'s number is an item of its own in its block; placed by hand, drawn on its own there, its block without it', () => {
   const a = T.build(SEED_SQ, madeUpJob({ labels: 'tidy' })), M = a.report.movable, E = entsOf(a.text);
   for (const n of M.filter((m) => m.kind === 'number')) { assert.ok(n.block, n.id); const L = by(M, `lbl:${n.point}`); assert.ok(L.with.includes(n.id) && L.number, `${n.id}: in its block`); assert.ok(n.handles.every((h) => !L.handles.includes(h)), 'its own entities'); assert.ok(n.handles.some((h) => E.get(h).text === n.seq)); }
@@ -260,6 +280,7 @@ test('the closure bubble callout (job.cloStyle bubble): dashed circle, pointer, 
   const r4 = T.build(SEED_BL, richJob({ cloStyle: 'bubble', style: { 'clolbl:s8': { scale: 0.5, h: 1.25 } } })), E4 = entsOf(r4.text), m4 = by(r4.report.movable, 'clolbl:s8'), e4 = m4.handles.map((h) => E4.get(h)), es0 = m0.handles.map((h) => entsOf(r0.text).get(h));
   const rad = (es) => +g1(es.find((e) => e.type === 'CIRCLE'), 40), tip4 = (() => { const sd = e4.find((e) => e.type === 'SOLID'); return [+g1(sd, 10), +g1(sd, 20)]; })(), c4 = [+g1(e4.find((e) => e.type === 'CIRCLE'), 10), +g1(e4.find((e) => e.type === 'CIRCLE'), 20)];
   near(rad(e4), rad(es0) / 2, 1e-5, 'half as large'); near(Math.hypot(tip4[0] - c4[0], tip4[1] - c4[1]), 1.24 * rad(e4), 1e-3, 'its pointer with it');
+  assert.equal(r4.report.closureLabels.bubbles.find((b) => b.cid === 'CL-02').r, +rad(e4).toFixed(2), 'report.closureLabels: its radius as drawn');
   const t40 = es0.filter((e) => e.type === 'TEXT' && g1(e, 62) !== '   250'), t4 = e4.filter((e) => e.type === 'TEXT' && g1(e, 62) !== '   250');
   near(+g1(t4[0], 40), +g1(t40[0], 40) * 1.25, 1e-5, 'h: its texts'); near(+g1(t4[0], 21), tip4[1], 1e-5, 'its first line level with its tip'); near(Math.abs(+g1(t4[0], 11) - tip4[0]), 0.8 * +g1(t40[0], 40), 1e-5, 'just past it');
   assert.equal(by(T.build(SEED_BL, richJob({})).report.movable, 'clolbl:s2').can.scale, false, 'an arrow label: no size of its own');

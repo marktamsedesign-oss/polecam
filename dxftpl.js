@@ -2179,7 +2179,7 @@
     };
     // v2.37: a NAP or a closure recorded as its own pin stands on its pole (the nearest pole of the route, within 30 m)
     for (const q of pts) {
-      if (q.el !== 'NAP' && q.el !== 'Closure') continue;
+      if ((q.el !== 'NAP' && q.el !== 'Closure') || q.handAt) continue; // ((beta 7.11, Drawing tools) one placed by hand: drawn where it was put)
       let best = null, bd = 30; for (const p of polesOnly) { if (!nb.has(p)) continue; const dd = Math.hypot(p.E - q.E, p.N - q.N); if (dd < bd) { bd = dd; best = p; } }
       if (!best) continue;
       if (q.el === 'NAP' && !best.nap && !best.napId) { best.nap = true; best.napId = q.poleId || ''; best.napType = best.napType || q.napType || ''; best.napOld = q.status === 'Existing'; q.onPole = best; }
@@ -2244,6 +2244,10 @@
     const W_LBL0 = (t) => (t === 'road' ? 0.2 : 1);
     const odcBlk = odcIso(); // v2.41: the ODC block (made when the plan has an ODC)
     if (pts.some((p) => p.el === 'ODC')) { addLayer(d, S, 'G-ESAA PROPOSED ODC', 1); addLayer(d, S, 'G-ESAA EXISTING ODC', 5); defineBlock(d, S, ODC_BLOCK, odcBlk.polys, odcBlk.texts); }
+    /** (beta 7.11, Drawing tools) a pole placed by hand (job.poleAt) is drawn exactly there: the block on its cable (a NAP, its two boxes, a closure) and the
+        cable's point there go out from it, need metres from its centre, instead of the pole stepping back from them */
+    const inlOut = (p, it, need) => { const nA = add2(p.dp, p.td, need), dv = [nA[0] - p.A[0], nA[1] - p.A[1]], mv = (q) => [q[0] + dv[0], q[1] + dv[1]];
+      p.A = nA; it.at = nA; for (const x of it.parts || []) x.at = mv(x.at); if (it.inner) it.inner = it.inner.map((seg) => seg.map(mv)); };
     const inlineOf = (p, b, layer, sc, faced, flip) => {
       const bb = blockBox(S, b, 0), bt = blockBoxT(S, b); if (!bb || !bt) return null;
       const w = bb[2] - bb[0], h = bb[3] - bb[1]; if (!sc) sc = NAP_W / ((bt[2] - bt[0]) || w || 1); // as wide as the NAP, its texts included
@@ -2271,7 +2275,7 @@
         // the pole symbol beside the NAP, not under it (v2.42.24: the closure's too, below)
         // v2.39.1: an arm keeps its usual length and ends at the NAP's side (it crossed the NAP); the pole stands that much further out
         const need = it.hh + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A);
-        if (cur < need) p.dp = add2(p.A, p.td, -need);
+        if (cur < need && p.handAt) inlOut(p, it, need); else if (cur < need) p.dp = add2(p.A, p.td, -need); // ((beta 7.11, Drawing tools) a pole placed by hand stays: its NAP, on the cable, goes out from it)
         if (p.arm) p.armLen = Math.max(0.8, dist2(p.dp, p.A) - p.rp - it.hh);
       } else if (p.el === 'ODC') { // v2.41: the ODC cabinet (the template has no ODC model): G-eSAA's block, an isometric view of the cabinet of the
         // photo marker, upright, on the cable (the cable meets its two sides)
@@ -2285,7 +2289,7 @@
         const R = cloR(p.A), rin = R * Math.cos(Math.PI / 5), old = !!p.closureOld, t = downAt(p);
         const it = { p, at: p.A, b: 'P-Joint', layer: lay('P-JOINT'), sc: R, rot: 0, ax: rotv([1, 0], readable(deg(t))), hl: old ? rin : Math.max(rin * 0.4, 0.9), hh: R, rin, radial: true, kind: 'clo', cid: p.closureId || 'CLOSURE', old };
         it.hlo = it.hl; it.hhi = it.hl; inl.set(p, it);
-        const need = R + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A); if (cur < need) p.dp = add2(p.A, p.td, -need); if (p.arm) p.armLen = Math.max(0.8, dist2(p.dp, p.A) - p.rp - R); // the pole beside it, as beside a NAP
+        const need = R + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A); if (cur < need && p.handAt) inlOut(p, it, need); else if (cur < need) p.dp = add2(p.A, p.td, -need); if (p.arm) p.armLen = Math.max(0.8, dist2(p.dp, p.A) - p.rp - R); // the pole beside it, as beside a NAP ((beta 7.11, Drawing tools) one placed by hand stays: the closure goes out from it)
       } else if (INLINE_EL.has(p.el)) {
         const key = p.el, k = BLK[key];
         const old = !isNew && S.blocks.has(k[3]), b = old ? k[3] : k[0]; if (!S.blocks.has(b)) continue;
@@ -4005,7 +4009,7 @@
           L.forEach((l, i) => { const y = best.G.y1 - i * BUB_LS * th, ha = best.G.ha; if (l.c === 3) o.text(CLY, best.G.xa + so, y - so, th, l.s, { ha, va: 2, style: 'arial', color: BUBK }); o.text(CLY, best.G.xa, y, th, l.s, { ha, va: 2, style: 'arial', color: l.c }); });
         });
         spots.add([best.G.bx], 'label'); spots.add([best.tb]);
-        nBub++; (rep._cloB || (rep._cloB = [])).push({ cid: String(cid), old: !!old, lines: L.map((l) => l.s.replace(/%%d/g, '°')), r: +rb.toFixed(2), at: at.map((x) => +x.toFixed(2)), side: +deg(best.v).toFixed(1), clear: best.n < 1 });
+        nBub++; B.rep = { cid: String(cid), old: !!old, lines: L.map((l) => l.s.replace(/%%d/g, '°')), r: +rb.toFixed(2), at: at.map((x) => +x.toFixed(2)), side: +deg(best.v).toFixed(1), clear: best.n < 1 }; (rep._cloB || (rep._cloB = [])).push(B.rep); // (B.rep: its radius and side as drawn at the end, DT)
       };
       for (const { at, R: Rp, cid, p: cp, old } of cloLbl) { // (Rp: the pentagon's reach)
         if (BUB(cp)) { bubDraw(at, Rp, cid, cp, old); continue; } // ((beta 7.11, Drawing tools) the bubble callout)
@@ -4368,7 +4372,7 @@
       const bubTurn = (E) => {
         const B = E.bub, c = [E.box.cx, E.box.cy], v = E.how === 'by hand' && dist2(c, B.at) > 1e-6 ? unit(B.at, c) : B.v, /* (where the plan put it: the way it was drawn) */ tip = add2(B.at, v, B.rb * BUB_TIP), arc = bubArc(B.at, B.rb, v), put = (r, P) => { const ks = r.map((q, i) => (q[0] === 10 ? i : -1)).filter((i) => i > 0); ks.forEach((kk, j) => { r[kk][1] = F(P[j][0]); r[kk + 1][1] = F(P[j][1]); }); };
         B.parts.forEach((r, k) => { const Q = [tip, arc[k], arc[k + 1], arc[k + 1]]; [10, 11, 12, 13].forEach((cx, j) => { const kk = r.findIndex((q, i) => i > 0 && q[0] === cx); if (kk > 0) { r[kk][1] = F(Q[j][0]); r[kk + 1][1] = F(Q[j][1]); } }); });
-        if (B.edge) put(B.edge, [tip, ...arc.slice().reverse()]); B.v = v;
+        if (B.edge) put(B.edge, [tip, ...arc.slice().reverse()]); B.v = v; if (B.rep) B.rep.side = +deg(v).toFixed(1);
       };
       /** a thin line from a label moved away from what it names (q: a point; or a line [a, b]: its nearest point) to it, where its box is further than gap from it */
       const thinTo = (E, tgt, gap) => {
@@ -4424,7 +4428,7 @@
         if (E.bub && st.scale && Math.abs(st.scale - 1) > 1e-9) { // (a bubble callout's size: its circle and pointer; its lines, where the plan put them, follow its tip)
           const B = E.bub, rb1 = B.rb * st.scale, G0 = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H), G1 = bubGeo(B.at, rb1, B.th, B.v, B.W, B.H);
           for (const r of B.circles) { setFirst(r, 40, F(rb1)); const kk = r.findIndex((q, i) => i > 0 && q[0] === 48); if (kk > 0) r[kk][1] = F(+r[kk][1] * st.scale); }
-          for (const r of E.recs) if (!LEAD.has(r)) xformRec(r, { t: [G1.xa - G0.xa, G1.y1 - G0.y1] }); B.rb = rb1; E.box = boxOf(E); }
+          for (const r of E.recs) if (!LEAD.has(r)) xformRec(r, { t: [G1.xa - G0.xa, G1.y1 - G0.y1] }); B.rb = rb1; E.box = boxOf(E); if (B.rep) B.rep.r = +rb1.toFixed(2); } // (report.closureLabels.bubbles: as drawn)
         if (st.h && Math.abs(st.h - 1) > 1e-9) { if (E.bub) { const B = E.bub, G = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H); scaleRecs(E.recs, (r) => LEAD.has(r), G.pv, st.h, st.h); } /* (a bubble's lines grow away from its tip) */ else if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
         fontOn(E.recs, st.bold, st.italic);
         if (st.color) colorOn(E.recs, st.color);
