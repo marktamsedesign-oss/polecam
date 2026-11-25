@@ -13866,7 +13866,7 @@
     }
     const styles = dg.styles.map((s) => [s.name, `${s.name} (${s.font || s.face || 'no font'}${s.bold ? ', bold' : ''})`]);
     tprOpt($('tplFont'), styles, map.look.font); tprOpt($('tplBold'), [['', 'None'], ...styles], map.look.bold || '');
-    $('tplScale').value = String(map.look.scale || 1); $('tplScaleSum').textContent = dg.heights.modelMedian ? `The client's sample texts are ${dg.heights.modelMedian} m high (the plan's labels: about 2.5 m at 1:1100).` : 'The plan\'s own sizes × this.';
+    $('tplScale').value = String(map.look.scale || 1); $('tplScaleO').textContent = `× ${(+(map.look.scale || 1)).toFixed(2)}`; $('tplScaleSum').textContent = dg.heights.modelMedian ? `The client's sample texts are ${dg.heights.modelMedian} m high (the plan's labels: about 2.5 m at 1:1100).` : 'The plan\'s own sizes × this.';
     const lw = $('tplLw'); lw.innerHTML = '';
     window.GeDxfSynth.LW_KEYS.forEach((k) => { const r = document.createElement('div'); r.className = 'tprrow'; r.innerHTML = '<label></label><select></select>'; r.querySelector('label').textContent = LW_NAME[k] || k; r.querySelector('label').htmlFor = `tplLw_${k}`; const sel = r.querySelector('select'); sel.id = `tplLw_${k}`; sel.dataset.lw = k; tprOpt(sel, [['', 'As the plan draws them'], ...LW_MM.map((v) => [String(v), `${(v / 100).toFixed(2)} mm`])], map.look.lw && map.look.lw[k] != null ? String(map.look.lw[k]) : ''); lw.appendChild(r); });
     const ly = $('tplLayers'); ly.innerHTML = ''; const layers = dg.layers.filter((l) => l.name !== '0').map((l) => [l.name, `${l.name}${l.lw > 0 ? ` (${(l.lw / 100).toFixed(2)} mm)` : ''}`]);
@@ -13929,13 +13929,14 @@
     const cv = $('tplPic'), ctx = cv.getContext('2d'); if (!page) { ctx.clearRect(0, 0, cv.width, cv.height); $('tplPicSum').textContent = 'No picture of this sheet.'; return; }
     cv.height = Math.round(cv.width * page.h / page.w);
     const sh = TPR.dg.sheets.find((s) => s.name === sheet), rows = [...$('tplFields').querySelectorAll(`.tprf[data-sheet="${CSS.escape(sheet)}"]`)];
-    const marks = (sh ? sh.fields : []).map((f, i) => { const r = rows.find((x) => x.dataset.fid === f.id), v = r ? r.querySelector('select').value : f.key; return { box: f.at ? [f.at.x, f.at.y, f.at.x + Math.max(f.at.h * 4, f.at.w * 0.4), f.at.y + f.at.h] : f.box, n: i + 1, color: v && v !== '-' ? '#1565c0' : '#d32f2f', on: f.id === fid }; });
+    const wide = (b) => [b[0], b[1], b[0] + (b[2] - b[0]) * 1.35, b[3]]; // (the PDF's Helvetica is wider than the box worked out from the text)
+    const marks = (sh ? sh.fields : []).map((f, i) => { const r = rows.find((x) => x.dataset.fid === f.id), v = r ? r.querySelector('select').value : f.key; return { box: f.at ? [f.at.x, f.at.y, f.at.x + Math.max(f.at.h * 4, f.at.w * 0.4), f.at.y + f.at.h] : wide(f.box), n: i + 1, color: v && v !== '-' ? '#1565c0' : '#d32f2f', on: f.id === fid }; });
     let win = null; try { win = G.sheetWindow(TPR.text, sheet); } catch (e) { win = null; }
     // its title block (the fields and their labels, a margin round them), else the whole sheet
     let zoom = null; const fb = (sh ? sh.fields : []).map((f) => f.lbox ? [Math.min(f.box[0], f.lbox[0]), Math.min(f.box[1], f.lbox[1]), Math.max(f.box[2], f.lbox[2]), Math.max(f.box[3], f.lbox[3])] : f.box);
     if (!$('tplPicAll').checked && fb.length && sh) { const b = [Math.min(...fb.map((q) => q[0])), Math.min(...fb.map((q) => q[1])), Math.max(...fb.map((q) => q[2])), Math.max(...fb.map((q) => q[3]))], m = Math.max(b[2] - b[0], b[3] - b[1]) * 0.12 + (sh.units === 'in' ? 0.2 : 5); zoom = [b[0] - m, b[1] - m, b[2] + m, b[3] + m]; }
     if (zoom) cv.height = Math.round(cv.width * Math.min(1.4, Math.max(0.45, (zoom[3] - zoom[1]) / (zoom[2] - zoom[0]))));
-    G.paint(ctx, page, cv.width, cv.height, { marks, win, zoom });
+    G.paint(ctx, page, cv.width, cv.height, { marks, win, zoom, fs: Math.round(12 * cv.width / Math.max(200, cv.clientWidth || cv.width)) }); // (the numbers as large on any screen)
     $('tplPicSum').textContent = `${marks.length} field${marks.length === 1 ? '' : 's'} numbered as in the list${sh && sh.vps[0] ? ` · the map's viewport ${sh.vps[0].w.toFixed(0)} × ${sh.vps[0].h.toFixed(0)} ${sh.units}` : ''}.`;
   }
   ['tplPlan', 'tplKey', 'tplCef'].forEach((id) => $(id).addEventListener('change', () => { tprRead(); tprSheets(); tprDirty(); tprPic($(id).value || TPR.map.plan); }));

@@ -1202,7 +1202,7 @@
       for (const mk of o.marks) {
         const a = toPt(mk.box[0], mk.box[3]), b = toPt(mk.box[2], mk.box[1]), x0 = cx(a[0]), y0 = cy(a[1]), x1 = cx(b[0]), y1 = cy(b[1]);
         ctx.strokeStyle = mk.color || '#d32f2f'; ctx.lineWidth = mk.on ? 3 : 1.5; ctx.strokeRect(x0 - 2, y0 - 2, x1 - x0 + 4, y1 - y0 + 4);
-        if (mk.n != null) { ctx.fillStyle = mk.color || '#d32f2f'; ctx.font = 'bold 11px sans-serif'; const t = String(mk.n); ctx.fillRect(x0 - 2, y0 - 15, ctx.measureText(t).width + 6, 13); ctx.fillStyle = '#fff'; ctx.fillText(t, x0 + 1, y0 - 4); }
+        if (mk.n != null) { const fs = o.fs || 11; ctx.fillStyle = mk.color || '#d32f2f'; ctx.font = `bold ${fs}px sans-serif`; const t = String(mk.n); ctx.fillRect(x0 - 2, y0 - fs * 1.35, ctx.measureText(t).width + fs * 0.55, fs * 1.2); ctx.fillStyle = '#fff'; ctx.fillText(t, x0 + fs * 0.1, y0 - fs * 0.35); } // (o.fs: the number's size in canvas pixels)
       }
       ctx.restore();
     }
