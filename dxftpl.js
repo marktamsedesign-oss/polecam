@@ -4598,8 +4598,12 @@
         } else {
           if (!E.hadText) continue;
           const R = textSet(E.recs, L); if (!R) continue; const nw = textPut(R); E.recs = [...E.recs.filter((r) => !R.gone.has(r)), ...nw]; E.edited = true;
-          if (E.bub) { const B = E.bub, T1 = linesOf(E.recs); B.W = Math.max(0, ...T1.map((x) => arialW(x.s, B.th))); B.H = B.th + Math.max(0, T1.length - 1) * BUB_LS * B.th; if (B.rep) B.rep.lines = T1.map((x) => x.s); } // (a bubble's lines as written now: its size for Size and h, below)
-          if (E.recs.some((r) => !LEAD.has(r))) E.box = boxOf(E);
+          if (E.bub) { // (a bubble's lines as written now: laid out again beside its pointer's tip as bubDraw lays them (a label above its circle ends just above the tip), its size for Size and h below)
+            const B = E.bub, T1 = linesOf(E.recs), so = B.th * 0.08; B.W = Math.max(0, ...T1.map((x) => arialW(x.s, B.th))); B.H = B.th + Math.max(0, T1.length - 1) * BUB_LS * B.th; if (B.rep) B.rep.lines = T1.map((x) => x.s);
+            const G = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H), at2 = (r, x, y) => { for (const c of [10, 11]) { setFirst(r, c, F(x)); setFirst(r, c + 10, F(y)); } };
+            T1.forEach((x, i) => { const y = G.y1 - i * BUB_LS * B.th; if (x.k < 0) { at2(x.r, G.xa, y); x.sh.forEach((q) => at2(q, G.xa + so, y - so)); } });
+          }
+          if (E.recs.some((r) => !LEAD.has(r))) { E.box = boxOf(E); if (E.kind === 'closurelabel' && E.at && !E.bub) cloArrow(E); } // (a closure's arrow from its label as written now)
           else { const g2 = new Set(E.recs.filter((r) => !BUBC.has(r))); o.model = o.model.filter((r) => !g2.has(r)); E.recs = E.recs.filter((r) => !g2.has(r)); E.empty = !E.recs.length; E.at = null; } // (its texts all left off and nothing else of it: its line or arrow, a bubble's pointer go too (its circle stays); its box kept)
         }
       }

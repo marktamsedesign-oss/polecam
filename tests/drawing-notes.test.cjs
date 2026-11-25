@@ -158,6 +158,8 @@ test('edited text: report.movable text; TEXT, MTEXT and attribute lines replaced
     assert.deepEqual(shad.map((e) => e.text), ['FACING X', '7.1%%d, 125.6%%d', 'ADDED LINE'], 'the shadows with their lines');
     near(+g1(main[3], 21) - +g1(main[4], 21), +g1(main[2], 21) - +g1(main[3], 21), 1e-6, 'the line added: the spacing of the last two'); assert.equal(g1(main[4], 11), g1(main[3], 11));
     assert.deepEqual(r1.report.closureLabels.bubbles.find((b) => b.cid === 'CL-01').lines, TX['clolbl:s2'], 'report.closureLabels: its lines as written');
+    { const sol = es('clolbl:s2').find((e) => e.type === 'SOLID'), circ = es('clolbl:s2').find((e) => e.type === 'CIRCLE'), tip = [+g1(sol, 10), +g1(sol, 20)], c0 = [+g1(circ, 10), +g1(circ, 20)], v = [tip[0] - c0[0], tip[1] - c0[1]], th = +g1(main[0], 40), side = Math.abs(v[0]) >= 0.5 * Math.hypot(v[0], v[1]);
+      if (side) near(+g1(main[0], 21), tip[1], 1e-6, 'beside its pointer: its first line level with the tip'); else if (v[1] > 0) near(+g1(main[4], 21) - th / 2, tip[1] + 0.8 * th, 1e-6, 'above its pointer: its last line just above the tip'); else near(+g1(main[0], 21) + th / 2, tip[1] - 0.8 * th, 1e-6, 'below: its first line just below the tip'); } // (laid out again as the plan lays a bubble's lines)
     // the number and its shadow; the span's length left off (nothing of it drawn: its box kept)
     assert.deepEqual(es('num:s3').filter((e) => e.type === 'TEXT').map((e) => e.text), ['3A', '3A']);
     const sp = by(M, 'span:s1|s2'); assert.deepEqual(sp.handles, []); assert.equal(sp.empty, true); assert.deepEqual(sp.box, by(M0, 'span:s1|s2').box, 'its box where it was'); assert.equal(sp.can.text, true, 'it can be written again');
