@@ -2475,7 +2475,8 @@
       return { P, pieces: pieces.filter((l) => l.length > 1) };
     };
     const cabStyle = (cable, existing, cores) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0, lwt: cabLw(cable, existing, cores) }; };
-    const drawCable = (line0, cs, bent) => { const line = bent ? line0 : bendLine(line0); o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt || CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
+    const CABR = []; // ((beta 7.12, Drawing edit) the cable's lines as drawn: each span's cable an element of its own (cableline, DT))
+    const drawCable = (line0, cs, bent) => { const line = bent ? line0 : bendLine(line0); CABR.push(o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt || CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true })); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
     for (const ch of chains) {
       const r = piecesOf(ch); if (!r) continue;
       // v2.32: aerial cable as a broken line (DASHED at linetype scale 7, 9 when existing, as the template's own sample drawing),
@@ -2574,7 +2575,7 @@
       more.forEach((cab, i) => { // v2.42.20: a fiber in its lane (moreOff, beside the first fiber's line), an existing cable blue
         const st = CABLE_STYLE[cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.moreOff ? s.moreOff[i] : i + 1), ex = !!(s.moreEx && s.moreEx[i]);
         const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1: following the road too)
-        o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(cab, ex), color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true }); spots.line(line, 1.0);
+        CABR.push(o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(cab, ex), color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true })); spots.line(line, 1.0);
       });
     }
     // v2.42.20: an existing cable put on the plan (a fiber marked existing) where no new cable runs: blue, dashed, in its lane
@@ -2585,7 +2586,7 @@
       if (dist2(a, b) <= r0 + r1 + 1) continue;
       const st = CABLE_STYLE[s.cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.off || 0);
       const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1)
-      if (!FIB.length) { o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
+      if (!FIB.length) { CABR.push(o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true })); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
       if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
     }
     const rOf = (p) => (p.el === 'Pole' ? p.rp : inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : p.el === 'Site' ? 8 : 4); // (a point's reach round its centre as drawn)
@@ -2875,7 +2876,7 @@
            cable's line, 3–4 m from the symbol), so the arm with no cable ran along the road and stopped short of the pole. An arm with
            the FOC on it still meets the cable at the pole (p.A). */
         const arms = P.map((q) => { const foc = jnSpans.has(K2(p.id, q.id)), e = foc ? q.A || q.dp : add2(q.dp, unit(q.dp, at), q.rp || 0), ln = [at, e];
-          o.lwpoly('MESSENGER', ln, { color: 1, lt: 'Continuous', lwt: 18 }); spots.line(ln, 0.6);
+          owning(`msg:${p.id}:${q.id}`, 'messenger', p, { at: [(at[0] + e[0]) / 2, (at[1] + e[1]) / 2], to: String(q.id) }, () => o.lwpoly('MESSENGER', ln, { color: 1, lt: 'Continuous', lwt: 18 })); spots.line(ln, 0.6); // ((beta 7.12, Drawing edit) each arm an element: msg:<its pull-off>:<the pole>)
           return { id: String(q.id), foc, dp: q.dp.map((v) => +v.toFixed(3)), rp: +(q.rp || 0).toFixed(3), A: (q.A || q.dp).map((v) => +v.toFixed(3)), end: e.map((v) => +v.toFixed(3)) }; });
         owning(`pole:${p.id}`, 'pole', p, null, () => o.insert(J.b, J.b, at[0], at[1], { scale: sz, color: 1 })); const sb = spots.add(Spots.box(at[0], at[1], sz * 1.2, sz * 1.2, 0));
         jnDone.push({ p, at, sz, P, J, sb, arms });
@@ -3167,9 +3168,10 @@
       const c = pickC(spots, cs, POLELBL_W); spots.add(c.boxes, 'clamp:' + (p.poleId || ''));
       if (tidy) { tidyStd.push(...c.boxes); return; } // (beta 4.7: Tidy: the clamp types are the label's second line)
       const col = +CS.color ? +CS.color : null, [x, y] = c.A;
-      L.forEach((t, i) => o.text(clLay, x, y + ((L.length - 1) / 2 - i) * lh, h, t, { ha: 1, va: 2, style: 'arial', color: col }));
-      if (CS.box !== false) o.lwpoly(clLay, [[x - w / 2, y - ht / 2], [x + w / 2, y - ht / 2], [x + w / 2, y + ht / 2], [x - w / 2, y + ht / 2]], { closed: true, color: col });
-      if (CS.place === 'callout') o.lwpoly(clLay, [add2(p.dp, c.u, p.rp + 0.3), add2(c.A, c.u, -c.ext)], { color: col });
+      owning(`clamp:${p.id}`, 'clamp', p, { at: c.A }, () => { // ((beta 7.12, Drawing edit) a pole's clamp tag an element: clamp:<pid>, its callout line to the pole its lead)
+        L.forEach((t, i) => o.text(clLay, x, y + ((L.length - 1) / 2 - i) * lh, h, t, { ha: 1, va: 2, style: 'arial', color: col }));
+        if (CS.box !== false) o.lwpoly(clLay, [[x - w / 2, y - ht / 2], [x + w / 2, y - ht / 2], [x + w / 2, y + ht / 2], [x - w / 2, y + ht / 2]], { closed: true, color: col });
+        if (CS.place === 'callout') LEAD.add(o.lwpoly(clLay, [add2(p.dp, c.u, p.rp + 0.3), add2(c.A, c.u, -c.ext)], { color: col })); });
     };
     for (const p of poleOrder) {
       const K = stackOf(p), { PST, H, HL, size, CS, clIn, clT, stackCl, stackSz, bare, tag, lines, shown, lat, lon, ll, isOwn, T } = K; // (Drawing labels: its lines and measures, stackOf)
@@ -3791,7 +3793,7 @@
               const q = add2(add2(at, u, m), nv, sd * (0.3 + ts * (0.5 + g))), bx = Spots.box(q[0], q[1], w + ts * 0.2, ts * 1.2, rr);
               cs.push({ q, ts, rr, boxes: [bx], cost: (1 - k) * 100 + Math.abs(f - 0.5) * 4 + (g > 0.5 ? 2 : 0) + (sd < 0 ? 0.5 : 0) + (cellHolds(bx, at[0], at[1]) ? 0 : 50) }); } } }
           const c = cs.length ? pickC(spots, cs, W_LBL) : null; if (!c) { ext.push({ id: a.id, none: true }); continue; }
-          o.text('MESSENGER', c.q[0], c.q[1], c.ts, 'EXTENDED MESSENGER', { rot: c.rr, ha: 1, va: 2, style: 'arial', color: 1 }); spots.add(c.boxes, 'label');
+          owning(`msgtext:${p.id}:${a.id}`, 'msgtext', p, { at: c.q }, () => o.text('MESSENGER', c.q[0], c.q[1], c.ts, 'EXTENDED MESSENGER', { rot: c.rr, ha: 1, va: 2, style: 'arial', color: 1 })); spots.add(c.boxes, 'label'); // ((beta 7.12, Drawing edit) an element: msgtext:<its pull-off>:<the pole>)
           ext.push({ id: a.id, at: c.q.map((v) => +v.toFixed(2)), rot: +c.rr.toFixed(2), h: +c.ts.toFixed(3), over: (c.n || 0) >= 1 }); } };
         if (!BUB) { // its name, small, right beside its block
           const txt = J.w, ts = hLL, w = arialW(txt, ts) * 1.08, cands = [];
@@ -4259,7 +4261,7 @@
     const boxIn = (b, W, m) => [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([u, v]) => { const x = b.cx + b.ux * b.hw * u + b.vx * b.hh * v, y = b.cy + b.uy * b.hw * u + b.vy * b.hh * v; return x >= W[0] + m && x <= W[2] - m && y >= W[1] + m && y <= W[3] - m; });
     let nCableNames = 0;
     for (const ch of chains) {
-      const txt = label.get(ch.cable); if (!txt || !ch.pieces || !ch.pieces.length) continue;
+      const txt = label.get(ch.cable); if (!txt || !ch.pieces || !ch.pieces.length) continue; let nameN = 0;
       const own = (W) => job.cabLabels && cabAt.some(([k, q]) => k === (ch.cable || '') && q[0] >= W[0] && q[0] <= W[2] && q[1] >= W[1] && q[1] <= W[3]); // v2.42.23: the cable's own labels on that sheet: no second tag
       const th = TIDY ? TS.span(wMed) : Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6; // (beta 4.8: Tidy: as the span lengths)
       const place = (W, relaxed) => { const thW = th / ((W && W[4]) || 1); // (beta 4.8: Tidy: on a finer grid, as much smaller) v2.42.10 relaxed: a sheet with no free room still gets the name, where it covers least, smaller first
@@ -4283,7 +4285,7 @@
         const full = cands.filter((x) => x.h >= thW - 1e-9), small = cands.filter((x) => x.h < thW - 1e-9);
         let c = W && !relaxed ? pick(spots, cands) : full.length ? pickW(spots, full, wf) : pickW(spots, small, wf); if (W && !relaxed && c.n > 0) return false;
         if ((!W || relaxed) && nOf(c) >= 1 && small.length && full.length) { const s2 = pickW(spots, small, wf); if (s2 && nOf(s2) < nOf(c)) c = s2; } // smaller only when the full size would cover a label
-        o.text(lay('MISC'), c.q[0], c.q[1], c.h || thW, txt, { rot: c.rd, ha: 1, va: 2, style: 'arial', color: (CABLE_STYLE[ch.cable] || {}).color || null }); spots.add(c.boxes); nCableNames++;
+        nameN++; owning(`cabname:${ch.ids[0]}|${ch.ids[ch.ids.length - 1]}#${nameN}`, 'cablename', null, { at: c.q, name: txt }, () => o.text(lay('MISC'), c.q[0], c.q[1], c.h || thW, txt, { rot: c.rd, ha: 1, va: 2, style: 'arial', color: (CABLE_STYLE[ch.cable] || {}).color || null })); spots.add(c.boxes); nCableNames++; // ((beta 7.12, Drawing edit) an element: cabname:<its run's first point>|<last point>#<n>, n from 1 in the order written)
         return true;
       };
       let n = 0; for (const W of sheetWins) if (own(W) || place(W) || place(W, true)) n++; // v2.42.10: on every GEO sheet the run crosses (v2.42.23: where it has no label of its own)
@@ -4464,10 +4466,10 @@
       for (const E of EL) {
         const p = E.p, k = E.kind, pl = onPoleOf(p);
         E.anchor = k === 'pole' || (k === 'site' && !(p.el === 'Site' && !/olt/i.test(p.siteKind || ''))) ? (p.handAt || [p.E, p.N]) : k === 'site' || k === 'sitedetails' || k === 'sitename' ? [p.E, p.N]
-          : k === 'span' ? geoOf(E.sp[0], E.sp[1]).m : (k === 'loop' || k === 'landmark' || k === 'road') && E.at ? E.at : k === 'closurelabel' && E.at ? E.at : p && p.dp ? p.dp : p ? [p.E, p.N] : [0, 0];
+          : k === 'span' ? geoOf(E.sp[0], E.sp[1]).m : (k === 'loop' || k === 'landmark' || k === 'road' || k === 'cablename' || k === 'messenger') && E.at ? E.at : k === 'closurelabel' && E.at ? E.at : p && p.dp ? p.dp : p ? [p.E, p.N] : [0, 0]; // ((beta 7.12) a cable's name, a messenger arm: where it is)
         E.anchor = [E.anchor[0], E.anchor[1]];
         if (ATTK.has(k)) E.about = [p.dp[0], p.dp[1]];
-        if (k === 'guy' || k === 'ground' || k === 'arm' || k === 'loop' || k === 'loopsym' || ((k === 'nap' || k === 'closure' || k === 'closurelabel') && pl)) E.pole = String(pl.id);
+        if (k === 'guy' || k === 'ground' || k === 'arm' || k === 'loop' || k === 'loopsym' || k === 'clamp' || ((k === 'nap' || k === 'closure' || k === 'closurelabel') && pl)) E.pole = String(pl.id);
         if (!E.status && p && (k === 'pole' || k === 'site') && (p.el === 'Pole' || p.el === 'Site' || p.el === 'ODC' || p.el === 'ODF' || INLINE_EL.has(p.el) || JNW[p.el])) E.status = { now: p.status === 'Proposed' || p.status === 'New' ? 'proposed' : 'existing', field: 'status' };
         if (!E.status && p && (k === 'nap' || k === 'closure' || k === 'closurelabel') && !pl) E.status = { now: p.status === 'Proposed' || p.status === 'New' ? 'proposed' : 'existing', field: 'status' };
         if (k === 'closurelabel' && !E.status && pl) E.status = { now: pl.closureOld ? 'existing' : 'proposed', field: 'closureOld' };
@@ -4669,6 +4671,28 @@
         if (!hand) { for (const r of F2.recs) if (!(F2.bub && F2.bub.circles.includes(r))) xformRec(r, { t: d }); F2.box = boxOf(F2); } // (placed by the plan: as far from it as before; by hand: its pin from where it now is, below)
         if (F2.at) F2.at = [F2.at[0] + d[0], F2.at[1] + d[1]]; F2.anchor = [F2.anchor[0] + d[0], F2.anchor[1] + d[1]];
       }
+      /* (beta 7.12, Drawing edit) each span's cable an element (the owner: "double check every plan element and ensure that it can be edit, delete or
+         update"): cableline:<a>|<b> (its point ids sorted, as span:), its line as the plan draws it (path, line); colour and line weight only, not moved,
+         not deleted (the record's span is). The plan draws a run of spans as one line (and a fiber as one line in its lane): that line is in the lines
+         of each span it draws (shared); a span drawn on its own (another run on it, an existing cable) has it in its handles; once a span's colour or
+         line weight differs from the rest of its run, that line is cut at the span's poles and the span's part is its own (handles). */
+      const inModel = new Set(o.model), vOf = (r) => { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); return X.map((x, i) => [x, Y[i]]); };
+      const SPL = [], covers = new Map(), seenSp = new Set();
+      for (const s0 of [...spans, ...(job.exSpans || [])]) {
+        const P = byId.get(String(s0.ia)), Q = byId.get(String(s0.ib)), key = K2(s0.ia, s0.ib); if (!P || !Q || !P.A || !Q.A || seenSp.has(key)) continue; seenSp.add(key);
+        const line = ((FOLLOW && spanPath.get(`${P.id}|${Q.id}`)) || [P.A, Q.A]).map((q) => [q[0], q[1]]), cum = [0]; for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + dist2(line[i - 1], line[i]));
+        const hL = cum[cum.length - 1] / 2; let i = 1; while (i < line.length - 1 && cum[i] < hL) i++; const tt = (hL - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1e-9), m = [line[i - 1][0] + (line[i][0] - line[i - 1][0]) * tt, line[i - 1][1] + (line[i][1] - line[i - 1][1]) * tt];
+        const mo = Math.max(0, ...((s0.moreOff || (s0.more || []).map((x, k) => k + 1)).map((x) => Math.abs(+x) || 0)), Math.abs(+s0.off || 0)), tol = 0.8 + Math.max(((nLane.get(key) || 1) - 1) * LANE_G, 1.2 * kG * mo); // (as far out as its lanes and other runs are drawn)
+        SPL.push({ key, P, Q, line, m, u: unit(line[i - 1], line[i]), tol });
+      }
+      for (const r of CABR) { if (!inModel.has(r)) continue; const V = vOf(r), ks = [], x0 = Math.min(...V.map((q) => q[0])), x1 = Math.max(...V.map((q) => q[0])), y0 = Math.min(...V.map((q) => q[1])), y1 = Math.max(...V.map((q) => q[1]));
+        for (const sp of SPL) { if (sp.m[0] < x0 - sp.tol || sp.m[0] > x1 + sp.tol || sp.m[1] < y0 - sp.tol || sp.m[1] > y1 + sp.tol) continue; let b = null;
+          for (let i = 1; i < V.length; i++) { const a = V[i - 1], e = V[i], dx = e[0] - a[0], dy = e[1] - a[1], L2 = dx * dx + dy * dy; if (L2 < 1e-12) continue; const t = Math.max(0, Math.min(1, ((sp.m[0] - a[0]) * dx + (sp.m[1] - a[1]) * dy) / L2)), dd = Math.hypot(a[0] + t * dx - sp.m[0], a[1] + t * dy - sp.m[1]); if (!b || dd < b.d) b = { d: dd, u: [dx / Math.sqrt(L2), dy / Math.sqrt(L2)] }; }
+          if (b && b.d <= sp.tol && Math.abs(b.u[0] * sp.u[0] + b.u[1] * sp.u[1]) > 0.85) ks.push(sp.key); } // (it passes the span's middle, along it)
+        if (ks.length) covers.set(r, ks); }
+      const CLI = [], clOf = (sp) => { const own = [], sh = []; for (const [r, ks] of covers) if (ks.includes(sp.key)) (ks.length === 1 ? own : sh).push(r); return { own, sh }; };
+      for (const sp of SPL) { const { own, sh } = clOf(sp); if (!own.length && !sh.length) continue; const B = ptsBox(sp.line, deg(unit(sp.line[0], sp.line[sp.line.length - 1])));
+        const E = { id: `cableline:${sp.key}`, kind: 'cableline', p: null, recs: own, lines: sh, sp: [sp.P, sp.Q], key: sp.key, at: sp.m, anchor: [sp.m[0], sp.m[1]], line: sp.line, a: B.a, box: B, how: 'auto', hadText: false }; EL.push(E); CLI.push(E); }
       /* (beta 7.11, Drawing tools) styles (job.style { id: {…} }, job.styleKind { kind: {…} }: the item's own wins, field by field) and the lines to what an
          item names (Plan style › job.leaders { photo, details, number }, an item's own lead). h: its texts' size (a label, a number, a span's length…, the
          whole of it from its middle; a symbol's texts each where it is); scale: a symbol's size (pole, site, NAP, closure, guy, grounding, arm, landmark
@@ -4677,7 +4701,7 @@
          line or arrow from it to what it names. With none of them the plan is as before, byte for byte. */
       const STK = job.styleKind && typeof job.styleKind === 'object' ? job.styleKind : null, STI = job.style && typeof job.style === 'object' ? job.style : null, LDS = job.leaders && typeof job.leaders === 'object' ? job.leaders : null;
       const stOf = (id, kind) => { const a = STK && STK[kind] && typeof STK[kind] === 'object' ? STK[kind] : null, b = STI && STI[id] && typeof STI[id] === 'object' ? STI[id] : null; if (!a && !b) return null; const o3 = { ...(a || {}), ...(b || {}) }, f = (v, lo, hi) => (v != null && v !== '' && Number.isFinite(+v) && +v > 0 ? Math.max(lo, Math.min(hi, +v)) : null);
-        const st = { h: f(o3.h, 0.2, 5), scale: f(o3.scale, 0.2, 5), bold: typeof o3.bold === 'boolean' ? o3.bold : null, italic: typeof o3.italic === 'boolean' ? o3.italic : null, color: Number.isInteger(+o3.color) && +o3.color >= 1 && +o3.color <= 255 ? +o3.color : null, lead: typeof o3.lead === 'boolean' ? o3.lead : null, callout: o3.callout === 'bubble' || o3.callout === 'arrow' ? o3.callout : null };
+        const st = { h: f(o3.h, 0.2, 5), scale: f(o3.scale, 0.2, 5), bold: typeof o3.bold === 'boolean' ? o3.bold : null, italic: typeof o3.italic === 'boolean' ? o3.italic : null, color: Number.isInteger(+o3.color) && +o3.color >= 1 && +o3.color <= 255 ? +o3.color : null, lead: typeof o3.lead === 'boolean' ? o3.lead : null, callout: o3.callout === 'bubble' || o3.callout === 'arrow' ? o3.callout : null, lw: f(o3.lw, 1, 211) /* ((beta 7.12) a line's weight, 1/100 mm) */ };
         return Object.values(st).some((v) => v != null) ? st : null; };
       const recOfH = new Map(o.model.map((r) => [r[1][1], r])), TXTK = new Set(['span', 'loop', 'road', 'sitename', 'sitedetails', 'closurelabel', 'details', 'number', 'cable', 'note']); // ((beta 7.12, Drawing edit) a text note grows from its middle as a label)
       const isTxtR = (r) => typ(r) === 'TEXT' || typ(r) === 'MTEXT' || (typ(r) === 'ATTRIB' && !(parseInt(get(r, 70, '0'), 10) & 1));
@@ -4703,6 +4727,26 @@
       const drop = new Set(); // (lines taken off: lead false)
       const ld7 = (r) => typ(r) === 'SOLID' || (typ(r) === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1)); // (7.10's items: their open lines and arrowheads go to what they name)
       const LEADK = { photo: 'photo', details: 'details', number: 'number' };
+      /* (beta 7.12, Drawing edit) a span's cable in its own colour or line weight (job.style['cableline:<a>|<b>'], styleKind.cableline): a line it shares with
+         other spans cut at the spans' poles where their looks differ (the first part keeps the line's handle, the others new ones, drawn just after it) */
+      const CLW = [5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211], lwSnap = (v) => CLW.reduce((b, w) => (Math.abs(w - v) < Math.abs(b - v) ? w : b), CLW[0]);
+      const clLook = new Map(CLI.map((E) => { const st = stOf(E.id, 'cableline'); return [E.key, st && (st.color || st.lw) ? { color: st.color || null, lw: st.lw ? lwSnap(st.lw) : null } : null]; }));
+      if ([...clLook.values()].some(Boolean)) {
+        const sig = (x) => (x ? `${x.color || ''}|${x.lw || ''}` : ''), lookOn = (r, L) => { if (!L) return; if (L.color) { for (let i = r.length - 1; i > 0; i--) if (r[i][0] === 420) r.splice(i, 1); if (!setFirst(r, 62, I(L.color))) { const l8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(l8 + 1, 0, [62, I(L.color)]); } } if (L.lw && !setFirst(r, 370, I(L.lw))) { const l8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(l8 + 1, 0, [370, I(L.lw)]); } };
+        const withV = (r, V2, fresh) => { const k = r.findIndex((q, i) => i > 0 && q[0] === 10), head = r.slice(0, k).map(([c, v]) => [c, v]); if (fresh) setFirst(head, 5, d.newHandle()); setFirst(head, 90, I(V2.length)); return [...head, ...V2.flatMap((q) => [[10, F(q[0])], [20, F(q[1])]])]; };
+        for (const [r, ks] of [...covers]) {
+          const sg = ks.map((k) => sig(clLook.get(k))); if (sg.every((x) => x === sg[0])) { lookOn(r, clLook.get(ks[0])); continue; } // (one look for all its spans: the whole line)
+          const V = vOf(r), nearI = (q) => { let bi = 0, bd = Infinity; V.forEach((v, i) => { const dd = dist2(v, q); if (dd < bd) { bd = dd; bi = i; } }); return bi; };
+          const rg = ks.map((k) => { const sp = SPL.find((x) => x.key === k), i0 = nearI(sp.P.A), i1 = nearI(sp.Q.A); return { k, lo: Math.min(i0, i1), hi: Math.max(i0, i1) }; }).sort((a, b) => a.lo - b.lo || a.hi - b.hi);
+          const runs = []; for (const x of rg) { const Lr = runs[runs.length - 1]; if (Lr && sig(clLook.get(Lr.ks[0])) === sig(clLook.get(x.k))) { Lr.hi = Math.max(Lr.hi, x.hi); Lr.ks.push(x.k); } else runs.push({ ks: [x.k], lo: x.lo, hi: x.hi }); }
+          runs[0].lo = 0; runs[runs.length - 1].hi = V.length - 1; for (let i = 1; i < runs.length; i++) runs[i].lo = runs[i - 1].hi; // (end to end, each from where the last one stops)
+          const ok = runs.every((x) => x.hi > x.lo); if (!ok) { lookOn(r, null); continue; }
+          const recs = runs.map((x, i) => { const nr = withV(r, V.slice(x.lo, x.hi + 1), i > 0); if (i === 0) { r.length = 0; r.push(...nr); return r; } return nr; });
+          const at = o.model.indexOf(r); o.model.splice(at + 1, 0, ...recs.slice(1)); covers.delete(r); runs.forEach((x, i) => { covers.set(recs[i], x.ks); lookOn(recs[i], clLook.get(x.ks[0])); });
+        }
+        for (const E of CLI) { const sp = SPL.find((x) => x.key === E.key), c = clOf(sp); E.recs = c.own; E.lines = c.sh; }
+        recOfH.clear(); for (const r of o.model) recOfH.set(r[1][1], r);
+      }
       for (const m of MV) {
         const st = stOf(m.id, m.kind); if (!st) continue;
         const recs = m.handles.map((h) => recOfH.get(h)).filter(Boolean);
@@ -4712,6 +4756,7 @@
         if (st.color && m.kind !== 'photo') colorOn(recs, st.color);
       }
       for (const E of EL) {
+        if (E.kind === 'cableline') continue; // ((beta 7.12) its colour and line weight above)
         const st0 = stOf(E.id, E.kind), st = st0 && E.kind === 'note' && st0.scale ? { ...st0, h: (st0.h || 1) * st0.scale, scale: null } : st0; if (!st) continue; const k = E.kind; // ((beta 7.12, Drawing edit) a text note's size: its height)
         if (st.scale && SCALEK.has(k) && Math.abs(st.scale - 1) > 1e-9) { const ins = (k === 'guy' || k === 'ground') && E.recs.find((r) => typ(r) === 'INSERT'), da = ins ? num(ins, 50, 0) : E.a, c = ATTK.has(k) ? add2(E.about, [Math.cos(da * Math.PI / 180), Math.sin(da * Math.PI / 180)], (E.p && E.p.rp) || 0) : k === 'loopsym' && E.on ? onOf(E) : [E.box.cx, E.box.cy]; /* (a guy's or grounding's block is drawn along its way) ((beta 7.12) a loop's symbol from where it sits on the cable) */ scaleRecs(E.recs, (r) => LEAD.has(r), c, st.scale, 1); } // (a guy, grounding, arm: from where it meets its pole, its symbol's edge that way)
         if (E.bub && st.scale && Math.abs(st.scale - 1) > 1e-9) { // (a bubble callout's size: its circle and pointer; its lines, where the plan put them, follow its tip)
@@ -4721,12 +4766,13 @@
         if (st.h && Math.abs(st.h - 1) > 1e-9) { if (E.bub) { const B = E.bub, G = bubGeo(B.at, B.rb, B.th, B.v, B.W, B.H); scaleRecs(E.recs, (r) => LEAD.has(r), G.pv, st.h, st.h); } /* (a bubble's lines grow away from its tip) */ else if (TXTK.has(k)) scaleRecs(E.recs, (r) => LEAD.has(r), [E.box.cx, E.box.cy], st.h, st.h); else hEach(E.recs, st.h); }
         fontOn(E.recs, st.bold, st.italic);
         if (st.color) colorOn(E.recs, st.color);
+        if (st.lw && k === 'messenger') for (const r of E.recs) { const w = lwSnap(st.lw); if (!setFirst(r, 370, I(w))) { const l8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(l8 + 1, 0, [370, I(w)]); } } // ((beta 7.12) a messenger arm's weight)
         E.box = boxOf(E); E.styled = true;
         if (k === 'closurelabel' && E.bub && (E.how === 'by hand' || st.h || st.scale)) bubTurn(E);
         else if (k === 'closurelabel' && E.at && (E.how === 'by hand' || st.h)) cloArrow(E);
       }
       for (const E of EL) {
-        const pn = PINS.get(E.id); if (!pn) continue;
+        const pn = PINS.get(E.id); if (!pn || E.kind === 'cableline') continue; // ((beta 7.12) a span's cable is not moved)
         const k = E.kind, rot = pn.rot != null ? norm(pn.rot - E.a) : 0, mv = pn.at && !ATTK.has(k) && k !== 'pole' && k !== 'site' && !(SNAPK.has(k) && E.path), c0 = ATTK.has(k) ? E.about : k === 'loopsym' && E.on ? E.on : [E.box.cx, E.box.cy]; // ((beta 7.12) a closure or loop on its cable: its at taken above, along it)
         if (!rot && !mv) continue;
         const t = mv ? [E.anchor[0] + pn.at[0] - E.box.cx, E.anchor[1] + pn.at[1] - E.box.cy] : [0, 0];
@@ -4775,7 +4821,7 @@
          on (as a photo's photoAt[id].cut; the notes say so); a cell it is in that no sheet printed is a GEO sheet (build, _offCells, as a photo's).
          (beta 7.11) Tidy: a pole's number in its block is an item of its own (num:…, block: true), carried with its block (with), as its photo beside it. */
       const cut = [], off = [], NAME = { pole: 'symbol', site: 'symbol', sitedetails: 'details', sitename: 'name', nap: 'NAP', closure: 'closure', closurelabel: 'closure label', loop: 'loop', guy: 'guy', ground: 'grounding', arm: 'arm' };
-      const nm = (m) => (m.kind === 'note' ? `note "${String(m.nt.lines[0] || '').trim().slice(0, 40)}"` : m.kind === 'notephoto' ? `photo note ${m.nt.photo.file}` : m.kind === 'cable' ? `${m.name} label` : m.kind === 'number' ? `No. ${m.seq}` : m.kind === 'details' ? `${m.p.poleId || m.p.id} details` : m.kind === 'span' ? `${m.recs.find(isTxt) ? get(m.recs.find(isTxt), 1, '') : ''} span length` : m.kind === 'road' || m.kind === 'landmark' ? String(m.id.slice(m.id.indexOf(':') + 1)) : `${m.p ? m.p.poleId || m.p.id : m.id} ${NAME[m.kind] || m.kind}`);
+      const nm = (m) => (m.kind === 'cableline' ? `cable ${m.key}` : m.kind === 'cablename' ? `cable name ${m.name || ''}`.trim() : m.kind === 'note' ? `note "${String(m.nt.lines[0] || '').trim().slice(0, 40)}"` : m.kind === 'notephoto' ? `photo note ${m.nt.photo.file}` : m.kind === 'cable' ? `${m.name} label` : m.kind === 'number' ? `No. ${m.seq}` : m.kind === 'details' ? `${m.p.poleId || m.p.id} details` : m.kind === 'span' ? `${m.recs.find(isTxt) ? get(m.recs.find(isTxt), 1, '') : ''} span length` : m.kind === 'road' || m.kind === 'landmark' ? String(m.id.slice(m.id.indexOf(':') + 1)) : `${m.p ? m.p.poleId || m.p.id : m.id} ${NAME[m.kind] || m.kind}`);
       const cutOf = (m, B) => { if (m.how !== 'by hand' || m.kind === 'photo') return null; const C = m.cells || [[ci(B.cx), cj(B.cy)]]; let cutOn = null; if (C.length > 1) { cutOn = C.filter(([i, j]) => used.has(key(i, j))).map(([i, j]) => cellName(i, j)).sort(); cut.push(nm(m)); } if (C.some(([i, j]) => !used.has(key(i, j)))) off.push(nm(m)); return cutOn; }; // ((beta 7.10, Plan kept) as a photo's photoAt[id].cut; on no sheet: build adds the sheet, see its _offCells)
       const CAN0 = { photo: { move: true, rotate: true, scale: false, text: false, color: false, lead: true }, number: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, details: { move: true, rotate: true, scale: false, text: true, color: true, lead: true }, cable: { move: true, rotate: true, scale: false, text: true, color: true, lead: true } };
       const out = MV.map((m) => {
@@ -4796,8 +4842,10 @@
         if (p) Object.assign(o2, { point: String(p.id), name: String(p.poleId || p.id) }); else o2.name = nm(E);
         if (E.pole) o2.pole = E.pole; if (k === 'span') o2.span = E.key.split('|');
         if (E.path) { o2.path = E.path.P.map((q) => [q[0], q[1]]); o2.along = E.along; } // ((beta 7.12, Drawing edit) a closure's or a loop's cable through its pole as drawn, and its place on it)
+        if (k === 'cableline') { o2.span = E.key.split('|'); o2.path = E.line.map((q) => [q[0], q[1]]); o2.lines = E.lines.filter((r) => o.model.includes(r)).map((r) => r[1][1]); } // ((beta 7.12) a span's cable: its line as drawn; lines: the plan's lines that draw it with its run's other spans)
         o2.can = { move: !ATTK.has(k), rotate: true, ...(ATTK.has(k) ? { about: E.about.slice() } : {}), scale: SCALEK.has(k) || !!E.bub, /* (a bubble callout: its circle and pointer) */ text: !!E.hadText, color: true, ...(k === 'closurelabel' ? { callout: true } : {}), ...(k === 'span' || k === 'loop' || k === 'closurelabel' ? { lead: true } : {}), ...(E.status ? { status: E.status } : {}) }; // ((beta 7.12) text: it had texts as the plan wrote it, so that those left off can come back)
         if (E.nt) o2.can = { move: true, rotate: true, scale: true, text: k === 'note', color: k === 'note', delete: true, ...(E.lead ? { lead: true } : {}) }; // ((beta 7.12, Drawing edit) a note of the user's: moved, turned, sized, edited, coloured, deleted by changing the note itself (or pins and styles))
+        if (k === 'cableline' || k === 'messenger') o2.can = { move: false, rotate: false, scale: false, text: false, color: true, lw: true }; // ((beta 7.12) a line: its colour and weight only)
         if (o2.can.text) o2.text = linesOf(E.recs).map((x) => x.s); if (E.empty) o2.empty = true;
         const w = k === 'pole' && p ? (kidsOf.get(String(p.id)) || []).filter((id) => id !== E.id) : k === 'site' && p ? [`sitelbl:${p.id}`, `sitename:${p.id}`].filter((id) => EL.some((x) => x.id === id)) : null; if (w && w.length) o2.with = w;
         if (cutOn) o2.cut = cutOn;

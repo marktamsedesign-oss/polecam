@@ -84,7 +84,7 @@ test('report.movable: every kind of the contract, each with what the Drawing may
     assert.deepEqual(b.report.movable.map((m) => [m.id, m.handles]), M.map((m) => [m.id, m.handles]), 'the same ids and entities, build after build');
     assert.equal(new Set(M.map((m) => m.id)).size, M.length, 'each id once');
     for (const m of M) {
-      assert.ok(m.handles.length > 0 && m.box.length === 5 && m.box.every(Number.isFinite) && m.anchor.length === 2, JSON.stringify(m));
+      assert.ok((m.handles.length > 0 || (m.kind === 'cableline' && m.lines.length > 0)) && m.box.length === 5 && m.box.every(Number.isFinite) && m.anchor.length === 2, JSON.stringify(m)); // ((beta 7.12) a span's cable drawn with its run's other spans: in their lines)
       for (const h of m.handles) { assert.ok(E.has(h), `${m.id}: ${h} in the DXF`); assert.ok(!seen.has(h), `${h}: ${m.id} and ${seen.get(h)}`); seen.set(h, m.id); }
       const c = m.can; assert.ok(c && ['move', 'rotate', 'scale', 'text', 'color'].every((k) => typeof c[k] === 'boolean'), `${m.id}: can ${JSON.stringify(c)}`);
       if (['guy', 'ground', 'arm'].includes(m.kind)) { assert.equal(c.move, false); assert.deepEqual(c.about, a.report.drawnAt[m.pole], `${m.id}: turned about its pole as drawn`); }
@@ -107,7 +107,7 @@ test('report.movable: every kind of the contract, each with what the Drawing may
     assert.deepEqual(by(M, 'nap:s4').can.status, { now: 'proposed', field: 'napOld', point: 's4' }); assert.deepEqual(by(M, 'arm:s6').can.status, { now: 'proposed', field: 'armType', point: 's6' });
     // the PDF's own display list knows each item (own)
     const L = PDF.planList(a.text, a.report), n = new Map(); for (let k = 0; k < L.own.length; k++) if (L.own[k] >= 0) n.set(L.own[k], (n.get(L.own[k]) || 0) + 1);
-    M.forEach((m, i) => assert.ok(n.get(i) > 0, `${m.id}: drawn in the display list`));
+    M.forEach((m, i) => assert.ok(n.get(i) > 0 || !m.handles.length, `${m.id}: drawn in the display list`));
   }
   // the made-up templates without symbols: their elements too
   for (const seed of [SEED, SEED_SQ]) { const M = T.build(seed, richJob({})).report.movable, kinds = new Set(M.map((m) => m.kind)); for (const k of ['pole', 'site', 'sitedetails', 'sitename', 'closurelabel', 'span', 'road', 'landmark', 'arm']) assert.ok(kinds.has(k), k); }
