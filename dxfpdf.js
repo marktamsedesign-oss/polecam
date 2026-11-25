@@ -13,7 +13,10 @@
      → Promise<Uint8Array> (the PDF), with .report = { sheets, pictures, missing }
    (beta 7.9, Drawing preview) GeDxfPdf.planList(dxfText, report) → the plan's model space as its GEO sheets print it, drawn by the same draw(), as a
      display list in model metres for the Drawing screen (modelList); toPdf's output is the same as before, byte for byte. (beta 7.10, Drawing labels) Each
-     item of it says which of report.movable it draws (own). */
+     item of it says which of report.movable it draws (own).
+   (beta 7.14, Text format) the text editor's fonts printed as near as the PDF's own go: a serif TrueType font in Times, a monospaced one in Courier (each put
+     in the PDF only when a page uses it: a PDF without them is as before, byte for byte), a narrow one in Helvetica narrowed, an SHX one as before; a
+     text's underline (TEXT %%u, MTEXT \L … \l) a line under it. planList's texts say their family (ff: 1 Times, 2 Courier; none: Helvetica). */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./dxftpl.js'), require('./reports.js'));
   else root.GeDxfPdf = factory(root.GeDxfTpl, root.PoleReports);
@@ -58,7 +61,7 @@
   function colourRuns(raw, base) {
     const out = [[]], stack = []; let cur = { c: null, tc: null, ...base }, buf = '';
     const flush = () => { if (buf) { out[out.length - 1].push({ ...cur, s: buf }); buf = ''; } };
-    const font = (n, a) => { const [nm, ...fl] = a.split('|'), shx = /\.shx\s*$/i.test(nm) || (n === 'F' && !fl.length && !/\.\w+\s*$/.test(nm)); return shx ? { x: true, b: false, i: false } : { x: false, b: fl.includes('b1') || /bold|black|heavy/i.test(nm), i: fl.includes('i1') || /italic|oblique/i.test(nm) }; };
+    const font = (n, a) => { const [nm, ...fl] = a.split('|'), shx = /\.shx\s*$/i.test(nm) || (n === 'F' && !fl.length && !/\.\w+\s*$/.test(nm)); return shx ? { x: true, b: false, i: false, fam: 0, nw: 1 } : { x: false, b: fl.includes('b1') || /bold|black|heavy/i.test(nm), i: fl.includes('i1') || /italic|oblique/i.test(nm), fam: 0, nw: 1, ...famOf(nm) }; }; // ((beta 7.14, Text format) its family: Times, Courier, narrow)
     for (let i = 0; i < raw.length; i++) {
       const ch = raw[i], n = raw[i + 1];
       if (ch === '\\' && n !== undefined) {
@@ -77,7 +80,8 @@
         if (n === 'P' || n === 'N') { flush(); out.push([]); i++; continue; }
         if (n === '\\' || n === '{' || n === '}') { buf += n; i++; continue; }
         if (n === '~') { buf += ' '; i++; continue; }
-        if ('LlOoKk'.includes(n)) { i++; continue; }
+        if (n === 'L' || n === 'l') { flush(); cur = { ...cur, u: n === 'L' }; i++; continue; } // ((beta 7.14, Text format) underline on, off)
+        if ('OoKk'.includes(n)) { i++; continue; }
         if ('AFfHhQqTtWwp'.includes(n)) { const j = raw.indexOf(';', i); if (j > i) { i = j; continue; } }
         if (n === 'S') { const j = raw.indexOf(';', i); if (j > i) { buf += raw.slice(i + 2, j).replace(/[\^#]/g, '/'); i = j; continue; } }
         if (n === 'U' && raw[i + 2] === '+') { buf += String.fromCharCode(parseInt(raw.slice(i + 3, i + 7), 16)); i += 6; continue; }
@@ -99,8 +103,24 @@
     18, 21, 21, 21, 19, 18, 21, 22, 8, 16, 21, 17, 24, 22, 22, 21, 22, 21, 20, 16, 22, 18, 24, 20, 18, 20, 14, 14, 14, 16, 16, 10,
     19, 19, 18, 19, 18, 12, 19, 19, 8, 10, 17, 8, 30, 19, 19, 19, 19, 13, 17, 12, 19, 16, 22, 17, 16, 17, 14, 8, 14, 24];
   const shxEm = (ch) => { const c = ch.charCodeAt(0); return c >= 32 && c < 127 ? SHXW[c - 32] * CAP / 21 : R.textWidth(ch, 1, false) * 1.15; };
-  const widthEm = (s, f) => { if (f && f.x) { let w = 0; for (const ch of String(s)) w += shxEm(ch); return w; } return R.textWidth(s, 1, !!(f && f.b)); }; // in em (font size 1)
-  const fontRes = (f) => (f && !f.x && f.b ? (f.i ? 'F4' : 'F2') : f && !f.x && f.i ? 'F3' : 'F1');
+  /* (beta 7.14, Text format) a TrueType font printed as near as the PDF's own fonts go (the plan's fonts are not embedded): a serif one (Times New Roman,
+     Georgia, … Serif) in Times, a monospaced one (Courier New, Consolas, … Mono) in Courier, a narrow one (Arial Narrow, … Condensed) in Helvetica at 0.82
+     of its width, the rest in Helvetica as before. f.fam: 1 serif, 2 mono (none: Helvetica); f.nw: the narrow one's width. Times' and Courier's own
+     widths (their AFM's, in 1000ths of an em, ASCII 32-126) and capitals' heights (AutoCAD's text height is the capitals' height). */
+  const famOf = (nm) => { const s = String(nm || '').toLowerCase().replace(/\.ttf$|\.ttc$|\.otf$/, ''); if (/narrow|condensed|^arialn|\bcn\b/.test(s)) return { fam: 0, nw: 0.82 }; if (/mono|^cour|courier|consol|lucida ?console|^lucon/.test(s)) return { fam: 2 }; if (/serif|^times|georgia|garamond|^gara|cambria|^constan|book ?antiqua|^bookos|palatino|^pala|century|bookman|^nimbus ?rom|roman$/.test(s) && !/sans/.test(s)) return { fam: 1 }; return {}; };
+  const TIMESW = [250, 333, 408, 500, 500, 833, 778, 180, 333, 333, 500, 564, 250, 333, 250, 278, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 278, 278, 564, 564, 564, 444, 921,
+    722, 667, 667, 722, 611, 556, 722, 722, 333, 389, 722, 611, 889, 722, 722, 556, 722, 667, 556, 611, 722, 722, 944, 722, 722, 611, 333, 278, 333, 469, 500, 333,
+    444, 500, 444, 500, 444, 333, 500, 500, 278, 278, 500, 278, 778, 500, 500, 500, 500, 333, 389, 278, 500, 500, 722, 500, 500, 444, 480, 200, 480, 541];
+  const TIMESBW = [250, 333, 555, 500, 500, 1000, 833, 278, 333, 333, 500, 570, 250, 333, 250, 278, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 333, 333, 570, 570, 570, 500, 930,
+    722, 667, 722, 722, 667, 611, 778, 778, 389, 500, 778, 667, 944, 722, 778, 611, 778, 722, 556, 667, 722, 722, 1000, 722, 722, 667, 333, 278, 333, 581, 500, 333,
+    500, 556, 444, 556, 444, 333, 500, 556, 278, 333, 556, 278, 833, 556, 500, 556, 556, 444, 389, 333, 556, 500, 722, 500, 500, 444, 394, 220, 394, 520];
+  const capOf = (f) => (f && !f.x && f.fam === 1 ? 0.662 : f && !f.x && f.fam === 2 ? 0.571 : CAP);
+  const widthEm = (s, f) => { if (f && f.x) { let w = 0; for (const ch of String(s)) w += shxEm(ch); return w; }
+    if (f && f.fam === 1) { let w = 0; const T = f.b ? TIMESBW : TIMESW; for (const ch of String(s)) { const c = ch.charCodeAt(0); w += c >= 32 && c < 127 ? T[c - 32] / 1000 : R.textWidth(ch, 1, !!f.b); } return w; }
+    if (f && f.fam === 2) return 0.6 * [...String(s)].length;
+    return R.textWidth(s, 1, !!(f && f.b)) * (f && f.nw ? f.nw : 1); }; // in em (font size 1)
+  const fontRes = (f) => (f && !f.x && f.fam ? `F${(f.fam === 1 ? 5 : 9) + (f.b ? (f.i ? 3 : 1) : f.i ? 2 : 0)}` : f && !f.x && f.b ? (f.i ? 'F4' : 'F2') : f && !f.x && f.i ? 'F3' : 'F1');
+  const FONTX = { F5: 'Times-Roman', F6: 'Times-Bold', F7: 'Times-Italic', F8: 'Times-BoldItalic', F9: 'Courier', F10: 'Courier-Bold', F11: 'Courier-Oblique', F12: 'Courier-BoldOblique' }; // ((beta 7.14, Text format) in a PDF only when used)
   const LW0 = 0.25; // beta 7.4 / 2.45.6: the line weight "Default" prints with (mm; AutoCAD's LWDEFAULT; 0.18 before)
   /** beta 7.4 / 2.45.6: a STYLE's look: { wf, obl, f }. Bold, italic: the flags of its font (the ACAD xdata: 1000 the font's family,
    *  1071 bit 0x2000000 bold, 0x1000000 italic: an arial.ttf style can be bold so), else its font file's name (arialbd.ttf, …Bold.ttf). An SHX
@@ -108,11 +128,11 @@
   function styleLook(r) {
     const file = String(get(r, 3, '')).trim(), k = r.findIndex((p) => p[0] === 1001 && String(p[1]).trim() === 'ACAD'); let fam = '', fl = 0;
     if (k > 0) for (let i = k + 1; i < r.length && r[i][0] !== 1001; i++) { if (r[i][0] === 1000 && !fam) fam = String(r[i][1]).trim(); else if (r[i][0] === 1071) fl = parseInt(r[i][1], 10) || 0; }
-    const win = /^(arial|times|cour|verdana|georgia|calibri|cambria|consola|segoeui|trebuc|tahoma)(bd|bi|b|i|it|z)\.ttf$/i.exec(file), suf = win ? win[2].toLowerCase() : '';
+    const win = /^(arialn|arial|times|cour|verdana|georgia|calibri|cambria|consola|segoeui|trebuc|tahoma)(bd|bi|b|i|it|z)\.ttf$/i.exec(file), suf = win ? win[2].toLowerCase() : ''; // ((beta 7.14) Arial Narrow's arialnb, arialni, arialnbi too)
     const x = !fam && (/\.shx$/i.test(file) || (!!file && !/\.\w+$/.test(file)));
     const b = !x && (!!(fl & 0x2000000) || /bd|bold|black|heavy/i.test(`${file} ${fam}`) || /^(bd|bi|b|z)$/.test(suf));
     const i = !x && (!!(fl & 0x1000000) || /italic|oblique/i.test(`${file} ${fam}`) || /^(bi|i|it|z)$/.test(suf));
-    return { wf: num(r, 41, 1) || 1, obl: num(r, 50, 0), f: { b, i, x } };
+    return { wf: num(r, 41, 1) || 1, obl: num(r, 50, 0), f: { b, i, x, ...(x ? {} : famOf(fam || file)) } }; // ((beta 7.14, Text format) a serif, monospaced or narrow TrueType font: famOf)
   }
 
   /** The DXF's sheets as page drawings: [{ name, w, h (pt), ops: [] }] and the pictures they use. */
@@ -304,7 +324,7 @@
         if (a > 0 && b > 0) kx = a / b;
         if (s.includes(' ')) tw = shxEm(' ') / kx - R.textWidth(' ', 1, false);
       }
-      const fs = h / CAP, c = Math.cos(ang), sn = Math.sin(ang), k = obl ? Math.tan(obl * Math.PI / 180) : 0, o0 = ap(M, x, y), u = lin(M, c * fs * wf * kx, sn * fs * wf * kx), v = lin(M, (-sn + c * k) * fs, (c + sn * k) * fs);
+      const fs = h / capOf(f), nw = !shx && f && f.nw ? f.nw : 1, c = Math.cos(ang), sn = Math.sin(ang), k = obl ? Math.tan(obl * Math.PI / 180) : 0, o0 = ap(M, x, y), u = lin(M, c * fs * wf * kx * nw, sn * fs * wf * kx * nw), v = lin(M, (-sn + c * k) * fs, (c + sn * k) * fs); // ((beta 7.14, Text format) Times' and Courier's capitals as high as the text, a narrow font narrowed)
       if (Math.hypot(v[0], v[1]) < 0.4) return; // under 0.4 pt: not readable
       const rgb = `${f4(col[0] / 255)} ${f4(col[1] / 255)} ${f4(col[2] / 255)}`, tm = `${f4(u[0])} ${f4(u[1])} ${f4(v[0])} ${f4(v[1])} ${f2(o0[0])} ${f2(o0[1])} Tm (${enc(s)}) Tj`;
       if (!shx) { ops.push(`BT ${rgb} rg /${fontRes(f)} 1 Tf ${tm} ET`); return; }
@@ -312,18 +332,27 @@
       const sw = (lwPt > 0 ? lwPt : LW0 * 72 / 25.4) - 0.088 * Math.hypot(v[0], v[1]);
       ops.push(`q BT ${sw >= 0.05 ? `2 Tr ${f2(sw)} w 1 j ${rgb} RG ` : ''}${rgb} rg /F1 1 Tf ${tw ? `${f4(tw)} Tw ` : ''}${tm} ET Q`);
     }
+    /** (beta 7.14, Text format) a text's underline: a line from a to b along its baseline from (x, y) (in its own space, turned ang), 0.15 of its height under
+        it, 0.06 of its height thick (as AutoCAD draws a TrueType text's), in its colour */
+    function underOps(ops, M, col, x, y, ang, h, a, b) {
+      if (!(b - a > 0) || !(h > 0)) return;
+      const c = Math.cos(ang), sn = Math.sin(ang), d = 0.15 * h, P = [a, b].map((t) => ap(M, x + c * t + sn * d, y + sn * t - c * d)), lw = 0.06 * h * scaleOf(M);
+      if (lw < 0.02) return;
+      ops.push(`q ${f4(col[0] / 255)} ${f4(col[1] / 255)} ${f4(col[2] / 255)} RG ${f2(lw)} w 0 J ${f2(P[0][0])} ${f2(P[0][1])} m ${f2(P[1][0])} ${f2(P[1][1])} l S Q`);
+    }
     function textOps(r, M, col, ops, lwPt) {
       const s = special(get(r, 1, '')); if (!s.trim()) return;
       const h = num(r, 40, 2.5), st = styleOf(get(r, 7)), f = st.f, wf = num(r, 41, 1) || 1; // (beta 7.4 / 2.45.6: its own width factor, 1 when it has none, as AutoCAD reads it; the style's is what a new text starts with, not this one's)
-      const ha = int(r, 72, 0), va = typ(r) === 'ATTRIB' ? int(r, 74, 0) : int(r, 73, 0), ang = num(r, 50, 0) * Math.PI / 180, fs = h / CAP;
+      const ha = int(r, 72, 0), va = typ(r) === 'ATTRIB' ? int(r, 74, 0) : int(r, 73, 0), ang = num(r, 50, 0) * Math.PI / 180, fs = h / capOf(f);
       const w = widthEm(s, f) * fs * wf;
       let ax = num(r, 10, 0), ay = num(r, 20, 0), dx = 0, dy = 0, wfx = wf;
       if (ha || va) { ax = num(r, 11, ax); ay = num(r, 21, ay); }
       if (ha === 3 || ha === 5) { const x0 = num(r, 10, 0), y0 = num(r, 20, 0), L = Math.hypot(ax - x0, ay - y0); if (L > 0 && w > 0) wfx = wf * L / w; ax = x0; ay = y0; }
       else dx = ha === 1 || ha === 4 ? -w / 2 : ha === 2 ? -w : 0;
       dy = ha === 4 ? -h / 2 : va === 1 ? 0.29 * h : va === 2 ? -h / 2 : va === 3 ? -h : 0;
-      const c = Math.cos(ang), sn = Math.sin(ang);
-      textLine(ops, M, col, s, ax + dx * c - dy * sn, ay + dx * sn + dy * c, ang, h, wfx, f, num(r, 51, 0), lwPt); // (51: v2.42.11, the street names slanted)
+      const c = Math.cos(ang), sn = Math.sin(ang), x0 = ax + dx * c - dy * sn, y0 = ay + dx * sn + dy * c;
+      textLine(ops, M, col, s, x0, y0, ang, h, wfx, f, num(r, 51, 0), lwPt); // (51: v2.42.11, the street names slanted)
+      const raw = String(get(r, 1, '')); if (/%%u/i.test(raw)) { let on = false, at = 0; for (const part of raw.split(/(%%[uU])/)) { if (/^%%u$/i.test(part)) { on = !on; continue; } const wd = widthEm(special(part), f) * fs * wfx; if (on) underOps(ops, M, col, x0, y0, ang, h, at, at + wd); at += wd; } } // ((beta 7.14, Text format) %%u: underlined from there to the next %%u)
     }
     function mtextOps(r, M, col, ops, inh, lwPt) {
       const raw = all(r, 3).join('') + get(r, 1, ''), s = special(plain(raw)); if (!s.trim()) return;
@@ -333,8 +362,8 @@
       let paras = colourRuns(raw, base); const want = s.split('\n');
       if (paras.length !== want.length || paras.some((p, i) => p.map((x) => x.s).join('') !== want[i])) paras = want.map((t) => [{ c: null, tc: null, ...base, s: t }]); // (read otherwise than plain() reads it: as one part, as before)
       const fs = h / CAP, pitch = h * 5 / 3 * num(r, 44, 1), att = Math.min(9, Math.max(1, int(r, 71, 1))), ci = (att - 1) % 3, ri = Math.floor((att - 1) / 3), refW = num(r, 41, 0);
-      const key = (x) => `${x.b ? 1 : 0}${x.i ? 1 : 0}${x.x ? 1 : 0}|${x.w}|${x.q}`, txt = (L) => L.map((x) => x.s).join('');
-      const wOf = (L) => { let w = 0, i = 0; while (i < L.length) { let j = i, t = ''; while (j < L.length && key(L[j]) === key(L[i])) t += L[j++].s; w += widthEm(t, L[i]) * fs * L[i].w; i = j; } return w; };
+      const key = (x) => `${x.b ? 1 : 0}${x.i ? 1 : 0}${x.x ? 1 : 0}|${x.w}|${x.q}|${x.fam || 0}|${x.nw || 1}|${x.u ? 1 : 0}`, txt = (L) => L.map((x) => x.s).join(''), fsOf = (x) => (x && !x.x && x.fam ? h / capOf(x) : fs); // ((beta 7.14, Text format) a part's family, narrowness, underline; Times' and Courier's capitals as high as the text)
+      const wOf = (L) => { let w = 0, i = 0; while (i < L.length) { let j = i, t = ''; while (j < L.length && key(L[j]) === key(L[i])) t += L[j++].s; w += widthEm(t, L[i]) * fsOf(L[i]) * L[i].w; i = j; } return w; };
       const trimEnd = (L) => { const q = L.slice(); while (q.length) { const z = q[q.length - 1], t = z.s.trimEnd(); if (t) { q[q.length - 1] = { ...z, s: t }; break; } q.pop(); } return q; };
       const trimStart = (L) => { const q = L.slice(); while (q.length) { const t = q[0].s.trimStart(); if (t) { q[0] = { ...q[0], s: t }; break; } q.shift(); } return q; };
       const lines = [];
@@ -345,7 +374,7 @@
       }
       const lw = lines.map(wOf), maxW = Math.max(0, ...lw), colW = refW > maxW * 0.5 ? refW : maxW;
       const Hh = h + pitch * (lines.length - 1), top = ri === 0 ? 0 : ri === 1 ? Hh / 2 : Hh, left = -(ci === 0 ? 0 : ci === 1 ? colW / 2 : colW);
-      const al = /\\p[^;]*q?c[;,]|\\pxqc|\\pqc/.test(raw) ? 'c' : /\\pxqr|\\pqr/.test(raw) ? 'r' : /\\pxql|\\pql/.test(raw) ? 'l' : 'lcr'[ci];
+      const pq = /\\p[^;]*?[x,]q([lcr])[;,]/.exec(raw), al = /\\p[^;]*q?c[;,]|\\pxqc|\\pqc/.test(raw) ? 'c' : /\\pxqr|\\pqr/.test(raw) ? 'r' : /\\pxql|\\pql/.test(raw) ? 'l' : pq ? pq[1] : 'lcr'[ci]; // ((beta 7.14, Text format) also a paragraph code with other options before its alignment: \\pxi-3,l3,qr;)
       let dir = [num(r, 11, 1), num(r, 21, 0)]; const k50 = r.findIndex((p) => p[0] === 50), k101 = r.findIndex((p) => p[0] === 101);
       if (k50 > 0 && (k101 < 0 || k50 < k101) && get(r, 11) == null) dir = [Math.cos(num(r, 50, 0)), Math.sin(num(r, 50, 0))];
       const ang = Math.atan2(dir[1], dir[0]), c = Math.cos(ang), sn = Math.sin(ang), ax = num(r, 10, 0), ay = num(r, 20, 0);
@@ -362,7 +391,8 @@
         let x = dx; for (let j = 0; j < L.length;) { // the line's parts, those of one look and colour as one
           const z = L[j], cz = partCol(z); let t = '', e = j; while (e < L.length && key(L[e]) === key(z) && sameCol(partCol(L[e]), cz)) t += L[e++].s;
           if (t.trim()) textLine(ops, M, cz, t, ax + x * c - dy * sn, ay + x * sn + dy * c, ang, h, z.w, z, z.q, lwPt);
-          x += widthEm(t, z) * fs * z.w; j = e;
+          const wt = widthEm(t, z) * fsOf(z) * z.w; if (z.u && t.trim()) underOps(ops, M, cz, ax + x * c - dy * sn, ay + x * sn + dy * c, ang, h, 0, wt); // ((beta 7.14, Text format) \L … \l: underlined)
+          x += wt; j = e;
         }
       });
     }
@@ -439,6 +469,7 @@
     const push = (x) => { const u = typeof x === 'string' ? latin1(x) : x; parts.push(u); pos += u.length; };
     const obj = (n, body) => { offsets[n] = pos; push(`${n} 0 obj\n`); body(); push('\nendobj\n'); };
     const firstImg = 7, firstPage = firstImg + images.length, info = firstPage + pages.length * 2;
+    const fx = Object.keys(FONTX).filter((k) => pages.some((pg) => pg.ops.some((op) => op.includes(`/${k} `)))), last = info + fx.length; // ((beta 7.14, Text format) Times and Courier, after the rest, only when a page uses them: a PDF without them as before)
     push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
     obj(1, () => push('<< /Type /Catalog /Pages 2 0 R >>'));
     obj(2, () => push(`<< /Type /Pages /Kids [${pages.map((_, i) => `${firstPage + i * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`));
@@ -455,15 +486,16 @@
       const pg = pages[i], pn = firstPage + i * 2, raw = latin1(pg.ops.join('\n'));
       let data = raw, filter = '';
       if (o && o.deflate) { try { data = await o.deflate(raw); filter = ' /Filter /FlateDecode'; } catch (e) { data = raw; filter = ''; } }
-      obj(pn, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f2(pg.w)} ${f2(pg.h)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >>${xo ? ` /XObject << ${xo} >>` : ''} >> /Contents ${pn + 1} 0 R >>`));
+      obj(pn, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f2(pg.w)} ${f2(pg.h)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R${fx.map((k, j) => ` /${k} ${info + 1 + j} 0 R`).join('')} >>${xo ? ` /XObject << ${xo} >>` : ''} >> /Contents ${pn + 1} 0 R >>`));
       obj(pn + 1, () => { push(`<< /Length ${data.length}${filter} >>\nstream\n`); push(data); push('\nendstream'); });
     }
     const esc = (s) => String(s || '').replace(/[()\\]/g, (m) => `\\${m}`).replace(/[^\x20-\x7e]/g, '?');
     obj(info, () => push(`<< /Title (${esc(o && o.title)}) /Producer (G-eSAA) /Creator (G-eSAA plan sheets from the DXF) >>`));
+    fx.forEach((k, j) => obj(info + 1 + j, () => push(`<< /Type /Font /Subtype /Type1 /BaseFont /${FONTX[k]} /Encoding /WinAnsiEncoding >>`)));
     const xref = pos;
-    push(`xref\n0 ${info + 1}\n0000000000 65535 f \n`);
-    for (let n = 1; n <= info; n++) push(`${String(offsets[n]).padStart(10, '0')} 00000 n \n`);
-    push(`trailer\n<< /Size ${info + 1} /Root 1 0 R /Info ${info} 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    push(`xref\n0 ${last + 1}\n0000000000 65535 f \n`);
+    for (let n = 1; n <= last; n++) push(`${String(offsets[n]).padStart(10, '0')} 00000 n \n`);
+    push(`trailer\n<< /Size ${last + 1} /Root 1 0 R /Info ${info} 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
     const out = new Uint8Array(pos); let at = 0; for (const p of parts) { out.set(p, at); at += p.length; }
     return out;
   }
@@ -497,7 +529,7 @@
   }
   function listOf(ops, K, files, opOwn) {
     const P = [], SUB = [], IT = [], BX = [], OWN = [], styles = [], sIdx = new Map(), texts = [], images = [], stack = [], A = []; let ow = -1; // ((beta 7.10, Drawing labels) OWN: each item's report.movable index (-1: none), from opOwn)
-    let g = { S: '#000000', F: '#000000', w: 1, J: 0, j: 0, d: null, f: 0, tr: 0, tw: 0, cm: null }, tm = null, sub0 = 0, cur = -1, b = null;
+    let g = { S: '#000000', F: '#000000', w: 1, J: 0, j: 0, d: null, f: 0, ff: 0, tr: 0, tw: 0, cm: null }, tm = null, sub0 = 0, cur = -1, b = null;
     const hex = (x, y, z) => `#${[x, y, z].map((v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, '0')).join('')}`;
     const styleIx = (key, mk) => { let i = sIdx.get(key); if (i == null) { i = styles.length; styles.push(mk()); sIdx.set(key, i); } return i; };
     const grow = (x, y) => { if (!b) b = [x, y, x, y]; else { if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; } };
@@ -535,12 +567,12 @@
           case 'f': case 'F': case 'f*': { const c = g.F; paint(w === 'f*' ? 2 : 1, styleIx(`F${c}`, () => ({ c }))); break; }
           case 'n': SUB.length = sub0 * 3; cur = -1; b = null; break; // (a clip's path: nothing drawn)
           case 'BT': tm = [1, 0, 0, 1, 0, 0]; break;
-          case 'Tf': g.f = { F1: 0, F2: 1, F3: 2, F4: 3 }[A[0]] || 0; break;
+          case 'Tf': { const fi = +(/^F(\d+)$/.exec(A[0]) || [0, 1])[1] - 1; g.f = fi >= 0 && fi < 12 ? fi % 4 : 0; g.ff = fi >= 4 && fi < 12 ? (fi < 8 ? 1 : 2) : 0; break; } // ((beta 7.14, Text format) ff: 1 Times, 2 Courier)
           case 'Tm': tm = A.slice(0, 6); break;
           case 'Tr': g.tr = A[0]; break;
           case 'Tw': g.tw = A[0]; break;
-          case 'Tj': { const s = str((A[0] && A[0].s) || ''), m = tm || [1, 0, 0, 1, 0, 0], sp = (s.match(/ /g) || []).length, wE = R.textWidth(s, 1, g.f === 1 || g.f === 3) + (g.tw || 0) * sp, mm = m.map((v) => v / K);
-            texts.push({ s, f: g.f, c: g.F, m: mm, w: wE, sc: g.tr === 2 ? g.S : null, lw: g.tr === 2 ? g.w / (Math.hypot(m[2], m[3]) || 1) : 0 });
+          case 'Tj': { const s = str((A[0] && A[0].s) || ''), m = tm || [1, 0, 0, 1, 0, 0], sp = (s.match(/ /g) || []).length, wE = (g.ff ? widthEm(s, { b: g.f === 1 || g.f === 3, fam: g.ff }) : R.textWidth(s, 1, g.f === 1 || g.f === 3)) + (g.tw || 0) * sp, mm = m.map((v) => v / K);
+            texts.push({ s, f: g.f, c: g.F, m: mm, w: wE, sc: g.tr === 2 ? g.S : null, lw: g.tr === 2 ? g.w / (Math.hypot(m[2], m[3]) || 1) : 0, ...(g.ff ? { ff: g.ff } : {}) }); // ((beta 7.14, Text format) ff: its family, Times 1 or Courier 2, for the Drawing's canvas)
             IT.push(3, texts.length - 1, 0, 0); BX.push(...boxOf(mm, 0, -0.25, wE, 1)); OWN.push(ow); break; }
           case 'cm': g.cm = A.slice(0, 6); break;
           case 'Do': { const m = (g.cm || [1, 0, 0, 1, 0, 0]).map((v) => v / K); images.push({ name: (files && files[A[0]]) || A[0], m }); IT.push(4, images.length - 1, 0, 0); BX.push(...boxOf(m, 0, 0, 1, 1)); OWN.push(ow); break; }

@@ -120,12 +120,16 @@ const LINES = [
   ['Drawing tools', '!lines to the pole · closure labels · !closure bubble', 'planstyle drawing'],
   // (beta 7.12, Drawing edit): the Drawing's tools as icons (the CEF editor's look), an item's text edited, texts and photos added on the plan (notes), the draw order; Plan style › Photos › Line to its pole
   ['Drawing edit', '!edit text on the drawing · !add text on the plan · !add a photo to the drawing · !photo note · !draw order · bring to front · send to back · bring forward · send backward · double tap to edit · !drawing icons · delete note', 'drawing'],
+  // (beta 7.14, View / Edit; Changed by hand; Text editor): View | Edit on the Drawing, the chip of what was changed by hand and its list, the text editor's format
+  ['Drawing modes', '!view and edit · !edit mode · view mode · !changed by hand · put back · put all back · moved items · !text align · align right · !wrap text · line spacing · !font style · underline · centre text · center text', 'drawing'],
   ['Drawing edit', '!line to its pole · photo lines · remove photo line', 'planstyle drawing'],
   // (beta 7.12, Drawing edit, the owner's later asks): the keys and Redo, a pole moved on the Drawing moves its record (the KMZ follows), a closure and a loop slide along their cable
   ['Drawing edit', '!redo on the drawing · !ctrl z · cmd z · ctrl y · !move pole record · snap closure · !slide along the cable', 'drawing'],
   ['Drawing edit', '!delete on the drawing · delete from the plan · delete a guy on the drawing · !edit text record', 'drawing'],
   // (beta 7.13, Drawing fixes): a right-click on the plan, on a computer: the tools of what is under the pointer as a menu there
   ['Drawing fixes', '!right-click on the plan · !context menu on the drawing · right click menu · options menu on the drawing', 'drawing'],
+  // (beta 7.14, Roads again): the roads a plan keeps got again (the Drawing, beside Regenerate plan preview; Export's checks)
+  ['Roads again', '!get the roads again · !roads again · refresh the roads · update the roads · new roads from openstreetmap · download the roads again', 'drawing'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];

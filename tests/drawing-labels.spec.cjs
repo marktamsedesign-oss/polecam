@@ -31,6 +31,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { chromium } = require('playwright');
+const { editOn, chgOf, allAutomatic } = require('./drawing-edit.cjs'); // ((beta 7.14, View / Edit) the Drawing opens in View: Edit on to change the plan)
 
 const root = path.resolve(__dirname, '..');
 const FX = path.join(__dirname, 'fixtures');
@@ -277,7 +278,7 @@ const look = (page, lat, lon, mpp, fx, fy) => page.evaluate(([la, lo, m, x, y]) 
 const centre = (page, E, N) => page.evaluate(([X, Y]) => { window.__polecam.drwView({ cx: X, cy: Y }); window.__polecam.drwRedraw(); }, [E, N]);
 /** Until the plan is shown and not being made again (when: what else it must show). */
 async function shown(page, when) {
-  let s = null; for (let i = 0; i < 200; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); return pl(page); } }
+  let s = null; for (let i = 0; i < 200; i++) { await page.waitForTimeout(250); s = await pl(page); if (s && s.on && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); await editOn(page); return pl(page); } } // ((beta 7.14, View / Edit) shown: Edit on, to change it)
   throw new Error(`no plan shown: ${JSON.stringify(s)}`);
 }
 /** Export › Plan drawing (each question answered as a user going on would): the job's pins, the report's movable items, the DXF. */
@@ -343,7 +344,7 @@ test('a phone: a number, a pole\'s details and a cable label tapped and dragged;
     assert.ok(!now.lifted.some((L) => L.id === m.id), `${k}: drawn by the plan itself now`);
   }
   assert.deepEqual(await pinsKept(page), (await mvOf(page)).pins, 'kept in the project (pmeta)');
-  assert.equal((await pl(page)).phAll, '3 items placed by hand · Back to automatic');
+  { const C = await chgOf(page); assert.deepEqual([C.moved, C.all, C.shown], [3, 3, true], 'the chip ((beta 7.14, Changed by hand)): 3 moved, 3 changed by hand'); }
   assert.deepEqual((await mvOf(page)).undo, ['number moved', 'details moved', 'cable moved']); assert.equal((await mvOf(page)).undoBtn.hidden, false, 'Undo shown');
   // the export: each where it was put, by hand, with its line or arrow; nothing of the plan over it
   const pins1 = await pinsKept(page), e1 = await exportPlan(page), E = entsOf(e1.text);
@@ -372,19 +373,19 @@ test('a phone: a number, a pole\'s details and a cable label tapped and dragged;
   let t = await mvOf(page); assert.deepEqual(t.pins.numPin, {}, 'back to automatic'); assert.match(t.info, /^Pole number 3 · where the plan puts it: drag it to place it by hand$/);
   // Back to automatic for all of them (asked first; Cancel keeps them); Undo brings them back
   for (const id of ['lbl:s3', items.cable.id]) { await shown(page); mv = await mvOf(page); m = mv.items.find((x) => x.id === id); assert.ok(onScreen(m, vw), `${id} on the screen`); await drag(page, m.x, m.y, 25, -40); await page.waitForTimeout(200); }
-  for (let i = 0; i < 40 && !(await pl(page)).phAll; i++) await page.waitForTimeout(250);
-  assert.equal((await pl(page)).phAll, '2 items placed by hand · Back to automatic');
-  await page.click('#drawPhAll'); await page.waitForTimeout(300);
+  for (let i = 0; i < 40 && (await chgOf(page)).moved !== 2; i++) await page.waitForTimeout(250);
+  { const C = await chgOf(page); assert.deepEqual([C.moved, C.all], [2, 2], 'the chip: 2 moved'); }
+  await allAutomatic(page); // ((beta 7.14) More › All automatic: the question the chip of 7.9-7.13 asked)
   assert.equal(await page.evaluate(() => document.getElementById('askTitle').textContent), 'Back to automatic: 2 items?');
   assert.match(await page.evaluate(() => document.getElementById('askText').textContent), /^The 1 pole's details and 1 cable label placed by hand go back where the plan puts them, and the plan's sheets are worked out again \(kept as they were while things were placed by hand\)\. The next export has them there too\. Undo \(↶\) brings them back\.$/);
   await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Cancel').click()); await page.waitForTimeout(250);
   assert.equal(Object.keys((await pinsKept(page)).lblPin).length + Object.keys((await pinsKept(page)).cabPin).length, 2, 'Cancel: kept');
-  await page.click('#drawPhAll'); await page.waitForTimeout(300);
+  await allAutomatic(page);
   await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
-  assert.deepEqual(await pinsKept(page), NO_PINS, 'all back'); assert.equal((await pl(page)).phAll, null, 'the chip gone');
+  assert.deepEqual(await pinsKept(page), NO_PINS, 'all back'); { const C = await chgOf(page); assert.deepEqual([C.moved, C.all], [0, 0], 'the chip: nothing changed by hand'); }
   await page.click('#drawUndo'); await page.waitForTimeout(250); t = await pinsKept(page);
   assert.ok(Object.keys(t.lblPin).length === 1 && Object.keys(t.cabPin).length === 1, `Undo: both back ${JSON.stringify(t)}`);
-  await page.click('#drawPhAll'); await page.waitForTimeout(300); await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
+  await allAutomatic(page); await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
   // no pin: the export's DXF as before any was made
   const e2 = await exportPlan(page); assert.deepEqual(e2.pins, NO_PINS); assert.ok(e2.text === e0.text, 'the same DXF, byte for byte');
   assert.equal(await page.evaluate(() => 'numPin' in JSON.parse(localStorage.getItem('polecam.settings')).meta['DEMO DRAW TEST']), false, 'no pin kept');
@@ -471,8 +472,8 @@ test('a computer: a cable label dragged into a cell with no sheet: that sheet pr
   assert.equal(e2.hash, s2.hash, 'the export is the preview');
   // Back to automatic for all: asked, then no pin, no grid kept, the plan as before the edits
   await drawing(page, 0.5); await shown(page);
-  for (let i = 0; i < 40 && !(await pl(page)).phAll; i++) await page.waitForTimeout(250);
-  const n1 = (await pl(page)).n; await page.click('#drawPhAll'); await page.waitForTimeout(300);
+  for (let i = 0; i < 40 && !(await chgOf(page)).all; i++) await page.waitForTimeout(250);
+  const n1 = (await pl(page)).n; await allAutomatic(page);
   assert.equal(await page.evaluate(() => document.getElementById('askTitle').textContent), 'Back to automatic: 2 items?');
   await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
   assert.deepEqual(await pinsKept(page), NO_PINS); assert.equal((await keptNow(page)).grid, null, 'the grid kept let go');

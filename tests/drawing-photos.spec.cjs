@@ -22,6 +22,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { chromium } = require('playwright');
+const { editOn, chgOf, allAutomatic } = require('./drawing-edit.cjs'); // ((beta 7.14, View / Edit) the Drawing opens in View: Edit on to change the plan)
 
 const root = path.resolve(__dirname, '..');
 const SEED = fs.readFileSync(path.join(__dirname, 'fixtures', 'plan-seed-made-up.dxf'), 'utf8');
@@ -162,7 +163,7 @@ async function drawing(page) {
 }
 /** Until the preview is made and not being made again (when: what else it must show). */
 async function settled(page, when) {
-  let s = null; for (let i = 0; i < 120; i++) { await page.waitForTimeout(250); s = await ph(page); if (s && s.at && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); return ph(page); } }
+  let s = null; for (let i = 0; i < 120; i++) { await page.waitForTimeout(250); s = await ph(page); if (s && s.at && !s.busy && (!when || when(s))) { await page.waitForTimeout(300); await editOn(page); return ph(page); } } // ((beta 7.14, View / Edit) made: Edit on, to change it)
   throw new Error(`no preview: ${JSON.stringify(s && { busy: s.busy, at: !!s.at })}`);
 }
 /** Export › Plan drawing (each question answered as a user going on would): the job's pins and the report's photo places. */
