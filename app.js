@@ -3362,7 +3362,7 @@
     const own = drwTextOf(m), had = (pmeta(drw.project).mvText || {})[m.id], recs = new Map(), errs = []; let plan = false;
     L.forEach((t, k) => {
       if (t === own[k]) return; const x = srcOf(m, k), v = x && t !== (had ? had[k] : own[k]) ? srcVal(x, t) : null; if (v == null) { plan = true; return; } // (not a record's, or not in its form: the plan's only)
-      const cur = recs.get(x.point) || x.rec, r = x.R.put(cur, v); if (!r) plan = true; else if (r.err) errs.push(r.err); else recs.set(x.point, r);
+      const cur = recs.get(x.point) || x.rec, r = x.R.put(cur, v); if (!r) plan = true; else if (r.err) errs.push(r.err); else if (JSON.stringify(r) !== JSON.stringify(cur)) recs.set(x.point, r); // (the record says it already, as its form writes it: the plan writes it so)
     });
     if (L.length !== own.length) plan = true; if (errs.length) { toast(`Not saved: ${errs[0]}`, 5000); return; }
     if (!recs.size) { drwTextSet(m, L); return; }
