@@ -754,12 +754,14 @@ const CefTpl = (() => {
     const S = T.structure(d), L = S.layouts.find(q => String(q.name || '').trim().toUpperCase() === 'CEF');
     if (!L) throw new Error('the template has no CEF sheet');
     if (!S.brByName.get('*Paper_Space') || !S.layouts.some(q => S.br.get(q.brh) && get(S.br.get(q.brh), 2) === '*Paper_Space')) throw new Error('the template has no paper space');
-    const recs = sheetRecs(d, S, L), V = recs.filter(r => typ(r) === 'VIEWPORT'), ok = r => inum(r, 69, 0) !== 1 && !(inum(r, 90, 0) & 131072) && fnum(r, 40, 0) > 0 && fnum(r, 41, 0) > 0;
-    let cand = V.slice(1).filter(ok), page = true;      /* the first viewport of a sheet is the sheet itself (as AutoCAD writes it, and as dxfpdf.js prints it) */
-    if (!cand.length && V.length === 1 && ok(V[0])) { cand = V.slice(); page = false; }      /* (a sheet with its drawing area's viewport only: the sheet's own is added) */
-    const vp = cand.sort((a, b) => fnum(b, 40, 0) * fnum(b, 41, 0) - fnum(a, 40, 0) * fnum(a, 41, 0))[0];
+    /* the first viewport of a sheet is the sheet itself, as AutoCAD writes it (its number, 69, is 1 on the sheet that was open, 0 on the
+       others) and as dxfpdf.js prints it; a sheet written without it (its first viewport the drawing area's, not as large as the paper):
+       one is added to each sheet (pageVp) */
+    const u = unitsOf(L.rec), paper = fnum(L.rec, 44, 0) * fnum(L.rec, 45, 0) / u / u, recs = sheetRecs(d, S, L), V = recs.filter(r => typ(r) === 'VIEWPORT');
+    const ok = r => inum(r, 69, 0) !== 1 && !(inum(r, 90, 0) & 131072) && fnum(r, 40, 0) > 0 && fnum(r, 41, 0) > 0, page = !!V[0] && (inum(V[0], 69, 0) === 1 || !(paper > 0) || fnum(V[0], 40, 0) * fnum(V[0], 41, 0) >= 0.9 * paper);
+    const vp = (page ? V.slice(1) : V).filter(ok).sort((a, b) => fnum(b, 40, 0) * fnum(b, 41, 0) - fnum(a, 40, 0) * fnum(a, 41, 0))[0];
     if (!vp) throw new Error('its CEF sheet has no drawing area (a viewport)');
-    const u = unitsOf(L.rec), W = fnum(vp, 40, 0) * u, H = fnum(vp, 41, 0) * u;
+    const W = fnum(vp, 40, 0) * u, H = fnum(vp, 41, 0) * u;
     if (W < 200 || H < 120) throw new Error('its drawing area (' + Math.round(W) + ' x ' + Math.round(H) + ' mm) is too small for the CEF sheets');
     const lk = look && typeof look === 'object' ? look : lookOf(d) || {}, tx = lk.text || {}, stU = new Map(); for (const s of S.styles) stU.set(String(s).toUpperCase(), s);
     const st = v => (v && stU.get(String(v).toUpperCase())) || null, sc = parseFloat(tx.scale);
@@ -914,7 +916,7 @@ const CefTpl = (() => {
     };
     const pageVp = () => { const W = sd.W / sd.u, Hh = sd.H / sd.u, c = [fnum(sd.vp, 10, 0), fnum(sd.vp, 20, 0)];      /* (a template with no viewport of its sheet's own) */
       return [[0, 'VIEWPORT'], [5, 'PAGEVP'], [330, tBr], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbViewport'], [10, n(c[0])], [20, n(c[1])], [30, '0.0'], [40, n(W * 1.2)], [41, n(Hh * 1.2)], [68, I(1)], [69, I(1)], [12, n(c[0])], [22, n(c[1])], [13, '0.0'], [23, '0.0'], [14, '10.0'], [24, '10.0'], [15, '10.0'], [25, '10.0'], [16, '0.0'], [26, '0.0'], [36, '1.0'], [17, '0.0'], [27, '0.0'], [37, '0.0'], [42, '50.0'], [43, '0.0'], [44, '0.0'], [45, n(Hh * 1.2)], [50, '0.0'], [51, '0.0'], [72, I(1000)], [90, I(32864)], [1, ''], [281, I(0)], [71, I(1)], [74, I(0)], [110, '0.0'], [120, '0.0'], [130, '0.0'], [111, '1.0'], [121, '0.0'], [131, '0.0'], [112, '0.0'], [122, '1.0'], [132, '0.0'], [79, I(0)], [146, '0.0']]; };
-    if (!sd.page) tRecs.unshift(pageVp());
+    if (!sd.page) { const k = tRecs.findIndex(r => typ(r) === 'VIEWPORT'); tRecs.splice(k < 0 ? 0 : k, 0, pageVp()); }      /* (before its viewports: the sheet's own first) */
     let tab = 0;
     place.forEach((q, i) => {
       const first = i === 0, br = first ? P.brh : H(), lh = first ? get(P.rec, 5) : H(), name = sheetName(q.sh, i), map = new Map([[tBr, br], [tH, lh], ['PAGEVP', H()]]);
@@ -922,7 +924,8 @@ const CefTpl = (() => {
       /* its records: the template's sheet with new handles, its fields this sheet's; on the paper space they are in ENTITIES and say so (67) */
       const F = flds(q.sh.prims.tb || {}), memo = new Map(), recs = tRecs.map(r => { let x = remap(strip(r), map); if (first) { if (!x.some(p => p[0] === 67)) { const k1 = x.findIndex(p => p[0] === 100 && p[1] === 'AcDbEntity'); x.splice(k1 + 1, 0, [67, I(1)]); } } else x = x.filter(p => p[0] !== 67); return x; });
       { let ins = null; for (const r of recs) { const t = typ(r); if (t === 'INSERT') ins = get(r, 5); else if (t === 'ATTRIB' && ins) { const k1 = r.findIndex((p, j) => j > 0 && p[0] === 330); if (k1 > 0) r[k1][1] = ins; } else if (t !== 'SEQEND') ins = null; } }      /* (an attribute belongs to the insert before it: some programs name the sheet as its owner) */
-      for (const r of recs) { fill(r, F); if (typ(r) === 'INSERT' && fieldBlocks.has(get(r, 2))) setIn(r, 'AcDbBlockReference', 2, copyBlock(get(r, 2), i, F, memo)); imageCopy(r); }
+      for (const r of recs) { fill(r, F); if (typ(r) === 'INSERT' && fieldBlocks.has(get(r, 2))) setIn(r, 'AcDbBlockReference', 2, copyBlock(get(r, 2), i, F, memo)); imageCopy(r);
+        if (!first && typ(r) === 'VIEWPORT') { setIn(r, 'AcDbViewport', 68, I(0)); setIn(r, 'AcDbViewport', 69, I(0)); } }      /* (a sheet not open: its viewports' status and number 0, as AutoCAD writes them and the app's frame's DXF has them) */
       const v = recs.find(r => get(r, 5) === map.get(vpH));
       if (v) {      /* the drawing area looks at its page: straight down, no twist, at the page's scale */
         for (const [c, val] of [[12, n(q.c[0])], [22, n(q.c[1])], [16, '0.0'], [26, '0.0'], [36, '1.0'], [17, '0.0'], [27, '0.0'], [37, '0.0'], [45, n(q.vh)], [51, '0.0']]) setIn(v, 'AcDbViewport', c, val);

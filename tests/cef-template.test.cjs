@@ -225,6 +225,21 @@ test('a template without its look: the CEF\'s own fonts and weights on the clien
   assert.equal(err(SEED.replace(/\n 40\r?\n398\.0\r?\n 41\r?\n239\.0\r?\n/, '\n 40\n120.0\n 41\n80.0\n')), 'its drawing area (120 x 80 mm) is too small for the CEF sheets');
 });
 
+test('the sheet\'s own viewport: as AutoCAD writes a sheet that was not open (its number 0) it is still not the drawing area; a sheet without one gets one, so the PDF prints the drawing area', async () => {
+  const variant = (f) => { const d = new T.Doc(SEED), S = T.structure(d), L = S.layouts.find((q) => q.name === 'CEF'), ents = S.blocks.get(get(S.br.get(L.brh), 2)).ents, v = ents.find((e) => typ(e) === 'VIEWPORT'); f(d, ents, v); return d.text(); };
+  const zero = variant((d, ents, v) => { v.find((p) => p[0] === 69)[1] = '     0'; }), none = variant((d, ents, v) => { ents.splice(ents.indexOf(v), 1); const B = d.sec('BLOCKS').recs; B.splice(B.indexOf(v), 1); d.index(); });
+  for (const [tn, text] of [['its number 0', zero], ['none', none]]) {
+    const r = onTpl(text, SK.named), R = read(r.text);
+    assert.deepEqual([r.sd.W, r.sd.H], [398, 239], `${tn}: the drawing area`);
+    assert.deepEqual(rules(r.text), [], tn);
+    const k0 = 1 / r.sheets.find((q) => q.name === 'TOP VIEW').s;
+    R.sheets.forEach((s, i) => { const [page, ...vps] = s.vps, area = vps.find((v) => num(v, 40) === 398), k = r.sheets[i].N ? 1 / r.sheets[i].s : k0;
+      assert.ok(page && area && num(page, 40) > 420 && Math.abs(num(area, 45) - 239 * k) < 1e-6, `${tn}, ${s.name}: the sheet's own viewport first, the drawing area aimed at its page`); });
+    const pdf = await PDF.toPdf(r.text, { images: {} }), str = Buffer.from(pdf).toString('latin1');
+    assert.equal(pdf.report.sheets.length, 6); assert.ok(str.includes('(TOP VIEW) Tj') && str.includes('(CEF TABLE) Tj'), `${tn}: the drawing area printed`);
+  }
+});
+
 test('without a template: the CEF\'s DXF (with its layout tabs, and of the older kind), its PDF, sheets and KML as beta 7.13 made them, byte for byte', async () => {
   // [plan, file, SHA-256 (first 16) of what beta 7.13 (933ad3b: vendor/cef/30_core.js, 40_iso.js, 50_export.js) made of it, in this same context: each plan's
   // sheets made twice (every page; no details or photo pages), its DXFs, sheets and PDF made of them, in this order]
