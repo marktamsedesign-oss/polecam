@@ -902,6 +902,7 @@
     closeSheet();
   }));
   function onSheetClosed(id) {
+    if (id === 'tplReview') TPR = null; // (beta 7.15, Client templates) Back from the review: nothing saved
     if (id === 'drawing' && drwEd) drwEditSet(false); // beta 6.7: Back from the Drawing ends its Edit route
     if (id === 'drawing') { drwPhStop(); drwThumbsFree(); } // (beta 7.8, Drawing photos) where the plan puts the photos: no longer worked out ((beta 7.9, Drawing preview) the photos' pictures let go)
     if (id === 'drawing' && jnPick && jnPick.surf === 'drawing') jnPickEnd(); // beta 6.9: its poles were being tapped there
@@ -2172,12 +2173,12 @@
     if (typeof Worker === 'undefined' || dxfMode() !== 'tpl') { drwPlanNone(); return; } // (the Simple drawing: the Drawing as before)
     const gen = ++drwPhGen, proj = drw.project, row = rowIdx(), tA = Date.now(), live = () => gen === drwPhGen && !!drw && drw.project === proj && !$('drawing').hidden;
     if (!window.GeDxfTpl) await loadScript('dxftpl.js');
-    const seed = await seedText(); if (!live()) return;
+    const seed = await seedText(proj); if (!live()) return; // ((beta 7.15, Client templates) the project's template)
     if (!seed || !seedOk(seed)) { drwPlanNone(); return; } // (no template on the phone: the Drawing as before)
     if (!drw.plWant) { drw.plWant = true; drwPlanUi(); } // ((beta 7.9, Drawing preview) a plan to preview: Regenerate plan preview on the Drawing)
     const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live() || !st) return; // (the records as an export sees them)
     // ((beta 7.9, Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
-    const sk = `${seed.length}|${(S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once)
+    const ct = projTpl(proj), sk = `${seed.length}|${ct ? `tpl:${ct.id}:${ct.at}` : (S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once)
     const job = J.jobOf(st), sig = strHash(`${seedSigC.h}|${JSON.stringify({ ...job, date: 0 })}`), M = drwPhMem.get(proj);
     if (!force && M && M.sig === sig && M.row === row && M.plan) { if (phBuild) phStopBuild(); drw.ph = M; drw.phBusy = false; drwPlanShow(); return; } // (nothing changed: as made last time)
     if (!force && phBuild && phBuild.sig === sig) return; // (this very plan is being made: it is shown when it comes)
@@ -11782,7 +11783,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.notes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.notes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ delete m.tpl; /* ((beta 7.15, Client templates) the project's client template: on this phone in this beta) */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -12477,7 +12478,7 @@
         H.push(`<div class="r"><span class="ic" aria-hidden="true">🛣</span><span class="tx"><b>${e(nm)}</b> is not on this phone. Without it ${tpl ? 'the barangay and city / municipality table stays blank, and ' : ''}the roads come from the internet (none without signal).</span><button class="btn sm primary" type="button" data-need="roads" data-region="${e(rg)}">Get the roads</button></div>`);
       });
     }
-    if (tpl && !S.dxfSeed && !seedBusy) H.push(`<div class="r"><span class="ic" aria-hidden="true">📐</span><span class="tx"><b>No company template on this phone</b>${seedId() ? ': your admin shares it. Get it now (once: it stays on this phone), or the plan drawing gets it first.' : ': the plan is drawn on it. Ask your admin to share it, or load the file they sent you.'}</span><button class="btn sm primary" type="button" data-need="tpl">Get it</button></div>`); // beta 6.7 (UX step 3)
+    if (tpl && !S.dxfSeed && !seedBusy && !projTpl()) H.push(`<div class="r"><span class="ic" aria-hidden="true">📐</span><span class="tx"><b>No company template on this phone</b>${seedId() ? ': your admin shares it. Get it now (once: it stays on this phone), or the plan drawing gets it first.' : ': the plan is drawn on it. Ask your admin to share it, or load the file they sent you.'}</span><button class="btn sm primary" type="button" data-need="tpl">Get it</button></div>`); // beta 6.7 (UX step 3)
     if (N && N.map && tpl) H.push(`<div class="r"><span class="ic" aria-hidden="true">🗺</span><span class="tx"><b>The offline map of this area</b> is not on this phone. The vicinity map then needs the internet${navigator.onLine === false ? ' (offline now: it is drawn from the roads only)' : '; without signal it is drawn from the roads only'}.</span><button class="btn sm" type="button" data-need="map">Download the map</button></div>`);
     box.innerHTML = H.length ? `<p class="hd">Not downloaded yet for this drawing</p>${H.join('')}` : '';
     box.hidden = !H.length;
@@ -12670,7 +12671,9 @@
       if (hid) L.push(['no', `${hid} left out of the files (on no cable)`, 'Show ›', 'hidden']);
       if (xSel.includes('doDxf') || xSel.includes('xOnePdf')) {
         const tpl = dxfMode() === 'tpl'; let N = null; try { N = planNeeds(S.project); } catch (x) { N = null; }
-        if (tpl && !S.dxfSeed && !seedBusy) L.push(['no', 'No company template on this phone', 'Get it ›', 'tpl']);
+        const ctp = projTpl(); // ((beta 7.15, Client templates) the project's client template, on this phone)
+        if (tpl && ctp) L.push(['ok', `On ${ctp.name} (client template)`]);
+        else if (tpl && !S.dxfSeed && !seedBusy) L.push(['no', 'No company template on this phone', 'Get it ›', 'tpl']);
         else if (tpl && S.dxfSeed) L.push(['ok', 'On your company’s plan template']);
         if (N && N.roads && (tpl || $('dxfRoads').checked)) L.push(['no', `The road pack of ${N.roads.regions.length === 1 && REGION_BY[N.roads.regions[0]] ? REGION_BY[N.roads.regions[0]][2] : 'this area'} is not on this phone`, 'Get it ›', 'roads', N.roads.regions[0] || '']);
         if (N && N.map && tpl) L.push(['no', 'The offline map of this area is not on this phone', 'Get it ›', 'map']);
@@ -13307,7 +13310,7 @@
   const seedStale = () => { const i = S.dxfSeed, id = seedId(); return !!(i && id && i.from === 'drive' && i.id && i.id !== id); };
   let seedBusy = null; // the background download, while it runs
   // v2.31: the company template is the default as soon as the admin shares one (or one is on the phone); Simple only when chosen
-  const dxfMode = () => (S.exp.dxfMode === 'simple' || (S.exp.dxfMode !== 'tpl' && !S.dxfSeed && !seedId()) ? 'simple' : 'tpl');
+  const dxfMode = () => (S.exp.dxfMode === 'simple' || (S.exp.dxfMode !== 'tpl' && !S.dxfSeed && !seedId() && !projTpl()) ? 'simple' : 'tpl'); // ((beta 7.15, Client templates) or the project's client template)
   function seedOk(text) { return typeof text === 'string' && /\bSECTION\b/.test(text.slice(0, 4000)) && /@@\w+@@/.test(text) && /\nGEO\r?\n/.test(text); }
   async function storeSeed(text, name, from, id) {
     if (!seedOk(text)) throw new Error('This is not the prepared G-eSAA plan template (no @@ fields or no GEO sheet). Use the seed made from your AutoCAD template, e.g. G-eSAA_seed….dxf, not the template itself.');
@@ -13317,7 +13320,12 @@
     LOG.info('dxf.seed', { kb: Math.round(text.length / 1024), from }); renderDxfTpl();
     toast('Plan template ready ✓', 3000);
   }
-  async function seedText() { const r = await dbGet('packs', SEED_KEY).catch(() => null); return r && r.text; }
+  /** The plan template of a project: (beta 7.15, Client templates) its client template's as-plan seed, else the company template (for every caller:
+      the Drawing's preview, the exports, the worker jobs). */
+  async function seedText(proj) {
+    const t = projTpl(proj); if (t) { const c = await tplGet(t.id); if (c && c.plan) return c.plan; }
+    const r = await dbGet('packs', SEED_KEY).catch(() => null); return r && r.text;
+  }
   /* v2.32: the card in plain words: a tick when the template is on the phone, "Getting…" while it downloads by itself */
   function renderDxfTpl() {
     const tpl = dxfMode() === 'tpl', info = S.dxfSeed, id = seedId(), stale = seedStale();
@@ -13686,10 +13694,11 @@
     $('psKindSum').textContent = tpl ? 'Company plan' : 'Simple';
     renderDxfLbl(tpl);
     // the banners: no template on this phone (Get it); the Simple drawing (Basic's look is the company plan's: greyed, no company standard card)
-    $('plBanTpl').hidden = !tpl || !!S.dxfSeed; $('plBanTplGet').textContent = seedId() ? 'Get it' : 'Load it ›'; $('plBanTplGet').disabled = !!seedBusy;
+    $('plBanTpl').hidden = !tpl || !!S.dxfSeed || !!projTpl(); $('plBanTplGet').textContent = seedId() ? 'Get it' : 'Load it ›'; $('plBanTplGet').disabled = !!seedBusy;
     $('plBanSimple').hidden = tpl;
     $('drwStyle').querySelectorAll('.plb:not(#psNum)').forEach((r) => r.classList.toggle('dim', !tpl)); // ((beta 7.8, Plan style cards): the main rows, in their cards)
     planStdRender(tpl);
+    try { renderTplCard(); } catch (e) { LOG.warn('tpl.card', errInfo(e)); } // (beta 7.15, Client templates)
   }
   /** The company standard in words, from PL_STD (one place: flipping it there changes this). */
   const plStdText = () => [PL_STD.dxfLabels === 'tidy' ? 'Tidy labels' : 'Standard labels', PL_STD.rtaOn ? 'owner colours' : 'one number colour', `photos ${phName(PL_STD.photoSize)}${PL_STD.photoStamp === 'off' ? '' : `, stamped ${PL_STD.photoStamp === 'addr' ? 'lat-long + address' : 'lat-long'}`}`, PL_STD.dxfClampType ? 'clamp types' : 'clamp sizes only', ...(PL_STD.boxLoops ? ['20 m loops written'] : []), ...(PL_STD.dxfBoqGrid ? ['BOQ table on each sheet'] : [])].join(' · ');
@@ -13756,6 +13765,7 @@
     set('stSite', `Name ${{ on: 'on the tower', top: 'top', side: 'side', bottom: 'bottom' }[P.site.name]} · ${P.site.move === 'point' ? 'kept at its point' : 'moved aside'} · ODF ${P.odf.place === 'auto' ? 'Auto' : P.odf.place}`);
     set('stVic', `Zoom ${on(P.vic.zoom)} · circle ${P.vic.area ? 'shown' : 'hidden'}`);
     set('stGrid', `Split ${P.grid.split ? `1/${P.grid.split}` : 'Auto'} · ${S.exp.dxfBoqGrid !== false ? 'BOQ table on each sheet' : 'no BOQ table'} · name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}`);
+    { const t = projTpl(); set('stTpl', !S.project ? `${tplList().length ? `${tplList().length} client template${tplList().length === 1 ? '' : 's'} on this phone` : 'Company template'} · open a project to choose` : t ? `${t.name} (client)${t.cef ? ' · as-plan and CEF' : ''}` : `Company template${tplList().length ? ` · ${tplList().length} client template${tplList().length === 1 ? '' : 's'} on this phone` : ''}`); } // (beta 7.15, Client templates)
     set('stFile', `${dxfMode() === 'tpl' ? (S.dxfSeed ? 'Company template ✓' : 'Company plan, no template yet') : 'Simple drawing'} · UTM ${S.zone}N · loops in the PMI ${on(S.exp.pmiLoops !== false)}`);
   }
   /** A section of Plan style, a card or one in More settings, by its id (stNum…) or the tutorial's part (numbers, sheets, file…); null for none. */
@@ -14036,6 +14046,7 @@
   }
   /** The template ready for an export: on the phone, else downloaded now (and updated when the admin's link changed). */
   async function ensureSeed() {
+    if (projTpl()) { const t = await seedText(); if (t) return t; } // (beta 7.15, Client templates) a client's template: on this phone, nothing to get
     if (seedBusy) await seedBusy.catch(() => {});
     let seed = await seedText(); const id = seedId();
     if ((!seed || seedStale()) && id && navigator.onLine !== false) {
@@ -14053,6 +14064,225 @@
   }
   setTimeout(() => { try { seedInBackground(); } catch (e) { /* not ready */ } }, 8000);
   $('dxfTplGet').addEventListener('click', () => guard(() => downloadSeed(false), 'Template not downloaded'));
+  /* ================= (beta 7.15, Client templates) =================
+     The owner: "dxf for asplan and cef must be based from a template dxf. Context: client requires a different template with a different text
+     font style, drawing style size and thickness. By changing the template dxf, the app can now accomodate plan creation from different clients
+     using its template." and "add a dxf synthesizer that accepts and digest a dxf from other clients". Plan style › Template: each project's
+     template, the company's (the seed above, as before) or a client's, added here from the client's own DXF (vendor/synth/dxfsynth.js digests it on this
+     phone; nothing is uploaded) and reviewed. A client template: S.tpls [{ id, name, at, from: { file, size }, client, look, ok, cef }] (the list),
+     its texts in IndexedDB ('packs', '~tpl:<id>': src, the client's DXF as given, to make it again; plan, its as-plan seed; cef, its CEF seed or
+     null; map, the review's choices; look; checks). A project's choice: pmeta(proj).tpl (none: the company template; not shared with the team in
+     this beta: shareMeta leaves it out); a new project gets the last one chosen (S.tplLast). */
+  // (function declarations: dxfMode and Plan style ask for the project's template before this part of the app has run)
+  function tplKey(id) { return `~tpl:${id}`; }
+  function tplList() { return Array.isArray(S.tpls) ? S.tpls : []; }
+  function tplById(id) { return id ? tplList().find((t) => t.id === id) || null : null; }
+  /** The client template a project uses, or null (the company template). */
+  function projTpl(proj) { const n = proj || S.project; return n ? tplById(pmeta(n).tpl) : null; }
+  function tplGet(id) { return dbGet('packs', tplKey(id)).catch(() => null); }
+  /** The CEF seed of the project's client template (vendor/cef prints the CEF plan on it): { name, text, look }, or null (no client template, or
+      it has no CEF sheet: the CEF's own frame, as before). */
+  async function tplCefText(proj) { const t = projTpl(proj); if (!t || !t.cef) return null; const r = await tplGet(t.id); return r && r.cef ? { name: r.name, text: r.cef, look: r.cefLook || r.look || null, client: r.client || '' } : null; }
+  /** The look of the project's client template (its plan sheet's cell for 1:1100, its fonts…), or null. */
+  async function tplLookOf(proj) { const t = projTpl(proj); if (!t) return null; const r = await tplGet(t.id); return r && r.plan ? r.look || t.look || null : null; } // (its seed gone from this phone: the company template's, as seedText)
+  async function synthReady() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeDxfPdf) await loadScript('dxfpdf.js'); if (!window.GeDxfSynth) await loadScript('vendor/synth/dxfsynth.js'); return window.GeDxfSynth; }
+  /** A project's template chosen ('' : the company's). */
+  function tplChoose(proj, id) {
+    if (!proj) return; S.meta = S.meta || {}; const m = { ...pmeta(proj) };
+    if (id && tplById(id)) m.tpl = id; else delete m.tpl;
+    S.meta[proj] = m; S.tplLast = id && tplById(id) ? id : ''; persist();
+    try { drwPhMem.delete(proj); } catch (e) { /* no preview yet */ }
+    LOG.info('tpl.choose', { client: !!id });
+    renderStyle(); if (drw && drw.project === proj && !$('drawing').hidden) drwPhSoon(50);
+  }
+  /** Plan style › Template: the project's choice and the client templates on this phone. */
+  function renderTplCard() {
+    const sel = $('tplSel'); if (!sel) return;
+    const cur = projTpl(), L = tplList();
+    sel.innerHTML = ''; [['', 'Company template'], ...L.map((t) => [t.id, `${t.name} (client)`])].forEach(([v, n]) => { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.appendChild(o); });
+    sel.value = cur ? cur.id : ''; sel.disabled = !S.project;
+    $('tplSelSum').textContent = !S.project ? 'Open a project to choose its template.' : cur ? `This project's as-plan${cur.cef ? ' and CEF plan are' : ' is'} made on ${cur.name}${cur.cef ? '' : ' (the CEF plan on its own frame: the template has no CEF sheet)'}. New projects start with the last one chosen.`
+      : 'This project\'s plan is made on the company template (Plan file). New projects start with the last one chosen.';
+    const box = $('tplList'); box.innerHTML = '';
+    if (!L.length) { const p = document.createElement('small'); p.className = 'sthint'; p.textContent = 'None yet.'; box.appendChild(p); }
+    L.forEach((t) => {
+      const d = document.createElement('div'), uses = (S.projects || []).filter((n) => pmeta(n).tpl === t.id).length; d.className = `tplit${cur && cur.id === t.id ? ' on' : ''}`; d.dataset.id = t.id;
+      d.innerHTML = `<b></b><small></small><div class="row"></div>`;
+      d.querySelector('b').textContent = t.name;
+      d.querySelector('small').textContent = `${t.from && t.from.file ? `From ${t.from.file}` : 'Client template'} · ${String(t.at || '').slice(0, 10)}${t.look && t.look.sheet ? ` · ${t.look.sheet.unit === 'in' ? `${t.look.sheet.paper[0]} × ${t.look.sheet.paper[1]} in` : `${Math.round(t.look.sheet.paper[0])} × ${Math.round(t.look.sheet.paper[1])} mm`}` : ''} · ${t.cef ? 'as-plan and CEF' : 'as-plan only'}${uses ? ` · used by ${uses} project${uses === 1 ? '' : 's'}` : ''}${t.ok === false ? ' · check: see Make again' : ''}`;
+      const row = d.querySelector('.row'), btn = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = `btn small${cls ? ` ${cls}` : ''}`; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); return b; };
+      if (S.project && !(cur && cur.id === t.id)) btn('Use for this project', () => tplChoose(S.project, t.id), 'primary');
+      btn('Rename', () => guard(() => tplRename(t.id), 'Not renamed'));
+      btn('Make again', () => guard(() => tplMakeAgain(t.id), 'Template not opened'));
+      btn('Remove', () => guard(() => tplRemove(t.id), 'Not removed'));
+      box.appendChild(d);
+    });
+  }
+  $('tplSel').addEventListener('change', () => tplChoose(S.project, $('tplSel').value));
+  $('tplAdd').addEventListener('click', () => { $('tplFile').value = ''; $('tplFile').click(); });
+  $('tplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await tplAddFile(f); }, 'Template not added'));
+  /** A client's DXF: read (a DWG, a binary DXF… refused, saying how to save it), digested, the review opened with its choices made. */
+  async function tplAddFile(f) {
+    busy('Reading the client\'s template…'); let rd, dg;
+    try {
+      const G = await synthReady(); await sleep(30);
+      rd = G.read(new Uint8Array(await f.arrayBuffer()));
+      if (rd.ok) { busy('Reading its sheets, fields and symbols…'); await sleep(30); dg = G.digest(rd.text, f.name); }
+    } finally { busy(false); }
+    if (!rd.ok) { await ask('This file cannot be used', rd.error, [{ label: 'OK', value: true, primary: true }]); return; }
+    if (!dg.sheets.some((s) => s.vps.length)) { await ask('This template cannot be used', 'None of its sheets (layouts) has a viewport for the map. In AutoCAD, put the title block on a layout with a viewport over the drawing area, then save it as DXF and add that file.', [{ label: 'OK', value: true, primary: true }]); return; }
+    LOG.info('tpl.digest', { kb: Math.round(rd.text.length / 1024), sheets: dg.sheets.length, fields: dg.sheets.reduce((n, s) => n + s.fields.length, 0), blocks: dg.blocks.length });
+    tprOpen({ text: rd.text, dg, map: window.GeDxfSynth.proposal(dg), file: f.name, size: f.size, id: null });
+  }
+  async function tplRename(id) {
+    const t = tplById(id); if (!t) return; const nm = await promptText('Rename the template', 'Its name in Plan style › Template.', 'e.g. DEMO CLIENT A', t.name); if (!nm) return;
+    const name = nm.slice(0, 60); S.tpls = tplList().map((x) => (x.id === id ? { ...x, name } : x)); persist();
+    const r = await tplGet(id); if (r) await dbPut('packs', { ...r, name });
+    renderStyle(); toast('Renamed ✓', 2000);
+  }
+  async function tplRemove(id) {
+    const t = tplById(id); if (!t) return; const used = (S.projects || []).filter((n) => pmeta(n).tpl === id);
+    if (!(await ask(`Remove ${t.name}?`, `It is deleted from this phone.${used.length ? ` ${used.length} project${used.length === 1 ? '' : 's'} using it (${used.slice(0, 3).join(', ')}${used.length > 3 ? '…' : ''}) go back to the company template.` : ''}`, [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, primary: true }]))) return;
+    for (const n of used) { const m = { ...pmeta(n) }; delete m.tpl; S.meta[n] = m; try { drwPhMem.delete(n); } catch (e) { /* none */ } }
+    S.tpls = tplList().filter((x) => x.id !== id); if (S.tplLast === id) S.tplLast = ''; persist();
+    await dbDel('packs', tplKey(id)).catch(() => {});
+    LOG.info('tpl.remove', { projects: used.length }); renderStyle(); toast('Template removed', 2500);
+  }
+  async function tplMakeAgain(id) {
+    const r = await tplGet(id); if (!r || !r.src) throw new Error('This template is not on this phone any more');
+    busy('Reading the client\'s template…'); let dg, G;
+    try { G = await synthReady(); await sleep(30); dg = G.digest(r.src, (r.from && r.from.file) || r.name); } finally { busy(false); }
+    const p = G.proposal(dg), m = r.map || {}, ids = new Set(dg.sheets.flatMap((s) => s.fields.map((f) => f.id)));
+    const map = { ...p, ...m, fields: { ...p.fields, ...Object.fromEntries(Object.entries(m.fields || {}).filter(([k]) => ids.has(k))) }, symbols: { ...p.symbols, ...(m.symbols || {}) }, look: { ...p.look, ...(m.look || {}) }, model: m.model || p.model, name: r.name };
+    tprOpen({ text: r.src, dg, map, file: (r.from && r.from.file) || '', size: (r.from && r.from.size) || r.src.length, id });
+  }
+
+  /* ---- the review ---- */
+  let TPR = null; // { text, dg, map, file, size, id, made, check, pics: Map(sheet -> page), pic: the sheet shown }
+  const tprOpt = (sel, list, val) => { sel.innerHTML = ''; list.forEach(([v, n]) => { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.appendChild(o); }); sel.value = val == null ? '' : val; if (sel.value !== String(val == null ? '' : val) && list.length) sel.value = list[0][0]; };
+  const LW_MM = [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211];
+  const LW_NAME = { cable: 'Cables (new)', cableExisting: 'Cables (existing)', pole: 'Poles', symbol: 'Symbols', leader: 'Leaders and thin lines', road: 'Roads' };
+  function tprOpen(st) {
+    TPR = { ...st, made: null, check: null, pics: new Map(), pic: st.map.plan };
+    const { dg, map } = TPR, sheets = dg.sheets.map((s) => [s.name, `${s.name} (${s.units === 'in' ? `${s.paper[0]} × ${s.paper[1]} in` : `${Math.round(s.paper[0])} × ${Math.round(s.paper[1])} mm`}${s.vps.length ? '' : ', no viewport'})`]);
+    $('tplRevTitle').textContent = st.id ? 'Make the template again' : 'Client template';
+    $('tplRevFrom').textContent = `${st.file || 'The client\'s DXF'} · AutoCAD ${dg.release} · model space in ${dg.units} · ${dg.sheets.length} sheet${dg.sheets.length === 1 ? '' : 's'}, ${dg.blocks.length} block${dg.blocks.length === 1 ? '' : 's'}, ${dg.layers.length} layers. Read on this phone; nothing is uploaded.`;
+    $('tplName').value = map.name || ''; $('tplClient').value = map.client || '';
+    tprOpt($('tplPlan'), sheets, map.plan); tprOpt($('tplKey'), [['', 'A copy of the plan sheet'], ...sheets], map.keymap || ''); tprOpt($('tplCef'), [['', 'None: the CEF plan keeps its own frame'], ...sheets], map.cef || '');
+    $('tplExported').checked = map.exported !== false;
+    const blocks = dg.blocks.filter((b) => b.kind !== 'title').sort((a, b) => (a.kind === 'symbol' ? 0 : 1) - (b.kind === 'symbol' ? 0 : 1) || a.name.localeCompare(b.name)).map((b) => [b.name, `${b.name}${b.tags.length ? ` (${b.tags.join(', ')})` : ''}`]);
+    for (const [boxId, more] of [['tplSyms', false], ['tplSymsMore', true]]) {
+      const box = $(boxId); box.innerHTML = '';
+      window.GeDxfSynth.SYMBOLS.filter((s) => !!s.more === more).forEach((s) => { const r = document.createElement('div'); r.className = 'tprrow'; r.innerHTML = '<label></label><select></select>'; const id = `tplSym_${s.name.replace(/\W+/g, '_')}`; r.querySelector('label').textContent = s.label; r.querySelector('label').htmlFor = id; const sel = r.querySelector('select'); sel.id = id; sel.dataset.sym = s.name; tprOpt(sel, [['', 'The app\'s own'], ...blocks], map.symbols[s.name] || ''); box.appendChild(r); });
+    }
+    const styles = dg.styles.map((s) => [s.name, `${s.name} (${s.font || s.face || 'no font'}${s.bold ? ', bold' : ''})`]);
+    tprOpt($('tplFont'), styles, map.look.font); tprOpt($('tplBold'), [['', 'None'], ...styles], map.look.bold || '');
+    $('tplScale').value = String(map.look.scale || 1); $('tplScaleO').textContent = `× ${(+(map.look.scale || 1)).toFixed(2)}`; $('tplScaleSum').textContent = dg.heights.modelMedian ? `The client's sample texts are ${dg.heights.modelMedian} m high (the plan's labels: about 2.5 m at 1:1100).` : 'The plan\'s own sizes × this.';
+    const lw = $('tplLw'); lw.innerHTML = '';
+    window.GeDxfSynth.LW_KEYS.forEach((k) => { const r = document.createElement('div'); r.className = 'tprrow'; r.innerHTML = '<label></label><select></select>'; r.querySelector('label').textContent = LW_NAME[k] || k; r.querySelector('label').htmlFor = `tplLw_${k}`; const sel = r.querySelector('select'); sel.id = `tplLw_${k}`; sel.dataset.lw = k; tprOpt(sel, [['', 'As the plan draws them'], ...LW_MM.map((v) => [String(v), `${(v / 100).toFixed(2)} mm`])], map.look.lw && map.look.lw[k] != null ? String(map.look.lw[k]) : ''); lw.appendChild(r); });
+    const ly = $('tplLayers'); ly.innerHTML = ''; const layers = dg.layers.filter((l) => l.name !== '0').map((l) => [l.name, `${l.name}${l.lw > 0 ? ` (${(l.lw / 100).toFixed(2)} mm)` : ''}`]);
+    window.GeDxfSynth.LAYER_CLASSES.forEach((c) => { const r = document.createElement('div'); r.className = 'tprrow'; r.innerHTML = '<label></label><select></select>'; r.querySelector('label').textContent = c.label; r.querySelector('label').htmlFor = `tplLy_${c.k}`; const sel = r.querySelector('select'); sel.id = `tplLy_${c.k}`; sel.dataset.ly = c.k; tprOpt(sel, [['', 'The plan\'s own'], ...layers], map.look.layers[c.k] || ''); ly.appendChild(r); });
+    const mo = $('tplModel'); mo.innerHTML = '';
+    if (!dg.model.groups.length) mo.innerHTML = '<p class="hint">Model space is empty.</p>';
+    dg.model.groups.forEach((g) => { const l = document.createElement('label'); l.className = 'check'; l.innerHTML = '<input type="checkbox"><span></span>'; const cb = l.querySelector('input'); cb.dataset.g = g.id; cb.checked = (map.model.keep || []).includes(g.id);
+      l.querySelector('span').textContent = `Keep: ${g.kind === 'legend' ? 'a legend' : g.kind === 'table' ? 'a table' : 'a drawing'} (${g.n} things, ${g.size} m across${g.words ? `: ${g.words.slice(0, 60)}` : ''})${g.shown.length ? `, shown on ${[...new Set(g.shown.map((x) => x.sheet))].join(', ')}` : ', on no sheet'}`; mo.appendChild(l); });
+    tprSheets(); $('tprCheck').hidden = true; $('tplSave').disabled = true;
+    if ($('tplReview').hidden) openSheet('tplReview');
+    setTimeout(() => tprPic(TPR && TPR.pic), 30);
+  }
+  /** The other sheets (kept or not) and the fields of the sheets used, after the sheets are chosen. */
+  function tprSheets() {
+    if (!TPR) return; const { dg, map } = TPR, used = new Set([map.plan, map.keymap, map.cef].filter(Boolean));
+    const kb = $('tplKeep'); kb.innerHTML = ''; const others = dg.sheets.filter((s) => !used.has(s.name));
+    if (others.length) { const h = document.createElement('p'); h.className = 'hint'; h.textContent = 'The template\'s other sheets: kept in the as-plan, or left out.'; kb.appendChild(h); }
+    others.forEach((s) => { const l = document.createElement('label'); l.className = 'check'; l.innerHTML = '<input type="checkbox"><span></span>'; const cb = l.querySelector('input'); cb.dataset.keep = s.name; cb.checked = (map.keep || []).includes(s.name); l.querySelector('span').textContent = `Keep the sheet ${s.name}`; kb.appendChild(l); });
+    const FL = window.GeDxfSynth.FIELDS, opts = [['', 'Keep the template\'s text'], ['-', 'Leave it blank'], ...FL.map((f) => [f.key, f.label])];
+    const box = $('tplFields'); box.innerHTML = '';
+    const shown = [...new Set([map.plan, map.keymap, map.cef, ...(map.keep || [])].filter(Boolean))];
+    shown.forEach((sn) => {
+      const sh = dg.sheets.find((s) => s.name === sn); if (!sh) return;
+      const h = document.createElement('p'); h.className = 'hint'; h.innerHTML = `<b></b>`; h.firstChild.textContent = `Sheet ${sn}${sn === map.plan ? ' (plan)' : ''}${sn === map.keymap ? ' (key map)' : ''}${sn === map.cef ? ' (CEF)' : ''}: ${sh.fields.length ? `${sh.fields.length} field${sh.fields.length === 1 ? '' : 's'}` : 'no fields found'}`; box.appendChild(h);
+      sh.fields.forEach((f, i) => {
+        const r = document.createElement('div'); r.className = 'tprf'; r.dataset.fid = f.id; r.dataset.sheet = sn;
+        const sure = f.sure >= 0.9 ? 'sure' : f.sure >= 0.75 ? 'likely' : f.guess ? 'a guess' : 'not known';
+        r.innerHTML = `<span class="n">${i + 1}</span><span class="w"><b></b><small></small></span><select></select>`;
+        r.querySelector('b').textContent = f.label || f.tag || '(no label)';
+        r.querySelector('small').textContent = `${f.kind === 'label' ? 'No value text: one is added beside it' : `Now: ${f.value ? `“${f.value.slice(0, 40)}”` : '(empty)'}`} · ${sure}`;
+        const sel = r.querySelector('select'); sel.setAttribute('aria-label', `What fills ${f.label || f.tag || 'this field'}`); tprOpt(sel, opts, Object.prototype.hasOwnProperty.call(map.fields, f.id) ? map.fields[f.id] : f.key);
+        const n = r.querySelector('.n'); n.classList.toggle('none', !sel.value || sel.value === '-');
+        sel.addEventListener('change', () => { n.classList.toggle('none', !sel.value || sel.value === '-'); tprDirty(); tprPic(sn); });
+        sel.addEventListener('focus', () => tprPic(sn, f.id));
+        box.appendChild(r);
+      });
+    });
+  }
+  /** The review's choices from the screen. */
+  function tprRead() {
+    if (!TPR) return null; const m = TPR.map;
+    m.name = $('tplName').value.trim().slice(0, 60) || m.name; m.client = $('tplClient').value.trim().slice(0, 60);
+    m.plan = $('tplPlan').value; m.keymap = $('tplKey').value; m.cef = $('tplCef').value; m.exported = $('tplExported').checked;
+    m.keep = [...$('tplKeep').querySelectorAll('input[data-keep]')].filter((c) => c.checked).map((c) => c.dataset.keep);
+    $('tplFields').querySelectorAll('.tprf').forEach((r) => { m.fields[r.dataset.fid] = r.querySelector('select').value; });
+    document.querySelectorAll('#tplSyms select, #tplSymsMore select').forEach((s) => { m.symbols[s.dataset.sym] = s.value || null; });
+    m.look.font = $('tplFont').value; m.look.bold = $('tplBold').value; m.look.scale = +$('tplScale').value || 1;
+    m.look.lw = {}; $('tplLw').querySelectorAll('select').forEach((s) => { if (s.value !== '') m.look.lw[s.dataset.lw] = +s.value; });
+    $('tplLayers').querySelectorAll('select').forEach((s) => { m.look.layers[s.dataset.ly] = s.value; });
+    m.model = { keep: [...$('tplModel').querySelectorAll('input[data-g]')].filter((c) => c.checked).map((c) => c.dataset.g) };
+    return m;
+  }
+  function tprDirty() { if (!TPR) return; TPR.made = null; TPR.check = null; $('tplSave').disabled = true; $('tprCheck').hidden = true; }
+  /** The sheet's picture (dxfpdf.js draws it as the PDF prints it), its fields numbered (the one chosen ringed). */
+  function tprPic(sheet, fid) {
+    if (!TPR || !sheet) return; const G = window.GeDxfSynth, P = window.GeDxfPdf; if (!G || !P) return;
+    let page = TPR.pics.get(sheet);
+    try { if (page === undefined) { page = P.layoutPages(TPR.text, { only: [sheet] }).pages[0] || null; TPR.pics.set(sheet, page); } } catch (e) { LOG.warn('tpl.pic', errInfo(e)); page = null; TPR.pics.set(sheet, null); }
+    TPR.pic = sheet; $('tplPicT').textContent = `The sheet ${sheet}`;
+    const cv = $('tplPic'), ctx = cv.getContext('2d'); if (!page) { ctx.clearRect(0, 0, cv.width, cv.height); $('tplPicSum').textContent = 'No picture of this sheet.'; return; }
+    cv.height = Math.round(cv.width * page.h / page.w);
+    const sh = TPR.dg.sheets.find((s) => s.name === sheet), rows = [...$('tplFields').querySelectorAll(`.tprf[data-sheet="${CSS.escape(sheet)}"]`)];
+    const wide = (b) => [b[0], b[1], b[0] + (b[2] - b[0]) * 1.35, b[3]]; // (the PDF's Helvetica is wider than the box worked out from the text)
+    const marks = (sh ? sh.fields : []).map((f, i) => { const r = rows.find((x) => x.dataset.fid === f.id), v = r ? r.querySelector('select').value : f.key; return { box: f.at ? [f.at.x, f.at.y, f.at.x + Math.max(f.at.h * 4, f.at.w * 0.4), f.at.y + f.at.h] : wide(f.box), n: i + 1, color: v && v !== '-' ? '#1565c0' : '#d32f2f', on: f.id === fid }; });
+    let win = null; try { win = G.sheetWindow(TPR.text, sheet); } catch (e) { win = null; }
+    // its title block (the fields and their labels, a margin round them), else the whole sheet
+    let zoom = null; const fb = (sh ? sh.fields : []).map((f) => f.lbox ? [Math.min(f.box[0], f.lbox[0]), Math.min(f.box[1], f.lbox[1]), Math.max(f.box[2], f.lbox[2]), Math.max(f.box[3], f.lbox[3])] : f.box);
+    if (!$('tplPicAll').checked && fb.length && sh) { const b = [Math.min(...fb.map((q) => q[0])), Math.min(...fb.map((q) => q[1])), Math.max(...fb.map((q) => q[2])), Math.max(...fb.map((q) => q[3]))], m = Math.max(b[2] - b[0], b[3] - b[1]) * 0.12 + (sh.units === 'in' ? 0.2 : 5); zoom = [b[0] - m, b[1] - m, b[2] + m, b[3] + m]; }
+    if (zoom) cv.height = Math.round(cv.width * Math.min(1.4, Math.max(0.45, (zoom[3] - zoom[1]) / (zoom[2] - zoom[0]))));
+    G.paint(ctx, page, cv.width, cv.height, { marks, win, zoom, fs: Math.round(12 * cv.width / Math.max(200, cv.clientWidth || cv.width)) }); // (the numbers as large on any screen)
+    $('tplPicSum').textContent = `${marks.length} field${marks.length === 1 ? '' : 's'} numbered as in the list${sh && sh.vps[0] ? ` · the map's viewport ${sh.vps[0].w.toFixed(0)} × ${sh.vps[0].h.toFixed(0)} ${sh.units}` : ''}.`;
+  }
+  ['tplPlan', 'tplKey', 'tplCef'].forEach((id) => $(id).addEventListener('change', () => { tprRead(); tprSheets(); tprDirty(); tprPic($(id).value || TPR.map.plan); }));
+  $('tplPicAll').addEventListener('change', () => { if (TPR) tprPic(TPR.pic); });
+  $('tplScale').addEventListener('input', () => { $('tplScaleO').textContent = `× ${(+$('tplScale').value).toFixed(2)}`; tprDirty(); });
+  $('tplReview').addEventListener('change', (e) => { if (e.target.closest('#tplSyms, #tplSymsMore, #tplLw, #tplLayers, #tplModel, #tplKeep') || ['tplFont', 'tplBold', 'tplExported', 'tplName', 'tplClient'].includes(e.target.id)) tprDirty(); });
+  /** Make and check: the seeds made from the choices, a made-up plan drawn on them; the problems in plain words, its first sheet as a picture. */
+  async function tprMake() {
+    const m = tprRead(); if (!m) return; const G = await synthReady();
+    busy('Making the plan template…'); let made, ck;
+    try { await sleep(30); made = G.make(TPR.text, m, TPR.dg); busy('Checking it: a made-up plan drawn on it…'); await sleep(30); ck = G.check(made, m); } finally { busy(false); }
+    TPR.made = made; TPR.check = { ok: ck.ok, problems: ck.problems, notes: ck.notes, tokens: ck.tokens, cef: ck.cef, at: new Date().toISOString() };
+    const res = $('tplCheckRes'); res.innerHTML = '';
+    const d = document.createElement('div'); d.className = `tprres${ck.ok ? '' : ' bad'}`;
+    d.innerHTML = `<b></b><ul></ul>`; d.querySelector('b').textContent = ck.ok ? '✓ The made-up plan was drawn on this template: no problem found.' : `${ck.problems.length} problem${ck.problems.length === 1 ? '' : 's'}:`;
+    const ul = d.querySelector('ul'); [...ck.problems, ...ck.notes, `Fields: ${ck.tokens.join(', ') || 'none'}`, made.cef ? `CEF template: sheet ${m.cef}${ck.cef ? `, fields ${ck.cef.tokens.join(', ')}` : ''}` : 'No CEF template: the CEF plan keeps its own frame.'].forEach((t) => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+    res.appendChild(d); $('tprCheck').hidden = false;
+    const cv = $('tplCheckPic'), ctx = cv.getContext('2d');
+    try { const page = ck.built ? window.GeDxfPdf.layoutPages(ck.built.text, { only: ['GEO'] }).pages[0] : null; if (page) { cv.height = Math.round(cv.width * page.h / page.w); G.paint(ctx, page, cv.width, cv.height, {}); } else ctx.clearRect(0, 0, cv.width, cv.height); } catch (e) { LOG.warn('tpl.checkpic', errInfo(e)); }
+    $('tplSave').disabled = !(ck.built && G.seedOk(made.plan));
+    LOG.info('tpl.check', { ok: ck.ok, problems: ck.problems.length, tokens: ck.tokens.length, cef: !!made.cef });
+    setTimeout(() => { try { $('tprCheck').scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* old WebView */ } }, 50);
+  }
+  async function tprSave() {
+    if (!TPR || !TPR.made) return; const m = TPR.map, made = TPR.made, id = TPR.id || uid(), at = new Date().toISOString(), name = (m.name || 'Client template').slice(0, 60);
+    const from = { file: String(TPR.file || '').slice(0, 120), size: TPR.size || TPR.text.length };
+    await dbPut('packs', { k: tplKey(id), id, name, at, from, client: m.client || '', src: TPR.text, plan: made.plan, cef: made.cef, map: m, look: made.look, cefLook: made.cefLook, checks: TPR.check });
+    const meta = { id, name, at, from, client: m.client || '', look: made.look, ok: !!(TPR.check && TPR.check.ok), cef: !!made.cef };
+    S.tpls = [...tplList().filter((t) => t.id !== id), meta]; persist();
+    if (!TPR.id && S.project) tplChoose(S.project, id);
+    LOG.info('tpl.save', { kb: Math.round(made.plan.length / 1024), cef: !!made.cef, again: !!TPR.id });
+    TPR = null; await closeSheet(); renderStyle(); toast(`${name} saved ✓`, 3000);
+  }
+  $('tplMake').addEventListener('click', () => guard(tprMake, 'Template not made'));
+  $('tplSave').addEventListener('click', () => guard(tprSave, 'Template not saved'));
   /** The roads around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that covers them. */
   /** The roads and named places around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that
       covers them. bb: [south, west, north, east] of the vicinity; nb: the same for the places (round the route only). */
@@ -14492,6 +14722,7 @@
      planGridOf). Returns what the export goes on with, and jobOf(st): the job of one drawing of SETS. */
   async function planJob(pts, o) {
     const one = !!(o && o.one), prev = !!(o && o.preview), say = prev ? () => {} : busy; // (beta 4.6: One PDF: only the plan's sheets are made, of the drawing the Drawing shows)
+    const TPLK = await tplLookOf(S.project), CELL = TPLK && TPLK.sheet && +TPLK.sheet.cell > 0 ? +TPLK.sheet.cell : 440; // ((beta 7.15, Client templates) a client's plan sheet: its cell at 1:1100 on its paper)
     const proj = S.project, m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
     const QC = { loops: [] }, R = routeModel(), Q = surveyQty(pts, QC), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R); // v2.42.16: the maintenance loops the app adds (As-Plan); v2.42.18: the own ones
@@ -14582,6 +14813,18 @@
       SIG_DESIGN_ENGINEER: S.sig.design || '', SIG_PROJECT_ENGINEER: S.sig.project || '', SIG_HEAD_CABLE_ENGINEERING: S.sig.head || '', SIG_JUNIOR_ENGINEER: '', SIG_CSE_LEAD: S.sig.cse || '',
       PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
     };
+    /* (beta 7.15, Client templates) a client's title block (its fields as the review mapped them, on its sheets): every field filled from what the
+       app knows, the same on every sheet (the company template's values by place made plain). The company template: as before. */
+    if (TPLK) {
+      const sg = cefSign(), T0 = tmTeam(proj), chk = sg.chk || (T0 && T0.accepted ? String(T0.accepted.byName || T0.accepted.by || '') : ''), iss = sfGet(SF, /\b(issue|rev(ision)?)\b/i);
+      const pname = values.PROJECT_TYPE || sfGet(SF, /project\s*name/i) || proj, who = e.name || sg.by || '';
+      const at = rows.find((r) => r.el === 'Site') || rows.find((r) => r.el === 'Pole') || rows[0], dms = (v, P, N) => { if (!Number.isFinite(+v)) return ''; const h = v < 0 ? N : P; let a = Math.abs(+v), d = Math.floor(a), mm = Math.floor((a - d) * 60), ss = (a - d - mm / 60) * 3600; if (ss >= 59.995) { ss = 0; mm++; } if (mm >= 60) { mm = 0; d++; } return `${d}%%d${String(mm).padStart(2, '0')}'${ss.toFixed(2).padStart(5, '0')}"${h}`; }; // (%%d: AutoCAD's degree sign, read the same by every DXF version)
+      const km = Object.fromEntries(['KEYMAP', ...Array.from({ length: 8 }, (_, k) => `KEYMAP (${k + 2})`)].map((n) => [n, '']));
+      Object.assign(values, { PROJECT_TYPE: pname, LINK: pname, LOCATION: known ? [sName, sPla].filter(Boolean).join('_') : (m.site || ''), SITE_NAME: sName || m.site || '', SITE_ID: sPla, SERIAL: sSerial,
+        DWG_NO: sfGet(SF, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss, PREPARED_BY: who, DRAWN_BY: who, CHECKED_BY: chk, APPROVED_BY: sg.apr || '',
+        CLIENT: sfGet(SF, /client|customer/i) || (projTpl(proj) || {}).client || '', SHEET_TITLE: { ...Object.fromEntries(Object.keys(km).map((n) => [n, 'KEY MAP'])), '*': 'ROUTE PLAN' }, PLAN_KIND: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN',
+        COORDINATES: at ? `${dms(at.lat, 'N', 'S')} ${dms(at.lon, 'E', 'W')}` : '', ...(S.exp.dxfLabels !== 'tidy' ? { SCALE: { ...km, '*': '1 : 1,100 METERS' } } : {}) }); // (the key map's scale: dxftpl's; Tidy's finer sheets: dxftpl's)
+    }
     /* beta 6.0: the PMI's quantities item by item, each where it is, for the BOQ table of each GEO sheet (dxftpl adds them up by grid
        cell): a span's length where its length is written on the plan (each run when the PMI counts the runs), a loop at its point, a
        pole by its kind, a new ODF's fibers, a new closure; the same rules as the PMI table above, so the sheets add up to it. */
@@ -14707,7 +14950,7 @@
     const jobOf = (st) => {
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       return { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, jnName: PLS.jn.name, /* beta 7.4 / 2.45.6 */ odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
-        towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
+        towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: CELL, viewH: CELL, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', phPin, /* (beta 7.8, Drawing photos) */ numPin, lblPin, cabPin, /* (beta 7.10, Drawing labels) */ ...(gridKeep ? { gridKeep } : {}), /* (beta 7.10, Plan kept) */ ...tools, /* (beta 7.11, Drawing tools) */ date: new Date() };
     };
     const roadsKept = keptAt.length && keptAt.every(Boolean) ? keptAt.slice().sort()[0] : ''; // ((beta 7.10, Plan kept) the roads kept with the project: since when)
@@ -16127,7 +16370,7 @@
      Advanced section that is the part (opened, its part of the plan in the preview). (beta 7.8, Plan style cards): the part is a card (numbers,
      details, labels, photos, landmarks, vicinity, sheets) or a section of More settings (boxes, clamps, cables, crowded, site, file);
      basic: the cards; advanced: More settings. */
-  const TUT_PLPART = { numbers: 'stNum', details: 'stPole', labels: 'stCab', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
+  const TUT_PLPART = { template: 'stTpl', /* (beta 7.15, Client templates) */ numbers: 'stNum', details: 'stPole', labels: 'stCab', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
   const tutGoBase = (go) => String(go || '').split(':')[0];
   const tutHlEl = (st) => { try { return st && st.hl ? document.querySelector(st.hl) : null; } catch (e) { return null; } };
   /** beta 6.7 (UX step 4): Plan style's card or section of More settings for a step: its part, else where its control is. (Plan style
@@ -18187,7 +18430,7 @@
       npFile = null; npSite = null; await closeAll(); fitProject(); return;
     }
     S.projects.push(name);
-    S.meta[name] = k === 'survey' ? { mode: 'survey', purpose, ...sm } : { mode: 'acceptance', stage: k, ...sm };
+    S.meta[name] = k === 'survey' ? { mode: 'survey', purpose, ...sm, ...(tplById(S.tplLast) ? { tpl: S.tplLast } : {}) } : { mode: 'acceptance', stage: k, ...sm }; // ((beta 7.15, Client templates) a new survey: the template chosen last)
     if (k === 'survey') projKey(name); // v2.42.6: the credits' project key, with the project from the start (it travels with shares and backups)
     S.project = name; persist(); renderPoles(); queueProgress(name, ['surveyStart']); // the survey start date goes to the online sheet
     npFile = null; npSite = null; await closeAll();
@@ -22485,6 +22728,38 @@
     for (const id of Array.from(ids || []).slice(0, 200)) { try { const ph = await dbGet('photos', String(id)); if (!ph || !ph.clean) continue; const im = await loadImage(ph.clean), { w, h } = dims(im); if (im.close) im.close(); if (w > 0 && h > 0) out[String(id)] = [w, h]; } catch (e) { /* its frame and file name only */ } }
     return out;
   }
+  /* (beta 7.15, CEF template) (the owner: "dxf for asplan and cef must be based from a template dxf. Context: client requires a different
+     template with a different text font style, drawing style size and thickness"): the CEF plan's sheets on the project's CEF template, a
+     client's sheet made in the app from the client's DXF (its "CEF seed": the sheet CEF, its frame, title block and fields; the look). The
+     editor asks for it when it makes its files (cefTpl: one can be megabytes, so not on every open), makes the DXF on it (vendor/cef/50_export.js)
+     with the plan builder's DXF reader (dxfLib: dxftpl.js), and has that DXF printed as its PDF by the As-Plan's printer (cefTplPdf: dxfpdf.js).
+     None: the editor's own frame, as before. */
+  /** The CEF template of the plan being edited or exported (job: a Drawing export's plan made out of sight). window.__gesaaCefTplTest
+      ({ name, text, look }, tests only) stands in for the project's own. fields: what the app knows for the client's fields the editor does
+      not (as the as-plan on a client's template fills them): the client (Project details' Client / Customer, else the template's), the
+      drawing number and the issue (Project details' DWG / Drawing no., Issue / Revision). */
+  async function cefTplOf(job) {
+    const c = (job && cefJobCtx[job]) || cefNow; if (!c) return null;
+    const t = window.__gesaaCefTplTest && typeof window.__gesaaCefTplTest === 'object' ? window.__gesaaCefTplTest : await tplCefText(c.name);
+    if (!t || typeof t.text !== 'string' || !t.text) return null;
+    const F = siteFieldsOf(c.name), iss = sfGet(F, /\b(issue|rev(ision)?)\b/i);
+    LOG.info('cef.tpl', { kb: Math.round(t.text.length / 1024), look: !!t.look });
+    return { name: String(t.name || ''), text: t.text, look: t.look || null, fields: { CLIENT: sfGet(F, /client|customer/i) || String(t.client || ''), DWG_NO: sfGet(F, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss } };
+  }
+  async function cefDxfLib() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); return window.GeDxfTpl; }
+  /** A DXF the editor made on the CEF template, printed as the plan's PDF (o.images: the photos and logos by file name, JPEG or PNG). */
+  async function cefTplPdf(text, o) {
+    if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeDxfPdf) await loadScript('dxfpdf.js');
+    const images = {};
+    for (const [k, v] of Object.entries((o && o.images) || {})) {
+      if (!ArrayBuffer.isView(v)) continue; const u = new Uint8Array(v.buffer, v.byteOffset, v.byteLength); // (the editor's frame's bytes)
+      if (u[0] === 0xFF && u[1] === 0xD8) images[k] = u; else { const j = await pngToJpeg(u); if (j) images[k] = j; } // (the printer takes JPEG pictures)
+    }
+    const deflate = 'CompressionStream' in window ? async (u) => new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer()) : null;
+    const pdf = await window.GeDxfPdf.toPdf(String(text), { images, title: String((o && o.title) || 'CEF plan').slice(0, 120), deflate });
+    LOG.info('cef.tplpdf', { sheets: pdf.report.sheets.length, pictures: pdf.report.pictures, missing: pdf.report.missing.length, mb: +(pdf.length / 1048576).toFixed(2) });
+    return pdf;
+  }
   /** The export's ZIP, made by the app: the editor's files, each photo as the photo store keeps it, and who exported it. */
   async function cefZip(files) {
     const out = [];
@@ -22550,6 +22825,7 @@
     close: () => { if (stack[stack.length - 1] === 'cefSheet') closeSheet(); }, exporter: () => exporterInfo(), gps: () => cefGps(), logo: (how) => cefLogo(how),
     mapPicture: (o) => cefMapPicture(o), setSign: (g) => cefSetSign(g), // beta 4.2
     photoDims: (ids) => cefPhotoDims(ids), // beta 4.3
+    cefTpl: (job) => cefTplOf(job), dxfLib: () => cefDxfLib(), cefPdf: (text, o) => cefTplPdf(text, o), // (beta 7.15, CEF template)
     pref: (k, v) => { if (k === 'guide') { S.cefGuide = v !== false; persist(); } else if (k === 'dxf') { const g = v && typeof v === 'object' ? v : {}; S.cefDxf = { det: !!g.det, ph: !!g.ph, old: !!g.old }; persist(); } } }; // (beta 4.3: the pages and the kind of the CEF DXF)
 
   /** A project that came in a file or through the team mailbox: its CEF plans. A plan is taken whole: the one saved later wins, and it
@@ -23173,6 +23449,7 @@
   window.__polecam.vicinity = async (o) => { const v = await vicinityJpeg(+o.E, +o.N, +o.size, o.zone || S.zone, !!o.south, null, o.street ? null : SAT_SOURCE, o.zCap || 0); if (!v || !v.jpg) return null; let s = ''; for (let i = 0; i < v.jpg.length; i += 0x8000) s += String.fromCharCode.apply(null, v.jpg.subarray(i, i + 0x8000)); return { b64: btoa(s), px: v.px, z: v.z, sat: !!v.sat }; }; // beta 4.3 (tests)
   window.__polecam.newAt = (o) => openEditor({ mode: 'new', element: (o && o.element) || 'Pole', lat: +o.lat, lon: +o.lon, source: 'map', takenAt: new Date().toISOString() }); // beta 4.3 (tests): a new record with no photo
   /* beta 6.7 (tests) */ window.__polecam.drwEdit = (on) => drwEditSet(!!on);
+  window.__polecam.tpl = { list: () => JSON.parse(JSON.stringify(tplList())), of: (n) => (projTpl(n) || {}).id || '', choose: (n, id) => tplChoose(n, id || ''), seedText: (n) => seedText(n), cefText: (n) => tplCefText(n), look: (n) => tplLookOf(n), review: () => (TPR ? JSON.parse(JSON.stringify(TPR.map)) : null) }; // ((beta 7.15, Client templates) tests)
   window.__polecam.drwEd = () => ({ on: drwEd, handles: (drw && drw.edH ? drw.edH : []).map((h) => { const r = $('drawCanvas').getBoundingClientRect(); return { x: r.left + h.x, y: r.top + h.y, r: h.r, n: h.n, a: String(h.a), b: String(h.b) }; }), site: drwSiteArm ? drwSiteArm.kind : null, selRun: drw ? drw.selRun : null, n: drw ? drw.items.length : 0 });
   /* (beta 7.8, Drawing photos) for tests: the plan's photo places of the preview (report.photoAt), whether one is being made, and the frames drawn
      (each one's centre and size in page pixels, its turn), the pins kept, and where a point stands as the Drawing draws it (metres) */
@@ -23258,7 +23535,8 @@
   window.__polecam.cef = { open: (n, o) => cefOpen(n, o), plans: (n) => JSON.parse(JSON.stringify(cefPlans(n || S.project))), of: (n) => JSON.parse(JSON.stringify(cefOf(n || S.project))), isCef: (n) => isCefProj(n), lock: () => cefLockText(S.project), now: () => (cefNow ? { ...cefNow } : null),
     frame: () => $('cefFrame').contentWindow, logos: () => cefLogos(), canLogo: () => cefCanLogo(), logoSet: (f) => cefLogoSet(f), logoRemove: () => cefLogoRemove(), changed: (n, t) => cefChanged(n || S.project, t), pids: (n, t) => cefPids(n || S.project, t), summary: (n) => projSummary(n || S.project),
     put: (n, id, sk, o) => { const G = cefOf(n), x = o || {}, i = G.plans.findIndex((p) => p.id === id), rec = { id, pin: x.pin || '', sk, at: x.at || new Date().toISOString(), by: x.by || (S.user && S.user.name) || '', o: x.o != null ? x.o : cefMe(), made: x.at || new Date().toISOString() }; if (i >= 0) G.plans[i] = rec; else G.plans.push(rec); cefPut(n, G); },
-    keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); } };
+    keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); },
+    planFiles: (n, only) => cefPlanFiles(n || S.project, only) }; // (beta 7.15, CEF template: the Drawing export's CEF files, for the tests)
   window.__polecam.jn = { att: (id) => { const j = points.find((p) => p.id === id); return j ? jnAtt(j).map((p) => p.id) : null; }, fit: (id) => { const j = points.find((p) => p.id === id); return j ? jnFit(j, jnAtt(j)) : null; }, msg: (id) => { const j = points.find((p) => p.id === id); return j ? jnMsgM(j) : null; }, // beta 6.9: a pull-off's or cross-over's poles, where it fits, its messenger
       pick: () => (jnPick ? { id: jnPick.id, need: jnPick.need, ch: jnPick.ch.slice(), fix: [...jnPick.fix], surf: jnPick.surf, bar: $('jnBarT').textContent, done: !$('jnBarDone').disabled } : null), tap: (id) => jnPickTap(id), done: () => jnPickDone(), start: (id, surf) => jnPickStart(id, surf), bar: () => ($('jnBar').hidden ? null : $('jnBarT').textContent), lbl: () => (drw && drw.jnLbl ? drw.jnLbl : null) };
   /* beta 4.6 (tests): the splicing details. frame(): the page's window; drwPt(id): where a record is on the Drawing (screen pixels) */

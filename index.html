@@ -405,6 +405,36 @@ details.plmore > summary .t{flex:1;min-width:0;display:flex;flex-direction:colum
 details.plmore > summary b{font-size:calc(15px * var(--fs))}
 details.plmore > summary small{color:var(--muted);font-size:calc(12.5px * var(--fs));line-height:1.35}
 .plmorebody{border-top:1px solid var(--line2);padding:0 0 6px}
+/* (beta 7.15, Client templates) Plan style › Template: the project's template, the client templates on this phone; the review of a client's template */
+.tpllist{display:flex;flex-direction:column;gap:6px;margin:4px 0 6px}
+.tplit{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface)}
+.tplit b{display:block;font-size:calc(14px * var(--fs));overflow-wrap:anywhere}
+.tplit small{display:block;color:var(--muted);font-size:calc(12px * var(--fs));line-height:1.35}
+.tplit .row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tplit.on{border-color:var(--accent)}
+#tplReview .body{max-width:980px;margin:0 auto;width:100%}
+.tprsec{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;margin:0 0 10px}
+.tprsec > h3{margin:0 0 6px;font-size:calc(15px * var(--fs))}
+.tprsec .hint{margin:2px 0 6px}
+.tprgrid{display:grid;grid-template-columns:1fr;gap:8px}
+.tprrow{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:6px 0;border-top:1px solid var(--line2)}
+.tprrow:first-child{border-top:0}
+.tprrow > label,.tprrow > .lbl{font-size:calc(13px * var(--fs));color:var(--ink)}
+.tprrow small{color:var(--muted);font-size:calc(12px * var(--fs))}
+.tprrow select,.tprrow input[type=text]{width:100%;max-width:100%}
+.tprf{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 8px;align-items:center;padding:6px 0;border-top:1px solid var(--line2)}
+.tprf .n{min-width:22px;height:22px;border-radius:6px;background:#1565c0;color:#fff;font:700 12px/22px sans-serif;text-align:center}
+.tprf .n.none{background:#d32f2f}
+.tprf .w{min-width:0;overflow-wrap:anywhere;font-size:calc(13px * var(--fs))}
+.tprf .w small{display:block}
+.tprf select{grid-column:2}
+.tprpic{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:8px;background:#fff;touch-action:pan-y}
+.tprres{border-left:4px solid var(--ok,#2e7d32);padding:6px 10px;margin:6px 0}
+.tprres.bad{border-left-color:#d32f2f}
+.tprres li{margin:2px 0}
+.tprsplit{display:flex;flex-direction:column}
+.tprsplit > .tprpicw{order:-1} /* (a phone: the sheet's picture first, its fields numbered, then the choices) */
+@media (min-width:760px){ .tprgrid{grid-template-columns:1fr 1fr} .tprsplit{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:start} .tprsplit > .tprpicw{order:0;position:sticky;top:0} }
 /* beta 6.7 (UX step 5): Find a setting (Plan style); the ? of each Export row and Plan style section; a setting found in the Tutorial */
 .plfind{margin:2px 0 6px}
 .plfindbox{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 6px 0 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
@@ -1695,6 +1725,7 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
   <symbol id="i-eye" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z"/><circle cx="12" cy="12" r="3"/></g></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <!-- (beta 7.8, Plan style cards): the cards' icons -->
+  <symbol id="i-tpl" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M14 13h7M14 13v7M17.5 13v7M14 16.5h7"/></g></symbol><!-- (beta 7.15, Client templates) a sheet and its title block -->
   <symbol id="i-hash" viewBox="0 0 24 24"><path d="M9 4 7 20M17 4l-2 16M4 9h17M3 15h17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol><symbol id="i-pdet" viewBox="0 0 24 24"><circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7h9M12 12h6M12 17h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol><symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12l9-9h8v8l-9 9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="15.5" cy="8.5" r="1.5" fill="currentColor"/></symbol><symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4h11l-2 4 2 4H5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
   <!-- (beta 7.12, Drawing edit) the owner: "Use editing icons the as what you have done on the CEF plan drawing and edit": the Drawing's tools drawn as the CEF
        plan editor's (vendor/cef/ui.js ICON: the same path data on its 20 x 20 grid, a line 1.5 wide, round ends: svg.dpi); the cef page keeps its own. ce-ptr,
@@ -2207,6 +2238,15 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
     <!-- (beta 7.8, Plan style cards): the plan's main choices in cards, one open at a time, each saying in one line what it is set to; a card
          opened shows its part of the plan in the preview. Every row kept its id, its label and its stored key: nobody's setting changes. -->
     <div class="plcards" id="plCards">
+      <!-- (beta 7.15, Client templates) the owner: "dxf for asplan and cef must be based from a template dxf ... By changing the template dxf, the app can now
+           accomodate plan creation from different clients using its template": each project's template (the company's, or a client's added here) -->
+      <details class="stgrp stsec plcard" id="stTpl" data-find="Template" data-tut="clienttpl"><summary><span class="plci" aria-hidden="true"><svg><use href="#i-tpl"/></svg></span><span class="t"><b>Template</b><small class="secsum"></small></span></summary><div class="secbody">
+        <div class="strow" id="tplRow" data-find="Template for this project"><label class="lbl" for="tplSel">Template for this project</label><select id="tplSel"></select>
+          <small class="sthint" id="tplSelSum"></small></div>
+        <div class="strow" id="tplListRow" data-find="Client templates"><span class="lbl">Client templates</span><div class="tpllist" id="tplList"></div>
+          <div class="row"><button type="button" class="btn small" id="tplAdd">Add a client's template…</button></div><input type="file" id="tplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
+          <small class="sthint">A client's own AutoCAD template (DXF), read on this phone: nothing is uploaded. Its sheet, title block, fonts, text sizes and line weights make that client's as-plan and CEF plan. Kept on this phone: not shared with your team in this beta.</small></div>
+      </div></details>
       <details class="stgrp stsec plcard" id="stNum" data-scene="street" data-find="Pole numbers" data-tut="planstyle"><summary><span class="plci" aria-hidden="true"><svg><use href="#i-hash"/></svg></span><span class="t"><b>Pole numbers</b><small class="secsum"></small></span></summary><div class="secbody">
         <div class="strow plb" id="psNum" data-find="Pole numbers in this project"><span class="lbl">Pole numbers in this project</span>
           <div class="seg segr" id="numBox" role="radiogroup" aria-label="Pole numbers in this project"><label class="chip small"><input type="radio" name="numMode" id="numProject"><span>1, 2, 3… for the whole project</span></label><label class="chip small"><input type="radio" name="numMode" id="numOwner"><span>Each owner from 1</span></label></div>
@@ -2378,6 +2418,42 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
    </div>
   </div></div>
   <div class="foot"><button class="btn" id="stReset" type="button">Reset to recommended</button><button class="btn primary grow" id="stDone" type="button">Done</button></div>
+</section>
+<!-- (beta 7.15, Client templates) the review of a client's template: its sheets, the fields of its title block, its symbols, its look and what its model space
+     holds, each chosen for the user (they only correct); Make and check draws a made-up plan on it before it is saved -->
+<section class="sheet" id="tplReview" hidden aria-labelledby="tplRevTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="tplRevTitle">Client template</h2>
+  </header>
+  <div class="body">
+    <p class="hint" id="tplRevFrom"></p>
+    <div class="tprsec"><div class="tprrow"><label for="tplName">Name of the template</label><input type="text" id="tplName" maxlength="60" autocomplete="off"></div>
+      <div class="tprrow"><label for="tplClient">The client's name (for a CLIENT field)</label><input type="text" id="tplClient" maxlength="60" autocomplete="off"></div></div>
+    <div class="tprsplit">
+      <div>
+        <div class="tprsec" id="tprSheets"><h3>1. Sheets</h3><p class="hint">The plan is drawn on the plan sheet (one sheet for each part of the route, at 1:1100), the key map on its own sheet or a copy of the plan sheet; the CEF plan on the CEF sheet.</p>
+          <div class="tprgrid"><div class="tprrow"><label for="tplPlan">Plan sheet</label><select id="tplPlan"></select></div>
+            <div class="tprrow"><label for="tplKey">Key map sheet</label><select id="tplKey"></select></div>
+            <div class="tprrow"><label for="tplCef">CEF sheet</label><select id="tplCef"></select></div></div>
+          <div id="tplKeep"></div></div>
+        <div class="tprsec" id="tprFields"><h3>2. Fields of the title block</h3><p class="hint">What fills each field the template has (numbered on the picture). Blue: found; red: not known to the app.</p><div id="tplFields"></div>
+          <label class="check"><input type="checkbox" id="tplExported" checked><span>Exported by line under the frame (who made it, the app, the date)</span></label></div>
+      </div>
+      <div class="tprpicw"><div class="tprsec"><h3 id="tplPicT">The plan sheet</h3><canvas class="tprpic" id="tplPic" width="900" height="636" role="img" aria-label="The client's sheet with its fields numbered"></canvas><p class="hint" id="tplPicSum"></p><label class="check"><input type="checkbox" id="tplPicAll"><span>Whole sheet (else its title block)</span></label></div></div>
+    </div>
+    <div class="tprsec" id="tprSyms"><h3>3. Symbols</h3><p class="hint">The client's own block for each of the plan's symbols, or the app's own plain one. They are drawn at the size the plan uses.</p><div class="tprgrid" id="tplSyms"></div>
+      <details><summary>More symbols (guys, arms, hosts)</summary><div class="tprgrid" id="tplSymsMore"></div></details></div>
+    <div class="tprsec" id="tprLook"><h3>4. Look</h3><p class="hint">The plan's texts in the client's font and size, its lines as thick as the client's.</p>
+      <div class="tprgrid"><div class="tprrow"><label for="tplFont">Font of the plan's texts</label><select id="tplFont"></select></div>
+        <div class="tprrow"><label for="tplBold">Bold font</label><select id="tplBold"></select></div>
+        <div class="tprrow"><label for="tplScale">Text size <output id="tplScaleO"></output></label><input type="range" id="tplScale" min="0.6" max="1.6" step="0.05"><small id="tplScaleSum"></small></div></div>
+      <h3 style="margin-top:10px">Line weights</h3><div class="tprgrid" id="tplLw"></div>
+      <h3 style="margin-top:10px">Layers</h3><p class="hint">The client's layer for each kind of thing the plan draws (or the plan's own layers, made to look like the client's).</p><div class="tprgrid" id="tplLayers"></div></div>
+    <div class="tprsec" id="tprModel"><h3>5. The template's model space</h3><p class="hint">Its sample drawing is removed; tables or legends shown on a sheet can stay.</p><div id="tplModel"></div></div>
+    <div class="tprsec" id="tprCheck" hidden><h3>Check: a made-up plan on this template</h3><div id="tplCheckRes"></div><canvas class="tprpic" id="tplCheckPic" width="900" height="636" role="img" aria-label="A made-up plan drawn on the client's sheet"></canvas></div>
+  </div>
+  <div class="foot"><button class="btn grow" id="tplMake" type="button">Make and check</button><button class="btn primary grow" id="tplSave" type="button" disabled>Save template</button></div>
 </section>
 <!-- v2.28: find a pin -->
 <section class="sheet" id="find" hidden aria-labelledby="findTitle">
@@ -3414,6 +3490,7 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
 <script src="reports.js"></script>
 <script src="forms.js"></script>
 <script src="tutorial.js"></script>
+<script src="vendor/synth/dxfsynth.js"></script><!-- (beta 7.15, Client templates) the DXF synthesizer: a client's own drawing template digested on the phone -->
 <script src="vendor/icons/landmarks.js"></script>
 <script src="app.js"></script>
 </body>
