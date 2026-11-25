@@ -3271,8 +3271,18 @@
     seg('scope', drw.tbAll ? 'kind' : 'one');
     const ab = tb.querySelector('[data-a="auto"]'); ab.disabled = !L.some((m) => drwHandOf(m, M)) && !(drw.tbAll && L.some((m) => (M.mvKind || {})[m.kind]));
     $('drawTbN').textContent = L.length > 1 ? `${L.length} selected` : ''; $('drawTbN').hidden = L.length < 2;
-    tb.hidden = false; drwTbPlace();
+    tb.hidden = false; drwTbOv(); drwTbPlace();
   }
+  /* (beta 7.14, View / Edit) A phone 360-400 px wide: the toolbar on one line (the owner's phones; 7.12 fitted a label's at 412 px, wider phones as before):
+     what does not fit waits under More too (class ov), the least used first: the line weight, the turn (its round handle turns it too), the size, the font
+     size, Delete, Edit text, Colour; More shows them all, as it shows the tools used less. */
+  const TB_OV = [['lw-', 'lw+'], ['rot+', 'rot-'], ['s-', 's+'], ['h-', 'h+'], ['del'], ['text'], ['color']];
+  function drwTbOv() {
+    const tb = $('drawTb'); if (!tb || tb.hidden) return; tb.querySelectorAll('.ov').forEach((b) => b.classList.remove('ov')); if (!matchMedia('(max-width:400px)').matches || tb.classList.contains('xopen')) return;
+    const xb = tb.querySelector('[data-a="xtra"]'), one = () => { const B = [...tb.children].filter((c) => c.offsetWidth && c.offsetHeight && c.id !== 'drawTbPal'); return B.length < 2 || Math.max(...B.map((c) => c.offsetTop)) - Math.min(...B.map((c) => c.offsetTop)) < 8; };
+    for (const G of TB_OV) { if (one()) break; const L = G.map((a) => tb.querySelector(`[data-a="${a}"]`)).filter((b) => b && !b.hidden && b.offsetWidth); if (!L.length) continue; L.forEach((b) => b.classList.add('ov')); if (xb.hidden) xb.hidden = false; }
+  }
+  window.addEventListener('resize', () => { if (drw && !$('drawTb').hidden) { drwTbOv(); drwTbPlace(); } }); // (a phone turned: as wide as it is now)
   /** Where the toolbar goes: at the top of the plan, at its bottom (above the information line, clear of the round tools) while the selection is under it. */
   function drwTbPlace() {
     const tb = $('drawTb'); if (!tb || tb.hidden || !drw || !drw.view) return; const wr = $('drawWrap').getBoundingClientRect(), cr = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1, sc = drw.view.sc;
@@ -3405,7 +3415,8 @@
   /** The format bar opened for f: { m (null: a text being added), scope (This one / All like it offered: a plan item) }. */
   function drwFmtOpen(f) {
     const m = f.m || null, v = drwFmtOf(m), own = m ? drwOwnTexts(m) : [], em = own.length ? Math.hypot(own[0].m[2], own[0].m[3]) : 0;
-    drwFmt = { m, note: !m || isNote(m), v: { ...v }, v0: { ...v }, scope: f.scope && drw && drw.tbAll ? 'kind' : 'one', scopeOk: !!f.scope, emM: em > 0 ? em : 3.05 * (v.h || 1), h0: v.h || 1, boxW: m ? +m.box[2] || 20 : 20, pal: false };
+    const hM = m && m.fmt && +m.fmt.height > 0 ? +m.fmt.height : null; // (its first line's height on the plan, metres: what a wrap width is measured against)
+    drwFmt = { m, note: !m || isNote(m), v: { ...v }, v0: { ...v }, scope: f.scope && drw && drw.tbAll ? 'kind' : 'one', scopeOk: !!f.scope, emM: hM ? hM / 0.718 : em > 0 ? em : 3.05 * (v.h || 1), hM: hM || (em > 0 ? em * 0.718 : 2.2 * (v.h || 1)), h0: v.h || 1, boxW: m ? +m.box[2] || 20 : 20, pal: false };
     const sel = $('drawTxtFont'), L = drwFonts(), plan = m && m.fmt && m.fmt.font ? m.fmt.font : m ? '' : 'Arial'; sel.textContent = '';
     const opt = (p, val, t) => { const o = document.createElement('option'); o.value = val; o.textContent = t; p.appendChild(o); };
     opt(sel, '', `As the plan${plan ? ` (${plan})` : ''}`);
@@ -3433,11 +3444,15 @@
   }
   /** The text box as the plan will show the text, as near as a browser can (none being formatted: as 7.12's box). */
   function drwFmtLook() {
-    const t = $('drawTxtArea'), F = drwFmt; if (!t) return; if (!F) { t.removeAttribute('style'); t.wrap = 'soft'; return; }
+    const t = $('drawTxtArea'), F = drwFmt; if (!t) return; if (!F) { t.removeAttribute('style'); t.wrap = 'soft'; if ($('drawTxtWrapPrev')) $('drawTxtWrapPrev').hidden = true; return; }
     const v = F.v, f = drwFontOf(v.font), shx = !!f && f.kind === 'shx', c = drwFontCss(f || (v.font ? null : drwFontOf((F.m && F.m.fmt && F.m.fmt.font) || 'Arial')));
     Object.assign(t.style, { fontFamily: c.family, fontStretch: c.narrow ? 'condensed' : '', textAlign: v.align || 'left', fontWeight: v.bold && !shx ? '700' : '400', fontStyle: v.italic && !shx ? 'italic' : 'normal', textDecoration: v.underline ? 'underline' : 'none', lineHeight: String(+(1.3 * v.spacing).toFixed(2)), color: v.color > 0 ? (ACI_INK[v.color] || drwAciCss(v.color)) : '' });
-    if (v.wrap > 0) { const fs = parseFloat(getComputedStyle(t).fontSize) || 15, em = F.emM * (v.h / (F.h0 || 1)), w = Math.max(40, Math.round(v.wrap / Math.max(em, 0.01) * fs)); t.wrap = 'soft'; Object.assign(t.style, { whiteSpace: 'pre-wrap', overflowWrap: 'normal', wordBreak: 'normal', overflowX: 'auto', width: `min(100%, ${w + 22}px)` }); } // (as wide as the width on the plan, in its letters (+ the box's padding); a word wider than it stays whole, as the builder keeps it)
-    else { t.wrap = 'off'; Object.assign(t.style, { whiteSpace: 'pre', overflowWrap: 'normal', wordBreak: 'normal', overflowX: 'auto', width: '' }); } // (no wrap: its lines as written)
+    const T = window.GeDxfTpl, P = $('drawTxtWrapPrev'), exact = v.wrap > 0 && !!T && typeof T.wrapLine === 'function'; // ((beta 7.14, Text editor) the builder's own breaks, when it has them: shown under the text)
+    if (P) { P.hidden = !exact; if (exact) { const L = drwTxtLines(), H = F.hM * (v.h / (F.h0 || 1)), out = []; for (const line of L.length ? L : ['']) { try { out.push(...T.wrapLine(line, v.wrap, H, !!v.bold && !shx)); } catch (e) { out.push(line); } }
+      const B = $('drawTxtWrapLines'); B.textContent = ''; out.forEach((x) => { const d = document.createElement('div'); d.textContent = x; B.appendChild(d); }); Object.assign(B.style, { fontFamily: c.family, fontStretch: c.narrow ? 'condensed' : '', textAlign: v.align || 'left', fontWeight: v.bold && !shx ? '700' : '400', fontStyle: v.italic && !shx ? 'italic' : 'normal', textDecoration: v.underline ? 'underline' : 'none', lineHeight: String(+(1.3 * v.spacing).toFixed(2)), color: v.color > 0 ? (ACI_INK[v.color] || drwAciCss(v.color)) : '' });
+      $('drawTxtWrapSay').textContent = `As the plan wraps it at ${fmtX(v.wrap)} m: ${out.length} line${out.length === 1 ? '' : 's'}`; } }
+    if (v.wrap > 0 && !exact) { const fs = parseFloat(getComputedStyle(t).fontSize) || 15, em = F.emM * (v.h / (F.h0 || 1)), w = Math.max(40, Math.round(v.wrap / Math.max(em, 0.01) * fs)); t.wrap = 'soft'; Object.assign(t.style, { whiteSpace: 'pre-wrap', overflowWrap: 'normal', wordBreak: 'normal', overflowX: 'auto', width: `min(100%, ${w + 22}px)` }); } // (as wide as the width on the plan, in its letters (+ the box's padding); a word wider than it stays whole, as the builder keeps it)
+    else { t.wrap = 'off'; Object.assign(t.style, { whiteSpace: 'pre', overflowWrap: 'normal', wordBreak: 'normal', overflowX: 'auto', width: '' }); } // (no wrap, or the plan's breaks shown under it: its lines as written)
   }
   /** The format as changed in the bar: { scope, set: { field: value } } (only what changed), or null (no bar). */
   const drwFmtOut = () => { const F = drwFmt; if (!F) return null; const set = {}; for (const k of FMT_KEYS) if (JSON.stringify(F.v[k]) !== JSON.stringify(F.v0[k])) set[k] = F.v[k]; return { scope: F.scope, set }; };
@@ -3480,7 +3495,7 @@
   function drwTxtEnd(how) { const cb = drwTxtCb; if (!cb) return; const L = drwTxtLines(); if (how === 'save' && cb.need && !L.some((x) => x.trim())) return; const F = drwFmtOut(); drwTxtCb = null; drwFmt = null; $('drawTxtBox').hidden = true; drwFmtLook(); if (how === 'save') cb.onSave(L, F); else if (how === 'auto' && cb.onAuto) cb.onAuto(); else if (cb.onCancel) cb.onCancel(); } // ((beta 7.14, Text editor) F: the format as changed, with the lines)
   const drwTxtGhost = () => Date.now() - drwTxtAt < 450; // (opened by a tap on the plan: the click a phone sends after that tap lands on the editor, maybe on a button: not taken)
   $('drawTxtYes').addEventListener('click', () => { if (!drwTxtGhost()) drwTxtEnd('save'); }); $('drawTxtNo').addEventListener('click', () => { if (!drwTxtGhost()) drwTxtEnd('no'); }); $('drawTxtAuto').addEventListener('click', () => { if (!drwTxtGhost()) drwTxtEnd('auto'); });
-  $('drawTxtArea').addEventListener('input', drwTxtCheck);
+  $('drawTxtArea').addEventListener('input', () => { drwTxtCheck(); if (drwFmt && drwFmt.v.wrap > 0) drwFmtLook(); }); // ((beta 7.14, Text editor) the plan's breaks follow the typing)
   $('drawTxtBox').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); drwTxtEnd('no'); } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); drwTxtEnd('save'); } }); // (Esc: Cancel; Ctrl + Enter: Save)
   /** Edit text of an item (a plan item with texts, or a text note). */
   function drwTxtEdit(m) {
@@ -23088,7 +23103,7 @@
       rows: C ? C.rows.map((r) => ({ id: r.id, kind: r.kind, name: drwChgName(r), what: drwChgWhat(r), moved: r.moved, did: [...r.did], rec: [...r.rec] })) : [], open: !B.hidden,
       list: B.hidden ? null : [...B.querySelectorAll('.chgr')].map((x) => ({ id: x.dataset.id, name: (x.querySelector('b') || {}).textContent, what: (x.querySelector('small') || {}).textContent, show: (() => { const q = x.querySelector('[data-c="show"]'); return q ? !q.disabled : null; })(), back: (() => { const q = x.querySelector('[data-c="back"]'); return q ? q.textContent : null; })() })), allBack: B.hidden ? null : !!B.querySelector('[data-c="all"]') }; };
   window.__polecam.drwTxt = () => ({ open: !$('drawTxtBox').hidden, title: $('drawTxtTitle').textContent, sub: $('drawTxtSub').textContent, text: $('drawTxtArea').value, auto: !$('drawTxtAuto').hidden, saveOff: !!$('drawTxtYes').disabled, ok: $('drawTxtYes').textContent,
-    fmt: drwFmt ? { shown: !$('drawTxtFmt').hidden, v: { ...drwFmt.v }, v0: { ...drwFmt.v0 }, scope: drwFmt.scope, scopeOk: drwFmt.scopeOk, pal: !$('drawTxtPal').hidden, fonts: [...$('drawTxtFont').options].map((o) => ({ v: o.value, t: o.textContent, g: (o.parentElement && o.parentElement.label) || '' })), // ((beta 7.14, Text editor) for tests: the format bar (as now, as opened), the fonts offered, the text box's look
+    fmt: drwFmt ? { shown: !$('drawTxtFmt').hidden, v: { ...drwFmt.v }, v0: { ...drwFmt.v0 }, scope: drwFmt.scope, scopeOk: drwFmt.scopeOk, pal: !$('drawTxtPal').hidden, wrapPrev: $('drawTxtWrapPrev').hidden ? null : [...$('drawTxtWrapLines').children].map((d) => d.textContent), fonts: [...$('drawTxtFont').options].map((o) => ({ v: o.value, t: o.textContent, g: (o.parentElement && o.parentElement.label) || '' })), // ((beta 7.14, Text editor) for tests: the format bar (as now, as opened), the fonts offered, the text box's look
       look: (() => { const t = $('drawTxtArea'), c = getComputedStyle(t); return { family: c.fontFamily, align: c.textAlign, weight: c.fontWeight, style: c.fontStyle, deco: c.textDecorationLine, lh: c.lineHeight, ws: c.whiteSpace, w: t.getBoundingClientRect().width, color: c.color }; })(), btn: Object.fromEntries([...$('drawTxtFmt').querySelectorAll('button[data-f]')].filter((b) => b.dataset.f !== 'pal').map((b) => [`${b.dataset.f}${b.dataset.v ? `:${b.dataset.v}` : ''}`, { pressed: b.getAttribute('aria-pressed'), disabled: !!b.disabled, hidden: !(b.offsetWidth || b.offsetHeight) }])) } : null });
   window.__polecam.drwNotes = () => ({ notes: drw ? JSON.parse(JSON.stringify(notesOf(pmeta(drw.project)))) : [], pend: drw ? (drw.notePend || []).slice() : [], made: drw && drw.ph && drw.ph.tools ? JSON.parse(JSON.stringify(drw.ph.tools.notes || null)) : null });
   window.__polecam.drwNotesSweep = () => drwNotesSweep();

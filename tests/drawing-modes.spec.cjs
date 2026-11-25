@@ -263,7 +263,11 @@ test('View | Edit on a computer: a mouse drag pans, nothing moves; E and V (not 
   await ctx.close();
 });
 
-test('the phone\'s bars at 360 and 393 px (and a laptop): the row of tools, the header and the bar under the plan neither wrap nor overflow, in View and in Edit (with something changed by hand); screenshots', async () => {
+/** The toolbar of what is selected: how many lines its tools take, which are shown. */
+const tbLines = (page) => page.evaluate(() => { const tb = document.getElementById('drawTb'), B = [...tb.children].filter((c) => c.offsetWidth && c.offsetHeight && !c.classList.contains('drwtbsep') && c.id !== 'drawTbPal'), r = tb.getBoundingClientRect();
+  return { lines: new Set(B.map((b) => Math.round(b.offsetTop / 8))).size, shown: B.map((b) => b.dataset.a), right: r.right, left: r.left }; });
+
+test('the phone\'s bars at 360 and 393 px (and a laptop): the row of tools, the header and the bar under the plan neither wrap nor overflow, in View and in Edit (with something changed by hand); the toolbar of what is selected on one line (what does not fit under More); screenshots', async () => {
   for (const [sz, vp, desk] of [['360', { width: 360, height: 740 }, false], ['393', { width: 393, height: 852 }, false], ['laptop', { width: 1366, height: 768 }, true]]) {
     const { ctx, page, errors } = await open({ vp, desk });
     await drawing(page); await planShown(page);
@@ -271,6 +275,10 @@ test('the phone\'s bars at 360 and 393 px (and a laptop): the row of tools, the 
     await shot(page, `modes-${sz}-view.png`);
     await editOn(page); await select(page, 'lbl:s3'); await tbClick(page, 'h+'); await page.keyboard.press('Escape'); await page.waitForTimeout(200);
     B = await barsFit(page); for (const k of ['row', 'head', 'bar']) { assert.equal(B[k].scroll, false, `${sz} Edit ${k}: no sideways scroll ${JSON.stringify(B[k])}`); assert.deepEqual(B[k].cut, [], `${sz} Edit ${k}: nothing cut`); } assert.equal(B.row.lines, 1, `${sz} Edit: the row on one line ${JSON.stringify(B.row)}`); assert.equal(B.page, false);
+    for (const id of ['lbl:s3', 'pole:s4']) { // (the toolbar of a label and of a pole: one line; More shows the rest)
+      await select(page, id); let T = await tbLines(page); if (!desk) assert.equal(T.lines, 1, `${sz} ${id}: the toolbar on one line ${JSON.stringify(T)}`); assert.ok(T.left >= 0 && T.right <= vp.width, `${sz} ${id}: on the screen`); // (a laptop: as 7.11, it wraps when the plan is narrower than its tools)
+      for (const a of ['color', 'done']) assert.ok(T.shown.includes(a), `${sz} ${id}: ${a}`); if (!desk) { assert.ok(T.shown.includes('xtra'), `${sz} ${id}: More`); await tbClick(page, 'xtra'); await page.waitForTimeout(150); const T2 = await tbLines(page); for (const a of ['rot+', 'rot-']) assert.ok(T2.shown.includes(a), `${sz} ${id}: More shows ${a}`); await tbClick(page, 'xtra'); }
+      if (id === 'lbl:s3') await shot(page, `modes-${sz}-toolbar.png`); await page.keyboard.press('Escape'); await page.waitForTimeout(150); }
     const C = await chgOf(page); assert.ok(C.shown && C.rect.right <= vp.width && C.rect.left >= 0, `${sz}: the chip on the screen ${JSON.stringify(C.rect)}`);
     const tools = await page.evaluate(() => { const r = [...document.querySelectorAll('.drwtools .round')].filter((b) => b.offsetWidth).map((b) => b.getBoundingClientRect()); return r.map((b) => [b.left, b.top, b.right, b.bottom]); });
     assert.ok(tools.every((t) => C.rect.right <= t[0] || C.rect.bottom <= t[1] || C.rect.top >= t[3]), `${sz}: the chip clear of the round tools`);
@@ -355,7 +363,10 @@ test('the text editor\'s format: Align, Wrap, Line spacing, Font, B / I / U, siz
   await page.click('#drawTxtFmt [data-f="align"][data-v="right"]'); await page.click('#drawTxtFmt [data-f="wrap"]'); await page.fill('#drawTxtWrapM', '12'); await page.click('#drawTxtFmt [data-f="spc+"]'); await page.click('#drawTxtFmt [data-f="spc+"]');
   await page.selectOption('#drawTxtFont', 'Times New Roman'); await page.click('#drawTxtFmt [data-f="underline"]'); await page.click('#drawTxtFmt [data-f="h+"]'); await page.click('#drawTxtFmt [data-f="color"]'); await page.click('#drawTxtPal [data-v="1"]');
   X = await txtOf(page); assert.deepEqual(X.fmt.v, { align: 'right', wrap: 12, spacing: 1.5, font: 'Times New Roman', underline: true, bold: false, italic: false, h: 1.15, color: 1 });
-  assert.match(X.fmt.look.family, /Times New Roman/, 'the box: its font'); assert.equal(X.fmt.look.align, 'right'); assert.equal(X.fmt.look.deco, 'underline'); assert.equal(X.fmt.look.ws, 'pre-wrap', 'wrapped'); assert.equal(X.fmt.look.color, 'rgb(224, 49, 49)', 'red as the plan prints it readable');
+  assert.match(X.fmt.look.family, /Times New Roman/, 'the box: its font'); assert.equal(X.fmt.look.align, 'right'); assert.equal(X.fmt.look.deco, 'underline'); assert.equal(X.fmt.look.color, 'rgb(224, 49, 49)', 'red as the plan prints it readable');
+  const WL = await page.evaluate(([L, W, h]) => (window.GeDxfTpl && window.GeDxfTpl.wrapLine ? L.flatMap((x) => window.GeDxfTpl.wrapLine(x, W, h, false)) : null), [X.text.split('\n'), 12, ((await full(page, 'lbl:s3')).fmt || {}).height * 1.15 || 0]);
+  if (WL && (await full(page, 'lbl:s3')).fmt) { assert.deepEqual(X.fmt.wrapPrev, WL, 'the plan\'s own breaks shown under the text (GeDxfTpl.wrapLine)'); assert.ok(WL.length > X.text.split('\n').length, `wrapped at 12 m: ${JSON.stringify(WL)}`); assert.equal(X.fmt.look.ws, 'pre', 'the text as written'); }
+  else { assert.equal(X.fmt.wrapPrev, null); assert.equal(X.fmt.look.ws, 'pre-wrap', 'wrapped in the box (as near as the browser can)'); }
   await shot(page, 'modes-laptop-editor-format.png');
   // an SHX font: no bold or italic (AutoCAD cannot)
   await page.selectOption('#drawTxtFont', 'Romans'); X = await txtOf(page); assert.deepEqual([X.fmt.btn.bold.disabled, X.fmt.btn.italic.disabled], [true, true], 'SHX: B and I greyed'); await page.selectOption('#drawTxtFont', 'Times New Roman');
