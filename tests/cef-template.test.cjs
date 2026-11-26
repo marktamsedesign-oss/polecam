@@ -18,8 +18,8 @@
    - The sheet's own viewport told from the drawing area as AutoCAD writes a sheet not open (its number 0), or added when there is none.
    - With the synthesizer (vendor/synth/dxfsynth.js) beside it: the CEF seeds it makes of its made-up clients (tests/fixtures/client-{a,b,c}-made-up.dxf: A1,
      A3 with a narrow drawing area, a sheet in inches), each page on the client's sheet at its scale (skipped without them).
-   - Without a template: the CEF's DXF (with its layout tabs, and of the older kind), its PDF, its sheets and KML exactly as beta 7.13
-     made them (SHA-256 of beta 7.13's output, the engine of 933ad3b on the same made-up plans).
+   - Without a template: the CEF's DXF (with its layout tabs, and of the older kind), its PDF, its sheets and KML exactly as beta 7.16
+     made them (SHA-256 of beta 7.16's output, the engine of 3a0ad90 on the same made-up plans; before, beta 7.13's, 933ad3b).
    Every name, number and place is made up. */
 'use strict';
 const { test } = require('node:test');
@@ -354,18 +354,21 @@ test('a kit changed in the template changes what the CEF writes: a style\'s font
   assert.deepEqual(rules(r.text), []);
 });
 
-test('without a template: the CEF\'s DXF (with its layout tabs, and of the older kind), its PDF, sheets and KML as beta 7.13 made them, byte for byte', async () => {
-  // [plan, file, SHA-256 (first 16) of what beta 7.13 (933ad3b: vendor/cef/30_core.js, 40_iso.js, 50_export.js) made of it, in this same context: each plan's
+test('without a template: the CEF\'s DXF (with its layout tabs, and of the older kind), its PDF, sheets and KML as beta 7.16 made them, byte for byte', async () => {
+  // [plan, file, SHA-256 (first 16) of what beta 7.16 (3a0ad90: vendor/cef/30_core.js, 40_iso.js, 50_export.js) made of it, in this same context: each plan's
   // sheets made twice (every page; no details or photo pages), its DXFs, sheets and PDF made of them, in this order]
-  const WANT = [['sample', 'dxf all', 'a5e50ee95f0f657e'], ['sample', 'dxf no det/ph', '07102190d85fe5e9'], ['sample', 'dxf R12', 'fe84abd3967f748c'], ['sample', 'sheets json', '1f1cdbc6e2dbd801'], ['sample', 'pdf', 'a1aca5ae042228d8'], ['sample', 'kml', '76a27737b1944030'],
-    ['named', 'dxf all', '8bbc7c17440f648a'], ['named', 'dxf no det/ph', '735dbb2d8bfef23c'], ['named', 'dxf R12', 'b383ab795f986a26'], ['named', 'sheets json', '5611d28833b1c2a4'], ['named', 'pdf', '6bc3aaf261e91732'], ['named', 'kml', '76a27737b1944030'],
-    ['photos', 'dxf all', 'be9185ea2f731c4c'], ['photos', 'dxf no det/ph', '26dd351102275f8c'], ['photos', 'dxf R12', '023fddf19ed04719'], ['photos', 'sheets json', 'daf8372bfbb74b81'], ['photos', 'pdf', '76b60c4e21fd5356'], ['photos', 'kml', '366c93bf16ce004e'],
+  // (templates, step 0) re-pinned from beta 7.13's (933ad3b): beta 7.16's CEF drawing fix (4) (9acccbf: the UG fibre goes up inside the exit
+  // conduit to its mouth and through a porthole by a hole of its own) redraws the sample, named, photos and unfenced plans, so their DXFs,
+  // sheets and PDF changed (their KML and the empty plan did not). Its fixes (2) and (3) left these plans as 7.13 made them, (6) as (4) did.
+  const WANT = [['sample', 'dxf all', '5160db2c446e20f9'], ['sample', 'dxf no det/ph', '2e9556041e542f82'], ['sample', 'dxf R12', '60edf614e829d0a7'], ['sample', 'sheets json', '65b2364926e9cfed'], ['sample', 'pdf', 'cc6a1d6cb050231d'], ['sample', 'kml', '76a27737b1944030'],
+    ['named', 'dxf all', '814d3d059106718e'], ['named', 'dxf no det/ph', '6aa652452c55602c'], ['named', 'dxf R12', '98d752246d333152'], ['named', 'sheets json', '6a237784df13108e'], ['named', 'pdf', '766c09b2d65e03fb'], ['named', 'kml', '76a27737b1944030'],
+    ['photos', 'dxf all', '2f7ba80c2a981de5'], ['photos', 'dxf no det/ph', '83d805ab16894456'], ['photos', 'dxf R12', 'a39f063d5a2b1def'], ['photos', 'sheets json', '03ea8908ccf30805'], ['photos', 'pdf', 'b955f7451255a9f5'], ['photos', 'kml', '366c93bf16ce004e'],
     ['empty', 'dxf all', 'e011696164a4dc5e'], ['empty', 'dxf no det/ph', 'e011696164a4dc5e'], ['empty', 'dxf R12', '061d7de859da70ee'], ['empty', 'sheets json', '3b254214dc8fc0df'], ['empty', 'pdf', '876026df87dd4c8b'], ['empty', 'kml', '079675d22df2e5f4'],
-    ['unfenced', 'dxf all', '1c90d55a9638804c'], ['unfenced', 'dxf no det/ph', '65899f0c7366587d'], ['unfenced', 'dxf R12', 'f29f731e06764839'], ['unfenced', 'sheets json', '06e8bb88353106c3'], ['unfenced', 'pdf', 'd12afa0ef291b3c0'], ['unfenced', 'kml', '3973e022e93220f9']];
+    ['unfenced', 'dxf all', 'b0c92eb762e089b8'], ['unfenced', 'dxf no det/ph', 'e44d67500d01c489'], ['unfenced', 'dxf R12', '001b4c9b1bdabb9b'], ['unfenced', 'sheets json', '81fbc254c93a5a35'], ['unfenced', 'pdf', '6e32b40666d70b78'], ['unfenced', 'kml', '3973e022e93220f9']];
   const X = engine(), sk = vm.runInContext(SKETCHES, X), JOBS = {
     'dxf all': `(S1 = buildSheets(SK, {}), S2 = buildSheets(SK, { details: false, photos: false }), sheetsDXF(S1, { dims: { 'photos/photo_01.jpg': [16, 12], 'photos/photo_03.jpg': [12, 16] } }))`, 'dxf no det/ph': `sheetsDXF(S2, { dims: {} })`,
     'dxf R12': `sheetsDXF(S2, { old: true })`, 'sheets json': `JSON.stringify(S1)`, pdf: `toPDF(S1, IMG, SK)`, kml: `(() => { const g = geo(SK); return g ? toKML(SK, g) : '-'; })()` };
   const got = []; vm.runInContext('var S1, S2;', X);
   for (const [pn, what] of WANT) { if (what === 'dxf all') { X.SK = JSON.parse(JSON.stringify(sk[pn])); X.IMG = { p1: JPG, p2: JPG, p3: JPG }; } got.push([pn, what, sha(await vm.runInContext(JOBS[what], X))]); }
-  assert.deepEqual(got, WANT, 'as beta 7.13 made them');
+  assert.deepEqual(got, WANT, 'as beta 7.16 made them');
 });
