@@ -715,6 +715,7 @@
   function allPids(r) {
     const s = photosOf(r).map((p) => p.pid);
     if (r.origPid) s.push(r.origPid); // the unmarked photo of a marked survey photo (v2.15)
+    photosOf(r).forEach((p) => { if (p && p.origPid) s.push(p.origPid); }); // ((beta 7.16, Photo marks) and of each other photo marked)
     (r.defs || []).forEach((d) => { if (d.pid) s.push(d.pid); if (d.afterPid) s.push(d.afterPid); if (d.verifyPid) s.push(d.verifyPid); (d.reopened || []).forEach((q) => { if (q.pid) s.push(q.pid); (q.x || []).forEach((y) => { if (y.pid) s.push(y.pid); }); });
       ['xpids', 'xafter', 'xverify'].forEach((k) => (d[k] || []).forEach((y) => { if (y && y.pid) s.push(y.pid); })); }); // beta 3.5: the other photos of each stage
     return s;
@@ -845,13 +846,14 @@
 
   /* ================= full-size photo (v2.14): tap any photo; tap the photo to zoom; × or Back closes ================= */
   let pvUrl = '', pvOpen = false, pvReadBlob = null; // pvReadBlob: a photo shown only to read the ID on it (v2.19 ID photo)
+  let edMk = null; // (beta 7.16, Photo marks) the other photo of the record whose marks the photo view and the marking screen are for (its pid; null: the main photo)
   function showBlob(blob, caption) {
     if (!blob) return;
     if (pvUrl) URL.revokeObjectURL(pvUrl);
     pvUrl = URL.createObjectURL(blob);
     $('pvImg').src = pvUrl; $('pvCap').textContent = caption || ''; $('photoView').classList.remove('zoomed'); $('photoView').hidden = false;
     $('pvTools').hidden = true; $('pvHint').textContent = 'Tap the photo to zoom in or out · × or Back to close';
-    $('photoView').classList.remove('reading'); $('pvMark').hidden = true;
+    $('photoView').classList.remove('reading'); $('pvMark').hidden = true; edMk = null; $('pvRead').hidden = false; // ((beta 7.16, Photo marks) the main photo's, unless another photo of the record is shown for its marks: svPhotoView)
     if (!pvOpen) { pvOpen = true; history.pushState({ photo: 1 }, ''); }
   }
   function hidePhotoView() { pvReadBlob = null; $('photoView').hidden = true; $('photoView').classList.remove('zoomed', 'reading'); $('pvMark').hidden = true; $('pvImg').src = ''; if (pvUrl) { URL.revokeObjectURL(pvUrl); pvUrl = ''; } }
@@ -8973,8 +8975,8 @@
     };
     box.appendChild(cell($('edPhoto').src, 1, true, ed.mainLabel || 'Overview', (v) => { ed.mainLabel = v; }, X.length ? () => guard(() => svMakeMain(0, true), 'Not removed') : null, () => $('edPhoto').click()));
     X.forEach((p, i) => {
-      const c = cell(thumbUrl(p.pid), i + 2, false, p.label, (v) => { p.label = v; }, () => { X.splice(i, 1); if (ed.pending[p.pid]) delete ed.pending[p.pid]; else ed.removed.push(p.pid); renderSvPhotos(); scheduleDraft(); },
-        () => showPhoto(p.pid, `${$('poleId').value || ''} · ${p.label || ''}`));
+      const c = cell(thumbUrl(p.pid), i + 2, false, p.label, (v) => { p.label = v; }, () => { X.splice(i, 1); const nw = ed.pending[p.pid] && !p.marks && !(ed.phMk && ed.phMk[p.pid]); delete ed.pending[p.pid]; if (!nw) ed.removed.push(p.pid); if (p.origPid) ed.removed.push(p.origPid); if (ed.phMk) delete ed.phMk[p.pid]; renderSvPhotos(); renderBoxInfo(); scheduleDraft(); }, // ((beta 7.16, Photo marks) and its unmarked one)
+        () => guard(() => svPhotoView(p.pid), 'Photo not opened')); // ((beta 7.16, Photo marks) the owner: "multiple images cannot draw on other photos inside": each photo opens with its marks, as the main one)
       if (!lock) { const mk = document.createElement('button'); mk.type = 'button'; mk.className = 'btn sm phmk'; mk.textContent = 'Make main'; mk.addEventListener('click', () => guard(() => svMakeMain(i), 'Not changed')); c.appendChild(mk); }
       box.appendChild(c);
     });
@@ -8984,6 +8986,7 @@
   async function svMakeMain(i, drop) {
     const X = ed.photos || [], x = X[i]; if (!x) return;
     if ((ed.marks || []).length || ed.legacyBoxes || (ed.origPid && !ed.dropOrig)) { toast('The main photo has marks or red boxes: remove them first (tap the photo), then make another one main.', 5500); return; }
+    if ((x.marks || []).length || x.old) { toast(`Photo ${i + 2} has marks: remove them first (tap the photo), then make it main.`, 5500); return; } // ((beta 7.16, Photo marks) its marks stay its own)
     const getB = async (pid) => { if (ed.pending[pid]) return ed.pending[pid]; const ph = await dbGet('photos', pid).catch(() => null); return ph && (ph.clean || ph.thumb); };
     const xb = await getB(x.pid), mb = ed.newBlob || ed.srcBlob || await getB(ed.id);
     if (!xb || !mb) { toast('Photo not found on this phone'); return; }
@@ -9181,7 +9184,7 @@
       $('napId').value = onPoleRec ? o.napId || '' : ''; $('closureId').value = onPoleRec ? o.closureId || '' : ''; $('nap2Id').value = onPoleRec ? o.nap2Id || '' : '';
       ed.color = MCOL[o.color] ? o.color : ''; ed.mapPin = o.source === 'map' && !o.blob && !o.storedBlob && o.mode === 'new'; // v2.36: a pin placed on the map (photo optional)
       // beta 3.5: the other photos of the pin (the main one is the record's own); photo 2 and the photos after it from the camera
-      ed.photos = (o.photos || []).filter((x) => x && x.pid && x.pid !== ed.id).map((x) => ({ ...x })); ed.pending = {}; ed.removed = [];
+      ed.photos = (o.photos || []).filter((x) => x && x.pid && x.pid !== ed.id).map((x) => ({ ...x, ...(Array.isArray(x.marks) ? { marks: JSON.parse(JSON.stringify(x.marks)).map(normMark) } : {}) })); ed.pending = {}; ed.removed = []; ed.phMk = {}; // ((beta 7.16, Photo marks) each one's marks, its state in this edit)
       ed.mainLabel = ((o.photos || []).find((x) => x && x.pid === ed.id) || {}).label || o.mainLabel || 'Overview';
       if (o.idShot && o.ph2) { const pid = uid(); ed.photos.push({ pid, label: 'Pole tag', at: o.idAt || o.takenAt || new Date().toISOString(), by: byLine() }); ed.pending[pid] = o.idShot; prepImages(o.idShot); }
       (o.more || []).forEach((m) => { if (!m || !m.blob) return; const pid = uid(); ed.photos.push({ pid, label: m.label || 'Detail', at: m.at || new Date().toISOString(), q: qSummary(m.q), by: byLine() }); ed.pending[pid] = m.blob; });
@@ -9297,6 +9300,7 @@
       idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: (ed.dragged || ed.mapPin) && c ? { lat: c.lat, lon: c.lng } : null, color: ed.color || '', siteKind: ed.siteKind || '',
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
       noDef: !!ed.noDef, noPP: !!ed.noPP, pinKind: ed.pinKind || '', pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
+      phMk: Object.fromEntries(Object.entries(ed.phMk || {}).map(([pid, k]) => [pid, { baseNew: !!k.baseNew, dropOrig: !!k.dropOrig, hasBase: !!k.base }])), // ((beta 7.16, Photo marks) the other photos' marks in this edit)
     };
   }
   const draftSig = (st) => JSON.stringify({ ...st, q: null, pin: st.pin ? [st.pin.lat.toFixed(6), st.pin.lon.toFixed(6)] : null });
@@ -9314,6 +9318,7 @@
     const st = draftState(); st.t = Date.now(); const gen = draftGen;
     const blobs = { new: ed.newBlob, src: st.hasSrc ? ed.srcBlob : null, base: ed.base, def: st.def && st.def.photo ? defDraft.blob : null };
     Object.entries(ed.pending || {}).forEach(([pid, b]) => { blobs[`p:${pid}`] = b; });
+    Object.entries(ed.phMk || {}).forEach(([pid, k]) => { if (k.base) blobs[`pb:${pid}`] = k.base; }); // ((beta 7.16, Photo marks) each marked photo's unmarked one)
     if (st.def && defDraft) (defDraft.more || []).forEach((m, i) => { blobs[`dm:${i}`] = m.blob; }); // beta 3.5
     draftChain = draftChain.then(async () => {
       try {
@@ -9378,6 +9383,7 @@
     const get = async (k) => { const r = await dbGet('photos', `draft~${k}`).catch(() => null); return (r && r.clean) || null; };
     const nb = st.hasNew ? await get('new') : null, sb = st.hasSrc ? await get('src') : null, base = st.hasBase ? await get('base') : null, db = st.def && st.def.photo ? await get('def') : null;
     const pend = {}; for (const pid of st.pend || []) { const b = await get(`p:${pid}`); if (b) pend[pid] = b; }
+    const phMk = {}; for (const [pid, k] of Object.entries(st.phMk || {})) phMk[pid] = { base: k.hasBase ? await get(`pb:${pid}`) : null, baseNew: !!k.baseNew, dropOrig: !!k.dropOrig }; // ((beta 7.16, Photo marks) read before the record opens again (its draft's files go then))
     if (S.project !== st.project) { S.project = st.project; persist(); renderPoles(); fitProject(); }
     if (st.shot) { // the page reloaded during the ID scan: the photo goes on as if the scan was skipped (checked again first)
       if (!nb) throw new Error('the photo was not kept');
@@ -9399,6 +9405,7 @@
       mloop: st.mloop, nap: st.nap, nap2: !!st.nap2, color: st.color != null ? st.color : ed.color, closure: st.closure, odf: st.odf || ed.odf, /* v2.42.4: + nap2, color (an edit's draft lost them) */ boq: st.boq || ed.boq || {}, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid,
       ...(st.siteKind ? { siteKind: st.siteKind } : {}) });
     if (!st.acc) {
+      ed.phMk = phMk; // ((beta 7.16, Photo marks) the other photos' marks in that edit)
       if (nb) { ed.newBlob = nb; prepImages(nb); showEdPhoto(nb); }
       if (sb) ed.srcBlob = sb; else if (nb && st.mode === 'new') ed.srcBlob = nb;
       ed.base = base; ed.baseNew = st.baseNew;
@@ -9490,7 +9497,9 @@
   function renderBoxInfo() {
     if (!ed || ed.acc) { $('boxInfo').hidden = true; $('edZoom').classList.remove('pp'); return; }
     const n = (ed.marks || []).length, legacy = ed.legacyBoxes || 0, pp = proposedPole(), hasPole = (ed.marks || []).some((m) => m.k === 'pole') || ed.legacyPole;
-    const txt = n ? `▭ ${n} mark${n === 1 ? '' : 's'} on the photo · tap the photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of the photo)` : ''}`
+    const ex = (ed.photos || []).map((x, i) => [i + 2, (x.marks || []).length]).filter(([, c]) => c); // ((beta 7.16, Photo marks) the other photos' marks: which photo has how many)
+    const txt = ex.length ? `▭ ${[...(n ? [[1, n]] : []), ...ex].map(([k, c], j) => `${j ? 'photo' : 'Photo'} ${k}: ${c} mark${c === 1 ? '' : 's'}`).join(' · ')} · tap a photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of photo 1)` : ''}`
+      : n ? `▭ ${n} mark${n === 1 ? '' : 's'} on the photo · tap the photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of the photo)` : ''}`
       : legacy ? `▭ ${legacy} mark${legacy === 1 ? '' : 's'} on the photo` : pp && !hasPole ? '⊥ Tap the photo to place the model pole where the new pole goes'
       : ed.newBlob || ed.srcBlob ? '✎ Tap the photo to add a model, a box or text' : ''; // (beta 6.7)
     $('boxInfo').textContent = txt; $('boxInfo').hidden = !txt;
@@ -9543,12 +9552,34 @@
     if ((ed.marks || []).length) { ed.legacyBoxes = (ed.legacyBoxes || 0) + ed.marks.length; ed.marks = []; } // the original is missing: the marks stay in the photo
     return ed.newBlob || ed.srcBlob;
   }
-  /** Opens the marking screen in place of the full-size photo (the same Back step closes it). */
+  /** (beta 7.16, Photo marks) The unmarked photo another photo of the record (x, of ed.photos) is marked on: kept from this edit, or stored with it (x.origPid),
+   *  else the photo itself; its marks' state of this edit in ed.phMk[pid] (base, baseNew: not stored yet, dropOrig: its marks taken off), as markBase does for
+   *  the main photo. */
+  async function markBaseOf(x) {
+    const k = ed.phMk[x.pid] || (ed.phMk[x.pid] = { base: null, baseNew: false, dropOrig: false });
+    if (k.base) return k.base;
+    if (x.origPid && !k.dropOrig) { const ph = await dbGet('photos', x.origPid).catch(() => null); if (ph && ph.clean) { k.base = ph.clean; return k.base; } }
+    if ((x.marks || []).length) { x.old = (x.old || 0) + x.marks.length; delete x.marks; } // the original is missing: the marks stay in the photo
+    if (ed.pending[x.pid]) return ed.pending[x.pid];
+    const ph = await dbGet('photos', x.pid).catch(() => null); return (ph && ph.clean) || null;
+  }
+  /** (beta 7.16, Photo marks) Another photo of the record full size, with the marks tools as the main photo has (✎ Box · FOC · Text, ⊥ Model): its own marks. */
+  async function svPhotoView(pid) {
+    const x = ed && (ed.photos || []).find((y) => y.pid === pid); if (!x) return;
+    let b = ed.pending[pid]; if (!b) { const ph = await dbGet('photos', pid).catch(() => null); b = ph && (ph.clean || ph.thumb); }
+    if (!b) { toast('Photo not found on this phone'); return; }
+    showBlob(b, `${$('poleId').value || ''} · ${x.label || ''}`); if (ed.acc) return;
+    edMk = pid; $('pvTools').hidden = false; $('pvRead').hidden = true; const n = (x.marks || []).length;
+    $('pvBox').textContent = n ? '✎ Edit the marks' : '✎ Box · FOC · Text';
+    $('pvHint').textContent = n ? 'Tap a tool, then tap a mark to move, resize or delete it · tap the photo to zoom' : 'Tap the photo to zoom in or out · × or Back to close';
+  }
+  /** Opens the marking screen in place of the full-size photo (the same Back step closes it). ((beta 7.16, Photo marks) for the photo the view shows: edMk) */
   async function openBoxer(mode) {
     if (!ed || ed.acc) return;
-    const src = await markBase(); if (!src) { toast('No photo to mark'); return; }
+    const X = edMk ? (ed.photos || []).find((y) => y.pid === edMk) : null; if (edMk && !X) return;
+    const src = X ? await markBaseOf(X) : await markBase(); if (!src) { toast('No photo to mark'); return; }
     const im = await loadImage(src, STORE_MAX_PX), { w, h } = dims(im);
-    boxer = { im, w, h, base: src, marks: (ed.marks || []).map(normMark).map((m) => withC(m, m.k === 'foc' ? { k: 'foc', pts: (m.pts || []).map(([x, y]) => [x * w, y * h]) } : m.k === 'text' ? { k: 'text', x: m.x * w, y: m.y * h, t: m.t || '', s: m.s || 1 }
+    boxer = { pid: X ? X.pid : null, im, w, h, base: src, marks: ((X ? X.marks : ed.marks) || []).map(normMark).map((m) => withC(m, m.k === 'foc' ? { k: 'foc', pts: (m.pts || []).map(([x, y]) => [x * w, y * h]) } : m.k === 'text' ? { k: 'text', x: m.x * w, y: m.y * h, t: m.t || '', s: m.s || 1 }
       : isStand(m) ? { k: m.k, x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: isModel(m) ? m.k : 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null, mode: 'box', color: MCOL[S.markColor] ? S.markColor : 'red' };
     if (pvOpen) { pvOpen = false; hidePhotoView(); const el = $('boxer'); el.hidden = false; el.style.zIndex = 1000 + stack.length; stack.push('boxer'); history.replaceState({ sheet: 'boxer' }, ''); LOG.info('open', 'boxer'); }
     else openSheet('boxer');
@@ -9878,7 +9909,8 @@
   window.addEventListener('resize', () => { if (boxer && !$('boxer').hidden) { sizeBoxer(); drawBoxer(); } });
   $('boxDone').addEventListener('click', () => guard(async () => {
     const b = boxer; if (!b || !ed) return;
-    const before = JSON.stringify(ed.marks || []);
+    const X = b.pid ? (ed.photos || []).find((y) => y.pid === b.pid) : null; if (b.pid && !X) { await closeSheet(); return; } // ((beta 7.16, Photo marks) another photo's)
+    const before = JSON.stringify((X ? X.marks : ed.marks) || []);
     const marks = b.marks.map((m) => withC(m, m.k === 'foc' ? { k: 'foc', pts: m.pts.map(([x, y]) => [+(x / b.w).toFixed(4), +(y / b.h).toFixed(4)]) }
       : m.k === 'text' ? { k: 'text', x: +((m._x != null ? m._x : m.x) / b.w).toFixed(5), y: +((m._y != null ? m._y : m.y) / b.h).toFixed(5), t: m.t, ...(m.s && m.s !== 1 ? { s: m.s } : {}) }
         : isStand(m) ? { k: m.k, x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: m.k, x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
@@ -9891,10 +9923,21 @@
       drawMarks(g, b.marks, 1, boxLine(b.w, b.h), Math.max(b.w, b.h));
       blob = await toBlob(cv, 0.92);
     }
+    if (X) { // ((beta 7.16, Photo marks) another photo of the record: as the main one, its unmarked photo kept with it (stored at Save), the marked one in its place
+      const k = ed.phMk[X.pid] || (ed.phMk[X.pid] = { base: null, baseNew: false, dropOrig: false }), kept = !!(X.origPid && !k.dropOrig);
+      if (marks.length && !k.base) { k.base = b.base; k.baseNew = !kept; }
+      if (!marks.length && kept) k.dropOrig = true; else if (marks.length && k.dropOrig && X.origPid && !k.baseNew) k.dropOrig = false; // (marks again in the same edit: its unmarked copy, still stored, kept after all)
+      if (marks.length) X.marks = marks; else delete X.marks; ed.pending[X.pid] = blob; prepImages(blob);
+      LOG.info('photo.marks', { n: marks.length, photo: (ed.photos || []).indexOf(X) + 2, models: marks.filter((m) => (isModel(m) && m.k !== 'pole') || DRAWN.has(m.k)).map((m) => m.k) });
+      busy(false); await closeSheet(); renderSvPhotos(); renderBoxInfo(); scheduleDraft();
+      const at = (ed.photos || []).indexOf(X) + 2;
+      toast(marks.length ? `${marks.length} mark${marks.length === 1 ? '' : 's'} on photo ${at}${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}` : `Marks removed from photo ${at}${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}`, 3000);
+      return;
+    }
     if (ed.mode === 'edit' && !ed.newBlob) ed.keepQ = true; // the stored photo, only marked: its camera check stays
     const stored = !!(ed.origPid && !ed.dropOrig);
     if (marks.length && !ed.base) { ed.base = b.base; ed.baseNew = !stored; } // the unmarked photo is kept with the record
-    if (!marks.length && stored) ed.dropOrig = true;
+    if (!marks.length && stored) ed.dropOrig = true; else if (marks.length && ed.dropOrig && ed.origPid && !ed.baseNew) ed.dropOrig = false; // ((beta 7.16, Photo marks) marks taken off, then drawn again in the same edit: the unmarked photo, still stored, kept (it was let go at Save))
     ed.marks = marks; ed.newBlob = blob; prepImages(blob); showEdPhoto(blob);
     const poles = marks.filter((m) => m.k === 'pole').length;
     LOG.info('photo.marks', { n: marks.length, poles, models: marks.filter((m) => (isModel(m) && m.k !== 'pole') || DRAWN.has(m.k)).map((m) => m.k) });
@@ -11038,7 +11081,7 @@
         siteKind: ed.element === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT' : 'Tower') : '', // v2.37
       });
       if (!rec.color) delete rec.color; if (!rec.siteKind) delete rec.siteKind; if (rec.gpsAge == null) delete rec.gpsAge; if (rec.gpsRef == null) delete rec.gpsRef;
-      const photos = [];
+      const photos = [], dropO = []; // ((beta 7.16, Photo marks) dropO: the unmarked photos no longer kept (their photo's marks taken off))
       if (ed.newBlob) {
         busy('Preparing photo…');
         const tp = Date.now(); photos.push({ id: ed.id, ...await storedImages(ed.newBlob) });
@@ -11047,7 +11090,15 @@
       { // beta 3.5: the other photos of the pin, each under its own id; the record lists them after its main photo
         const X = (ed.photos || []).filter((x) => x && x.pid);
         for (const x of X) if (ed.pending[x.pid]) { busy('Preparing photos…'); photos.push({ id: x.pid, ...await storedImages(ed.pending[x.pid]) }); }
-        if (X.length) rec.photos = [{ pid: ed.id, label: ed.mainLabel || 'Overview', at: rec.takenAt || now }].concat(X.map((x) => ({ pid: x.pid, label: x.label || 'Detail', at: x.at || now, ...(x.q ? { q: x.q } : {}), ...(x.by ? { by: x.by } : {}) })));
+        const oFin = new Map(); // ((beta 7.16, Photo marks) a marked photo: its unmarked one kept with it (as the main photo's, v2.15), so its marks can be changed later
+        for (const x of X) {
+          const k = (ed.phMk || {})[x.pid] || {}, n = (x.marks || []).length;
+          if (n && k.base && k.baseNew) { busy('Preparing photos…'); photos.push({ id: origPidOf(x.pid), ...await storedImages(k.base) }); oFin.set(x.pid, origPidOf(x.pid)); }
+          else if (n && x.origPid && !k.dropOrig) oFin.set(x.pid, x.origPid);
+          else if (x.origPid) dropO.push(x.origPid);
+        }
+        if (X.length) rec.photos = [{ pid: ed.id, label: ed.mainLabel || 'Overview', at: rec.takenAt || now }].concat(X.map((x) => ({ pid: x.pid, label: x.label || 'Detail', at: x.at || now, ...(x.q ? { q: x.q } : {}), ...(x.by ? { by: x.by } : {}),
+          ...((x.marks || []).length ? { marks: x.marks.map((m) => ({ ...m })) } : {}), ...(oFin.get(x.pid) ? { origPid: oFin.get(x.pid) } : {}), ...(x.old ? { old: x.old } : {}) }))); // ((beta 7.16, Photo marks) its marks, its unmarked photo, the marks part of it)
         else delete rec.photos;
       }
       // v2.15: the unmarked photo is kept with marked photos, so their marks can be edited later
@@ -11064,6 +11115,7 @@
       if ((rec.element || 'Pole') === 'Pole') noteOwnUse(p && p.boq, rec.boq, rec.id); // v2.43.0: the owner lists in this user's order
       if (p && p.origPid && !rec.origPid) deletePhotosIfUnused([p.origPid], new Set()).catch(() => {}); // marks removed or a new photo
       if ((ed.removed || []).length) deletePhotosIfUnused(ed.removed.slice(), new Set()).catch(() => {}); // beta 3.5: the photos removed from the pin
+      if (dropO.length) deletePhotosIfUnused(dropO, new Set()).catch(() => {}); // ((beta 7.16, Photo marks) the marks taken off a photo: its unmarked copy goes)
       if (ed.mode === 'new' && !isNpt(poleId) && !genId && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
       if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type) && !['Proposed', 'New'].includes(ed.status)) S.lastType = ed.type; // v2.27: not the Globe type of a proposed / new pole
       if (rec.status && !(ed.pinKind && !ed.stTouched)) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status }; // ((beta 7.9, Add Pin): not the status a pin placed by hand started with: the camera's own stays)
@@ -12253,7 +12305,7 @@
       if (!jpeg) { missing++; continue; }
       const q = p.at ? p.q : r.q, el = elemOf(r);
       (el === 'Pole' ? poles : other).push({ jpeg, head: el === 'Pole' ? `${r.poleId || 'No ID'}${r.status === 'Proposed' || r.status === 'New' ? ` · ${svStatusLabel(r.status)}` : ''}${p.label && !['Overview', 'Photo'].includes(p.label) ? ` · ${p.label}` : ''}` : `${r.poleId || 'No ID'} · ${svDesc(r)}`,
-        lines: [`${shortTime(p.at || r.takenAt || r.created)}${r.boxes ? ' · red box' : ''}`], warn: q && q.flags && q.flags.length ? `Camera warning when taken: ${q.flags.join(', ')}` : '' });
+        lines: [`${shortTime(p.at || r.takenAt || r.created)}${(p.pid === r.id ? r.boxes : (p.marks || []).length + (p.old || 0)) ? ' · red box' : ''}`], /* ((beta 7.16, Photo marks) each photo's own marks) */ warn: q && q.flags && q.flags.length ? `Camera warning when taken: ${q.flags.join(', ')}` : '' });
     }
     busy(false);
     const sections = [];
@@ -15329,7 +15381,7 @@
       if (r.kind !== 'acceptance') { // a photo with a red box is not a clean training photo
         const L = (x) => (!x || x === 'Overview' || x === 'Photo' ? elemOf(r) : x === 'Detail' ? null : x);
         if (!r.boxes) add(r.id, L(r.photos && r.photos[0] ? r.photos[0].label : ''), r, 'survey photo');
-        if (r.photos && phDoc('ai', r.project) === 'all') r.photos.slice(1).forEach((p) => add(p.pid, L(p.label), r, `${p.label || 'other'} photo`)); // beta 3.5
+        if (r.photos && phDoc('ai', r.project) === 'all') r.photos.slice(1).filter((p) => !((p.marks || []).length || p.old)).forEach((p) => add(p.pid, L(p.label), r, `${p.label || 'other'} photo`)); // beta 3.5 ((beta 7.16, Photo marks) a marked one is not a clean photo either)
         continue;
       }
       photosOf(r).forEach((p) => add(p.pid, p.label === 'Overview' ? elemOf(r) : p.label === 'Detail' ? null : p.label, r, `${p.label} photo`));
@@ -23331,6 +23383,9 @@
   window.__polecam.drwMvItem = (id) => { const m = drw && mvById(id); if (!m) return null; const i = mvIx(id), PL = drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; return JSON.parse(JSON.stringify({ ...m, handles: m.handles.length, canNow: canOf(m), lifted: L ? { off: L.off, xf: L.xf } : null, boxNow: drwMvBox(m, i) })); };
   window.__polecam.drwStamp = () => ({ now: drwStampNow(), made: [...drwStamps.entries()].map(([k, x]) => ({ key: k, ok: !!x.bm, w: x.bm ? x.bm.width : 0, h: x.bm ? x.bm.height : 0 })), queue: drwStampQ.length, busy: drwStampBusy, n: drwStampN, addr: drwStampLoc && drwStampLoc.map ? Object.fromEntries(drwStampLoc.map) : null });
   window.__polecam.drwStampCap = (n) => { if (n > 0) DRW_STAMPS = +n; return DRW_STAMPS; }; // ((beta 7.16, Fixes) tests: how many stamped photos are kept) // ((beta 7.16, Fixes) tests: the stamped photos of the preview)
+  window.__polecam.edPhMarks = () => (ed ? { main: (ed.marks || []).length, photos: (ed.photos || []).map((x) => ({ pid: x.pid, label: x.label, n: (x.marks || []).length, origPid: x.origPid || '', old: x.old || 0, base: !!(ed.phMk && ed.phMk[x.pid] && ed.phMk[x.pid].base), baseNew: !!(ed.phMk && ed.phMk[x.pid] && ed.phMk[x.pid].baseNew) })), info: $('boxInfo').hidden ? '' : $('boxInfo').textContent } : null); // ((beta 7.16, Photo marks) tests: each photo's marks in the record open)
+  window.__polecam.allPidsOf = (id) => { const r = points.find((p) => String(p.id) === String(id)); return r ? allPids(r) : null; }; // ((beta 7.16, Photo marks) tests: the photos a backup and a team share carry)
+  window.__polecam.backupNames = async (n) => { try { return (await zipReader(await projectZip(n || S.project))).names; } finally { busy(false); } }; // ((beta 7.16, Photo marks) tests: the files of a project's backup)
   window.__polecam.drwPreviewWait = (ms) => { if (ms > 0) PH_WAIT = +ms; return PH_WAIT; }; // ((beta 7.16, Fixes) tests: how long the preview's worker is waited for)
   window.__polecam.drwJobTools = () => (drw && drw.ph ? JSON.parse(JSON.stringify(drw.ph.tools || null)) : null);
   window.__polecam.drwCands = (x, y, mouse) => (drw ? drwCands({ clientX: x, clientY: y, pointerType: mouse ? 'mouse' : 'touch' }).map((c) => ({ ...c })) : null); // ((beta 7.11, Drawing tools) tests: what a tap there goes through)
