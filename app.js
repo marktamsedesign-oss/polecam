@@ -2162,7 +2162,7 @@
   const strHash = (s) => { let h = 2166136261, k = 5381; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h = Math.imul(h ^ c, 16777619); k = (Math.imul(k, 33) + c) | 0; } return `${s.length}:${(h >>> 0).toString(36)}:${(k >>> 0).toString(36)}`; };
   function drwPhSoon(ms) { clearTimeout(drwPhT); drwPhT = setTimeout(() => { drwPhGo(false); }, ms == null ? 300 : ms); }
   /** (beta 7.9, Drawing preview) The preview made now (force: again, even when nothing changed: Regenerate plan preview). */
-  function drwPhGo(force) { return drwPhRun(force).catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) { drw.phBusy = false; drwPlanUi(); } }); }
+  function drwPhGo(force) { return drwPhRun(force).catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) { drw.phBusy = false; drwPlanUi(); drwPlanFail(e); } }); } // ((beta 7.15, Fixes) the app's own preview code stopped: said, never silent)
   /** The preview being made stops (an export, Back). */
   function drwPhStop() { clearTimeout(drwPhT); drwPhGen++; drwPhForce = false; if (drw) drw.phBusy = false; phStopBuild(); }
   function phStopBuild() { phBuild = null; if (phWorkerEnd) { const f = phWorkerEnd; phWorkerEnd = null; try { phWorker.terminate(); } catch (e) { /* gone */ } phWorker = null; f(); } }
@@ -2175,7 +2175,8 @@
     const seed = await seedText(); if (!live()) return;
     if (!seed || !seedOk(seed)) { drwPlanNone(); return; } // (no template on the phone: the Drawing as before)
     if (!drw.plWant) { drw.plWant = true; drwPlanUi(); } // ((beta 7.9, Drawing preview) a plan to preview: Regenerate plan preview on the Drawing)
-    const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live() || !st) return; // (the records as an export sees them)
+    const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live()) return; // (the records as an export sees them)
+    if (!st) { drwPlanFail('the export has no plan drawing to make'); return; } // ((beta 7.15, Fixes) said, never a silent stop)
     // ((beta 7.9, Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
     const sk = `${seed.length}|${(S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once)
     const job = J.jobOf(st), sig = strHash(`${seedSigC.h}|${JSON.stringify({ ...job, date: 0 })}`), M = drwPhMem.get(proj);
@@ -2184,8 +2185,8 @@
     phStopBuild(); const me = { sig }; phBuild = me; drw.phBusy = true; drwPhForce = false; drwPlanUi(); // (another one being made stops: the newest is the one shown)
     const t0 = Date.now(), res = await planPreview(seed, job); if (phBuild !== me) return; phBuild = null;
     const rep = res && res.report;
-    if (!rep || !rep.photoAt) { if (drw && drw.project === proj) { drw.phBusy = false; drwPlanUi(); } return; } // (the plan could not be made, or by a builder that does not say where its photos went: the photos stay as they are)
-    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before)
+    if (!rep || !rep.photoAt) { if (drw && drw.project === proj) { drw.phBusy = false; drwPlanUi(); if (res) drwPlanFail(res.fail || 'the plan builder did not say where its photos go'); } return; } // (the plan could not be made: the photos stay as they are; (beta 7.15, Fixes) and it is said, why)
+    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); drwPlanFail(e, 'drawn'); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before ((beta 7.15, Fixes) and said))
     if (res.perr) LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) });
     const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
       planAt: rep.photoAt, fileId: Object.fromEntries([...Object.entries(job.photos || {}).map(([id, x]) => [x.file, id]), ...(job.notes || []).filter((n) => n.photo && n.photo.file).map((n) => [n.photo.file, `note:${n.id}`])]), /* ((beta 7.12, Drawing edit) and each photo note's) */ lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (beta 7.10, Plan kept) the labels and split it was made with)
@@ -2203,15 +2204,21 @@
   function drwPhNextShow() { const N = drw && drw.phNext; if (!N || drw.mvDrag || drw.hDrag || drw.phDrag) return; drw.phNext = null; if (drw.ph && drw.ph.n > N.ph.n) return; drw.ph = N.ph; drwPlanShow(N.force); }
   /** The plan made for the preview in a worker of its own (an export never waits for it): its report and ((beta 7.9, Drawing preview) dxf-worker.js
    *  only: 'plan') its model space as the PDF prints it, { report, plan }, sent back; null when it fails. */
+  /* (beta 7.15, Fixes) The owner's video: Regenerate plan preview, "Making the plan preview…", then nothing. The plan's worker answers, crashes, or does not answer:
+     every way it fails now comes back with its reason ({ fail }), said on the Drawing (drwPlanFail); null only when it was stopped on purpose (a newer preview,
+     an export, Back). No answer in PH_WAIT ms (2 minutes: a 300-pole Tidy plan takes seconds): the worker let go, "no answer". */
+  let PH_WAIT = 120000;
   function planPreview(seed, job) {
     return new Promise((res) => {
-      let w = null; try { w = phWorker || (phWorker = new Worker('dxf-worker.js')); } catch (e) { w = null; }
-      if (!w) { res(null); return; }
-      const id = `ph-${Date.now()}-${Math.random()}`, off = () => { w.removeEventListener('message', on); w.removeEventListener('error', bad); phWorkerEnd = null; };
-      const on = (ev) => { const r = ev.data || {}; if (r.id !== id) return; off(); if (!r.ok) LOG.warn('draw.photos.plan', { msg: String(r.err || '').slice(0, 160) }); res(r.ok && r.out && r.out.report ? r.out : null); };
-      const bad = (ev) => { off(); try { w.terminate(); } catch (x) { /* gone */ } phWorker = null; LOG.warn('draw.photos.worker', { msg: String((ev && ev.message) || ev).slice(0, 160) }); res(null); };
+      let w = null, why = ''; try { w = phWorker || (phWorker = new Worker('dxf-worker.js')); } catch (e) { w = null; why = e && e.message; }
+      if (!w) { res({ fail: `the plan's worker could not start${why ? ` (${why})` : ''}` }); return; }
+      let tm = 0; const id = `ph-${Date.now()}-${Math.random()}`, off = () => { clearTimeout(tm); w.removeEventListener('message', on); w.removeEventListener('error', bad); phWorkerEnd = null; };
+      const lose = () => { try { w.terminate(); } catch (x) { /* gone */ } if (phWorker === w) phWorker = null; };
+      const on = (ev) => { const r = ev.data || {}; if (r.id !== id) return; off(); if (!r.ok) LOG.warn('draw.photos.plan', { msg: String(r.err || '').slice(0, 160) }); res(r.ok && r.out && r.out.report ? r.out : { fail: r.ok ? 'the plan came back without its report' : String(r.err || 'the plan builder stopped') }); };
+      const bad = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); off(); lose(); const msg = String((ev && ev.message) || ev || 'the worker stopped'); /* (handled: said here, not the page's error too) */ LOG.warn('draw.photos.worker', { msg: msg.slice(0, 160) }); res({ fail: msg }); };
+      tm = setTimeout(() => { off(); lose(); LOG.warn('draw.photos.worker', { msg: 'no answer', ms: PH_WAIT }); res({ fail: `no answer in ${PH_WAIT >= 60000 ? `${Math.round(PH_WAIT / 60000)} minute${PH_WAIT >= 120000 ? 's' : ''}` : `${Math.round(PH_WAIT / 1000)} s`}` }); }, PH_WAIT);
       w.addEventListener('message', on); w.addEventListener('error', bad); phWorkerEnd = () => { off(); res(null); };
-      try { w.postMessage({ id, seed, job, only: 'plan' }); } catch (e) { off(); res(null); }
+      try { w.postMessage({ id, seed, job, only: 'plan' }); } catch (e) { off(); res({ fail: `the plan could not be passed to its worker (${(e && e.message) || e})` }); }
     });
   }
   /** A photo's size as the plan export makes it (pdfJpeg: 800 px on its long side), from its stored file's header (nothing decoded); null without one. */
@@ -2538,16 +2545,26 @@
   function drwPlanShow(said) {
     if (!drw) return; drwMvShowPins(); if (drw.mvSel && !(drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.mvSel))) drw.mvSel = null; drw.mvSels = drwSels(); drwPhHint(); drwPlanUi(); renderDrawLegend(); drwTbRender(); drawDrawing(); // ((beta 7.10, Drawing labels) each item where its pin puts it, until the plan made with it comes) ((beta 7.11, Drawing tools) the selection still on the plan, its toolbar)
     if (drw.selWant && drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.selWant) && !drw.add && !drwSels().length) { const w = drw.selWant; drw.selWant = null; drwMvTap(w); } // ((beta 7.12, Drawing edit) a note just added: selected once the plan has it)
-    if (said && drw.ph) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
+    if (drw.plFail && drw.ph && drw.ph.plan && (drw.ph.made || 0) >= drw.plFail.at) { drw.plFail = null; const b = $('drawRegenT'); if (b.classList.contains('fail')) { b.classList.remove('fail'); b.textContent = ''; } } // ((beta 7.15, Fixes) a plan made after it: its failure said no more (the photos shown without the plan, or the one made before: still said))
+    if (said && drw.ph && !drw.plFail) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
   }
   let rkAgainOn = ''; // ((beta 7.14, Roads again) the project whose roads are being got again ('': none), roadsAgain)
+  /** (beta 7.15, Fixes) The plan preview could not be made (e: an Error or a reason; how: 'made' or 'drawn'): said plainly where Regenerate says what it does (a toast
+   *  when Regenerate is not there), kept 20 s or until the next preview, and logged (draw.plan.fail). Never a silent stop. */
+  function drwPlanFail(e, how) {
+    const err = e instanceof Error ? e : new Error(String((e && e.message) || e || 'unknown')), why = String(err.message || 'unknown').replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').slice(0, 220);
+    LOG.warn('draw.plan.fail', { ...errInfo(err), how: how || 'made' }); if (!drw) return; drw.phBusy = false; drwPhForce = false; drw.plFail = { why, at: Date.now() }; drwPlanUi();
+    const t = `The plan preview could not be ${how === 'drawn' ? 'drawn' : 'made'}: ${why}. Try Regenerate; if it fails again, export to see the reason.`, b = $('drawRegenT'), rg = $('drawRegen');
+    if (!rg || rg.hidden || $('drawing').hidden) { toast(t, 9000); return; }
+    b.textContent = t; b.classList.add('fail'); clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.classList.contains('fail')) { b.textContent = ''; b.classList.remove('fail'); } }, 20000);
+  }
   /** The Drawing's plan tools: Regenerate plan preview (busy while it is made), Sheet grid, the photos placed by hand. */
   function drwPlanUi() {
     if (!drw) return;
     const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen');
     rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
     { const rd = $('drawRoads'), on = !!rkAgainOn; rd.hidden = rg.hidden || !$('dxfRoads').checked; rd.disabled = on; rd.setAttribute('aria-busy', String(on)); rg.classList.toggle('withrd', !rd.hidden); } // ((beta 7.14, Roads again) Get the roads again beside it, while the plan has roads (Plan style); not while they are being got)
-    if (busy) $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = '';
+    if (busy) { $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; $('drawRegenT').classList.remove('fail'); } else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = ''; // ((beta 7.15, Fixes) a failure said: Making… in its place)
     $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
     drwChgRender(pl); // ((beta 7.14, Changed by hand) in Edit: how many moved and changed by hand, its list (7.9–7.13's chip "placed by hand · Back to automatic": its Put all back))
     drwIcoRender(); // ((beta 7.10, Drawing labels) Undo, while there is a change to take back; (beta 7.12, Drawing edit) in the row of the Drawing's tools)
@@ -23233,6 +23250,7 @@
       for (let q = IT[4 * k + 2]; q < IT[4 * k + 2] + IT[4 * k + 3]; q++) { const f = SB[3 * q], c = SB[3 * q + 1], L = []; for (let j = 0; j < c; j++) L.push([Pp[2 * (f + j)] + o[0], Pp[2 * (f + j) + 1] + o[1]]); out.lines.push(L); } }
     return out; };
   window.__polecam.drwMvItem = (id) => { const m = drw && mvById(id); if (!m) return null; const i = mvIx(id), PL = drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; return JSON.parse(JSON.stringify({ ...m, handles: m.handles.length, canNow: canOf(m), lifted: L ? { off: L.off, xf: L.xf } : null, boxNow: drwMvBox(m, i) })); };
+  window.__polecam.drwPreviewWait = (ms) => { if (ms > 0) PH_WAIT = +ms; return PH_WAIT; }; // ((beta 7.15, Fixes) tests: how long the preview's worker is waited for)
   window.__polecam.drwJobTools = () => (drw && drw.ph ? JSON.parse(JSON.stringify(drw.ph.tools || null)) : null);
   window.__polecam.drwCands = (x, y, mouse) => (drw ? drwCands({ clientX: x, clientY: y, pointerType: mouse ? 'mouse' : 'touch' }).map((c) => ({ ...c })) : null); // ((beta 7.11, Drawing tools) tests: what a tap there goes through)
   window.__polecam.shareMeta = (n) => JSON.parse(JSON.stringify(shareMeta(n || S.project))); // ((beta 7.11, Drawing tools) tests: what a project shares with the team)
