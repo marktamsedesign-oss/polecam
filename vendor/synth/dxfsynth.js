@@ -295,7 +295,10 @@
       if (it.inline) { taken.add(it); out.push({ ...fld(L, it, it.inline.f, it.inline.f.weak ? 0.45 : 0.8, it.inline.prefix.trim(), 'inline'), value: it.inline.value, prefix: it.inline.prefix }); continue; }
       if (it.kind === 'attrib') { const f = fieldOfWords(words(it.tag)) || fieldOfWords(words(get(it.r, 3, ''))); taken.add(it); out.push(fld(L, it, f, f ? (f.weak ? 0.45 : 0.9) : 0, it.tag, 'tag')); }
     }
-    return out.sort((a, b) => b.box[3] - a.box[3] || a.box[0] - b.box[0]);
+    const res = out.sort((a, b) => b.box[3] - a.box[3] || a.box[0] - b.box[0]);
+    // ((templates, Digester) the sheet's other texts on a line, for crossFields: a value of the title block seen again, e.g. on a cover page)
+    Object.defineProperty(res, 'rest', { value: items.filter((it) => !taken.has(it) && it.kind !== 'attrib' && !it.label && !it.inline && it.level), enumerable: false, configurable: true });
+    return res;
   }
   function fld(L, v, f, sure, label, how) {
     return { id: v.id, sheet: L.name, kind: v.kind === 'attrib' ? 'attrib' : v.kind === 'btext' ? 'btext' : 'text', how, label: String(label || '').trim(), value: v.s, tag: v.tag || '',
@@ -418,6 +421,221 @@
     return { box: ext.map((v) => +v.toFixed(3)), n: ents.length, groups };
   }
 
+  /* ---------------- (templates, Digester) a client's FINISHED plan ----------------
+     The owner: "the digester learning from clients' finished plans. Learning means copying the template but replacing the details necessary to
+     the project. Example: the plan itself, the project details, sheets to print details. Geo add sheet, vicinity, pmi and so on". A finished
+     plan has its route drawn in model space: symbols (its poles) along lines (its cable) and their labels; its sheets show parts of it (the plan
+     sheets), all of it (the key map), a picture of the place (the vicinity map), its tables (PMI, ROW), its legend. planOf() finds them, and the
+     look of each kind of thing it drew (layer, text style, height, colour, line weight, block): what the client's template draws the app's plans
+     with. The user corrects it in the review; make() then copies their plan with the plan itself removed (see makePlan). */
+  /** The kinds whose look is learned from the client's drawing (the review's list). appH: the app's own height of that text (metres, on the GEO
+      sheet at 1:1,100), to say how much larger or smaller the client's is. */
+  const KINDS = [
+    { k: 'poleId', label: 'Pole IDs and details', text: true, appH: 2.2 }, { k: 'poleNo', label: 'Pole numbers', text: true, appH: 3 }, { k: 'poleNoCircle', label: 'Circles round the pole numbers' },
+    { k: 'latLong', label: 'Lat / long', text: true, appH: 1.2 }, { k: 'spanLen', label: 'Span lengths', text: true, appH: 2 }, { k: 'cableLabel', label: 'Cable names', text: true, appH: 2 },
+    { k: 'loopText', label: 'Loop texts', text: true, appH: 2 }, { k: 'closureLabel', label: 'Closure labels', text: true, appH: 2.5 }, { k: 'siteName', label: 'Site names', text: true, appH: 3 },
+    { k: 'streetName', label: 'Street names', text: true, appH: 3.2 }, { k: 'gridLabel', label: 'Sheet grid names', text: true }, { k: 'note', label: 'Other texts on the plan', text: true, appH: 2.2 },
+    { k: 'cable', label: 'Cables (proposed)' }, { k: 'cableExisting', label: 'Cables (existing)' }, { k: 'pole', label: 'Poles' }, { k: 'symbol', label: 'Closures, loops, boxes' },
+    { k: 'road', label: 'Roads' }, { k: 'grid', label: 'Sheet grid' },
+  ];
+  const KIND = new Map(KINDS.map((x) => [x.k, x]));
+  const TXT_RE = {
+    latLong: /^[-+]?\d{1,3}\.\d{4,}\s*°?\s*[NSEW]?$|^\d{1,3}\s*°\s*\d{1,2}\s*'\s*\d{1,2}(\.\d+)?\s*"\s*[NSEW]$/, spanLen: /^\d{1,4}(\.\d+)?\s*(M|MTRS?|METERS?|METRES?)\.?$/i, poleNo: /^\d{1,3}$/,
+    loopText: /\bLOOP\b|\bSLACK\b|\bRESERVE\b|\bCOIL\b/i, closureLabel: /CLOSURE|SPLICE|\bJOINT\b|\bFOSC\b|\bJC\b/i, gridLabel: /^[A-Z]{1,2}\s?-\s?\d{1,2}$/,
+    cableLabel: /\bFOC\b|FIB(ER|RE)|\bCABLE\b|\b\d+\s?C\b|\bADSS\b|FIG(URE)?[- ]?8|\bAERIAL\b|UNDERGROUND/i, siteName: /\bSITE\b|\bPLA\b|\bTOWER\b|\bBTS\b|\bMIN\d|\bOLT\b/i,
+    streetName: /\b(ST|STREET|RD|ROAD|AVE|AVENUE|HWY|HIGHWAY|BLVD|BOULEVARD|DRIVE|DR|LANE|LN|EXT|EXTENSION|HIWAY|CIRCLE|CIR|PUROK|SITIO)\b\.?/i,
+    poleId: /^[A-Z]{1,5}[- ]?\d{2,}[A-Z]?$|^(P|PL|POLE|PP|NPT)[- ]?\d+$|^(PROP(OSED)?|EXIST(ING)?|NEW)\.?\s*(POLE|GT|PLDT|TELCO)\.?\s*[A-Z]{0,5}[- ]?\d{2,}[A-Z]?$/i,
+  };
+  /** The PMI table's rows the app fills, by their label's words: token, the label, and how (token: the app's value as a field; empty: the
+      cell emptied, the builder fills it where the label reads as the company's, PROPOSED HDD…). */
+  const PMI_LABELS = [
+    ['PMI_TOTAL_CABLE_LENGTH', /^TOTAL( FOC| FIB(ER|RE)( OPTIC)?)?( CABLE)? LENGTH$/, 'token'], ['PMI_AERIAL_CABLE_LENGTH', /^(AERIAL|AE)( FOC| FIB(ER|RE)( OPTIC)?)?( CABLE)? LENGTH$/, 'token'],
+    ['PMI_UG_CABLE_LENGTH', /^(UNDERGROUND|UG)( FOC| FIB(ER|RE)( OPTIC)?)?( CABLE)? LENGTH$/, 'token'], ['PMI_PROPOSED_POLE', /^(PROPOSED|NEW|PROP) POLES?$/, 'token'],
+    ['PMI_EXISTING_GT_POLE', /^(EXISTING|EXIST) (GT |GLOBE |TELCO )?POLES?$/, 'token'], ['PMI_RTA_CONVERGE', /^RTA CONVERGE$/, 'token'], ['PMI_RTA_LOCAL_COOP', /^RTA( LOCAL)? COOP$/, 'token'],
+    ['PMI_RTA_OTHER_PLDT', /^RTA OTHER/, 'token'], ['PMI_FIBER_TERMINATION', /^FIB(ER|RE) TERMINATIONS?$/, 'token'], ['PMI_HYBRID_CLOSURE', /^(PROPOSED |NEW )?(HYBRID |SPLICE )?CLOSURES?$/, 'token'],
+    ['PMI_HDD', /^(PROPOSED )?HDD$/, 'empty'], ['PMI_OPEN_TRENCH', /^(PROPOSED )?OPEN TRENCH$/, 'empty'], ['PMI_MICRO_TRENCH', /^(PROPOSED )?MICRO TRENCH$/, 'empty'],
+    ['PMI_MAXCELL_INNER_DUCT', /^MAXCELL( INNER DUCT)?$/, 'empty'], ['PMI_MANHOLE', /^(PROPOSED )?MAN ?HOLES?$/, 'empty'], ['PMI_SERVICE_BOX', /^(PROPOSED )?SERVICE BOX(ES)?$/, 'empty'],
+  ];
+  /** A sheet's role in the client's template (the review's choice per sheet) and the builder's name for it (makePlan). */
+  const ROLES = [['cover', 'Cover page', 'TITLE'], ['toc', 'Contents', 'TOC'], ['legend', 'Legend', 'LEGENDS'], ['vicinity', 'Vicinity map (its picture: the app\'s)', 'VICINITY MAP'],
+    ['row', 'ROW table', 'ROW AREA COVERAGE'], ['keymap', 'Key map', 'KEYMAP'], ['plan', 'Plan sheet (the app adds one per part of the route)', 'GEO'], ['pmi', 'PMI table', 'PMI'],
+    ['cef', 'CEF sheet (its own CEF template)', ''], ['other', 'Other sheet (kept as it is)', ''], ['out', 'Left out', '']];
+  const ROLE = new Map(ROLES.map(([k, label, name]) => [k, { k, label, name }]));
+  /** The look most of a kind's samples share: { layer, style, h (metres), color, lw, lt, block, n }. */
+  function lookMode(samples) {
+    if (!samples.length) return null;
+    const key = (s) => [s.layer, s.style || '', s.h != null ? +s.h.toFixed(2) : '', s.color, s.block || ''].join('|'), cnt = new Map();
+    for (const s of samples) cnt.set(key(s), (cnt.get(key(s)) || 0) + 1);
+    const best = [...cnt].sort((a, b) => b[1] - a[1])[0][0], s = samples.find((x) => key(x) === best), o = { ...s, n: samples.length };
+    if (o.h != null) o.h = +o.h.toFixed(3); else delete o.h;
+    return o;
+  }
+  /** The model space's polylines of the old kind (POLYLINE and its VERTEXes): their points. */
+  function polyPts(S) {
+    const out = new Map(); let cur = null;
+    for (const r of S.E) { const t = typ(r); if (t === 'POLYLINE') { cur = (int(r, 70, 0) & (16 | 64)) ? null : r; if (cur) out.set(r, []); continue; } if (t === 'VERTEX') { if (cur) out.get(cur).push([num(r, 10, 0), num(r, 20, 0)]); continue; } cur = null; }
+    return out;
+  }
+  function planOf(d, S, sheets, mU, model) {
+    const U = (v) => v / mU, M = modelEnts(S).filter((r) => !/^(ATTRIB|SEQEND|VERTEX|VIEWPORT)$/.test(typ(r)));
+    const LY = new Map(S.T.filter((r) => typ(r) === 'LAYER').map((r) => [String(get(r, 2, '')), r])), lyOf = (r) => LY.get(String(get(r, 8, '0')));
+    const lwOfR = (r) => { const w = int(r, 370, -1); if (w >= 0) return w; const L = lyOf(r), lw = L ? int(L, 370, -3) : -3; return lw >= 0 ? lw : null; };
+    const colOf = (r) => { if (get(r, 62) != null) { const c = int(r, 62, 256); if (c > 0 && c < 256) return c; } const L = lyOf(r); return L ? Math.abs(int(L, 62, 7)) || 7 : 7; };
+    const ltOf = (r) => { const t = get(r, 6); if (t && !/^BY(LAYER|BLOCK)$/i.test(t)) return String(t); const L = lyOf(r); return L ? String(get(L, 6, 'Continuous')) : 'Continuous'; };
+    const grpOf = new Map(); for (const g of (model && model.groups) || []) for (const r of g.recs) grpOf.set(r, g);
+    const legendR = (r) => (grpOf.get(r) || {}).kind === 'legend';
+    // the lines (segments in a coarse grid, to find what is near a point quickly)
+    const segs = [], cell = U(25), grid = new Map(), gk = (i, j) => `${i},${j}`, PP = polyPts(S);
+    const addSeg = (a, b, r) => { const g = [a[0], a[1], b[0], b[1], r, String(get(r, 8, '0'))]; segs.push(g); const i0 = Math.floor(Math.min(a[0], b[0]) / cell), i1 = Math.floor(Math.max(a[0], b[0]) / cell), j0 = Math.floor(Math.min(a[1], b[1]) / cell), j1 = Math.floor(Math.max(a[1], b[1]) / cell); if ((i1 - i0 + 1) * (j1 - j0 + 1) > 400) return; for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = gk(i, j); (grid.get(k) || grid.set(k, []).get(k)).push(g); } };
+    const ptsOf = (r) => { const t = typ(r); if (t === 'LWPOLYLINE') { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); return X.map((x, i) => [x, Y[i]]); } if (t === 'POLYLINE') return PP.get(r) || []; return null; };
+    for (const r of M) {
+      if (legendR(r)) continue; const t = typ(r);
+      if (t === 'LINE') addSeg([num(r, 10, 0), num(r, 20, 0)], [num(r, 11, 0), num(r, 21, 0)], r);
+      else if (t === 'LWPOLYLINE' || t === 'POLYLINE') { const P = ptsOf(r); for (let i = 1; i < P.length; i++) addSeg(P[i - 1], P[i], r); if ((int(r, 70, 0) & 1) && P.length > 2) addSeg(P[P.length - 1], P[0], r); }
+    }
+    const dSeg = (x, y, g) => { const dx = g[2] - g[0], dy = g[3] - g[1], L2 = dx * dx + dy * dy; let t = L2 ? ((x - g[0]) * dx + (y - g[1]) * dy) / L2 : 0; t = Math.max(0, Math.min(1, t)); return Math.hypot(x - (g[0] + t * dx), y - (g[1] + t * dy)); };
+    const near = (x, y, tol) => { const out = [], seen = new Set(); for (let i = Math.floor((x - tol) / cell); i <= Math.floor((x + tol) / cell); i++) for (let j = Math.floor((y - tol) / cell); j <= Math.floor((y + tol) / cell); j++) for (const g of grid.get(gk(i, j)) || []) { if (seen.has(g)) continue; seen.add(g); if (dSeg(x, y, g) <= tol) out.push(g); } return out; };
+    const roadName = /ROAD|STREET|\bRD\b|PAVE|CURB|KERB|CARRIAGE|\bST\b|BASEMAP|OSM/i, gridName = /GRID|MATCH ?LINE|SHEET ?(INDEX|LIMIT)|KEY ?PLAN/i, cableName = /(\bFO\b|FOC|FIB(ER|RE)|CABLE|OSP|ROUTE|ADSS|STRAND)/i;
+    const ins = M.filter((r) => typ(r) === 'INSERT' && !legendR(r)).map((r) => ({ r, name: String(get(r, 2, '')), x: num(r, 10, 0), y: num(r, 20, 0), layer: String(get(r, 8, '0')) }));
+    // the cables: the layers whose lines pass through (or 3 m from) many symbols; the poles: the blocks so placed, three times or more
+    const onBy = new Map(), tol = U(3);
+    for (const p of ins) for (const lay of new Set(near(p.x, p.y, tol).map((g) => g[5]))) { if (roadName.test(lay) || gridName.test(lay)) continue; (onBy.get(lay) || onBy.set(lay, new Set()).get(lay)).add(p); }
+    const nonPole = SYMBOLS.filter((s) => !/POLE/i.test(s.name));
+    const cand = [...onBy].filter(([lay, P]) => P.size >= 3 || (cableName.test(lay) && P.size >= 1)).map(([lay]) => lay);
+    const byName = new Map(); for (const lay of cand) for (const p of onBy.get(lay)) { if (!/POLE/i.test(p.name) && nonPole.some((s) => s.re.test(p.name))) continue; (byName.get(p.name) || byName.set(p.name, new Set()).get(p.name)).add(p); }
+    const poleBlocks = [...byName].filter(([n, P]) => P.size >= 3 || /POLE/i.test(n)).map(([n, P]) => ({ name: n, n: P.size })).sort((a, b) => b.n - a.n);
+    poleBlocks.forEach((b, i) => { b.kind = /EXIST|OLD|\bEX\b/i.test(b.name) ? 'existing' : /NEW|PROP/i.test(b.name) ? 'new' : i === 0 ? 'new' : 'existing'; });
+    const isPole = new Set(poleBlocks.map((b) => b.name)), poleIns = ins.filter((p) => isPole.has(p.name));
+    // the route: the groups of model space that hold its poles (a legend's samples are not the route)
+    const pg = new Map(); for (const p of poleIns) { const g = grpOf.get(p.r); if (g) pg.set(g, (pg.get(g) || 0) + 1); }
+    const routeG = [...pg].filter(([g, n]) => n >= 2 || pg.size === 1).map(([g]) => g), inRouteG = (r) => routeG.includes(grpOf.get(r)) || !grpOf.size;
+    const poles = poleIns.filter((p) => inRouteG(p.r));
+    for (const b of poleBlocks) b.n = poles.filter((p) => p.name === b.name).length;
+    const cableSegs = segs.filter((g) => cand.includes(g[5]) && inRouteG(g[4])), lenOf = (lay) => cableSegs.filter((g) => g[5] === lay).reduce((a, g) => a + Math.hypot(g[2] - g[0], g[3] - g[1]), 0) * mU;
+    const cableLayers = cand.map((lay) => ({ layer: lay, hits: [...onBy.get(lay)].filter((p) => poles.includes(p)).length, m: Math.round(lenOf(lay)) })).filter((c) => c.m >= 20 && c.hits >= 1).sort((a, b) => b.hits - a.hits || b.m - a.m);
+    const cableSet = new Set(cableLayers.map((c) => c.layer)), cableM = cableLayers.reduce((a, c) => a + c.m, 0), drawn = poles.length >= 4 && cableM >= 30;
+    let route = null; for (const p of poles) route = boxU(route, [p.x, p.y, p.x, p.y]);
+    for (const g of cableSegs) if (cableSet.has(g[5])) route = boxU(route, [Math.min(g[0], g[2]), Math.min(g[1], g[3]), Math.max(g[0], g[2]), Math.max(g[1], g[3])]);
+    const nearRoute = (x, y, m) => poles.some((p) => Math.hypot(p.x - x, p.y - y) <= U(m)) || near(x, y, U(m)).some((g) => cableSet.has(g[5]) && inRouteG(g[4]));
+    // the tables the app fills: the PMI (its rows by their labels, the value right of each) and the ROW (its cities / municipalities and barangays);
+    // in model space or drawn on a sheet
+    const items = [], itemOf = (r, space) => { const tb = textBox(r); return { r, s: plainText(r), x: num(r, 10, 0), y: num(r, 20, 0), h: num(r, 40, 0) || 1, cx: (tb.box[0] + tb.box[2]) / 2, cy: (tb.box[1] + tb.box[3]) / 2, box: tb.box, space }; };
+    for (const r of M) if (/^(TEXT|MTEXT)$/.test(typ(r)) && !legendR(r)) items.push(itemOf(r, ''));
+    for (const L of S.layouts) if (L.name !== 'Model') for (const r of sheetEnts(d, S, L)) if (/^(TEXT|MTEXT)$/.test(typ(r))) items.push(itemOf(r, L.name));
+    const wds = (s) => words(s).replace(/\s*\([^)]*\)\s*$/, '').trim(), qty = /\d|^[-–—]$/;
+    let pmi = null; const tabH = new Set();
+    for (const t of items) {
+      const w = wds(t.s), hit = PMI_LABELS.find(([, re]) => re.test(w)); if (!hit) continue;
+      if (pmi && (pmi.space !== t.space || pmi.rows.some((p) => p.token === hit[0]))) continue;
+      const v = items.filter((u) => u !== t && u.space === t.space && Math.abs(u.cy - t.cy) < 0.7 * Math.max(t.h, u.h) && u.box[0] > t.box[2] - 0.5 * t.h && u.box[0] - t.box[2] < 60 * t.h && u.s.length <= 24 && qty.test(u.s) && !PMI_LABELS.some(([, re]) => re.test(wds(u.s)))).sort((a, b) => a.box[0] - b.box[0])[0];
+      if (!v) continue;
+      pmi = pmi || { space: t.space, rows: [], box: null };
+      pmi.rows.push({ token: hit[0], how: hit[2], label: t.s, value: v.s, handle: handleOf(v.r) }); pmi.box = boxU(boxU(pmi.box, t.box), v.box); tabH.add(t.r); tabH.add(v.r);
+    }
+    if (pmi && pmi.rows.length < 2) pmi = null;
+    let row = null;
+    for (const hm of items.filter((t) => /^(CITY ?\/ ?)?(MUNICIPALIT(Y|IES)|CIT(Y|IES)|TOWNS?)( ?\/ ?CITY)?$/.test(wds(t.s)))) {
+      const hb = items.find((t) => t.space === hm.space && /^(BARANGG?AYS?|BRGYS?)$/.test(wds(t.s)) && Math.abs(t.cy - hm.cy) < 1.5 * Math.max(t.h, hm.h) && t.cx > hm.cx); if (!hb) continue;
+      const W = hb.cx - hm.cx, h = Math.max(hm.h, hb.h), mid = (hm.cx + hb.cx) / 2;
+      const below = items.filter((t) => t.space === hm.space && t !== hm && t !== hb && t.cy < hm.cy - 0.6 * h && hm.cy - t.cy < 40 * h && t.cx > hm.cx - 1.5 * W && t.cx < hb.cx + 1.5 * W && t.s && !/^(NO\.?|#)$/i.test(t.s)).sort((a, b) => b.cy - a.cy);
+      const tot = below.filter((t) => /^TOTAL\s*[-:=]?\s*\d+$/i.test(t.s)), floor = tot.length ? Math.max(...tot.map((t) => t.cy)) + 0.4 * h : -Infinity;
+      let body = below.filter((t) => !tot.includes(t) && t.cy > floor);
+      if (!tot.length) { const keep = []; let last = hm.cy; for (const t of body) { if (last - t.cy > 6 * h) break; keep.push(t); last = t.cy; } body = keep; }
+      const muni = body.filter((t) => t.cx < mid), brgy = body.filter((t) => t.cx >= mid);
+      row = { space: hm.space, header: [hm.s, hb.s], box: [hm.cx - 1.5 * W, (tot[0] || body[body.length - 1] || hm).cy - h, hb.cx + 1.5 * W, hm.cy + h],
+        munis: muni.map((t, i) => ({ token: i < 2 ? `ROW_MUNICIPALITY_${i + 1}` : '', value: t.s, handle: handleOf(t.r) })),
+        brgys: brgy.map((t, i) => ({ token: i < 7 ? `ROW_BARANGAY_${i + 1}` : '', value: t.s, handle: handleOf(t.r) })),
+        totals: tot.map((t) => ({ token: t.cx < mid ? 'ROW_MUNICIPALITIES' : 'ROW_BARANGAYS', value: t.s, handle: handleOf(t.r) })) };
+      for (const t of [hm, hb, ...tot, ...body]) tabH.add(t.r);
+      break;
+    }
+    // the vicinity map's picture: IMAGEs and OLE pictures, in model space (with what is drawn round it) or on a sheet
+    const pics = [], vicG = new Set();
+    for (const r of M) if (/^(IMAGE|OLE2FRAME)$/.test(typ(r))) { pics.push({ handle: handleOf(r), sheet: '', box: (() => { try { return TPL().drawnBox(S, r); } catch (e) { return null; } })() }); const g = grpOf.get(r); if (g && !routeG.includes(g)) vicG.add(g); }
+    for (const L of S.layouts) if (L.name !== 'Model') for (const r of sheetEnts(d, S, L)) if (/^(IMAGE|OLE2FRAME)$/.test(typ(r))) pics.push({ handle: handleOf(r), sheet: L.name, box: null });
+    // the look of each kind of thing the plan draws
+    const samples = Object.fromEntries(KINDS.map((x) => [x.k, []])), kinds = {};
+    if (drawn) {
+      for (const c of cableLayers) { const r = cableSegs.find((g) => g[5] === c.layer)[4], s = { layer: c.layer, color: colOf(r), lw: lwOfR(r), lt: ltOf(r) }; const ex = /EXIST|OLD/i.test(c.layer) || (!/PROP|NEW/i.test(c.layer) && c !== cableLayers[0] && (s.color === 5 || /DASH|HIDDEN/i.test(s.lt))); samples[ex ? 'cableExisting' : 'cable'].push({ ...s, m: c.m }); }
+      for (const p of poles) samples.pole.push({ layer: p.layer, color: colOf(p.r), lw: lwOfR(p.r), block: p.name });
+      for (const p of ins) if (!isPole.has(p.name) && inRouteG(p.r) && nearRoute(p.x, p.y, 10) && nonPole.some((s) => s.re.test(p.name))) samples.symbol.push({ layer: p.layer, color: colOf(p.r), lw: lwOfR(p.r), block: p.name });
+      for (const g of segs) {
+        if (cableSet.has(g[5]) || !inRouteG(g[4])) continue; const r = g[4], P = ptsOf(r);
+        const sq = P && (int(r, 70, 0) & 1) && P.length === 4 && Math.abs(Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) - Math.hypot(P[2][0] - P[1][0], P[2][1] - P[1][1])) < U(1) && Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) * mU >= 100;
+        if (gridName.test(g[5]) || sq) samples.grid.push({ layer: g[5], color: colOf(r), lw: lwOfR(r), lt: ltOf(r) });
+        else if (roadName.test(g[5]) || nearRoute((g[0] + g[2]) / 2, (g[1] + g[3]) / 2, 60)) { if (!/BORDER|FRAME|TITLE|VPORT|VIEWPORT|DEFPOINTS/i.test(g[5])) samples.road.push({ layer: g[5], color: colOf(r), lw: lwOfR(r), lt: ltOf(r) }); }
+      }
+      const circles = M.filter((e) => typ(e) === 'CIRCLE' && inRouteG(e));
+      for (const t of items) {
+        if (t.space !== '' || tabH.has(t.r) || !inRouteG(t.r)) continue;
+        const s = t.s, h = t.h * mU, big = TXT_RE.gridLabel.test(s) && h >= 8; if (!s || (!big && !nearRoute(t.cx, t.cy, 40))) continue;
+        const smp = { layer: String(get(t.r, 8, '0')), style: String(get(t.r, 7, 'Standard')), h, color: colOf(t.r) };
+        const nearP = (m) => poles.some((p) => Math.hypot(p.x - t.cx, p.y - t.cy) <= U(m));
+        let k = 'note';
+        if (TXT_RE.latLong.test(s)) k = 'latLong'; else if (TXT_RE.spanLen.test(s)) k = 'spanLen'; else if (big) k = 'gridLabel';
+        else if (TXT_RE.poleNo.test(s) && nearP(14)) k = 'poleNo'; else if (TXT_RE.loopText.test(s)) k = 'loopText'; else if (TXT_RE.closureLabel.test(s)) k = 'closureLabel';
+        else if (TXT_RE.cableLabel.test(s)) k = 'cableLabel'; else if (TXT_RE.poleId.test(s) && nearP(16)) k = 'poleId';
+        else if (TXT_RE.siteName.test(s)) k = 'siteName'; else if (TXT_RE.streetName.test(s) || roadName.test(smp.layer)) k = 'streetName';
+        samples[k].push(smp);
+        if (k === 'poleNo') { const c = circles.find((e) => Math.hypot(num(e, 10, 0) - t.cx, num(e, 20, 0) - t.cy) <= num(e, 40, 0) * 0.6 + 0.3 * t.h); if (c) samples.poleNoCircle.push({ layer: String(get(c, 8, '0')), color: colOf(c), lw: lwOfR(c), h: 2 * num(c, 40, 0) * mU }); }
+      }
+      for (const x of KINDS) { const m = lookMode(samples[x.k]); if (m) kinds[x.k] = m; }
+      if (kinds.pole) kinds.pole.blocks = poleBlocks.filter((b) => b.n > 0).map((b) => ({ name: b.name, kind: b.kind, n: b.n }));
+      if (kinds.symbol) { const bn = new Map(); samples.symbol.forEach((s) => bn.set(s.block, (bn.get(s.block) || 0) + 1)); kinds.symbol.blocks = [...bn].map(([name, n]) => ({ name, n })); }
+    }
+    // each sheet's role: by its name, else by what its main viewport shows
+    const area = (b) => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]), ov = (a, b) => (a && b ? area([Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])]) : 0);
+    const roles = {}, scale = {};
+    const plans = sheets.filter((s) => s.vps[0] && route && ov(s.vps[0].win, route) > 0).map((s) => ({ s, a: area(s.vps[0].win), cover: ov(s.vps[0].win, route) / (area(route) || 1) }));
+    const aMin = plans.length ? Math.min(...plans.map((p) => p.a)) : 0;
+    const shows = (s, t) => !!t && (t.space ? t.space === s.name : s.vps.some((v) => t.box && boxHit(v.win, t.box, 0)));
+    for (const s of sheets) {
+      const nm = s.name.toUpperCase(), v = s.vps[0];
+      let r = /\bTOC\b|CONTENTS|SHEET ?INDEX|INDEX OF (SHEETS|DRAWINGS)|DRAWING (INDEX|LIST)/.test(nm) ? 'toc' : /COVER|^TITLE|FRONT/.test(nm) ? 'cover' : /\bCEF\b|CABLE ENTRANCE/.test(nm) ? 'cef' : /LEGEND/.test(nm) ? 'legend'
+        : /VICINITY|LOCATION|LOC\.? ?MAP|LOCALITY/.test(nm) ? 'vicinity' : /KEY|INDEX|OVERVIEW/.test(nm) ? 'keymap' : /\bPMI\b|PROJECT MANAGEMENT|SUMMARY|QUANTIT/.test(nm) ? 'pmi' : /\bROW\b|RIGHT OF WAY|R\.O\.W/.test(nm) ? 'row' : '';
+      if (!r) {
+        if (pics.some((p) => p.sheet === s.name || (p.box && v && boxHit(v.win, p.box, 0)))) r = 'vicinity';
+        else if (shows(s, pmi)) r = 'pmi'; else if (shows(s, row)) r = 'row';
+        else { const p = plans.find((q) => q.s === s); if (p) r = p.cover > 0.8 && p.a > 1.8 * aMin && plans.length > 1 ? 'keymap' : 'plan'; else if (!v) r = s.n > 1 ? 'cover' : 'out'; else r = /PLAN|GEO|SHEET|ROUTE|DWG|LAYOUT/.test(nm) ? 'plan' : 'other'; }
+      }
+      roles[s.name] = r;
+      if (v && v.h > 0) scale[s.name] = Math.round((v.win[3] - v.win[1]) * mU * 1000 / (v.h * s.mm));
+    }
+    const ps = sheets.filter((s) => roles[s.name] === 'plan' && scale[s.name] > 0).map((s) => scale[s.name]).sort((a, b) => a - b), planScale = ps.length ? ps[Math.floor(ps.length / 2)] : null;
+    // a finished plan, not a template with a sample drawing (7.15's): its route drawn, and two signs of a plan made for a project
+    const nOf = (r) => Object.values(roles).filter((x) => x === r).length;
+    const signs = [pmi ? 'a PMI table with its figures' : '', row ? 'a ROW table with its places' : '', pics.length || nOf('vicinity') ? 'a vicinity map' : '', nOf('plan') > 1 ? `${nOf('plan')} plan sheets` : '',
+      nOf('keymap') ? 'a key map' : '', nOf('cover') ? 'a cover page' : '', (kinds.poleNo || kinds.latLong) && kinds.poleId ? 'pole numbers or lat / long by the IDs' : ''].filter(Boolean);
+    const finished = drawn && signs.length >= 2;
+    for (const x of KINDS) if (kinds[x.k] && kinds[x.k].h != null) { const o = kinds[x.k]; o.mm = planScale ? +(o.h * 1000 / planScale).toFixed(2) : null; o.k = planScale && x.appH ? +((o.h / planScale) / (x.appH / 1100)).toFixed(2) : null; }
+    return { finished, drawn, signs, poles: poles.length, cableM, route: route ? route.map((q) => +q.toFixed(3)) : null, cables: cableLayers, poleBlocks: poleBlocks.filter((b) => b.n > 0), kinds, pmi, row, pics, roles, scale, planScale,
+      routeGroups: routeG.map((g) => g.id), vicGroups: [...vicG].map((g) => g.id), kindList: KINDS.map((x) => ({ k: x.k, label: x.label, text: !!x.text, appH: x.appH || null })), roleList: ROLES.map(([k, label, name]) => ({ k, label, name })) };
+  }
+  /** The project's values seen in the title blocks (project, location, client…) and again in another text of a sheet (a cover page's
+      "DEMO FIBER ROUTE 2026", "PREPARED FOR DEMO CLIENT"): that text the same field, its words before the value kept (how 'same'). */
+  /** Where in raw its last letters and digits as many as v's begin (raw's words before a value: "PREPARED FOR " of "PREPARED FOR DEMO CLIENT"). */
+  const tailAt = (raw, v) => { const n = v.replace(/[^A-Za-z0-9]/g, '').length; let k = raw.trimEnd().length, c = 0; while (k > 0 && c < n) { k--; if (/[A-Za-z0-9]/.test(raw[k])) c++; } return k; };
+  const CROSS_KEYS = ['project', 'location', 'client', 'site', 'siteId', 'code', 'company', 'date', 'network', 'serial', 'dwgNo'];
+  function crossFields(sheets) {
+    const byVal = new Map();
+    for (const sh of sheets) for (const f of sh.fields) if (f.key && CROSS_KEYS.includes(f.key) && !f.placeholder && f.value && String(f.value).trim().length >= 4 && /[A-Za-z0-9]{3}/.test(f.value)) { const v = words(f.value), o = byVal.get(v) || {}; o[f.key] = (o[f.key] || 0) + 1; byVal.set(v, o); }
+    const keyOf = (v) => { const o = byVal.get(v); return o ? Object.entries(o).sort((a, b) => b[1] - a[1])[0][0] : null; };
+    const vals = [...byVal.keys()].sort((a, b) => b.length - a.length);
+    for (const sh of sheets) {
+      const rest = sh.fields.rest || [];
+      for (const it of rest) {
+        const w = words(it.s); if (!w || w.length > 90) continue;
+        let key = keyOf(w), prefix = '';
+        if (!key) { const v = vals.find((x) => w.length > x.length && w.endsWith(` ${x}`) && w.length - x.length <= 30); if (v) { key = keyOf(v); prefix = String(it.s).slice(0, tailAt(String(it.s), v)); } }
+        if (!key) continue;
+        const f = fld({ name: sh.name }, it, FIELD.get(key), 0.7, prefix ? prefix.trim() : `same as the title block's ${FIELD.get(key).label.toLowerCase()}`, prefix ? 'inline' : 'same');
+        if (prefix) { f.prefix = prefix; f.value = String(it.s).slice(prefix.length); }
+        f.cross = true; sh.fields.push(f);
+      }
+      delete sh.fields.rest;
+    }
+  }
+
   /* ---------------- digest ---------------- */
   /** What the client's drawing holds, for the review: { file, version, units, sheets (each with its fields), styles, font, heights, layers,
       blocks, model, symbols (the plan's), planLayers }. JSON (kept with nothing of the drawing itself). */
@@ -426,7 +644,8 @@
     const { d, log } = load(rd.text), S = T.structure(d);
     const insunits = parseInt(hdr(d, '$INSUNITS', 70) || '0', 10) || 0, mU = UNIT_M[insunits] || 1;
     const sheets = S.layouts.filter((L) => L.name !== 'Model').map((L) => { const scan = sheetScan(d, S, L), sh = sheetOf(d, S, L, scan); sh.fields = sheetFields(d, S, L, scan); sh.names = titleTexts(scan, sh.fields); return sh; }).sort((a, b) => a.tab - b.tab);
-    const styles = stylesOf(d, S), layers = layersOf(d, S), blocks = blocksOf(d, S), model = modelGroups(d, S, sheets, mU);
+    const styles = stylesOf(d, S), layers = layersOf(d, S), blocks = blocksOf(d, S), model = modelGroups(d, S, sheets, mU), plan = planOf(d, S, sheets, mU, model);
+    crossFields(sheets); // ((templates, Digester) a title block's value seen again on another text of a sheet: that field too)
     // the usual text heights: on the sheets (paper units), in model space (metres)
     const hist = (arr) => { const m = new Map(); arr.forEach((h) => { const k = +h.toFixed(2); if (k > 0) m.set(k, (m.get(k) || 0) + 1); }); return [...m].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([h, n]) => ({ h, n })); };
     const mt = modelEnts(S).filter((r) => /^(TEXT|MTEXT)$/.test(typ(r))).map((r) => num(r, 40, 0) * mU).filter((h) => h > 0).sort((a, b) => a - b);
@@ -440,7 +659,7 @@
     const main = cand.find((s) => !/^standard$/i.test(s.name) || cand.length === 1) || styles.find((s) => /^standard$/i.test(s.name)) || styles[0] || null;
     const bold = styles.filter((s) => s.bold && s !== main).sort((a, b) => rank(b) - rank(a))[0] || null;
     return { v: 1, file: String(name || 'client.dxf'), size: rd.text.length, version: rd.version, release: rd.release, insunits, units: UNIT_NAME[insunits] || `units ${insunits}`, mU,
-      sheets, styles, font: { main: main ? main.name : '', bold: bold ? bold.name : '' }, heights, layers, blocks, model, cleanup: log,
+      sheets, styles, font: { main: main ? main.name : '', bold: bold ? bold.name : '' }, heights, layers, blocks, model, plan, cleanup: log,
       symbols: SYMBOLS.map((s) => ({ name: s.name, label: s.label, more: !!s.more, attrs: s.attrs || [] })), layerClasses: LAYER_CLASSES.map((c) => ({ k: c.k, label: c.label, layers: c.layers.slice(), lw: c.lw || '' })), fields: FIELDS.map((f) => ({ key: f.key, label: f.label, token: f.token, cef: f.cef || f.token, plan: !!f.plan })) };
   }
   /** The sheets' likely roles: the plan sheet (the largest map viewport, a title block, its name), the key map, the CEF sheet, the ones to keep. */
@@ -518,8 +737,54 @@
   const LW_KEYS = ['cable', 'cableExisting', 'pole', 'symbol', 'leader', 'road'];
   const LWS = [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211];
 
-  /** The review's choices made for the user (they only correct): see make(). */
-  function proposal(dg) {
+  /** The review's choices made for the user (they only correct): see make(). o.finished: true / false to make it as a finished plan or not
+      ((templates, Digester): the digest's own call, dg.plan.finished, when not given). */
+  function proposal(dg, o) {
+    const P = dg.plan, fin = o && o.finished != null ? !!o.finished && !!(P && P.drawn) : !!(P && P.finished), p = proposal715(dg);
+    return fin ? planProposal(dg, p) : { ...p, finished: false };
+  }
+  /** (templates, Digester) A finished plan's choices: each sheet's role, the fields (a sheet's own title and scale kept on the sheets that are not
+      the plan's), the symbols its poles are drawn with, the look learned from its drawing, the legend and the tables kept in model space, the
+      tables' values as the app's fields; its CEF on the company's CEF template unless it has a CEF sheet. */
+  function planProposal(dg, p) {
+    const P = dg.plan, roles = { ...P.roles }, byTab = dg.sheets.slice().sort((a, b) => a.tab - b.tab).map((s) => s.name);
+    const plan = byTab.find((n) => roles[n] === 'plan') || p.plan, keymap = byTab.find((n) => roles[n] === 'keymap') || '', cef = byTab.find((n) => roles[n] === 'cef') || '';
+    if (!byTab.some((n) => roles[n] === 'plan') && plan) roles[plan] = 'plan';
+    const fields = {};
+    for (const sh of dg.sheets) {
+      const r = roles[sh.name];
+      for (const f of sh.fields) {
+        let k = f.key || (f.placeholder ? '-' : '');
+        if (sh.name !== plan && (f.key === 'title' || (f.key === 'scale' && ((r !== 'keymap' && r !== 'vicinity') || NTS.test(String(f.value).trim()))))) k = ''; // (a legend's "LEGEND", its "NTS": the client's words kept)
+        fields[f.id] = k;
+      }
+    }
+    const K = P.kinds, symbols = { ...p.symbols }, tags = { ...p.tags };
+    const nb = P.poleBlocks.find((b) => b.kind === 'new'), eb = P.poleBlocks.find((b) => b.kind === 'existing');
+    if (nb) symbols['P-POLE'] = nb.name;
+    if (eb) symbols[/ELEC|POWER|MERALCO|COOP/i.test(eb.name) ? 'existing electric pole' : 'existing telecom pole'] = eb.name;
+    for (const [k, v] of Object.entries(symbols)) if (v && ((nb && v === nb.name && k !== 'P-POLE') || (eb && v === eb.name && !/pole$/.test(k)) || (eb && v === eb.name && /pole$/.test(k) && k !== 'P-POLE' && symbols[k] !== undefined && k !== (/ELEC|POWER|MERALCO|COOP/i.test(eb.name) ? 'existing electric pole' : 'existing telecom pole')))) symbols[k] = null; // (a pole's block is that pole's only)
+    const lw = {}, put = (k, x) => { if (x && x.lw != null && x.lw >= 0) lw[k] = x.lw; };
+    put('cable', K.cable); put('cableExisting', K.cableExisting); put('pole', K.pole); put('symbol', K.symbol); put('road', K.road); if (p.look.lw.leader != null) lw.leader = p.look.lw.leader;
+    const lay = (x) => (x && x.layer && x.layer !== '0' ? x.layer : '');
+    const layers = { cable: lay(K.cable) || p.look.layers.cable, pole: lay(K.pole) || p.look.layers.pole, symbol: lay(K.symbol) || p.look.layers.symbol, text: lay(K.poleId) || lay(K.note) || p.look.layers.text,
+      road: lay(K.road) || p.look.layers.road, grid: lay(K.grid) || p.look.layers.grid, photo: '' };
+    const font = K.poleId && dg.styles.some((x) => x.name === K.poleId.style) ? K.poleId.style : p.look.font;
+    const scale = K.poleId && K.poleId.k ? Math.min(2, Math.max(0.5, Math.round(K.poleId.k * 20) / 20)) : p.look.scale;
+    const kinds = {}; for (const [k, x] of Object.entries(K)) { kinds[k] = {}; for (const q of ['layer', 'style', 'h', 'mm', 'k', 'color', 'lw', 'lt', 'block']) if (x[q] != null) kinds[k][q] = x[q]; }
+    // model space: what the kept sheets show (the legend, the PMI and ROW tables), not the plan (the route and what is drawn round it) nor the vicinity picture
+    const keptRoles = new Set(['legend', 'pmi', 'row', 'cover', 'toc', 'other']), gone = new Set([...P.routeGroups, ...P.vicGroups]);
+    const keepG = dg.model.groups.filter((g) => !gone.has(g.id) && g.shown.some((x) => keptRoles.has(roles[x.sheet]))).map((g) => g.id);
+    const tables = {};
+    if (P.pmi) for (const q of P.pmi.rows) tables[q.handle] = q.how === 'token' ? q.token : '';
+    if (P.row) for (const q of [...P.row.munis, ...P.row.brgys, ...P.row.totals]) tables[q.handle] = q.token || '';
+    const cover = dg.sheets.find((s) => roles[s.name] === 'cover'), clientF = dg.sheets.flatMap((s) => s.fields).find((f) => f.key === 'client' && f.value && !f.placeholder);
+    let name = p.name; if (clientF) name = String(clientF.value).trim(); else if (cover && cover.names && cover.names.length) name = cover.names[0];
+    return { ...p, name: name.slice(0, 60), plan, keymap, cef, keep: byTab.filter((n) => n !== plan && n !== keymap && !['plan', 'out', 'cef'].includes(roles[n])), roles, fields, symbols, tags,
+      look: { ...p.look, font, scale, lw, layers, cableEx: lay(K.cableExisting) || p.look.cableEx, kinds, planScale: P.planScale }, model: { keep: keepG }, tables, finished: true };
+  }
+  const NTS = /^(N\.?\s?T\.?\s?S\.?|NOT TO SCALE|NONE|AS SHOWN)$/i;
+  function proposal715(dg) {
     const sp = proposeSheets(dg.sheets), keepSheets = new Set([sp.plan, sp.keymap, ...sp.keep].filter(Boolean));
     const fields = {}; for (const sh of dg.sheets) for (const f of sh.fields) fields[f.id] = f.key || (f.placeholder ? '-' : '');
     // the template's name: the largest text of the plan sheet's title block that is not a field (the client's name, usually)
@@ -957,7 +1222,7 @@
     dg = dg || digest(rd.text, map && map.file);
     map = { ...proposal(dg), ...(map || {}) };
     const notes = [], made = new Date().toISOString();
-    const plan = makePlan(rd.text, map, dg, notes, made);
+    const plan = map.finished ? makeFromPlan(rd.text, map, dg, notes, made) : makePlan(rd.text, map, dg, notes, made);
     const cef = map.cef ? makeCef(rd.text, map, dg, notes, made) : null;
     return { plan: plan.text, cef: cef ? cef.text : null, look: plan.look, cefLook: cef ? cef.look : null, notes };
   }
@@ -1009,6 +1274,96 @@
     look.layers = applyLayers(d, map);
     const shG = sheetNow(d, 'GEO');
     look.sheet = { name: 'GEO', unit: shG.units, mm: shG.mm, paper: shG.paper, frame: shG.frame, vp: vp.box, side: vp.side, cell: vp.cell, scale: 1100 };
+    putLook(d, look);
+    setHdr(d, '$INSUNITS', 70, I(6)); setHdr(d, '$MEASUREMENT', 70, I(1));
+    T.clean(d);
+    return { text: d.text(), look };
+  }
+  /** (templates, Digester) Pictures (IMAGE) no longer drawn: their IMAGEDEF objects (and so the dictionary's entries) removed. */
+  function dropImageDefs(d) {
+    const used = new Set(); for (const s of ['ENTITIES', 'BLOCKS']) for (const r of d.sec(s).recs) if (typ(r) === 'IMAGE') used.add(get(r, 340));
+    const gone = new Set(d.sec('OBJECTS').recs.filter((r) => typ(r) === 'IMAGEDEF' && !used.has(handleOf(r))).map(handleOf).filter(Boolean));
+    if (gone.size) removeHandles(d, gone);
+    return gone.size;
+  }
+  /** (templates, Digester) The as-plan template from a client's finished plan: their drawing copied with the plan itself removed (the app draws its
+      own), each kept sheet under the builder's name for its role (the first plan sheet GEO, the one the app copies for each part of the route; the
+      others left out; the key map KEYMAP; the vicinity map VICINITY MAP, its picture removed; the legend LEGENDS; the PMI and ROW tables' sheets
+      PMI and ROW AREA COVERAGE, their values the app's fields; the cover TITLE; the contents TOC; any other kept as it is), the project's
+      details as fields on every sheet kept, the look learned from their drawing. */
+  function makeFromPlan(text, map, dg, notes, made) {
+    const T = TPL(), { d } = load(text); let S = T.structure(d);
+    const P = dg.plan || {}, roles = { ...(P.roles || {}), ...(map.roles || {}) }, have = new Set(S.layouts.filter((L) => L.name !== 'Model').map((L) => L.name));
+    const byTab = dg.sheets.slice().sort((a, b) => a.tab - b.tab).map((s) => s.name).filter((n) => have.has(n));
+    const planName = map.plan && roles[map.plan] === 'plan' && have.has(map.plan) ? map.plan : byTab.find((n) => roles[n] === 'plan');
+    if (!planName) throw new Error('Choose the plan sheet of the template (a sheet whose role is "Plan sheet")');
+    // which sheet becomes which (the first of each role takes the builder's name; another plan sheet is left out: the app adds its own)
+    const to = new Map(), used = new Set(), own = new Set();
+    for (const n of byTab) {
+      const r = roles[n] || 'other'; if (r === 'out' || r === 'cef' || (r === 'plan' && n !== planName)) continue;
+      const nm = r === 'plan' ? 'GEO' : (ROLE.get(r) || {}).name || '';
+      if (nm && !used.has(nm)) { to.set(n, nm); used.add(nm); } else { to.set(n, n); own.add(n); }
+    }
+    const kept = [...to.keys()], left = byTab.filter((n) => !to.has(n));
+    if (left.length) notes.push(`Sheets left out: ${left.join(', ')}${left.some((n) => roles[n] === 'plan') ? ' (the app adds a plan sheet for each part of the route, copied from GEO)' : ''}`);
+    // 1. model space: the plan removed (its route, what is drawn round it, the vicinity map's picture); what the kept sheets show stays (legend, tables)
+    const mU = UNIT_M[parseInt(hdr(d, '$INSUNITS', 70) || '0', 10)] || 1, keepG = new Set((map.model && map.model.keep) || []);
+    const groups = modelGroups(d, S, [], mU).groups, keepRecs = new Set(groups.filter((g) => keepG.has(g.id)).flatMap((g) => g.recs));
+    const tBoxes = [P.pmi && !P.pmi.space ? P.pmi.box : null, P.row && !P.row.space ? P.row.box : null].filter(Boolean); // (a table drawn close to the route, in its group: kept by its box)
+    if (tBoxes.length) for (const g of groups) if (!keepG.has(g.id)) for (const r of g.recs) { let b = null; try { b = T.drawnBox(S, r); } catch (e) { b = null; } if (b && tBoxes.some((q) => b[0] >= q[0] && b[2] <= q[2] && b[1] >= q[1] && b[3] <= q[3])) keepRecs.add(r); }
+    const gone = new Set(modelEnts(S).filter((r) => !keepRecs.has(r) && !/^(ATTRIB|SEQEND|VERTEX)$/.test(typ(r))).map(handleOf).filter(Boolean));
+    const vicPics = (P.pics || []).filter((q) => q.sheet && roles[q.sheet] === 'vicinity' && to.has(q.sheet)).map((q) => q.handle);
+    for (const h of vicPics) gone.add(h);
+    if (gone.size) removeHandles(d, gone);
+    const nDefs = dropImageDefs(d);
+    if ((P.pics || []).length) notes.push(`The vicinity map's picture removed (${(P.pics || []).filter((q) => !q.sheet).length + vicPics.length} picture(s)${nDefs ? `, ${nDefs} image file link(s)` : ''}): the app draws its own vicinity map`);
+    // 2. the tables the app fills: their values as the app's fields (a value cell emptied where the builder fills it: PROPOSED HDD…)
+    let nTok = 0;
+    for (const [h, tok] of Object.entries(map.tables || {})) {
+      const r = d.byHandle.get(h); if (!r || tok === '-' || !/^(TEXT|MTEXT)$/.test(typ(r))) continue;
+      if (!tok) { setWords(r, ''); continue; }
+      const m = /^(.*\D)?\s*\d[\d.,]*\s*$/.exec(plainText(r)), pre = /^ROW_(MUNICIPALITIES|BARANGAYS)$/.test(tok) && m && m[1] ? m[1] : '';
+      setWords(r, `${pre}@@${tok}@@`); nTok++;
+    }
+    if (nTok) notes.push(`Tables: ${nTok} value(s) the app fills (PMI, ROW)`);
+    // 3. the fields of every sheet kept (the plan sheet's before its key map copy is made, so a copy has them); the cross fields of the digest
+    const choose = (f) => (map.fields && Object.prototype.hasOwnProperty.call(map.fields, f.id) ? map.fields[f.id] : f.key || (f.placeholder ? '-' : ''));
+    const crossOf = (n) => ((dg.sheets.find((s) => s.name === n) || { fields: [] }).fields || []).filter((f) => f.cross);
+    const lists = kept.map((n) => ({ n, list: [...fieldsNow(d, n), ...crossOf(n)] })), lift = new Set();
+    for (const { list } of lists) for (const f of list) if (f.kind === 'btext' && choose(f) !== '') lift.add(f.handle);
+    for (const { n, list } of lists) applyFields(d, sheetByName(d, n), list, choose, 'plan', lift);
+    for (const h of lift) { const r = d.byHandle.get(h); if (r) setWords(r, ''); }
+    const style = 'G-ESAA TEXT', kmName = [...to].find(([, v]) => v === 'KEYMAP'), vicName = [...to].find(([, v]) => v === 'VICINITY MAP');
+    for (const n of [planName, ...(kmName ? [kmName[0]] : [])]) { const sh = sheetNow(d, n); if (map.exported !== false && sh) addExported(d, sheetByName(d, n), sh, style); }
+    // 4. the viewports the builder aims: the plan sheet's square at 1:1,100 on its paper; the key map's and the vicinity map's square
+    const shP = sheetNow(d, planName); if (!shP || !shP.main) throw new Error(`The sheet ${planName} has no viewport for the map: choose another plan sheet`);
+    const vp = squareVp(d, shP.main, shP.mm, true);
+    for (const x of [kmName, vicName]) if (x) { const sh = sheetNow(d, x[0]); if (sh && sh.main) squareVp(d, sh.main, sh.mm, false); else notes.push(`The sheet ${x[0]} has no viewport: the app's ${x[1] === 'KEYMAP' ? 'key map' : 'vicinity map'} cannot be shown on it`); }
+    if (shP.vps.length > 1) notes.push(`The plan sheet's other viewport(s) (${shP.vps.length - 1}) show model space where the client's route was: now empty (change them in AutoCAD if needed)`);
+    // 5. the sheets: the others removed; each kept one renamed (through a name of its own first: two sheets may swap names); the cover the active one
+    S = T.structure(d);
+    const keepSet = new Set(kept), act = S.layouts.find((L) => L.name !== 'Model' && isActive(S, L));
+    if (!act || !keepSet.has(act.name) || act.name === planName) { const alt = kept.find((n) => to.get(n) === 'TITLE') || kept.find((n) => n !== planName) || planName; makeActive(d, alt); }
+    for (const L of T.structure(d).layouts.filter((x) => x.name !== 'Model' && !keepSet.has(x.name))) removeLayout(d, T.structure(d), L);
+    kept.forEach((n, i) => renameLayout(d, sheetByName(d, n), `~G-ESAA ${i}`));
+    const BUILT = /^(GEO|KEYMAP|VICINITY MAP|LEGENDS?|PMI|ROW AREA COVERAGE|TITLE|TOC)( \(\d+\))?$/i, final = new Set();
+    kept.forEach((n, i) => { let nm = to.get(n); if (own.has(n) && BUILT.test(n)) { let k = 1; while (final.has(`${n} (CLIENT${k > 1 ? ` ${k}` : ''})`.toUpperCase())) k++; nm = `${n} (CLIENT${k > 1 ? ` ${k}` : ''})`; notes.push(`The sheet ${n} kept as ${nm} (the plan uses its name for its own)`); } final.add(nm.toUpperCase()); renameLayout(d, sheetByName(d, `~G-ESAA ${i}`), nm); });
+    if (!kmName) { cloneSheet(d, 'GEO', 'KEYMAP'); const shK = sheetNow(d, 'KEYMAP'); if (shK && shK.main) squareVp(d, shK.main, shK.mm, false); notes.push('No key map sheet: the plan sheet is copied for it'); }
+    S = T.structure(d);
+    if (isActive(S, S.layouts.find((L) => L.name === 'GEO'))) { const alt = S.layouts.find((L) => L.name !== 'Model' && L.name !== 'GEO'); if (alt) makeActive(d, alt.name); }
+    // the tab order the plan will have (TITLE, TOC, LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, GEO, PMI), then the client's other sheets
+    const WANT = ['TITLE', 'TOC', 'LEGENDS', 'VICINITY MAP', 'ROW AREA COVERAGE', 'KEYMAP', 'GEO', 'PMI'], rank = (L) => (WANT.includes(L.name) ? WANT.indexOf(L.name) : 100 + int(L.rec, 71, 0));
+    S = T.structure(d); S.layouts.filter((L) => L.name !== 'Model').sort((a, b) => rank(a) - rank(b)).forEach((L, k) => setSub(L.rec, 'AcDbLayout', 71, I(k + 1)));
+    // 6. the look: styles, symbols, layers, the XRECORD (with each kind's look learned from the drawing); model space in metres
+    const st = applyStyles(d, map), look = lookBase(map, dg, made);
+    if (st.bold) look.text.bold = 'G-ESAA TEXT BOLD';
+    if (st.main) look.text.font = st.main.face || st.main.font;
+    look.blocks = applySymbols(d, map, style, notes);
+    look.layers = applyLayers(d, map);
+    const shG = sheetNow(d, 'GEO');
+    look.sheet = { name: 'GEO', unit: shG.units, mm: shG.mm, paper: shG.paper, frame: shG.frame, vp: vp.box, side: vp.side, cell: vp.cell, scale: 1100 };
+    look.from = { finished: true, scale: P.planScale || null, sheets: Object.fromEntries([...to].map(([a, b]) => [b, a])) };
+    if (map.look && map.look.kinds) look.kinds = map.look.kinds;
     putLook(d, look);
     setHdr(d, '$INSUNITS', 70, I(6)); setHdr(d, '$MEASUREMENT', 70, I(1));
     T.clean(d);
@@ -1098,7 +1453,11 @@
     const v = { PROJECT_TYPE: 'DEMO FIBER PROJECT', LINK: 'DEMO FIBER PROJECT', LOCATION: 'DEMO CITY', SITE_NAME: 'DEMOSITE MIN9001', SITE_ID: 'PLA-9001', SERIAL: 'SN-9001', PROJECT_CODE: 'DEMO-CODE-01', DWG_NO: 'DWG-9001', ISSUE_NO: '0', REV: '0',
       PREPARED_BY: 'DEMO DRAFTER', DRAWN_BY: 'DEMO DRAFTER', CHECKED_BY: 'DEMO CHECKER', APPROVED_BY: 'DEMO APPROVER', CLIENT: 'DEMO CLIENT', COMPANY_NAME: 'DEMO CONTRACTOR', SHEET_TITLE: { KEYMAP: 'KEY MAP', '*': 'ROUTE PLAN' }, PLAN_KIND: 'AFI PLAN',
       COORDINATES: '7%%d06\'00.00"N 125%%d36\'00.00"E', EXPORTED_BY: 'Exported by DEMO USER · G-eSAA', TITLE_CABLE: 'PROPOSED 12C FIG-8 FOC', NETWORK: '' };
-    if (look && look.sheet && look.sheet.cell) v.SCALE = { '*': '1 : 1,100 METERS', KEYMAP: '' };
+    if (look && look.sheet && look.sheet.cell) v.SCALE = { '*': '1 : 1,100 METERS', KEYMAP: '', 'VICINITY MAP': '' };
+    // ((templates, Digester) the tables a finished plan's template fills: its PMI and ROW figures, made up)
+    Object.assign(v, { PMI_TOTAL_CABLE_LENGTH: '463.0m', PMI_AERIAL_CABLE_LENGTH: '463.0m', PMI_UG_CABLE_LENGTH: '0.0m', PMI_PROPOSED_POLE: '10', PMI_EXISTING_GT_POLE: '2', PMI_RTA_CONVERGE: '0',
+      PMI_RTA_LOCAL_COOP: '0', PMI_RTA_OTHER_PLDT: '0', PMI_FIBER_TERMINATION: '0', PMI_HYBRID_CLOSURE: '2', ROW_MUNICIPALITY_1: 'DEMO MADE-UP CITY', ROW_MUNICIPALITY_2: '', ROW_BARANGAY_1: 'DEMO BRGY NORTH',
+      ROW_BARANGAY_2: 'DEMO BRGY SOUTH', ROW_BARANGAY_3: '', ROW_BARANGAY_4: '', ROW_BARANGAY_5: '', ROW_BARANGAY_6: '', ROW_BARANGAY_7: '', ROW_MUNICIPALITIES: '1', ROW_BARANGAYS: '2' });
     return v;
   }
   /** A made-up plan (12 poles along a made-up street near Davao, a tower, a closure and its loop, guys, a grounding, a NAP, arms, an existing pole, an

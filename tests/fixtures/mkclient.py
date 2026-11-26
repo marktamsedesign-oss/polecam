@@ -2,7 +2,7 @@
 (vendor/synth/dxfsynth.js: tests/dxf-synth.test.cjs, tests/client-templates.spec.cjs). Nothing here comes from any company or client: every name, text,
 number and drawing is made up. Made with ezdxf (tests/requirements.txt):
 
-    python3 tests/fixtures/mkclient.py tests/fixtures      (writes the three files below)
+    python3 tests/fixtures/mkclient.py tests/fixtures      (writes the files below; "… tests/fixtures d": only (d))
 
   client-a-made-up.dxf  (a) A1 in millimetres, model space in metres. Sheets PLAN (the drawing's active sheet: a frame, a main viewport that
                         is not square, a legend viewport, the title block) and LEGEND. The title block is a BLOCK with attributes (PROJECT_NAME,
@@ -13,10 +13,19 @@ number and drawing is made up. Made with ezdxf (tests/requirements.txt):
                         the sheet: labels and their value texts ("PROJECT:" / "XXXX"), some labels with no value text (PREPARED BY, CHECKED BY,
                         APPROVED BY); an Arial Narrow (TTF) text style; one symbol block, NAP-BOX, drawn in millimetres.
   client-c-made-up.dxf  (c) Paper in inches, model space in feet. Two sheets: PLAN (ANSI D) and KEY PLAN (ANSI B, the active one); no symbol
-                        blocks; labels and values in one text ("DRAWN: JD", "SHEET 1 OF 2"), a label with its value under it (PROJECT TITLE)."""
+                        blocks; labels and values in one text ("DRAWN: JD", "SHEET 1 OF 2"), a label with its value under it (PROJECT TITLE).
+  client-d-made-up-plan.dxf  (d) (templates, Digester) a client's FINISHED as-plan, as a client would send one to learn from: A3 in mm, model
+                        space in metres (made-up UTM 51N places near Davao). Sheets COVER (the active one: the project's name, place and date),
+                        LEGEND, LOCATION MAP (a vicinity picture: an IMAGE in model space), KEY PLAN, PLAN-1 and PLAN-2 (the route, at 1:1200,
+                        each with a title block of plain texts: PROJECT, LOCATION, SHEET 1 OF 2…), PMI and ROW (their tables in model space).
+                        The drawn plan: 14 poles (DEMO-POLE-NEW / DEMO-POLE-EXIST), their IDs, numbers in circles and lat / long, the
+                        proposed cable and a stretch of an existing one, span lengths, the cable's name, a loop, a closure and its label,
+                        the road and its name, the sheet grid; a PMI table and a ROW table with their values; a legend. Every value made up."""
 import sys, os, math, ezdxf
+from ezdxf.enums import TextEntityAlignment
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
+ONLY = set(sys.argv[2:])  # (templates, Digester) e.g. "d": only those files (ezdxf writes new ids each run: the others stay as committed)
 
 
 def new_doc(insunits):
@@ -34,7 +43,7 @@ def rect(sp, x0, y0, x1, y1, layer, **kw):
 def text(sp, s, x, y, h, layer, style='Standard', align=None, **kw):
     t = sp.add_text(s, dxfattribs={'layer': layer, 'height': h, 'style': style, **kw})
     if align:
-        t.set_placement((x, y), align=align)
+        t.set_placement((x, y), align=TextEntityAlignment[align] if isinstance(align, str) else align)
     else:
         t.dxf.insert = (x, y)
     return t
@@ -229,7 +238,156 @@ def client_c(path):
     doc.saveas(path)
 
 
+# ---------------------------------------------------------------- (d) (templates, Digester) a client's finished as-plan
+def client_d(path):
+    doc = new_doc(6)  # metres
+    doc.styles.add('D-LABELS', font='arialn.ttf')
+    doc.styles.add('D-SMALL', font='romans.shx')
+    doc.styles.add('D-TITLE', font='arialbd.ttf')
+    L = doc.layers
+    for name, color, lw, lt in (('D-POLES', 3, 35, None), ('D-POLE-ID', 2, 18, None), ('D-POLE-NO', 1, 25, None), ('D-LATLONG', 8, 13, None),
+                                ('D-FOC-PROPOSED', 1, 50, None), ('D-FOC-EXISTING', 5, 35, 'DASHED'), ('D-SPAN', 7, 13, None), ('D-CABLE-LABEL', 1, 18, None),
+                                ('D-LOOP', 1, 25, None), ('D-CLOSURE', 1, 35, None), ('D-ROAD', 8, 18, None), ('D-STREET', 8, 13, None), ('D-GRID', 6, 25, None),
+                                ('D-VICINITY', 8, 13, None), ('D-TABLE', 7, 25, None), ('D-TABLE-TEXT', 7, 18, None), ('D-LEGEND', 7, 18, None),
+                                ('D-BORDER', 7, 50, None), ('D-TITLEBLOCK', 7, 25, None), ('D-VPORT', 8, 13, None)):
+        ly = L.add(name, color=color, lineweight=lw)
+        if lt: ly.dxf.linetype = lt
+    L.get('D-VPORT').dxf.plot = 0
+    b = doc.blocks.new('DEMO-POLE-NEW'); b.add_circle((0, 0), 1.0); b.add_line((-1, 0), (1, 0)); b.add_line((0, -1), (0, 1))
+    b = doc.blocks.new('DEMO-POLE-EXIST'); b.add_circle((0, 0), 1.0); b.add_circle((0, 0), 0.4)
+    b = doc.blocks.new('DEMO-CLOSURE'); b.add_lwpolyline([(-1.6, -0.9), (1.6, -0.9), (1.6, 0.9), (-1.6, 0.9)], close=True)
+    b.add_attdef('CL_ID', insert=(2, 0), text='CL-00', dxfattribs={'height': 0.8, 'style': 'D-LABELS'})
+    b = doc.blocks.new('DEMO-LOOP'); b.add_circle((0, -1.5), 1.5)
+    b = doc.blocks.new('DEMO-LOGO-D'); b.add_lwpolyline([(0, 0), (30, 0), (30, 12), (0, 12)], close=True); text(b, 'DEMO CLIENT D', 2, 4, 3.5, '0', 'D-TITLE')
+    msp = doc.modelspace()
+    E0, N0 = 787300.0, 786100.0
+    P = [(E0 + i * 40, N0) for i in range(8)] + [(E0 + 7 * 40, N0 + k * 40) for k in range(1, 7)]
+    existing = {3, 9, 12}
+    for i, (x, y) in enumerate(P):
+        msp.add_blockref('DEMO-POLE-EXIST' if i in existing else 'DEMO-POLE-NEW', (x, y), dxfattribs={'layer': 'D-POLES'})
+        up = i < 8
+        tx, ty = (x - 3, y + 6) if up else (x + 6, y + 1)
+        text(msp, f'CC-{9001 + i}', tx, ty, 2.2, 'D-POLE-ID', 'D-LABELS')
+        text(msp, f'{7.1 + (y - N0) / 110574:.6f}%%d', tx, ty - 2.0, 1.2, 'D-LATLONG', 'D-SMALL')
+        text(msp, f'{125.6 + (x - E0) / 110400:.6f}%%d', tx, ty - 3.6, 1.2, 'D-LATLONG', 'D-SMALL')
+        cx, cy = (x + 4, y - 5) if up else (x - 6, y - 2)
+        msp.add_circle((cx, cy), 2.2, dxfattribs={'layer': 'D-POLE-NO'})
+        text(msp, str(i + 1), cx - 0.8 * len(str(i + 1)), cy - 1.2, 2.5, 'D-POLE-NO', 'D-LABELS')
+    msp.add_lwpolyline(P, dxfattribs={'layer': 'D-FOC-PROPOSED'})
+    msp.add_lwpolyline([(E0 - 60, N0 - 3), (E0 + 120, N0 - 3)], dxfattribs={'layer': 'D-FOC-EXISTING'})
+    for a, c in zip(P[:-1], P[1:]):
+        mx, my = (a[0] + c[0]) / 2, (a[1] + c[1]) / 2
+        ang = math.degrees(math.atan2(c[1] - a[1], c[0] - a[0]))
+        t = text(msp, f'{math.hypot(c[0] - a[0], c[1] - a[1]):.0f}m', mx + (1.5 if ang else -2), my + (1.2 if not ang else 0), 1.8, 'D-SPAN', 'D-SMALL')
+        t.dxf.rotation = ang
+    text(msp, 'PROPOSED 24C ADSS FOC', E0 + 60, N0 + 2.5, 2.5, 'D-CABLE-LABEL', 'D-LABELS')
+    msp.add_blockref('DEMO-LOOP', (E0 + 80, N0 - 1), dxfattribs={'layer': 'D-LOOP'}); text(msp, '20m LOOP', E0 + 76, N0 - 8, 2.0, 'D-LOOP', 'D-LABELS')
+    cl = msp.add_blockref('DEMO-CLOSURE', (E0 + 200, N0 + 1.5), dxfattribs={'layer': 'D-CLOSURE'}); cl.add_auto_attribs({'CL_ID': 'CL-01'})
+    text(msp, 'PROPOSED CLOSURE CL-01', E0 + 186, N0 + 12, 2.0, 'D-CLOSURE', 'D-LABELS')
+    for dy in (-6, 6):
+        msp.add_lwpolyline([(E0 - 80, N0 + dy - 2), (E0 + 7 * 40 + dy - 2, N0 + dy - 2), (E0 + 7 * 40 + dy - 2, N0 + 280)], dxfattribs={'layer': 'D-ROAD'})
+    text(msp, 'DEMO STREET', E0 + 120, N0 - 1.5, 3.0, 'D-STREET', 'D-SMALL')
+    t = text(msp, 'DEMO AVENUE', E0 + 7 * 40 + 2, N0 + 150, 3.0, 'D-STREET', 'D-SMALL'); t.dxf.rotation = 90
+    G0 = (E0 - 20, N0 - 140)
+    for k in range(2):
+        x0, y0 = G0[0] + k * 300, G0[1]
+        rect(msp, x0, y0, x0 + 300, y0 + 300, 'D-GRID')
+        text(msp, f'A-{k + 1}', x0 + 6, y0 + 270, 20, 'D-GRID', 'D-SMALL')
+    # the vicinity map: a picture and the roads round it, far east of the plan
+    VX, VY = E0 + 2500, N0
+    img = doc.add_image_def(filename='DEMO_VICINITY.jpg', size_in_pixel=(640, 480))
+    msp.add_image(img, insert=(VX, VY), size_in_units=(1200, 900), dxfattribs={'layer': 'D-VICINITY'})
+    msp.add_circle((VX + 600, VY + 450), 150, dxfattribs={'layer': 'D-VICINITY'})
+    text(msp, 'PROJECT AREA', VX + 520, VY + 620, 30, 'D-VICINITY', 'D-SMALL')
+    # the PMI table, far from the plan (the client keeps its tables there)
+    TX, TY = E0 + 5000, N0 + 600
+    rows = [('TOTAL CABLE LENGTH', '552.0m'), ('AERIAL CABLE LENGTH', '552.0m'), ('UNDERGROUND CABLE LENGTH', '0.0m'), ('PROPOSED POLE', '11'), ('EXISTING GT POLE', '3'), ('PROPOSED HYBRID CLOSURE', '1')]
+    W1, W2, RH = 220.0, 90.0, 16.0
+    rect(msp, TX, TY - RH * (len(rows) + 1), TX + W1 + W2, TY, 'D-TABLE')
+    text(msp, 'PROJECT MANAGEMENT INFORMATION', TX + 30, TY - 11, 7, 'D-TABLE-TEXT', 'D-TITLE')
+    for k, (lab, val) in enumerate(rows):
+        y = TY - RH * (k + 1)
+        msp.add_line((TX, y), (TX + W1 + W2, y), dxfattribs={'layer': 'D-TABLE'})
+        text(msp, lab, TX + 6, y - 11, 6, 'D-TABLE-TEXT', 'D-LABELS'); text(msp, val, TX + W1 + 8, y - 11, 6, 'D-TABLE-TEXT', 'D-LABELS')
+    msp.add_line((TX + W1, TY - RH), (TX + W1, TY - RH * (len(rows) + 1)), dxfattribs={'layer': 'D-TABLE'})
+    # the ROW table (as the company's: a municipality over its barangays' rows, totals)
+    X0, XC, X1 = TX, TX + 340, TX + 680
+    YT = TY - 400; YTI, YH, RH2 = YT - 36, YT - 67, 15.0
+    YB = YH - 7 * RH2; YF = YB - RH2
+    LA = {'layer': 'D-TABLE'}
+    for y in (YT, YTI, YH, YH - 4 * RH2, YB, YF):
+        msp.add_line((X0, y), (X1, y), dxfattribs=LA)
+    for k in (1, 2, 3, 5, 6):
+        msp.add_line((XC, YH - k * RH2), (X1, YH - k * RH2), dxfattribs=LA)
+    for x, y1 in ((X0, YT), (X1, YT), (XC, YTI)):
+        msp.add_line((x, YF), (x, y1), dxfattribs=LA)
+    def mt(txt, x, y, h, att, w):
+        msp.add_mtext(txt, dxfattribs={'layer': 'D-TABLE-TEXT', 'insert': (x, y), 'char_height': h, 'attachment_point': att, 'width': w, 'style': 'D-LABELS'})
+    mt('RIGHT OF WAY AREA COVERAGE', (X0 + X1) / 2, (YT + YTI) / 2, 14, 5, 600)
+    mt('MUNICIPALITY', (X0 + XC) / 2, (YTI + YH) / 2, 9, 5, 300)
+    mt('BARANGAY', (XC + X1) / 2, (YTI + YH) / 2, 9, 5, 300)
+    for k, (y1, y0, nm) in enumerate(((YH, YH - 4 * RH2, 'DEMO CITY'), (YH - 4 * RH2, YB, 'DEMO TOWN'))):
+        mt(nm, X0 + 12, (y1 + y0) / 2 + 4.5, 9, 1, XC - X0 - 24)
+    for k in range(6):
+        mt(f'DEMO BRGY {k + 1}', XC + 122, YH - k * RH2 - 3, 9, 1, 200)
+    mt('TOTAL - 2', X0 + 140, YB - 3, 9, 1, 120)
+    mt('TOTAL - 6', XC + 126, YB - 3, 9, 1, 120)
+    # the legend
+    LX, LY = TX + 900, TY
+    rect(msp, LX, LY - 200, LX + 300, LY, 'D-LEGEND')
+    text(msp, 'LEGEND', LX + 110, LY - 20, 12, 'D-LEGEND', 'D-TITLE')
+    for k, (blk, words) in enumerate((('DEMO-POLE-NEW', 'PROPOSED POLE'), ('DEMO-POLE-EXIST', 'EXISTING POLE'), ('DEMO-CLOSURE', 'SPLICE CLOSURE'))):
+        y = LY - 50 - k * 35
+        msp.add_blockref(blk, (LX + 30, y), dxfattribs={'layer': 'D-LEGEND', 'xscale': 6, 'yscale': 6})
+        text(msp, words, LX + 70, y - 4, 9, 'D-LEGEND', 'D-LABELS')
+    msp.add_line((LX + 15, LY - 160), (LX + 50, LY - 160), dxfattribs={'layer': 'D-FOC-PROPOSED'}); text(msp, 'PROPOSED FOC', LX + 70, LY - 164, 9, 'D-LEGEND', 'D-LABELS')
+    # the sheets (A3, mm)
+    def frame_tb(lay, values):
+        rect(lay, 10, 10, 410, 287, 'D-BORDER')
+        lay.add_line((300, 10), (300, 287), dxfattribs={'layer': 'D-BORDER'})
+        lay.add_blockref('DEMO-LOGO-D', (305, 268), dxfattribs={'layer': 'D-TITLEBLOCK'})
+        y = 10.0 + 10 * len(values)
+        lay.add_line((300, y), (410, y), dxfattribs={'layer': 'D-TITLEBLOCK'})
+        for lab, val in values:
+            y0 = y - 10
+            lay.add_line((300, y0), (410, y0), dxfattribs={'layer': 'D-TITLEBLOCK'})
+            text(lay, lab, 302, y0 + 3.5, 2.2, 'D-TITLEBLOCK', 'D-LABELS')
+            if val:
+                text(lay, val, 330, y0 + 3.5, 2.8, 'D-TITLEBLOCK', 'D-LABELS')
+            y = y0
+    def tbv(sheet_no, title, scale):
+        return [('PROJECT:', 'DEMO FIBER ROUTE 2026'), ('LOCATION:', 'DEMO CITY'), ('CLIENT:', 'DEMO CLIENT D TELECOM'), ('TITLE:', title), ('SHEET:', sheet_no),
+                ('SCALE:', scale), ('DATE:', '12 NOV 2026'), ('DRAWN BY:', 'D. DRAFTER'), ('CHECKED BY:', 'E. CHECKER')]
+    doc.layouts.rename('Layout1', 'COVER')
+    sheets = ['COVER', 'LEGEND', 'LOCATION MAP', 'KEY PLAN', 'PLAN-1', 'PLAN-2', 'PMI', 'ROW']
+    for nm in sheets[1:]:
+        doc.layouts.new(nm)
+    for nm in sheets:
+        doc.layouts.get(nm).page_setup(size=(420, 297), margins=(0, 0, 0, 0), units='mm')
+    cov = doc.layouts.get('COVER')
+    rect(cov, 10, 10, 410, 287, 'D-BORDER')
+    cov.add_blockref('DEMO-LOGO-D', (20, 255), dxfattribs={'layer': 'D-TITLEBLOCK', 'xscale': 1.5, 'yscale': 1.5})
+    text(cov, 'FIBER OPTIC CABLE AS-PLAN', 210, 190, 12, 'D-TITLEBLOCK', 'D-TITLE', align='MIDDLE_CENTER')
+    text(cov, 'DEMO FIBER ROUTE 2026', 210, 160, 9, 'D-TITLEBLOCK', 'D-TITLE', align='MIDDLE_CENTER')
+    text(cov, 'DEMO CITY', 210, 140, 6, 'D-TITLEBLOCK', 'D-LABELS', align='MIDDLE_CENTER')
+    text(cov, 'PREPARED FOR DEMO CLIENT D TELECOM', 210, 110, 4, 'D-TITLEBLOCK', 'D-LABELS', align='MIDDLE_CENTER')
+    text(cov, '12 NOV 2026', 210, 95, 4, 'D-TITLEBLOCK', 'D-LABELS', align='MIDDLE_CENTER')
+    def vp(lay, c, size, view_c, view_h):
+        lay.add_viewport(center=c, size=size, view_center_point=view_c, view_height=view_h).dxf.layer = 'D-VPORT'
+    lg = doc.layouts.get('LEGEND'); frame_tb(lg, tbv('1 OF 1', 'LEGEND', 'NTS')); vp(lg, (155, 150), (270, 250), (LX + 150, LY - 100), 230)
+    lm = doc.layouts.get('LOCATION MAP'); frame_tb(lm, tbv('1 OF 1', 'LOCATION MAP', 'NTS')); vp(lm, (155, 150), (270, 250), (VX + 600, VY + 450), 1000)
+    kp = doc.layouts.get('KEY PLAN'); frame_tb(kp, tbv('1 OF 1', 'KEY PLAN', '1:3000')); vp(kp, (155, 150), (270, 250), (G0[0] + 300, G0[1] + 150), 750)
+    for k in range(2):
+        pl = doc.layouts.get(f'PLAN-{k + 1}'); frame_tb(pl, tbv(f'{k + 1} OF 2', 'ROUTE PLAN', '1:1200'))
+        vp(pl, (155, 150), (270, 250), (G0[0] + 150 + k * 300, G0[1] + 150), 300)
+    pm = doc.layouts.get('PMI'); frame_tb(pm, tbv('1 OF 1', 'PMI', 'NTS')); vp(pm, (155, 150), (270, 250), (TX + 155, TY - 56), 330)
+    rw = doc.layouts.get('ROW'); frame_tb(rw, tbv('1 OF 1', 'RIGHT OF WAY', 'NTS')); vp(rw, (155, 150), (270, 250), ((X0 + X1) / 2, (YT + YF) / 2), 700)
+    doc.layouts.set_active_layout('COVER')
+    doc.saveas(path)
+
+
 if __name__ == '__main__':
     os.makedirs(OUT, exist_ok=True)
-    for name, fn in (('client-a-made-up.dxf', client_a), ('client-b-made-up.dxf', client_b), ('client-c-made-up.dxf', client_c)):
+    for key, name, fn in (('a', 'client-a-made-up.dxf', client_a), ('b', 'client-b-made-up.dxf', client_b), ('c', 'client-c-made-up.dxf', client_c), ('d', 'client-d-made-up-plan.dxf', client_d)):
+        if ONLY and key not in ONLY: continue
         p = os.path.join(OUT, name); fn(p); print('written', p, os.path.getsize(p), 'bytes')
