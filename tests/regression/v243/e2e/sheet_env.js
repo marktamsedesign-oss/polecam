@@ -159,7 +159,7 @@ const ContentService = {
   createTextOutput: (s) => ({ content: s, mime: null, getContent() { return this.content; }, setMimeType(m) { this.mime = m; return this; } }),
 };
 const Session = { getScriptTimeZone: () => 'Asia/Manila', getEffectiveUser: () => ({ getEmail: () => 'owner@demo-telco.example' }) };
-const UrlFetchApp = { fetch: () => { throw new Error('no network in this test'); } };
+const UrlFetchApp = { fetch: (u, o) => { if (typeof world.urlFetch === 'function') return world.urlFetch(u, o); throw new Error('no network in this test'); } }; // ((templates, sheet v2.43.6) world.urlFetch: a test's stand-in for Google Drive)
 const quietConsole = { log: (...a) => world.logs.push(a.join(' ')), warn: (...a) => world.logs.push(a.join(' ')), error: (...a) => world.logs.push(a.join(' ')) };
 
 /* ------------------------------------------------------------------ load a .gs */
