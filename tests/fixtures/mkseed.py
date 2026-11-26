@@ -11,11 +11,15 @@ cells (a rectangle round each cell and one round the table): python3 tests/fixtu
 (beta 7.11, Drawing tools) --blocks: also made-up symbols under the block names the plan builder looks for (a pole, a closure's pentagon
 with its two attributes, a loop, the guys, a grounding, the arms, a NAP, a riser, a tower and an ODF with their attributes, an OLT, a
 handhole), plain shapes drawn here, so the tests can draw the attachments the builder leaves out without them:
-python3 tests/fixtures/mkseed.py --square --blocks tests/fixtures/plan-seed-made-up-blocks.dxf"""
+python3 tests/fixtures/mkseed.py --square --blocks tests/fixtures/plan-seed-made-up-blocks.dxf
+(templates, As-plan kit) --kit: also as a company's template is set up: its text styles arial (Arial) and 样式 1 (the lat / long's, on Arial here), the
+layers the plan draws on (the road layer grey, 0.18 mm), and a STYLE KEY sheet left the active one (a drafter saved the template with it open), with no
+kit in it: python3 tests/fixtures/mkseed.py --square --blocks --kit tests/fixtures/plan-seed-made-up-kit.dxf"""
 import sys, math, ezdxf
 square = '--square' in sys.argv
 row = '--row' in sys.argv or '--row-cells' in sys.argv
 blocks = '--blocks' in sys.argv
+kit = '--kit' in sys.argv
 out = [a for a in sys.argv[1:] if not a.startswith('--')][0]
 doc = ezdxf.new('R2013', setup=True)
 msp = doc.modelspace()
@@ -106,5 +110,14 @@ if blocks:
         b = blk(nm); poly(b, [(-20, -20), (20, -20), (20, 20), (-20, 20)], True); att(b, 'HST_NAM', 22, 4, 4); att(b, 'HST_COD', 22, -2, 4); att(b, 'HST_LET', -4, -2, 6)
     b = blk('OLT1'); poly(b, [(-3.7, -3.7), (3.7, -3.7), (3.7, 3.7), (-3.7, 3.7)], True); b.add_line((-3.7, -3.7), (3.7, 3.7))
     b = blk('proposed Handhole'); poly(b, [(-2, -1.5), (2, -1.5), (2, 1.5), (-2, 1.5)], True)
+if kit:
+    for nm in ('arial', '样式 1'):
+        st = doc.styles.add(nm, font='arial.ttf'); st.set_extended_font_data(family='Arial', italic=False, bold=False)
+    for nm, color, lw in (('VIEWPORTS', 7, -3), ('GRIDNO', 6, -3), ('MISC', 7, -3), ('X-BTS', 7, -3), ('Proposed foc aerial', 1, -3), ('PROPOSED FOC AERIAL 6 CORE', 1, -3),
+                          ('Proposed foc duct', 3, -3), ('ROAD PAVEMENT', 8, 18), ('P-JOINT', 1, -3), ('LATLONG', 7, -3)):
+        doc.layers.add(nm, color=color, lineweight=lw)
+    key = doc.layouts.new('STYLE KEY'); key.page_setup(size=(420, 297), margins=(10, 10, 10, 10), units='mm')
+    key.add_text('A DRAFTER\'S OWN NOTES (MADE UP)', dxfattribs={'height': 5, 'insert': (20, 260)}); key.add_line((20, 250), (200, 250))
+    doc.layouts.set_active_layout('STYLE KEY')
 doc.saveas(out)
 print('seed written', out)
