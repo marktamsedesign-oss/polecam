@@ -684,14 +684,15 @@ function isoEl(S, el, sc, A, rg, X) {
     case 'exit': { const x = rg.exits.find(q => q.el === el.id); const er = x ? null : exitRun(S, el), at = x ? x.at : c, uu = x ? x.u : er ? er.u : rot2(1, 0, rot), nc = exitBare(el); fp = rectAt(exitMid(at, uu), w, d, rot); exitStub(sc, at, z0, h, fp, lay, hid, uu, x ? x.dp : er ? er.dp : depthAt(S, c) - STD.hdpe / 2, x ? x.R : 0, x || er ? 0 : 0.35, nc);
       if (nc) fp = rectAt(exitMid(at, uu), 2 * STD.hdpe + 0.04, STD.hdpe + 0.04, Math.atan2(uu[1], uu[0]) / D2R); break; }      /* (beta 7.16, CEF drawing) conduits only: its name goes to the two pipes */
     case 'epole': case 'rpole': {
-      const r = Math.max(w / 2, 0.1), pr = z => poleR(el, z - z0), onG = z0 < 0.01;
-      if (el.t === 'rpole') {
+      const r = Math.max(w / 2, 0.1), pr = z => poleR(el, z - z0), onG = z0 < 0.01, enc = encOf(rg, el), ep = enc === 'P' ? (X && X.ref ? 'dt' : 'pp') : lay, eh = enc === 'P' ? (X && X.ref ? 'dt' : 'hp') : hid;      /* (beta 7.16, CEF drawing) the encasement of a new riser is proposed, the pole existing or not */
+      if (enc) {
         const EP = sqr(c, Math.max(STD.encW, w + 0.16) / 2, rot);
-        prism(sc, EP, z0, z0 + STD.encUp, lay);                    /* the concrete encasement: 0.406 m above the ground and 1.32 m below it */
-        if (onG && !FLAT) { const zb = z0 - STD.encDn; sc.poly(EP.map(q => [q[0], q[1], zb]), hid, 1); for (const q of EP) sc.line([q[0], q[1], z0], [q[0], q[1], zb], hid); }
-        if (!rg.risers.some(q => q.pole === el)) { if (pedOf(el)) pedKit(sc, el, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, pedOf(el), X && X.ref ? null : A, S, X && X.ref ? 'dt' : null); else riserKit(sc, c, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, lay); }      /* (fix 47) or its pedestal box */
+        prism(sc, EP, z0, z0 + STD.encUp, ep);                    /* the concrete encasement: 0.406 m above the ground and 1.32 m below it */
+        if (onG && !FLAT) { const zb = z0 - STD.encDn; sc.poly(EP.map(q => [q[0], q[1], zb]), eh, 1); for (const q of EP) sc.line([q[0], q[1], z0], [q[0], q[1], zb], eh); }
+        if (el.t === 'rpole' && !rg.risers.some(q => q.pole === el)) { if (pedOf(el)) pedKit(sc, el, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, pedOf(el), X && X.ref ? null : A, S, X && X.ref ? 'dt' : null); else riserKit(sc, c, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, lay); }      /* (fix 47) or its pedestal box */
         if (onG && !FLAT) { const zb = z0 - STD.poleIn, e = k => [c[0] + H[0] * k * r, c[1] + H[1] * k * r]; for (const k of [-1, 1]) sc.line([e(k)[0], e(k)[1], z0 - STD.encDn], [e(k)[0], e(k)[1], zb], hid); sc.line([e(-1)[0], e(-1)[1], zb], [e(1)[0], e(1)[1], zb], hid); }      /* the pole stands 1.5 m in the ground: its foot shows under the encasement */
         fp = EP;
+        if (enc === 'P' && el.st === 'E' && !(X && X.ref)) { const key = 'enc' + el.id, f = facing(sc, rot2(1, 0, rot)) > 0 ? 1 : -1, sd = rot2(f * Math.max(STD.encW, w + 0.16) / 2, 0, rot); A.push({ k: 'el', key, kind: 'lead', p: [c[0] + sd[0], c[1] + sd[1], z0 + STD.encUp * 0.5], s: labText(S, key, encName), st: 'P', fp: EP, z: z0, pts: EP.map(q => [q[0], q[1], z0]).concat(EP.map(q => [q[0], q[1], z0 + STD.encUp])) }); }      /* (beta 7.16, CEF drawing) an existing pole's new encasement says so */
       }
       else if (pedOf(el) && !rg.risers.some(q => q.pole === el)) pedKit(sc, el, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, pedOf(el), X && X.ref ? null : A, S, X && X.ref ? 'dt' : null);      /* (fix 47) an existing pole with a pedestal box */
       frustum(sc, c, z0, z0 + h, r, r * 0.7, lay, 10); az = z0 + Math.min(h * 0.45, 4); break;

@@ -482,6 +482,15 @@ function sandDots(a, b, c, d, put) {
 }
 const SAND_R = 0.012;
 const isPole = e => e.t === 'rpole' || e.t === 'epole';
+/* (beta 7.16, CEF drawing) the owner: "Existing Pole will be use to create a riser pipe/conduits. (conduits, U-Guard and concrete encasement must be
+   proposed on plan drawing." The concrete encasement at the foot of a pole: 'P' proposed, drawn and counted in red with the riser it belongs to,
+   'E' existing, or '' none. A riser pole has one; it is new with a new riser (the UG cable goes up the pole) even where the pole is existing. An
+   existing pole that takes a new riser gets one too (as the riser pole detail always drew it), unless a pedestal box stands there in its place. */
+function encOf(rg, el) {
+  if (!el || !isPole(el)) return ''; const nr = !!rg && rg.risers.some(q => q.pole === el);
+  return el.t === 'rpole' ? (el.st !== 'E' || nr ? 'P' : 'E') : nr && !pedOf(el) ? 'P' : '';
+}
+const encName = 'PROPOSED CONCRETE ENCASEMENT';
 /* Names on the drawings of the site. A CEF plan is about the fiber, so the names of what belongs to the tower site are left out unless the user turns them on.
    [key, what the Site tab calls it, written by default] */
 const NAMES = [['tid', 'Site name and ID on the tower', 1], ['th', 'Tower height', 0], ['cabin', 'Cabin', 0], ['troom', 'Telco room', 1], ['ladder', 'Cable ladder', 0], ['port', 'Porthole', 0], ['gate', 'Gate', 0], ['site', 'Genset, base pad, tank, structure', 1], ['dim', 'Length of each leg: FOC, conduit, trench', 1], ['shade', 'Outline on a base pad under a raised ladder', 1]];
@@ -1156,11 +1165,11 @@ function cefTable(S) {
     ['ODF', odf.length ? Array.from(new Set(odf.map(e => e.size || ''))).join(', ') : '', Q(odf.length), ''],
     ...(cnt('dnap') ? [['DUMMY NAP', Array.from(new Set(S.els.filter(e => e.t === 'dnap').map(e => String(e.size || '').trim().toUpperCase()).filter(Boolean))).join(', '), Q(cnt('dnap')), '']] : []),      /* (14 Nov 17:00) */
     ['CLOSURE', nclo ? 'HYBRID' : '', Q(nclo), ''],
-    ['RISER POLE (EXISTING)', '', Q(cnt('epole')), ''],
+    ['RISER POLE (EXISTING)', '', Q(cnt('epole') + S.els.filter(e => e.t === 'rpole' && e.st === 'E').length), ''],      /* (beta 7.16, CEF drawing) a riser pole marked existing is an existing pole */
     ['WALL STRAP', '', '', Lm(g.wall)],
     [(TR.length && TR.every(runShallow) ? 'SHALLOW' : 'OPEN') + ' TRENCH CONDUIT' + (deep ? ' (' + deep + ')' : ''), trench > 0.05 ? (TT.length > 1 ? 'SEE PLAN' : (TT[0] || '2-' + PVC_MM + 'mm') + ' PVC') : '', '', Lm(trench)],
-    ['PROP. RISER POLE', '', Q(cnt('rpole')), ''],
-    ['CONCRETE ENCASEMENT', '', Q(cnt('enc') + cnt('rpole')), ''],
+    ['PROP. RISER POLE', '', Q(S.els.filter(e => e.t === 'rpole' && e.st !== 'E').length), ''],
+    ['CONCRETE ENCASEMENT', '', Q(cnt('enc') + S.els.filter(e => encOf(rg, e) === 'P').length), ''],      /* (beta 7.16, CEF drawing) the new ones: of a proposed riser pole, and of an existing pole that takes a new riser */
     ...(ped('P') ? [['PEDESTAL BOX', '', Q(ped('P')), '']] : []), ...(ped('E') ? [['PEDESTAL BOX (EXISTING)', '', Q(ped('E')), '']] : []),
     ...focRows,
     ['LOOP HOLDER', '', Q(g.nloop), ''],
@@ -1275,8 +1284,8 @@ function topEl(S, el, G, rg) {
     case 'gen': G.pl(P, lay, 1); G.pl(rectAt(c, Math.max(0.2, el.w - 0.5), Math.max(0.2, el.d - 0.35), el.rot), lay, 1); break;
     case 'tank': G.pl(P, lay, 1); G.pl([lp(-el.w / 2 + 0.12, -el.d / 2), lp(-el.w / 2 + 0.12, el.d / 2)], lay); G.pl([lp(el.w / 2 - 0.12, -el.d / 2), lp(el.w / 2 - 0.12, el.d / 2)], lay); break;
     case 'hh': case 'enc': G.pl(P, lay, 1); G.pl([P[0], P[2]], lay); G.pl([P[1], P[3]], lay); break;
-    case 'epole': G.ci(c, Math.max(el.w / 2, 0.15), lay); cross(c, 0.35, lay); if (pedOf(el)) topPed(S, el, G, rg); break;
-    case 'rpole': G.ci(c, Math.max(el.w / 2, 0.1), lay); G.pl(sqr(c, Math.max(STD.encW, el.w + 0.16) / 2, el.rot), lay, 1);
+    case 'epole': G.ci(c, Math.max(el.w / 2, 0.15), lay); cross(c, 0.35, lay); if (pedOf(el)) topPed(S, el, G, rg); if (encOf(rg || routeGeom(S), el) === 'P') G.pl(sqr(c, Math.max(STD.encW, el.w + 0.16) / 2, el.rot), 'pp', 1); break;      /* (beta 7.16, CEF drawing) the new encasement of a new riser */
+    case 'rpole': G.ci(c, Math.max(el.w / 2, 0.1), lay); G.pl(sqr(c, Math.max(STD.encW, el.w + 0.16) / 2, el.rot), encOf(rg || routeGeom(S), el) === 'P' ? 'pp' : lay, 1);      /* (beta 7.16, CEF drawing: proposed with a new riser, the pole existing or not) */
       if (pedOf(el)) topPed(S, el, G, rg);      /* (fix 47) the pedestal box in place of the G.I. pipe */
       else if (!(rg || routeGeom(S)).risers.some(q => q.pole === el)) { const us = pipeSide(S, el), o = poleR(el, 0) + GIR; G.ci([c[0] + us[0] * o, c[1] + us[1] * o], GIR, lay); }      /* (14 Nov) its G.I. pipe, on its side of the pole */
       break;      /* the pole in its concrete encasement */
@@ -1718,6 +1727,7 @@ function buildTop(S, o) {
     const s = elLabel(S, el), grp = nameGrp(el), tt = titleTower(S) === el;
     if (tt) { const b = polyBox(fp), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2; jobs.push({ o: 0, key: 'tid', bold: 1, hk: 1, lines: titleLines(S), lay: 'tx', ap: [cx, b[3]], a: 0, cands: (w, hh) => { const o = []; for (let j = 0; j < 4; j++) { const d = gap + j * hh * 0.6; o.push({ p: [cx, b[3] + d + hh / 2], a: 0 }, { p: [b[2] + d + w / 2, b[3] - hh / 2], a: 0 }, { p: [b[0] - d - w / 2, b[3] - hh / 2], a: 0 }, { p: [b[2] + d + w / 2, cy], a: 0 }, { p: [b[0] - d - w / 2, cy], a: 0 }, { p: [cx, b[1] - d - hh / 2], a: 0 }); } return o; }, st: 'E' }); }      /* the site name and ID: above the tower first, then beside it */
     if (pedOf(el)) { const r = rg.risers.find(q => q.pole === el), P = pedAt(el, r ? r.s || r.u : pipeSide(S, el)), pk = 'ped' + el.id, ps = pedOf(el); LB.block(P.poly, 1, pk); jobs.push({ o: 4, key: pk, lines: [labText(S, pk, pedName(ps))], lay: tl(ps), ap: P.c, a: 0, cands: topCands(P.poly, 0, gap), st: ps }); }      /* (fix 47) */
+    if (el.st === 'E' && encOf(rg, el) === 'P') { const ek = 'enc' + el.id; jobs.push({ o: 4, key: ek, lines: wrap(labText(S, ek, encName), 16), lay: 'tp', ap: c, a: 0, cands: topCands(sqr(c, Math.max(STD.encW, el.w + 0.16) / 2, 0), 0, gap), st: 'P' }); }      /* (beta 7.16, CEF drawing) an existing pole's new encasement says so */
     if ((!grp || nameOn(S, grp)) && !(tt && !el.name && !nameOn(S, 'th'))) jobs.push({ o: 1, key, own: key, call: host ? 1 : 0, opt: el.t === 'runit' && host ? 1 : 0, area: polyBoxArea(fp), fp, lines: s.length > 18 ? wrap(s, 16) : [s], lay: tl(el.st), ap: cm ? cm.c : c, a: ang, ins, cands: topCands(fp, ang, gap), st: el.st });
   }
   if (!S.room) for (const el of S.els) if (el.t === 'cabin' && !el.hid) {             /* inside a cabin: its racks and the ODF, dashed, and the cable from the porthole to the ODF */

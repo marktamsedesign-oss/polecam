@@ -3,6 +3,11 @@
    - (2) "Exit Conduit: extend conduits only without concrete scenarios": an exit conduit with its conduits only (el.conc false): no concrete block
      in the top view, the isometric and its detail, the two pipes from the ground up; named ", NO CONCRETE"; a row of its own in the CEF table and
      a note of its own, with no concrete; the DXF valid (ezdxf's audit, when Python has ezdxf: GESAA_PY, else python3).
+   - (3) "Existing Pole will be use to create a riser pipe/conduits. (conduits, U-Guard and concrete encasement must be proposed on plan drawing.":
+     a riser pole marked existing, and an existing pole, that the UG cable goes up: the concrete encasement at its foot drawn proposed (red, and
+     dashed red below the ground) in the top view, the isometric and the riser pole detail, named PROPOSED CONCRETE ENCASEMENT, the pole itself
+     existing; the CEF table counts the pole as existing and its new encasement (a riser pole marked existing no longer counts as PROP. RISER
+     POLE); one with no cable up it stays existing, all of it; a pedestal box in place of the encasement: none, as before.
    - Without the new choice and away from what the fixes change, every output (the DXF with its layout tabs and of the older kind, the sheets,
      the PDF, the KML, the table and its notes) byte for byte as beta 7.15 (6e2bd49) made them: SHA-256 of that engine's output on the same plans.
    Every name, number and place is made up. */
@@ -142,6 +147,32 @@ test('(2) an exit conduit with its conduits only: no concrete block in any view,
   assert.match(dxf, /\r\n1\r\n(PROPOSED )?(EXIT )?CONDUIT, NO( CONCRETE)?\r\n/, 'its name, as the sheets write it (a long name on two lines)');
   assert.match(run(`toKML(SK, geo(SK))`, S), /<name>PROPOSED EXIT CONDUIT, NO CONCRETE<\/name>/);
   for (const t of [dxf, dxf12]) { const a = audit(t); if (a != null) assert.match(a, /^0 0 \d+/, `ezdxf: ${a}`); }
+});
+
+test('(3) an existing pole with a new riser: the riser, the U-guard and the concrete encasement at its foot proposed (red, named so), the pole existing, in every view and the table', () => {
+  const rows = (sk) => JSON.parse(run(`JSON.stringify(cefTable(SK))`, sk)).filter((r) => /RISER POLE|ENCASEMENT/.test(r[0])).map((r) => [r[0], r[2]]);
+  const sq = (P, lay) => P.filter((p) => p.k === 'pl' && p.close && p.pts.length === 4 && p.lay === lay && Math.abs(Math.hypot(p.pts[1][0] - p.pts[0][0], p.pts[1][1] - p.pts[0][1]) - 0.47) < 0.01).length;
+  const texts = (P) => P.filter((p) => p.k === 'tx').map((p) => p.s).join(' ');      /* (a long name is written line by line)*/
+  for (const [nm, blk, pl] of [['rpoleE', 'RPOLE_1', 'eq'], ['epoleR', 'EPOLE_1', 'ex']]) {
+    const S = mk(nm), top = run(`buildTop(SK, { labels: true }).prims`, S), iso = run(`buildIso(SK, { labels: true }).prims`, S), pole = own(top, blk), pi = own(iso, blk);
+    assert.equal(sq(pole, 'pp'), 1, `${nm}: the top view, its encasement proposed`); assert.ok(pole.some((p) => p.k === 'ci' && p.lay === pl), `${nm}: the pole itself existing`);
+    assert.ok(pi.some((p) => p.lay === 'pp') && pi.some((p) => p.lay === 'hp'), `${nm}: the isometric, its encasement proposed, above and below the ground`); assert.ok(pi.some((p) => p.lay === pl), `${nm}: the pole existing`);
+    assert.ok(!pi.some((p) => p.lay === 'hd' && p.pts.length > 4), `${nm}: no existing encasement below the ground`);
+    for (const P of [top, iso]) assert.match(texts(P.filter((p) => p.lay === 'tp')), /PROPOSED CONCRETE ENCASEMENT/, `${nm}: named, in red`);
+    assert.match(texts(iso), /PROPOSED G\.I\. RISER PIPE/); assert.ok(run(`routeGeom(SK).risers.length`, S) === 1);
+    const det = run(`(() => { SK.site.pd = { riser: true }; const d = partDetails(SK, routeGeom(SK)).find((q) => q.key === 'riser'), G = new Gfx(); d.draw(G); return G.p; })()`, S);
+    assert.ok(det.filter((p) => p.k === 'pl' && p.lay === 'pp' && p.close).length >= 1 && det.some((p) => p.lay === 'ex'), `${nm}: the riser pole detail, the pole existing and its encasement proposed`);
+  }
+  assert.deepEqual(rows(mk('rpoleE')), [['RISER POLE (EXISTING)', '1'], ['PROP. RISER POLE', ''], ['CONCRETE ENCASEMENT', '1']], 'a riser pole marked existing: an existing pole, its new encasement');
+  assert.deepEqual(rows(mk('epoleR')), [['RISER POLE (EXISTING)', '1'], ['PROP. RISER POLE', ''], ['CONCRETE ENCASEMENT', '1']], 'an existing pole with a new riser: its new encasement counted');
+  assert.deepEqual(rows(mk('rpoleEidle')), [['RISER POLE (EXISTING)', '1'], ['PROP. RISER POLE', ''], ['CONCRETE ENCASEMENT', '']], 'a riser pole marked existing, no cable up it: its riser and encasement are there already');
+  assert.deepEqual(rows(mk('noexit')), [['RISER POLE (EXISTING)', ''], ['PROP. RISER POLE', '1'], ['CONCRETE ENCASEMENT', '1']], 'a proposed riser pole: as before');
+  /* an existing riser pole with no cable up it yet: all of it existing, as before */
+  const I = run(`buildIso(SK, { labels: true }).prims`, mk('rpoleEidle')), P = own(I, 'RPOLE_1');
+  assert.ok(!P.some((p) => p.lay === 'pp' || p.lay === 'hp'), 'nothing of it proposed'); assert.doesNotMatch(texts(I), /ENCASEMENT/);
+  /* with a pedestal box at the foot of an existing pole, no encasement (as before) */
+  const ped = mk('epoleR'); ped.els.find((e) => e.t === 'epole').ped = 'P';
+  assert.equal(sq(own(run(`buildTop(SK, { labels: true }).prims`, ped), 'EPOLE_1'), 'pp'), 0); assert.deepEqual(rows(ped)[2], ['CONCRETE ENCASEMENT', '']);
 });
 
 test('without the new choices, and away from what the fixes change, the CEF plan\'s files are byte for byte as beta 7.15 (6e2bd49) made them', async () => {

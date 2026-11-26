@@ -187,7 +187,7 @@ function partDetails(S, rg) {
       const cx = 15, yg = 21, bh = 6, px = cx + 7.6, pr = 2.7, yb = yg + bh + 0.6, giT = yb + 26, ugT = giT + 20, lpY = H - 30, top = H - 3;
       G.pl([[0, 0], [W, 0], [W, H], [0, H]], 'lot', 1); dTitle(G, W, 'RISER POLE DETAIL');
       const N = [], p0 = pd ? yg : yb - 0.4, ugB = pd ? yg + 25 : giT;      /* (fix 47) with a pedestal box: the pole stands in the ground, the U-guard comes down nearer to the box */
-      if (!pd) dBlock(G, [cx + 3, yg], 24, 22, bh, pl);
+      if (!pd) dBlock(G, [cx + 3, yg], 24, 22, bh, 'pp');      /* (beta 7.16, CEF drawing) the encasement of the new riser: proposed, the pole existing or not */
       { const brk = yb + 14, zz = (x0, x1, y) => [[x0, y], [x0 + (x1 - x0) * 0.35, y + 0.9], [x0 + (x1 - x0) * 0.65, y - 0.9], [x1, y]];      /* the pole, with a break: it is not drawn at its full height */
         G.pl([[cx - 4.6, p0], [cx - 4.5, brk]], pl); G.pl([[cx + 4.6, p0], [cx + 4.5, brk]], pl);
         for (const sx of [-1, 1]) { const xa = sx * 4.45, xb = sx * 3.5, X = y => cx + xa + (xb - xa) * (y - brk - 2) / (top - brk - 2), cut = lp ? [[lpY - 4.9 * Math.SQRT1_2 - 0.6, lpY - 4.9 * Math.SQRT1_2 + 0.6], [lpY + 4.9 * Math.SQRT1_2 - 0.6, lpY + 4.9 * Math.SQRT1_2 + 0.6]] : []; let y0 = brk + 2;      /* (beta 7.3 / 2.45.5: behind the loop holder's long bar the pole is hidden) */
