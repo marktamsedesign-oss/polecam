@@ -5,6 +5,22 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Splicing details</title>
 <meta name="theme-color" content="#0f2547">
+<script>
+/* (beta 7.16, Theme) The app's Settings › Theme (Light, the default; Dark; Same as the phone), read before the page is drawn: from the app this
+   page is shown in, else the app's settings on this phone; followed while the page is open. ask.css has the two looks (data-theme light or dark):
+   in Dark the diagram stays a white sheet on a dark desk. */
+(function () {
+  var d = document.documentElement, mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null, K = (/\/beta\//.test(location.pathname) ? 'polecam-beta' : 'polecam') + '.settings';
+  var pref = function () {
+    try { if (window.parent !== window && window.parent.GESAA_THEME) return window.parent.GESAA_THEME.get(); } catch (e) { /* not the app's page */ }
+    try { var s = JSON.parse(localStorage.getItem(K) || '{}'); return s && (s.theme === 'dark' || s.theme === 'auto') ? s.theme : 'light'; } catch (e) { return 'light'; }
+  };
+  var apply = function () { var p = pref(); d.setAttribute('data-theme', p === 'dark' || (p === 'auto' && !!(mq && mq.matches)) ? 'dark' : 'light'); };
+  apply();
+  window.addEventListener('storage', function (e) { if (!e.key || e.key === K) apply(); });
+  if (mq) { if (mq.addEventListener) mq.addEventListener('change', apply); else if (mq.addListener) mq.addListener(apply); }
+})();
+</script>
 <link rel="stylesheet" href="ask.css">
 </head>
 <body>

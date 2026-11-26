@@ -140,7 +140,7 @@ const tbOf = (page) => page.evaluate(() => window.__polecam.drwTb());
 const icoOf = (page) => page.evaluate(() => window.__polecam.drwIco());
 const txtOf = (page) => page.evaluate(() => window.__polecam.drwTxt());
 const notesOf = (page) => page.evaluate(() => window.__polecam.drwNotes());
-const kept = (page, n) => page.evaluate((x) => { const m = JSON.parse(localStorage.getItem('polecam.settings')).meta[x]; return { mvText: m.mvText || {}, mvOrder: m.mvOrder || [], notes: m.notes || [], mvStyle: m.mvStyle || {}, mvKind: m.mvKind || {}, mvPin: m.mvPin || {}, phPin: m.phPin || {} }; }, n || NAME);
+const kept = (page, n) => page.evaluate((x) => { const m = JSON.parse(localStorage.getItem('polecam.settings')).meta[x]; return { mvText: m.mvText || {}, mvOrder: m.mvOrder || [], notes: m.drwNotes || [] /* ((beta 7.16, Fixes) the Drawing's notes: drwNotes) */, mvStyle: m.mvStyle || {}, mvKind: m.mvKind || {}, mvPin: m.mvPin || {}, phPin: m.phPin || {} }; }, n || NAME);
 async function drawing(page, mpp, fy) {
   await closeAll(page); await page.evaluate(() => document.getElementById('drawBtn').click()); await page.waitForTimeout(700);
   await page.evaluate(() => { const d = document.querySelector('dialog[open]'); if (d) d.close(); });
@@ -328,7 +328,7 @@ test('Text and Photo: a note where the plan is tapped, in the preview and the ex
   await select(page, 'lbl:s3'); await tbClick(page, 'text'); await txtSave(page, 'DEMO KEPT TEXT'); const K = await kept(page); assert.equal(K.notes.length, 2); assert.ok(K.mvText['lbl:s3']);
   await openProject(page, OTHER); await openProject(page, NAME); assert.deepEqual(await kept(page), K, 'after another project');
   await page.reload(); await boot(page); await hook(page); assert.deepEqual(await kept(page), K, 'after a reload');
-  const sh = await page.evaluate(() => window.__polecam.shareMeta()); for (const k of ['notes', 'mvText', 'mvOrder']) assert.ok(!(k in sh), `shareMeta: no ${k}`);
+  const sh = await page.evaluate(() => window.__polecam.shareMeta()); for (const k of ['drwNotes', 'mvText', 'mvOrder']) assert.ok(!(k in sh), `shareMeta: no ${k}`);
   await drawing(page); await shown(page); { const C = await chgOf(page); assert.deepEqual([C.moved, C.all], [0, 3], '((beta 7.14, Changed by hand)) the text and the two notes, added'); assert.deepEqual(C.rows.filter((r) => /^note:/.test(r.id)).map((r) => r.what), ['Added', 'Added']); }
   await allAutomatic(page); await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Back to automatic').click()); await page.waitForTimeout(300);
   const K2 = await kept(page); assert.deepEqual(K2.mvText, {}, 'the text back'); assert.deepEqual(K2.notes, K.notes, 'the notes stay');

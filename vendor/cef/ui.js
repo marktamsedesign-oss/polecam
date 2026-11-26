@@ -221,7 +221,7 @@ let roomCtx = null;
 function ctxNow() { const c = cabinNow(); return roomCtx = S.room && c ? outsideOf(ROOT, c, 3) : null; }
 const noGhost = P => P.filter(p => p.lay !== 'gh');
 /* 2.45.1 / beta 6.9: the inside of a cabin as it is drawn: with no cable of its own drawn, the cable that the UG fiber of the site makes in it (porthole, ladder, ODF) */
-function viaHere() { if (!S.room || !ROOT || ROOT === S) return null; const c = cabinNow(); if (!c) return null; const g = routeGeom(ROOT), p = g.parts.find(q => q.via && q.via.cab === c.id); return p ? p.via : null; }      /* the way the site's UG fiber comes into this cabin */
+function viaHere() { if (!S.room || !ROOT || ROOT === S) return null; const c = cabinNow(); if (!c) return null; const g = routeGeom(ROOT); for (const p of g.parts) { const w = p.via ? [p.via].concat(p.via.thru || []).find(q => q.cab === c.id) : null; if (w) return w; } return null; }      /* (beta 7.16, CEF drawing: or the way through it, to another cabin) */      /* the way the site's UG fiber comes into this cabin */
 function drawS() { if (!S.room || !ROOT || ROOT === S) return S; const c = cabinNow(); if (!c || (((S.route || {}).ug || {}).pts || []).length > 1) return S; const V = viaRoute(ROOT, c); return V ? Object.assign({}, S, { route: V }) : S; }
 function drawTop() {
   /* text on the sketch is sized for the screen it is on, so it stays readable on a phone */
@@ -468,7 +468,7 @@ function stdHint(e) {
   const t = e.t === 'dnap' ? 'The ODF on a pole, for a small cell or an easy macro. Drop it by a pole: it goes onto that side of the pole and moves with it. A UG fiber that ends on the pole goes up the riser into its bottom; an AE fiber that ends there comes down the pole into it. Its size, its box and its height are a start: type the real ones.' + (napPole(S, e) ? '' : ' <b>It is not on a pole yet.</b>')
     : e.t === 'rpole' ? 'By the standard: the pole stands ' + f2(STD.poleUp) + ' m above the ground and ' + f1(STD.poleIn) + ' m in it, in a concrete encasement (' + f2(STD.encUp) + ' m above ground, ' + f2(STD.encDn) + ' m below). The G.I. pipe comes up through the encasement and lies against the pole, held by stainless straps; above it the U-guard up to the cable. The closure stands above the loop holder. The pipe stands on the side where the trench, conduit or cable meets the pole; to move it, drag its handle on the plan, or tap Turn over the drawing.'
     : e.t === 'clo' ? 'On a pole it stands upright, ' + f0(STD.gap * 1000) + ' mm above the loop holder. The loop is ' + f0(STD.loopD * 1000) + ' mm across and sits ' + f0(STD.gap * 1000) + ' mm above the wire. Give the pole a loop in the Cable form (the FOC icon).'
-    : e.t === 'exit' ? 'A concrete block with the two ' + PVC_MM + ' mm pipes that come up in it. The cable is in one of them; the spare one is closed with a blank duct plug.'
+    : e.t === 'exit' ? (exitBare(e) ? 'The two ' + PVC_MM + ' mm conduits only, no concrete: they come up out of the ground, up the wall as high as its Height. The cable leaves its conduit at the mouth; the spare one is closed with a blank duct plug.' : 'A concrete block with the two ' + PVC_MM + ' mm pipes that come up in it. The cable is in one of them; the spare one is closed with a blank duct plug.')
     : e.t === 'sbox' ? (SBOX[e.ty] ? 'Type ' + e.ty + ': ' + SBOX[e.ty].inn + ' mm inside. Drawn at the size of its frame, ' + f2(SBOX[e.ty].w) + ' x ' + f2(SBOX[e.ty].d) + ' m, and ' + f2(SBOX[e.ty].dp) + ' m deep.' : 'Pick a type of the standard (A1, A2, B1, B2) and the box takes its size and depth.') : '';
   return t ? '<p class="hint">' + t + '</p>' : '';
 }
@@ -498,6 +498,7 @@ function inspector(e) {
   if (e.t === 'rack') h += '<p class="hint">' + esc(rackSays(e)) + '. ' + (is2P(e) ? 'Its front is the front of the posts, where the equipment is bolted.' : 'Its front is the side with the double line.') + ' Add an ODF or rack equipment: it goes into a rack by itself.</p>';
   h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'el.name', e.name, TXT + ' placeholder="' + esc(elLabel(S, Object.assign({}, e, { name: '' }))) + '"') + eyeBtn(e.id) + '</div>' + Sel('Status', 'el.st', e.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
   if (pedCan(e)) h += '<div class="one">' + Sel('Where the UG cable comes up', 'el.ped', pedOf(e) || '', [['', 'G.I. riser pipe (standard)'], ['P', 'Pedestal box, proposed'], ['E', 'Pedestal box, existing']]) + '</div>';      /* (fix 47) */
+  if (e.t === 'exit') h += '<div class="one">' + Sel('Exit conduit', 'el.conc', exitBare(e) ? '0' : '1', [['1', 'Concrete encasement'], ['0', 'Conduits only, no concrete']]) + '</div>';      /* (beta 7.16, CEF drawing) */
   h += '<div class="row">' + F('From left ' + sd + ' (m)', 'el.gl', f2(b[0])) + F('From right ' + sd + ' (m)', 'el.gr', f2(L - b[2])) + '</div><div class="row">' + F('From bottom ' + sd + ' (m)', 'el.gb', f2(b[1])) + F('From top ' + sd + ' (m)', 'el.gt', f2(W - b[3])) + '</div>';
   h += '<div class="row">' + (T.rd ? F('Diameter (m)', 'el.w', e.w) : sq ? F(e.t === 'guy' ? 'Mast face width (m)' : 'Base width, leg to leg (m)', 'el.w', e.w) : F('Width (m)', 'el.w', e.w) + (e.t === 'port' ? '' : F('Depth (m)', 'el.d', e.d)));
   h += T.g === 'tower' ? F('Tower height (m)', 'el.th', e.th) : F('Height (m)', 'el.h', e.h); const stairsH = e.t === 'pad' && !S.room ? padStairs(e) : '';      /* beta 4.2 */
@@ -550,13 +551,13 @@ function tabRoute() {
   for (const n of g.notes) h += '<div class="warn">' + esc(n) + '</div>';
   for (const b of g.bare || []) h += '<div class="warn">The UG cable comes out of the ground ' + f1(b.at[0]) + ' m from the left and ' + f1(b.at[1]) + ' m from the bottom, and no exit conduit is drawn there. If there is one on site: Add, Exit conduit, and put it there.' + (S.els.some(e => e.t === 'pad' && (inPoly(b.at, elPoly(e)) || elPoly(e).some((q, i, P) => distSeg(b.at, q, P[(i + 1) % P.length]) < 0.3))) ? ' If the base pad there has its exit pipe built in: pick the pad and set <b>Exit pipe built in</b>; the cable then comes up through the pad.' : '') + '</div>';      /* (19:25: the app no longer makes one up) */
   for (const w of g.warn) h += '<div class="warn">UG leg ' + (w.leg + 1) + ' runs through ' + esc(w.names.join(', ')) + '. Move a point or change the run.</div>';
-  if (P.via) h += '<div class="note">The UG fiber goes ' + esc(viaSay(P.via)) + '. Inside: ' + f1(P.via.len) + ' m.</div>';      /* 2.45.1 / beta 6.9 */
+  if (P.via) h += '<div class="note">The UG fiber goes ' + esc(viaSay(P.via)) + '. Inside: ' + f1([P.via].concat(P.via.thru || []).reduce((t, w) => t + w.len, 0)) + ' m.</div>';      /* (beta 7.16, CEF drawing: in every cabin it goes through) */      /* 2.45.1 / beta 6.9 */
   if (P.join && P.join.pole) h += '<div class="note">AE and UG meet on the riser pole. The closure stands on the pole above the loop holder, its cable ports ' + f1(P.join.z) + ' m above the ground' + (P.join.auto ? ' (the app drew it)' : '') + '. The UG cable comes up the G.I. pipe and the U-guard to it.</div>';
   for (const f of ['ae', 'ug']) {
     const Q = R[f], n = Q.pts.length, on = mode === 'route' && fib === f && !pen;
     h += '<h3>' + (many ? 'Cable ' + (cabN + 1) + ' · ' : '') + (f === 'ae' ? 'AE fiber (aerial)' : 'UG fiber (underground)') + '</h3><div class="btns">';
     h += on ? '<button class="b p" data-a="route-done">Done drawing</button><button class="b" data-a="route-undo"' + (n ? '' : ' disabled') + '>Remove last point</button>' : '<button class="b p" data-a="route-draw" data-f="' + f + '">' + (n ? 'Add more points' : 'Draw the ' + f.toUpperCase() + ' fiber') + '</button><button class="b" data-a="route-clear" data-f="' + f + '"' + (n ? '' : ' disabled') + '>Clear</button>';
-    h += '</div><p class="hint">' + (f === 'ae' ? 'Start outside the site, where the cable comes from. Tap each pole. Finish on the riser pole. The arrow and the note go at the outside end.' : 'Start on the riser pole. Tap along the trench or conduit, then along the ladder, and finish on the ODF. Into a cabin: tap the exit conduit, the porthole, the cable ladder and the rack, or only the rack: the fiber comes up the exit conduit at the wall, goes through the porthole, runs along the ladder at its height and goes into the ODF at its rack units. The fiber follows what it is drawn on: it lies in the trench at its depth and on the ladder at its height, corners and all. Two conduits or trenches that meet in a hand hole or service box carry it through both. A point snaps onto an ODF, also one inside a cabin, and onto a closure: the cable goes into a closure at its entrance.') + '</p>';
+    h += '</div><p class="hint">' + (f === 'ae' ? 'Start outside the site, where the cable comes from. Tap each pole. Finish on the riser pole. The arrow and the note go at the outside end.' : 'Start on the riser pole. Tap along the trench or conduit, then along the ladder, and finish on the ODF. Into a cabin: tap the exit conduit, the porthole, the cable ladder and the rack, or only the rack: the fiber comes up the exit conduit at the wall, goes through the porthole, runs along the ladder at its height and goes into the ODF at its rack units. Through one cabin into another: tap the portholes and ladders on the way, or only the ODF: it goes in by one porthole, along the ladder inside, out by another, along the ladder between the cabins, and on. Each cable goes through a porthole by a hole of its own. The fiber follows what it is drawn on: it lies in the trench at its depth and on the ladder at its height, corners and all. Two conduits or trenches that meet in a hand hole or service box carry it through both. A point snaps onto an ODF, also one inside a cabin, and onto a closure: the cable goes into a closure at its entrance.') + '</p>';
     h += '<div class="row">' + Sel('Cable', 'route.' + f + '.cable', Q.cable, CABLES.map(c => [c, c])) + (f === 'ae' ? F('Aerial cable height (m)', 'route.aerialH', S.route.aerialH) : F('Rise into an ODF that is not in a rack (m)', 'route.endRise', S.route.endRise)) + '</div>';
     if (f === 'ae') h += '<div class="one">' + F('Note at the outside end', 'route.note', R.note, TXT) + '</div>';
     Q.pts.forEach((p, i) => {
@@ -712,15 +713,15 @@ function labInfo(key) {
   { const m = /^(dep|gl)(.+)$/.exec(key), it = m && (m[1] === 'dep' ? runById(m[2]) : elById(m[2]));      /* (15 Nov) the depth of an open trench and the cable entry of a cabinet, in the isometric */
     if (it) return m[1] === 'dep' ? { name: 'Trench depth', cur: (S.lab[key] || {}).t || '', def: 'TRENCH ' + f1(runDepth(it)) + ' m DEEP', item: { k: 'run', id: it.id } } : { name: 'Cable entry', cur: (S.lab[key] || {}).t || '', def: 'FOC ENTRY', item: { k: 'el', id: it.id } }; }
   if (key === 'tid') { const si = S.site || {}; return { name: 'Site name and ID', cur: (S.lab.tid || {}).t || '', def: [si.name, si.id].map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join(' / ') }; }
-  const lp = /^loop(\d+)(~.+)?$/.exec(key), fm = /^(ae|ug)(~.+)?$/.exec(key), ckN = sfx => Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (sfx || ''))), rec = S.lab[key] || {}, def = fm ? focName(S, routeGeom(S), fm[1], ckN(fm[2])) : /^clo(~.+)?$/.test(key) ? 'PROPOSED CLOSURE' : /^exit/.test(key) ? 'PROPOSED RISER PIPE' : /^riser/.test(key) ? 'PROPOSED G.I. RISER PIPE' : /^ugd/.test(key) ? 'PROPOSED U-GUARD' : /^port/.test(key) ? 'PORTHOLE' : /^gate/.test(key) ? (S.room ? 'DOOR' : 'GATE') : lp ? loopName(((routeGeom(S).loops.find(q => 'loop' + q.i + (q.ck || '') === key)) || { len: num((RTc(ckN(lp[2])).ae.pts[+lp[1]] || {}).loop, 0) }).len) : '';
-  return { name: key === 'ae' ? 'AE fiber' : key === 'ug' ? 'UG fiber' : /^clo(~.+)?$/.test(key) ? 'Closure' : /^exit/.test(key) ? 'Exit conduit' : /^padx/.test(key) ? 'Exit pipe in base pad' : /^riser/.test(key) ? 'Riser pipe' : /^ugd/.test(key) ? 'U-guard' : /^port/.test(key) ? 'Porthole' : /^gate/.test(key) ? (S.room ? 'Door' : 'Gate') : lp ? 'Loop' : 'Label', cur: rec.t || '', def };
+  const lp = /^loop(\d+)(~.+)?$/.exec(key), fm = /^(ae|ug)(~.+)?$/.exec(key), ckN = sfx => Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (sfx || ''))), rec = S.lab[key] || {}, def = fm ? focName(S, routeGeom(S), fm[1], ckN(fm[2])) : /^clo(~.+)?$/.test(key) ? 'PROPOSED CLOSURE' : /^exit/.test(key) ? 'PROPOSED RISER PIPE' : /^riser/.test(key) ? 'PROPOSED G.I. RISER PIPE' : /^ugd/.test(key) ? 'PROPOSED U-GUARD' : /^enc/.test(key) ? encName : /^port/.test(key) ? 'PORTHOLE' : /^gate/.test(key) ? (S.room ? 'DOOR' : 'GATE') : lp ? loopName(((routeGeom(S).loops.find(q => 'loop' + q.i + (q.ck || '') === key)) || { len: num((RTc(ckN(lp[2])).ae.pts[+lp[1]] || {}).loop, 0) }).len) : '';
+  return { name: key === 'ae' ? 'AE fiber' : key === 'ug' ? 'UG fiber' : /^clo(~.+)?$/.test(key) ? 'Closure' : /^exit/.test(key) ? 'Exit conduit' : /^padx/.test(key) ? 'Exit pipe in base pad' : /^riser/.test(key) ? 'Riser pipe' : /^ugd/.test(key) ? 'U-guard' : /^enc/.test(key) ? 'Concrete encasement' : /^port/.test(key) ? 'Porthole' : /^gate/.test(key) ? (S.room ? 'Door' : 'Gate') : lp ? 'Loop' : 'Label', cur: rec.t || '', def };
 }
 /* (15 Nov) what is hidden on a level (the site, or the inside of a cabin), for the orange eye button and its card.
    labLive: a name the user hid that still belongs to something; one left behind by a deleted item is not counted. A name the app makes for a thing it no longer
    draws (a length, the exit, the riser) is kept: showing it does no harm. The PROPOSED CLOSURE counts only while the app draws it (gq: the cable, worked out only then). */
 function labLive(T, k, gq) {
   const has = id => T.els.some(q => q.id === id) || T.runs.some(q => q.id === id); if (has(k)) return true;
-  let m = /^(lenr|port)(.+)_[0-9]+$/.exec(k) || /^(dep|gl|ped)(.+)$/.exec(k); if (m) return m[1] === 'ped' ? T.els.some(q => q.id === m[2] && pedOf(q)) : has(m[2]);      /* (fix 47: the name of a pedestal box counts while the pole has one) */
+  let m = /^(lenr|port)(.+)_[0-9]+$/.exec(k) || /^(dep|gl|ped|enc)(.+)$/.exec(k); if (m) return m[1] === 'ped' ? T.els.some(q => q.id === m[2] && pedOf(q)) : has(m[2]);      /* (fix 47: the name of a pedestal box counts while the pole has one) (beta 7.16, CEF drawing: enc, the new encasement of an existing pole, while the pole is there) */
   m = /^in(.+)$/.exec(k); if (m && !T.room) { const id = m[1]; return T.els.some(c => c.t === 'cabin' && c.inside && (c.inside.els || []).concat(c.inside.runs || []).some(q => q.id === id)); }
   if (/^clo(~.+)?$/.test(k)) return !T.room && gq().joins.some(j => j.auto && 'clo' + (j.ck || '') === k);
   return !(/^e[0-9a-z]{1,6}$/.test(k) && !/^exit[0-9]+$/.test(k));      /* an item's own id whose item is gone (uid(): 'e' and 6 characters) */
@@ -1053,6 +1054,7 @@ function applyField(k, t) {
     if (f === 'tr') { if (e.t !== 'cabin') return false; push(); if (v === '1') e.tr = 1; else delete e.tr; needFit.iso = needFit.sheets = true; return true; }      /* (fix 47) a cabin or a telco room */
     if (f === 'open') { if (e.t !== 'rack') return false; push(); setRackKind(e, v === '2' ? '2' : v === '1' ? 'O' : 'C'); needFit.iso = needFit.sheets = true; return true; }      /* (fix 47) a closed rack cabinet or an open rack (fix 48: or a 2-post rack) */
     if (f === 'ped') { if (!isPole(e)) return false; push(); if (v === 'P' || v === 'E') e.ped = v; else delete e.ped; needFit.iso = needFit.sheets = true; return true; }      /* (fix 47) the pedestal box at the foot of the pole */
+    if (f === 'conc') { if (e.t !== 'exit') return false; push(); if (v === '0') e.conc = false; else delete e.conc; needFit.iso = needFit.sheets = true; return true; }      /* (beta 7.16, CEF drawing) an exit conduit with its concrete block, or its conduits only */
     if (f === 'xp') { if (e.t !== 'pad') return false; push(); const q = clamp(parseInt(v, 10) || 0, 0, 2); if (q) e.xp = q; else delete e.xp; return true; }      /* (14 Nov 17:00) the pad's own exit pipe */
     if (f === 'lad') { push(); if (v === 'auto' || v === 'none') e.lad = v; else { e.lad = clamp(parseInt(v, 10) || 0, 0, 3); e.ladT = 0.5; } return true; }
     if (!isFinite(x)) return false; push('f:' + k);
@@ -1168,11 +1170,11 @@ function ladWall(r) {
 const ladOnWall = () => mode === 'run' && runKind === 'ladder' && runOpt.ladder.mount === 'wall';      /* beta 7.2 / 2.45.3: a ladder is being drawn On the wall */
 function setMount(r, v) { if (!r || r.kind !== 'ladder') return; push(); if (v === 'wall') r.mount = 'wall'; else delete r.mount; runOpt.ladder.mount = v === 'wall' ? 'wall' : ''; if (v === 'wall') ladWall(r); else say('Cable ladder standing: ' + (S.room ? 'hung from the ceiling' : 'on posts') + ', as before.'); needFit.iso = needFit.sheets = true; refresh(true); }
 /* the nearest point on lines of the given kinds: drawn runs, or legs of the fiber. A point close to an end goes to the end. */
-function nearLine(p, lines, tol) {
+function nearLine(p, lines, tol, free) {      /* (beta 7.16, CEF drawing) free: the nearest point itself, as on the line a ladder follows, whose stations round its bends are no ends */
   let best = null;
   for (const P of lines) for (let i = 0; i + 1 < P.length; i++) {
     const a = P[i], b = P[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy; if (l2 < 1e-6) continue;
-    let t = clamp(((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2, 0, 1); const L = Math.sqrt(l2); if (t * L < 0.4) t = 0; else if ((1 - t) * L < 0.4) t = 1;
+    let t = clamp(((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2, 0, 1); const L = Math.sqrt(l2); if (free) { /* no pull to the ends */ } else if (t * L < 0.4) t = 0; else if ((1 - t) * L < 0.4) t = 1;
     const q = [a[0] + dx * t, a[1] + dy * t], d = Math.hypot(p[0] - q[0], p[1] - q[1]); if (d < tol && (!best || d < best.d)) best = { q: [r2(q[0]), r2(q[1])], d };
   }
   return best;
@@ -1196,7 +1198,11 @@ function snapItem(m, cable) {
   let b = null; const r = SN();
   for (const e of S.els) if (SNAPS.includes(e.t)) { const d = Math.hypot(e.x - m[0], e.y - m[1]), rr = cable && !S.room ? (isPole(e) ? Math.max(r, Math.min(1.2, 16 * unit('top'))) : Math.max(r, Math.min(0.6, 10 * unit('top')))) : r;      /* beta 4.2: a cable is taken from further away, by a pole most of all */ if (d < rr && (!b || d - (e.t === 'odf' || e.t === 'clo' ? 0.08 : 0) < b.d)) b = { d: d - (e.t === 'odf' || e.t === 'clo' ? 0.08 : 0), p: [e.x, e.y], note: 'On the ' + tyOf(e).n.toLowerCase() + (e.t === 'clo' ? ': the cable goes in at its entrance' : '') }; }
   if (cable && !S.room) { const rc = Math.max(r, Math.min(0.6, 10 * unit('top'))), o = odfInCabin(S, m, rc); if (o && (!b || o.d - 0.08 < b.d)) b = { d: o.d - 0.08, p: [r2(o.at[0]), r2(o.at[1])], note: 'On the ODF in the ' + roomWord(o.cabin) + ': the fiber ends here, at its rack units' };
-    const q = pen || fib === 'ug' ? inSnap(m, rc) : null; if (q && (!b || q.d < b.d)) b = q; }      /* 2.45.1 / beta 6.9 (not while the AE fiber alone is drawn) */
+    const q = pen || fib === 'ug' ? inSnap(m, rc) : null; if (q && (!b || q.d < b.d)) b = q;      /* 2.45.1 / beta 6.9 (not while the AE fiber alone is drawn) */
+    if (b && pen && / porthole /.test(b.note)) {      /* (beta 7.16, CEF drawing) the chain Conduit > Exit Conduit > Porthole: a tap by a porthole with an exit conduit at its foot takes the exit conduit first, when the cable comes from the ground; tapped again, the porthole */
+      const C = penCur(), l = C.length ? C[C.length - 1] : penStart, ex = l && !portAt(S, l, 0.3) && !S.runs.some(r => r.kind === 'ladder' && onRun(r, l, 0.3)) ? S.els.find(e => e.t === 'exit' && Math.hypot(e.x - m[0], e.y - m[1]) < rc && Math.hypot(e.x - b.p[0], e.y - b.p[1]) < 0.8) : null;
+      if (ex && Math.hypot(l[0] - ex.x, l[1] - ex.y) > 0.1) b = { d: Math.hypot(ex.x - m[0], ex.y - m[1]), p: [ex.x, ex.y], note: 'On the exit conduit: the cable comes up it to the porthole · tap again for the porthole' }; }
+  }
   return b;
 }
 /* 2.45.1 / beta 6.9: a point of the cable on the site snaps onto what is inside a cabin (in the sketch of its inside) and onto its porthole: the rack (the ODF in
@@ -1208,9 +1214,9 @@ function inSnap(m, rc) {
     for (const q of cabinPorts(c)) put(Math.hypot(q.at[0] - m[0], q.at[1] - m[1]) - 0.06, q.at, 'On the porthole of the ' + w + ': the fiber goes through the wall here');
     if (!I || !Array.isArray(I.els)) continue;
     for (const q of I.els) if (q.t === 'rack') { const od = rackItems(I, q).find(e => e.t === 'odf'), at = od ? [od.x, od.y] : [q.x, q.y], d = inPoly(rm, elPoly(q)) ? 0 : Math.hypot(q.x - rm[0], q.y - rm[1]); put(d - 0.1, F(at), od ? 'On the ODF in the rack: the fiber ends here, at its rack units' : 'On the rack'); }
-    for (const r of I.runs || []) if (r.kind === 'ladder' && r.pts && r.pts.length > 1) { const k = nearLine(rm, [ladPath(r).map(q => q.p)], rc); if (k) put(k.d + 0.05, F(k.q), 'On the cable ladder' + (isWallLad(r) ? ' on the wall' : '') + ': the fiber runs along it'); }
+    for (const r of I.runs || []) if (r.kind === 'ladder' && r.pts && r.pts.length > 1) { const k = nearLine(rm, [ladPath(r).map(q => q.p)], rc, 1); if (k) put(k.d + 0.05, F(k.q), 'On the cable ladder' + (isWallLad(r) ? ' on the wall' : '') + ': the fiber runs along it'); }      /* (beta 7.16, CEF drawing: onto the ladder where it is tapped; before, a tap within 0.4 m of a station of its bends was pulled onto that station, and then too far from where it was tapped to snap at all) */
   }
-  for (const r of S.runs) if (r.kind === 'ladder' && r.pts && r.pts.length > 1) { const k = nearLine(m, [ladPath(r).map(q => q.p)], rc); if (k) put(k.d + 0.05, k.q, 'On the cable ladder: the fiber runs along it'); }
+  for (const r of S.runs) if (r.kind === 'ladder' && r.pts && r.pts.length > 1) { const k = nearLine(m, [ladPath(r).map(q => q.p)], rc, 1); if (k) put(k.d + 0.05, k.q, 'On the cable ladder: the fiber runs along it'); }
   return b;
 }
 /* a point inside a room that is near one of its walls goes onto it: where a partition wall ends */
@@ -1241,7 +1247,7 @@ function finishStroke(st) {
   if (st.length < 2 || len < Math.max(0.3, 2 * tol)) return false;
   if (mode === 'route' && pen && !S.room) {              /* beta 4.2: one line for the whole route */
     const C = penCur(), start = C.length ? C[C.length - 1] : penStart, H = strokeHelpers(S, null);
-    const pts = tidyStroke(start ? [start].concat(st) : st, { tol, tolEnd, align: autoAlign, start, pts: H.pts, guides: H.guides }); if (pts.length < 2) return false;
+    const pts = tidyStroke(start ? [start].concat(st) : st, { tol, tolEnd, align: autoAlign, start, pts: H.pts, guides: H.guides, free: p => !!cabinOf(S, p, 0.1) }); if (pts.length < 2) return false;      /* (beta 7.16, CEF drawing: free, what is drawn inside a cabin stays inside it, not pulled onto its wall) */
     penAdd(viaItems(S, pts, Math.max(0.5, tolEnd * 0.8)).slice(start ? 1 : 0)); return true;
   }
   if (mode === 'route') {
@@ -1719,7 +1725,7 @@ function penAdd(Q) {
   refresh(true);
 }
 /* 2.45.1 / beta 6.9: what the UG fiber runs on into a cabin, and what the app took as it is not drawn */
-function viaSay(v) { return 'into the ' + v.name + ' by the ' + v.used.join(', ') + (v.assumed.length ? ' (' + v.assumed.join('; ') + ')' : ''); }
+function viaSay(v) { const one = w => 'into the ' + w.name + ' by the ' + w.used.join(', ') + (w.assumed.length ? ' (' + w.assumed.join('; ') + ')' : ''); return (v.thru || []).concat([v]).map(one).join(', then '); }      /* (beta 7.16, CEF drawing: through one cabin into another) */
 function penUndo() {
   if (penStart) { penStart = null; refresh(true); return; }
   if (penN > 0 && hist.length) { if (cloHist === hist.length) { cloHist = -1; undo(); }      /* the answer about the closure goes with the piece that brought the question */

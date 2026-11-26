@@ -97,7 +97,7 @@ const ctxOf = (page) => page.evaluate(() => window.__polecam.drwCtx());
 const txtOf = (page) => page.evaluate(() => window.__polecam.drwTxt());
 const icoOf = (page) => page.evaluate(() => window.__polecam.drwIco());
 const full = (page, id) => page.evaluate((x) => window.__polecam.drwMvItem(x), id);
-const kept = (page) => page.evaluate((n) => { const m = JSON.parse(localStorage.getItem('polecam.settings')).meta[n]; const o = {}; for (const k of ['phPin', 'numPin', 'lblPin', 'cabPin', 'mvPin', 'mvStyle', 'mvKind', 'poleAt', 'mvText', 'mvOrder', 'notes', 'mvHide', 'mvTurn', 'mvRec']) o[k] = m[k] || (k === 'notes' || k === 'mvOrder' ? [] : {}); return o; }, NAME);
+const kept = (page) => page.evaluate((n) => { const m = JSON.parse(localStorage.getItem('polecam.settings')).meta[n]; const o = {}; for (const k of ['phPin', 'numPin', 'lblPin', 'cabPin', 'mvPin', 'mvStyle', 'mvKind', 'poleAt', 'mvText', 'mvOrder', 'drwNotes', 'mvHide', 'mvTurn', 'mvRec']) o[k] = m[k] || (k === 'drwNotes' || k === 'mvOrder' ? [] : {}); return o; }, NAME); // ((beta 7.16, Fixes) the Drawing's notes: drwNotes)
 /** Where the Drawing looks: { cx, cy (metres), sc (canvas pixels a metre) }. */
 const viewOf = (page) => page.evaluate(() => ({ ...window.__polecam.drw.view }));
 const recOf = (page, id) => page.evaluate((x) => JSON.parse(JSON.stringify(window.__polecam.points.find((p) => p.id === x) || null)), id);
@@ -328,18 +328,18 @@ test('Changed by hand: the chip\'s numbers follow moves, styles, a text, a turn,
   await page.click('#drawRedo'); await page.waitForTimeout(250); C = await chgOf(page); assert.deepEqual([C.moved, C.all], [2, 6], 'and Redo');
   // a note: Remove (Undo brings it back)
   const nid = C.rows.find((r) => r.kind === 'note').id; if (!(await chgOf(page)).open) await page.click('#drawChg'); await page.waitForTimeout(200); await page.click(`#drawChgBox [data-c="back"][data-id="${nid}"]`); await page.waitForTimeout(250);
-  assert.equal((await kept(page)).notes.length, 0, 'Remove: the note taken off'); C = await chgOf(page); assert.deepEqual([C.moved, C.all], [2, 5]); await page.click('#drawUndo'); await page.waitForTimeout(250); assert.equal((await kept(page)).notes.length, 1, 'Undo: the note back'); assert.deepEqual([(await chgOf(page)).moved, (await chgOf(page)).all], [2, 6]);
+  assert.equal((await kept(page)).drwNotes.length, 0, 'Remove: the note taken off'); C = await chgOf(page); assert.deepEqual([C.moved, C.all], [2, 5]); await page.click('#drawUndo'); await page.waitForTimeout(250); assert.equal((await kept(page)).drwNotes.length, 1, 'Undo: the note back'); assert.deepEqual([(await chgOf(page)).moved, (await chgOf(page)).all], [2, 6]);
   // Put all back: asked (Cancel keeps all); then every plan-only change back, the note and the record's change stay; one Undo step
   if (!(await chgOf(page)).open) { await page.click('#drawChg'); await page.waitForTimeout(200); }
   const title = await putAllBack(page, false); assert.equal(title, 'Put all back: 4 elements?'); // (a number, two poles' details, the style of all of them) assert.match(await page.evaluate(() => document.getElementById('askText').textContent), /Your text or photo added stays \(Remove takes one off\)\. What the Drawing changed in a record stays/);
   C = await chgOf(page); assert.deepEqual([C.moved, C.all], [2, 6], 'Cancel: kept');
   const u1 = (await mvOf(page)).undo.length; await putAllBack(page, true); const K = await kept(page);
-  for (const k of ['numPin', 'lblPin', 'mvStyle', 'mvKind', 'mvText', 'mvTurn']) assert.deepEqual(K[k], {}, `${k}: none left`); assert.equal(K.notes.length, 1, 'the note stays'); assert.ok(K.mvRec['pole:s4'], 'the record\'s change stays listed');
+  for (const k of ['numPin', 'lblPin', 'mvStyle', 'mvKind', 'mvText', 'mvTurn']) assert.deepEqual(K[k], {}, `${k}: none left`); assert.equal(K.drwNotes.length, 1, 'the note stays'); assert.ok(K.mvRec['pole:s4'], 'the record\'s change stays listed');
   assert.equal((await recOf(page, 's4')).status, 'Proposed', 'the record as it is'); assert.equal((await mvOf(page)).undo.length, u1 + 1, 'one Undo step');
   C = await chgOf(page); assert.deepEqual([C.moved, C.all], [0, 2], 'the note and the record\'s change'); assert.deepEqual(C.rows.map((r) => r.what).sort(), ['Added', 'Existing / Proposed (in the record)']);
   await page.click('#drawUndo'); await page.waitForTimeout(300); C = await chgOf(page); assert.deepEqual([C.moved, C.all], [2, 6], 'Undo: all of it back');
   // kept with the project, left out of what the team gets
-  const sh = await page.evaluate(() => window.__polecam.shareMeta()); for (const k of ['mvTurn', 'mvRec', 'mvStyle', 'mvKind', 'notes']) assert.ok(!(k in sh), `shareMeta: no ${k}`);
+  const sh = await page.evaluate(() => window.__polecam.shareMeta()); for (const k of ['mvTurn', 'mvRec', 'mvStyle', 'mvKind', 'drwNotes']) assert.ok(!(k in sh), `shareMeta: no ${k}`);
   // Undo of the record's change: its row goes
   await page.keyboard.press('Escape'); for (let k = 0; k < 8 && (await recOf(page, 's4')).status === 'Proposed'; k++) { await page.click('#drawUndo'); await page.waitForTimeout(500); }
   assert.equal((await recOf(page, 's4')).status, 'Existing', 'Undo: the record back'); assert.ok(!(await chgOf(page)).rows.some((r) => r.id === 'pole:s4'), 'its row gone with it');
@@ -385,10 +385,10 @@ test('the text editor\'s format: Align, Wrap, Line spacing, Font, B / I / U, siz
   await page.keyboard.press('Escape'); await page.click('#drawIcons [data-a="addtext"]'); const fr = await page.evaluate(([la, lo]) => window.__polecam.drwLL(la, lo), [LA0 + 0.0009, LO0 + 0.0004]); await page.mouse.click(fr[0], fr[1]); await page.waitForTimeout(600);
   X = await txtOf(page); assert.equal(X.title, 'Add text'); assert.equal(X.fmt.v.align, 'center', 'a note: centred as the plan draws one'); assert.equal(X.fmt.scopeOk, false, 'a note: its own format');
   await page.fill('#drawTxtArea', 'DEMO NOTE LINE ONE\nTWO'); await page.click('#drawTxtFmt [data-f="align"][data-v="left"]'); await page.selectOption('#drawTxtFont', 'Courier New'); await page.click('#drawTxtFmt [data-f="italic"]'); const n2 = (await pl(page)).n; await txtSave(page);
-  let N = (await kept(page)).notes; assert.equal(N.length, 1); assert.deepEqual([N[0].align, N[0].font, N[0].italic, 'wrap' in N[0], 'bold' in N[0]], ['left', 'Courier New', true, false, false], 'the note\'s own fields, only those set');
+  let N = (await kept(page)).drwNotes; assert.equal(N.length, 1); assert.deepEqual([N[0].align, N[0].font, N[0].italic, 'wrap' in N[0], 'bold' in N[0]], ['left', 'Courier New', true, false, false], 'the note\'s own fields, only those set');
   await again(page, n2); const sel = `note:${N[0].id}`; await select(page, sel); await tbClick(page, 'text'); await page.waitForTimeout(600); X = await txtOf(page);
   assert.deepEqual([X.fmt.v.align, X.fmt.v.font, X.fmt.v.italic], ['left', 'Courier New', true], 'opened as kept'); await page.click('#drawTxtFmt [data-f="italic"]'); await page.click('#drawTxtFmt [data-f="spc+"]'); await txtSave(page);
-  N = (await kept(page)).notes; assert.deepEqual([N[0].italic, N[0].spacing], [undefined, 1.25], 'italic off: taken off the note; spacing kept'); assert.deepEqual((await mvOf(page)).undo.slice(-1), ['note edited']);
+  N = (await kept(page)).drwNotes; assert.deepEqual([N[0].italic, N[0].spacing], [undefined, 1.25], 'italic off: taken off the note; spacing kept'); assert.deepEqual((await mvOf(page)).undo.slice(-1), ['note edited']);
   // the export: the job the builder gets
   const e = await exportPlan(page); assert.deepEqual(e.job.style['lbl:s3'], want, 'job.style'); assert.deepEqual(e.job.styleKind.details, { align: 'left', bold: true }, 'job.styleKind');
   const jn = e.job.notes.find((n) => n.id === N[0].id); assert.deepEqual([jn.align, jn.font, jn.spacing, 'italic' in jn], ['left', 'Courier New', 1.25, false], 'job.notes: the note\'s format');

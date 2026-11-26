@@ -2898,6 +2898,26 @@
           pinAt.set(`cab:${k}`, it);
         }
       } }
+    /* (beta 7.16, Fixes) the owner: "can you put the latlong coordinates directly below the element? as you can see here, the MH-0003 and latlong is on
+       different side or away from each other": the lat / long of a point that is not a pole (step 11: a handhole, manhole, service box, ODC, ODF, an
+       OLT site, a NAP or a closure on its own) right under its ID, as a pole's details: one block, its place found for both (above its symbol, the
+       block's bottom clear of it), one item (its lines: the ID, then lat and long); Tidy: the smaller lines of its ID's label. llAt: where it goes (the
+       top of its first line, its attachment, its x axis, its item), written in step 11 at its size there; llDone: written in its Tidy label. A point
+       with no ID on the plan: its lat / long where it was (step 11). */
+    const LLG = 0.4, llAt = new Map(), llDone = new Set(); // (LLG: the gap under the ID, of its height, as in a Tidy label)
+    const llOk = (p) => p.lat != null && p.lon != null && p.lat !== '' && p.lon !== '' && Number.isFinite(+p.lat) && Number.isFinite(+p.lon);
+    /** a point's lat / long as a block under its ID: { p, h, w, H (its height, width and height as placed), lat, lon, mt (as written) }; null: a pole, a point
+        on one, a pull-off or cross-over (none), a tower (in its group), a closure with a bubble callout (in it), or no lat / long */
+    const llBlk = (p) => {
+      if (!p || p.el === 'Pole' || p.onPole || JNW[p.el] || (p.el === 'Site' && !/olt/i.test(p.siteKind || '')) || (p.el === 'Closure' && BUB(p)) || !llOk(p)) return null;
+      const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], h = TIDY ? TS.sm / kAt(q0[0], q0[1]) : +(job.poleStyle || {}).llH > 0 ? +job.poleStyle.llH : 1.2, la = (+p.lat).toFixed(6), lo = (+p.lon).toFixed(6);
+      return { p, h, w: 10 * h * CHW * 1.1, H: 2 * 1.67 * h, lat: `${la}°`, lon: `${lo}°`, mt: `{\\fSimSun|b0|i0|c134|p2;${la}%%D\\P${lo}%%D}` }; // (its box as step 11 measured it)
+    };
+    /** the box of a lat / long block B whose first line's top is at t (att: 1 its left, 2 its middle, 3 its right there), its x axis u */
+    const llBox = (B, t, att, u) => { const dn = [u[1], -u[0]], c = add2(add2(t, u, att === 1 ? B.w / 2 : att === 3 ? -B.w / 2 : 0), dn, B.H / 2); return Spots.box(c[0], c[1], B.w, B.H, deg(u)); };
+    /** two boxes turned alike as one (an ID and its lat / long under it) */
+    const boxBoth = (A, B) => { const fr = (b) => { const x = (b.cx - A.cx) * A.ux + (b.cy - A.cy) * A.uy, y = (b.cx - A.cx) * A.vx + (b.cy - A.cy) * A.vy; return [x - b.hw, x + b.hw, y - b.hh, y + b.hh]; }, a = fr(A), b = fr(B), x0 = Math.min(a[0], b[0]), x1 = Math.max(a[1], b[1]), y0 = Math.min(a[2], b[2]), y1 = Math.max(a[3], b[3]), mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      return { cx: A.cx + A.ux * mx + A.vx * my, cy: A.cy + A.uy * mx + A.vy * my, hw: (x1 - x0) / 2, hh: (y1 - y0) / 2, ux: A.ux, uy: A.uy, vx: A.vx, vy: A.vy }; };
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
     let nOlt = 0, nInline = 0, nTelco = 0, nExArm = 0, taDef = false; const cloLbl = []; /* (beta 6.7: the proposed closures, labelled at the end) */ const taBlk = telcoArmTop(false), siteLate = [], odfLate = []; // (v2.42.11: towers drawn after the labels, see below)
     for (const p of pts) {
@@ -2943,9 +2963,11 @@
         const nb0 = isNew && S.blocks.has('7') ? ['7', 'PORPOSED OLT', 0.0001060994181900193] : ['OLT1', 'EXISTING OLT', 1.749630906627053];
         if (S.blocks.has(nb0[0])) { owning(`site:${p.id}`, 'site', p, null, () => o.insert(lay(nb0[1], 'X-BTS'), nb0[0], p.E, p.N, { scale: nb0[2], center: true })); spots.add(Spots.box(p.E, p.N, 13, 15, 0)); nOlt++; }
         const nm = p.siteName || p.poleId || ''; if (nm) {
-          const all4 = [[0, 10.5], [0, -10.5], [12, 0], [-12, 0], [-12, 10.5], [12, 10.5], [-12, -10.5], [12, -10.5]].map(([dx, dy]) => { const q = [p.E + dx, p.N + dy]; return { q, boxes: [textBox(q[0], q[1], 3, nm, 0, dx > 0 ? 0 : dx < 0 ? 2 : 1, 2)], ha: dx > 0 ? 0 : dx < 0 ? 2 : 1 }; });
-          const inC = all4.filter((x) => cellHolds(x.boxes[0], p.E, p.N)), c = pick(spots, inC.length ? inC : all4.slice(0, 4)); // v2.42.10: inside its GEO sheet first
-          owning(`sitename:${p.id}`, 'sitename', p, null, () => o.text(lay('X-BTS'), c.q[0], c.q[1], 3, nm, { ha: c.ha, va: 2, style: 'arial', color: pinColor(p) != null ? pinColor(p) : isNew ? 1 : 5 })); spots.add(c.boxes); }
+          const LB = llBlk(p), llT = (q) => [q[0], q[1] - 1.5 - LLG * 3]; // ((beta 7.16, Fixes) its lat / long right under its name: llT, the top of its first line; above the site, the two higher)
+          const all4 = [[0, 10.5], [0, -10.5], [12, 0], [-12, 0], [-12, 10.5], [12, 10.5], [-12, -10.5], [12, -10.5]].map(([dx, dy]) => { const q = [p.E + dx, p.N + dy + (LB && dy > 0 && !dx ? LLG * 3 + LB.H : 0)], ha = dx > 0 ? 0 : dx < 0 ? 2 : 1; return { q, boxes: [textBox(q[0], q[1], 3, nm, 0, ha, 2), ...(LB ? [llBox(LB, llT(q), ha + 1, [1, 0])] : [])], ha }; });
+          const inC = all4.filter((x) => x.boxes.every((b) => cellHolds(b, p.E, p.N))), c = pick(spots, inC.length ? inC : all4.slice(0, 4)); // v2.42.10: inside its GEO sheet first
+          owning(`sitename:${p.id}`, 'sitename', p, null, () => o.text(lay('X-BTS'), c.q[0], c.q[1], 3, nm, { ha: c.ha, va: 2, style: 'arial', color: pinColor(p) != null ? pinColor(p) : isNew ? 1 : 5 })); spots.add(c.boxes);
+          if (LB) llAt.set(p, { at: llT(c.q), att: c.ha + 1, dir: null, own: [`sitename:${p.id}`, 'sitename', p, null] }); }
       } else if (p.el === 'Site') { // v2.36: a pin's name in its colour (a pin placed on the map has one). v2.37: a new tower red
         let bn = 'X-BTS';
         if (isNew && copyBlock(d, S, 'X-BTS', 'G-ESAA P-BTS', () => true)) {
@@ -2962,11 +2984,16 @@
       } else if (p.el === 'NAP') { // a NAP pin away from every pole of the route: where it is
         const fN = TIDY ? fitW(8.5, [p.E, p.N]) / kAt(p.E, p.N) : 1; // (beta 4.8: Tidy: 0.7 W at most, its ID a level label beside it)
         owning(`nap:${p.id}`, 'nap', p, null, () => o.insert(isNew ? lay('PROPOSED NAP') : lay('EXISTING NAP'), isNew ? 'proposed NAP' : 'existing NAP', p.E, p.N, { scale: 0.7803353843555049 * fN, center: true })); const nbx = spots.add(Spots.box(p.E, p.N, 20 * fN, 9 * fN, 0));
-        if (p.poleId && TIDY) tidySym.push({ kind: 'id', at: [p.E, p.N], r: 10 * fN, box: nbx, ov: [0, -1], lines: [p.poleId], layer: lay('Proposed NAP ID', 'MISC'), style: idStyle, color: IDS.color || null, pole: null, own: [`nap:${p.id}`, 'nap', p, null] });
-        else if (p.poleId) { owning(`nap:${p.id}`, 'nap', p, null, () => idText(lay('Proposed NAP ID', 'MISC'), p.E, p.N - 7, IDS.h, p.poleId, 0, null)); spots.add(textBox(p.E, p.N - 7, IDS.h, p.poleId, 0, 1, 2)); }
+        if (p.poleId && TIDY) tidySym.push({ kind: 'id', at: [p.E, p.N], r: 10 * fN, box: nbx, ov: [0, -1], lines: [p.poleId], layer: lay('Proposed NAP ID', 'MISC'), style: idStyle, color: IDS.color || null, pole: null, own: [`nap:${p.id}`, 'nap', p, null], ll: llBlk(p) }); // ((beta 7.16, Fixes) ll: its lat / long, its label's smaller lines)
+        else if (p.poleId) { owning(`nap:${p.id}`, 'nap', p, null, () => idText(lay('Proposed NAP ID', 'MISC'), p.E, p.N - 7, IDS.h, p.poleId, 0, null)); spots.add(textBox(p.E, p.N - 7, IDS.h, p.poleId, 0, 1, 2));
+          const LB = llBlk(p); if (LB) { const t = [p.E, p.N - 7 - IDS.h / 2 - LLG * IDS.h]; llAt.set(p, { at: t, att: 2, dir: null, own: [`nap:${p.id}`, 'nap', p, null] }); spots.add(llBox(LB, t, 2, [1, 0])); } } // ((beta 7.16, Fixes) its lat / long right under its ID)
       } else if (p.el === 'Closure') {
         { const Rq = cloR([p.E, p.N]), m0 = o.model.length, bub = BUB(p); owning(`clo:${p.id}`, 'closure', p, null, () => o.insert(lay('P-JOINT'), 'P-Joint', p.E, p.N, { scale: Rq, attrs: bub ? { JT_ID: '', JOINT: '' } : { JT_ID: p.poleId || p.closureId || '', JOINT: 'JT' } })); retag(`clo:${p.id}`, `clolbl:${p.id}`, 'closurelabel', p, visAtt); spots.add(Spots.box(p.E, p.N, 2 * Rq, 2 * Rq, 0)); // (2.44.12: its size) ((beta 7.11, Drawing tools) its texts its label)
           if (bub) cloLbl.push({ at: [p.E, p.N], R: Rq * 0.9, cid: p.poleId || p.closureId || 'CLOSURE', p, old: !isNew }); // ((beta 7.11) its bubble callout, with the others: its own texts left off)
+          const LB = bub ? null : llBlk(p), A = LB ? o.model.slice(m0).filter((r) => visAtt(r) && String(get(r, 1, '')).trim() && recOutline(S, r).length) : []; // ((beta 7.16, Fixes) its lat / long right under its label: its ID (JT_ID) and JT, where the block puts them)
+          if (A.length) { const id = A.find((r) => get(r, 2) === 'JT_ID') || A[0], X = recOutline(S, id).map((q) => q[0]), al = parseInt(get(id, 72, '0'), 10) || 0, att = al === 1 || al === 4 ? 2 : al === 2 ? 3 : 1;
+            const t = [att === 1 ? Math.min(...X) : att === 3 ? Math.max(...X) : (Math.min(...X) + Math.max(...X)) / 2, Math.min(...A.flatMap((r) => recOutline(S, r).map((q) => q[1]))) - LLG * num(id, 40, 1)];
+            llAt.set(p, { at: t, att, dir: null, own: [`clolbl:${p.id}`, 'closurelabel', p, null] }); spots.add(llBox(LB, t, att, [1, 0])); }
           if (TIDY && !bub) for (const r of o.model.slice(m0)) { if (r[0][1] !== 'ATTRIB') continue; const g = (c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; }, h = +g(40, 0), tx = String(g(1, '')); if (!(h > 0) || !tx.trim()) continue; const al = +g(72, 0) || +g(74, 0), x = al ? +g(11, 0) : +g(10, 0), y = al ? +g(21, 0) : +g(20, 0); spots.add(textBox(x, y, h, tx, +g(50, 0), +g(72, 0), +g(74, 0) === 2 ? 2 : +g(74, 0) === 3 ? 3 : 0), 'label'); } } // (beta 6.0: Tidy: its ID and JT where the block puts them: nothing over them)
       } else if (JNW[p.el]) { // beta 6.9: a pull-off (square) or cross-over (circle), and a thin line for each of its extended messengers
         const J = JNW[p.el], at = p.A || [p.E, p.N], sz = 3 * kG, P = (p.att || []).map((id) => byId.get(String(id))).filter((q) => q && (q.A || q.dp));
@@ -2999,26 +3026,28 @@
     let nAutoIds = 0; const idLeadOf = new Map(); const placeIds = () => { // (idLeadOf: an ID's text -> its thin line back to its block, beta 4.7: the line follows the ID when Tidy slides it) // (beta 3.8: with Crowded places Auto, after the pole labels: they keep their place first)
     for (const it of [...inl.values()].flatMap((x) => (x.parts ? x.parts.map((y) => ({ ...y, kind: x.kind })) : [x]))) { // (v2.42: each box's own ID)
       if (!it.label || it.kind === 'clo') continue;
-      if (TIDY) { const pl = it.p && it.p.el === 'Pole' && it.p.td ? it.p : null; tidySym.push({ kind: 'id', at: it.at, r: Math.max(it.hl || 0, it.hh || 0), box: it.sbox, ov: pl ? pl.td : [0, -1], lines: [it.label], layer: it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? it.layer : lay('MISC'), style: idStyle, color: it.col != null ? it.col : IDS.color || null, pole: pl, own: inlOwn(it) }); continue; } // beta 4.8: Tidy: a level label beside its block (end of step 8)
+      if (TIDY) { const pl = it.p && it.p.el === 'Pole' && it.p.td ? it.p : null; tidySym.push({ kind: 'id', at: it.at, r: Math.max(it.hl || 0, it.hh || 0), box: it.sbox, ov: pl ? pl.td : [0, -1], lines: [it.label], layer: it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? it.layer : lay('MISC'), style: idStyle, color: it.col != null ? it.col : IDS.color || null, pole: pl, own: inlOwn(it), ll: it.kind === 'nap' ? null : llBlk(it.p) }); continue; } // beta 4.8: Tidy: a level label beside its block (end of step 8) ((beta 7.16, Fixes) ll: a box's lat / long, its label's smaller lines)
       const rr = it.odc ? 0 : readable(it.rot), ux = [Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], dn = [ux[1], -ux[0]], th0 = IDS.h; // (the ODC's picture is upright: its ID level under it)
+      const LB = it.kind === 'nap' ? null : llBlk(it.p), llT = (q, th) => add2(q, dn, th / 2 + LLG * th), llB = (q, th) => (LB ? [llBox(LB, llT(q, th), 2, ux)] : []); // ((beta 7.16, Fixes) a box's lat / long right under its ID, turned with it: llT, the top of its first line; its place found with the ID's)
       // v2.39.1: on the side away from its pole first (the pole's own label goes on the pole's side), then a little further out or
       // along the cable; crossing a road edge line rather than covering a label or a symbol. v2.41: where every place is taken at the
       // ID's size, a size smaller (twice at most) before covering anything
       const pole = it.p && it.p.el === 'Pole' && it.p.dp ? it.p : null, away = pole ? -(Math.sign((pole.dp[0] - it.at[0]) * dn[0] + (pole.dp[1] - it.at[1]) * dn[1]) || -1) : 1;
-      const lc = []; for (const th of [th0, th0 * 0.8, th0 * 0.64]) for (const sd of [away, -away]) for (const ex of [0, 1.5, 3]) for (const a of [0, 4, -4, 8, -8]) { const q = add2(add2(it.at, dn, sd * (it.hh + th * 0.9 + ex)), ux, a); lc.push({ q, th, boxes: [textBox(q[0], q[1], th, it.label, rr, 1, 2)] }); }
+      const lc = []; for (const th of [th0, th0 * 0.8, th0 * 0.64]) for (const sd of [away, -away]) for (const ex of [0, 1.5, 3]) for (const a of [0, 4, -4, 8, -8]) { const q = add2(add2(it.at, dn, sd * (it.hh + th * 0.9 + ex) - (LB && sd < 0 ? LLG * th + LB.H : 0)), ux, a); lc.push({ q, th, boxes: [textBox(q[0], q[1], th, it.label, rr, 1, 2), ...llB(q, th)] }); } // ((beta 7.16, Fixes) above its block: as much higher as its lat / long under it takes)
       let c = pickW(spots, lc, ROADLINE_W);
       if (job.crowd && c.n > 0) { // beta 3.8: Crowded places Auto: the nearest free place up to job.crowd.move metres away, only then smaller (down to job.crowd.min)
         const Cr = job.crowd, mv = Math.max(4, +Cr.move || 15), mn = Math.min(1, Math.max(0.5, +Cr.min || 0.75)), xs = [];
         for (let k = 1; k >= mn - 1e-9; k -= 0.05) for (const ex of [4.5, 6, 8, 10, 12.5, 15, 18, 22, 26, 30]) { if (ex > mv + 1e-9) break;
-          for (let a = 0; a < 16; a++) { const an = a * Math.PI / 8, v = [Math.cos(an), Math.sin(an)], th = th0 * k, q = add2(it.at, v, (it.hl || it.hh) + th * 0.9 + ex); xs.push({ q, th, far: ex, v, boxes: [textBox(q[0], q[1], th, it.label, rr, 1, 2)], cost: ex + (1 - k) * 40 }); } }
+          for (let a = 0; a < 16; a++) { const an = a * Math.PI / 8, v = [Math.cos(an), Math.sin(an)], th = th0 * k, q = add2(it.at, v, (it.hl || it.hh) + th * 0.9 + ex); xs.push({ q, th, far: ex, v, boxes: [textBox(q[0], q[1], th, it.label, rr, 1, 2), ...llB(q, th)], cost: ex + (1 - k) * 40 }); } }
         xs.sort((x, y) => x.cost - y.cost);
         const c2 = xs.find((x) => x.boxes.reduce((t, b) => t + spots.hitsW(b, ROADLINE_W), 0) === 0); if (c2) { c = c2; nAutoIds++; }
       }
       const ly = it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? it.layer : lay('MISC');
       const IO = inlOwn(it), idR = owning(IO[0], IO[1], IO[2], IO[3], () => idText(ly, c.q[0], c.q[1], c.th, it.label, rr, it.col)); spots.add(c.boxes);
+      if (LB) llAt.set(it.p, { at: llT(c.q, c.th), att: 2, dir: rr ? ux : null, own: IO }); // ((beta 7.16, Fixes) written in step 11; its place taken with the ID's)
       if (c.far > 3 && job.crowd && job.crowd.leader !== false) { // (a thin line back to its block)
-        const b = c.boxes[0], d0 = [c.q[0] - it.at[0], c.q[1] - it.at[1]], dl = Math.hypot(d0[0], d0[1]) || 1, u = [d0[0] / dl, d0[1] / dl], ext = Math.abs(u[0] * b.ux + u[1] * b.uy) * b.hw + Math.abs(u[0] * b.vx + u[1] * b.vy) * b.hh;
-        const a = add2(it.at, u, (it.hl || it.hh) + 0.3), e = add2(c.q, u, -(ext + 0.3)); if (dist2(a, e) > 0.8) { idLeadOf.set(idR, owning(IO[0], IO[1], IO[2], IO[3], () => o.lwpoly(lay('MISC'), [a, e], { color: 8 }))); spots.line([a, e], 0.3); }
+        const b = LB ? boxBoth(c.boxes[0], c.boxes[1]) : c.boxes[0], m = LB ? [b.cx, b.cy] : c.q, d0 = [m[0] - it.at[0], m[1] - it.at[1]], dl = Math.hypot(d0[0], d0[1]) || 1, u = [d0[0] / dl, d0[1] / dl], ext = Math.abs(u[0] * b.ux + u[1] * b.uy) * b.hw + Math.abs(u[0] * b.vx + u[1] * b.vy) * b.hh; // ((beta 7.16, Fixes) with its lat / long: to the block's edge)
+        const a = add2(it.at, u, (it.hl || it.hh) + 0.3), e = add2(m, u, -(ext + 0.3)); if (dist2(a, e) > 0.8) { idLeadOf.set(idR, owning(IO[0], IO[1], IO[2], IO[3], () => o.lwpoly(lay('MISC'), [a, e], { color: 8 }))); spots.line([a, e], 0.3); }
       }
     }
     };
@@ -3452,7 +3481,7 @@
       const LBLW = (t) => (/^label|^street/.test(t || '') ? 1 : 0), COVW = (t, b) => (t === 'road' ? 0 : t === 'cable' || Math.min(b.hw, b.hh) <= 0.25 ? 0.35 : t === 'photo' ? 0.6 : 1), dBox = (q, b) => { const dx = q.dp[0] - b.cx, dy = q.dp[1] - b.cy; return Math.hypot(Math.max(Math.abs(dx * b.ux + dy * b.uy) - b.hw, 0), Math.max(Math.abs(dx * b.vx + dy * b.vy) - b.hh, 0)); }; // (COVW, where no place is free: across a line rather than over a photo, over a photo rather than a text or a symbol; dBox: how far a pole is from a box, level or turned)
       const wOf = (s, hh) => arialW(String(s).replace(/×/g, 'x'), hh) * 1.12 + hh * 0.1; // (× as wide as an x; a little wider than the estimate)
       // beta 4.8: the IDs, loop lengths and closure names: labels like the poles', round their symbol (its middle and half size), after the poles' (theirs have less room to give)
-      const symT = tidySym.map((Y) => ({ p: { dp: Y.at, rp: Y.r, symBox: Y.box, ov: Y.ov, E: Y.at[0], N: Y.at[1] }, Y, h: TS.id, hs: TS.id, l1: Y.lines[0], sm: Y.lines.slice(1).map((s) => ({ s })) }));
+      const symT = tidySym.map((Y) => ({ p: { dp: Y.at, rp: Y.r, symBox: Y.box, ov: Y.ov, E: Y.at[0], N: Y.at[1] }, Y, h: TS.id, hs: TS.id, l1: Y.lines[0], sm: [...Y.lines.slice(1).map((s) => ({ s })), ...(Y.ll ? [{ s: `${Y.ll.lat}, ${Y.ll.lon}`, ll: [Y.ll.lat, Y.ll.lon], small: true }] : [])] })); // ((beta 7.16, Fixes) an ID's lat / long: its smaller lines (small: T.hl high, a pole's lat / long's size))
       const ALL = [...tidyTodo, ...symT], sAnch = symT.map((T) => T.p), PINT = tidyTodo.filter((T) => T.pin), AUTO = ALL.filter((T) => !T.pin); // ((beta 7.10, Drawing labels) PINT: the blocks placed by hand, never moved; AUTO: the others)
       // beta 4.8: a pole's number (photos with their numbers, numbers only, or a pole with no photo) in its circle at the start of its
       // label, on the pole's side (as numbered below with the photos: the same order and numbers), the circle at most W across
@@ -3488,12 +3517,13 @@
       const badgeSize = (T) => { const B = T.badge; if (!B) return; let hn = T.h, d = NS.d > 0 ? Math.max(B.sq.length * hn * CHW + hn * 0.6, 2.1 * hn) : B.sq.length * hn * CHW; if (B.wl > 0 && d > B.wl) { hn *= B.wl / d; d = B.wl; } B.hn = hn; B.d = d; }; // (the circle at most W across)
       const prep = (T) => { // each label's size and the places it may take (the same in every round below)
         badgeSize(T); const { p, h, hs } = T, kk = T.k || 1, L1 = T.forms ? T.forms[T.form].lines : [T.l1], W1 = Math.max(...L1.map((l) => wOf(l, h))), h1 = h + (L1.length - 1) * 1.45 * h, x = p.dp[0], y = p.dp[1], r0 = p.rp + 0.6 / kk, ov = p.ov || p.on || [1, 0]; T.h1 = h1; // (beta 6.2: the ID stacked: two lines, 1.45 of their height apart, as the smaller lines)
+        const hm = (m) => (m.small ? T.hl || hs : hs); // ((beta 7.16, Fixes) an ID's lat / long: a pole's lat / long's size)
         for (const m of T.sm) { // the smaller lines: the attachments wrapped (at the spaces) where they would be much wider than the rest of the label
-          const wMax = Math.max(W1, ...T.sm.filter((k) => !k.wrap).flatMap((k) => (k.ll || [k.s]).map((l) => wOf(l, hs)))) * 1.1; m.lines = m.ll ? m.ll.slice() : [m.s];
+          const wMax = Math.max(W1, ...T.sm.filter((k) => !k.wrap).flatMap((k) => (k.ll || [k.s]).map((l) => wOf(l, hm(k))))) * 1.1; m.lines = m.ll ? m.ll.slice() : [m.s];
           if (m.wrap && wOf(m.s, hs) > wMax) { m.lines = []; for (const wd of m.s.split(/\s+/)) { const L = m.lines.length ? `${m.lines[m.lines.length - 1]} ${wd}` : wd; if (m.lines.length && wOf(L, hs) <= wMax) m.lines[m.lines.length - 1] = L; else m.lines.push(wd); } }
         }
-        const W = Math.max(W1, ...T.sm.flatMap((m) => m.lines.map((l) => wOf(l, hs)))), Hb = h1 + 0.4 * h + T.sm.reduce((t, m) => t + m.lines.length * 1.45 * hs, 0) - 0.45 * hs; // (line 1; then each smaller line, 1.45 of its height apart)
-        const LN = L1.map((l, i) => [wOf(l, h), i * 1.45 * h, h]); { let t = h1 - h + 1.4 * h; for (const m of T.sm) for (const l of m.lines) { LN.push([wOf(l, hs), t, hs]); t += 1.45 * hs; } } // (each line: its width, how far down from the top, its height)
+        const W = Math.max(W1, ...T.sm.flatMap((m) => m.lines.map((l) => wOf(l, hm(m))))), Hb = h1 + 0.4 * h + T.sm.reduce((t, m) => t + m.lines.length * 1.45 * hm(m), 0) - 0.45 * (T.sm.length ? hm(T.sm[T.sm.length - 1]) : hs); // (line 1; then each smaller line, 1.45 of its height apart)
+        const LN = L1.map((l, i) => [wOf(l, h), i * 1.45 * h, h]); { let t = h1 - h + 1.4 * h; for (const m of T.sm) for (const l of m.lines) { LN.push([wOf(l, hm(m)), t, hm(m)]); t += 1.45 * hm(m); } } // (each line: its width, how far down from the top, its height)
         const B = T.badge, bw = B ? B.d + 0.5 : 0, ex0 = B ? Math.max(0, (B.d - h1) / 2 + 0.1) : 0; // (beta 4.8: the number's circle: a column on the pole's side, line 1 at its middle; beta 6.2: the stacked ID's two lines)
         const PH = T.photo ? (() => { const k = PHMM / ((printK || 0.62) * kk) / Math.max(T.photo.px, T.photo.py); return { w: T.photo.px * k, h: T.photo.py * k }; })() : null; // (beta 6.4: its long side as set, printed; was as tall as its texts, at most 1.4 street widths) // (beta 4.8: its photo as tall as its texts, at the far end)
         const PB = PH && !T.u, Wt = W + bw + (PB ? 0.8 + PH.w : 0), Ht = Math.max(Hb + ex0, B ? B.d + 0.2 : 0, PB ? PH.h : 0); // (beta 4.8: a block turned along its cable: its photo upright beside it, see fill)
@@ -3631,7 +3661,7 @@
       // the labels in the order of the poles; where some found no free place, again with those first (the others have more room to give way)
       const nBad = (R0) => R0.filter((d) => d.bad).length;
       const run = (sz, upTo) => { // beta 4.8: one size set (TS: the first lines, IDs, loop lengths and numbers; the smaller lines), every label placed (null: more than upTo found no free place, given up)
-        for (const T of symT) { T.h = sz.l1 / T.k; T.hs = T.h; } for (const T of tidyTodo) { T.h = sz.l1 / T.k; T.hs = sz.sm / T.k; } // (beta 4.8: on a finer grid, as much smaller)
+        for (const T of symT) { T.h = sz.l1 / T.k; T.hs = T.h; T.hl = sz.sm / T.k; } for (const T of tidyTodo) { T.h = sz.l1 / T.k; T.hs = sz.sm / T.k; } // (beta 4.8: on a finer grid, as much smaller)
         /* beta 6.4 (the owner, sheet 1D-2: "bring the pole details next to the pole", the photo to the side): every block first, without its
            photo, each at the place nearest its pole (an earlier pole's photo no longer takes it); then each photo at its block's place:
            beside the block or by the pole (smaller, or further, as phVar), on its own near the pole only where none of those is free */
@@ -3682,15 +3712,15 @@
         const nLeft = [...now.values()].filter((dd) => dd.bad).length;
         for (const T of AUTO) { let d0 = now.get(T); if (!d0.bad) continue; T.far = nLeft <= 6; // (also 50 and 60 m out; first at its size without its photo (placed on its own near the pole, see the photos), then smaller with it, then smaller without it)
           const tries = [...(T.photo ? [[{ l1: T.h * T.k, sm: T.hs * T.k }, false]] : []), ...SMALL.flatMap((z) => (T.photo ? [[z, true], [z, false]] : [[z, true]]))];
-          for (const [z, withPh] of tries) { d0.bx.forEach((b) => { b._k--; }); const h0 = T.h, hs0 = T.hs, ph0 = T.photo; T.h = z.l1 / T.k; T.hs = T.Y ? T.h : z.sm / T.k; if (!withPh) T.photo = null; prep(T); const d1 = choose(T, true);
+          for (const [z, withPh] of tries) { d0.bx.forEach((b) => { b._k--; }); const h0 = T.h, hs0 = T.hs, hl0 = T.hl, ph0 = T.photo; T.h = z.l1 / T.k; T.hs = T.Y ? T.h : z.sm / T.k; T.hl = z.sm / T.k; if (!withPh) T.photo = null; prep(T); const d1 = choose(T, true);
             if (!d1.bad) { d1.nf = true; d1.smaller = T.h < h0 - 1e-9; if (ph0 && !T.photo) tidyCard.delete(T.p); now.set(T, d1); d0 = d1; break; }
-            d1.bx.forEach((b) => { b._k--; }); T.h = h0; T.hs = hs0; T.photo = ph0; prep(T); d0.bx.forEach((b) => { b._k++; }); }
+            d1.bx.forEach((b) => { b._k--; }); T.h = h0; T.hs = hs0; T.hl = hl0; T.photo = ph0; prep(T); d0.bx.forEach((b) => { b._k++; }); }
           if (!now.get(T).bad || nLeft > 6) continue; // (still none: the labels round it placed again after it, it the smallest and without its photo; kept where fewer are left without room)
-          const q = T.p.dp, grp = AUTO.filter((U) => U !== T && Math.abs(U.p.dp[0] - q[0]) < 45 && Math.abs(U.p.dp[1] - q[1]) < 45), old = [T, ...grp].map((U) => now.get(U)), z = SMALL[SMALL.length - 1], h0 = T.h, hs0 = T.hs, ph0 = T.photo;
-          old.forEach((dd) => dd.bx.forEach((b) => { b._k--; })); T.h = z.l1 / T.k; T.hs = T.Y ? T.h : z.sm / T.k; T.photo = null; prep(T);
+          const q = T.p.dp, grp = AUTO.filter((U) => U !== T && Math.abs(U.p.dp[0] - q[0]) < 45 && Math.abs(U.p.dp[1] - q[1]) < 45), old = [T, ...grp].map((U) => now.get(U)), z = SMALL[SMALL.length - 1], h0 = T.h, hs0 = T.hs, hl0 = T.hl, ph0 = T.photo;
+          old.forEach((dd) => dd.bx.forEach((b) => { b._k--; })); T.h = z.l1 / T.k; T.hs = T.Y ? T.h : z.sm / T.k; T.hl = z.sm / T.k; T.photo = null; prep(T);
           const neu = [T, ...grp].map((U) => choose(U, true));
           if (nBad(neu) < nBad(old)) { neu[0].nf = true; neu[0].smaller = true; if (ph0) tidyCard.delete(T.p); neu.forEach((dd) => now.set(dd.T, dd)); }
-          else { neu.forEach((dd) => dd.bx.forEach((b) => { b._k--; })); old.forEach((dd) => dd.bx.forEach((b) => { b._k++; })); T.h = h0; T.hs = hs0; T.photo = ph0; prep(T); } } }
+          else { neu.forEach((dd) => dd.bx.forEach((b) => { b._k--; })); old.forEach((dd) => dd.bx.forEach((b) => { b._k++; })); T.h = h0; T.hs = hs0; T.hl = hl0; T.photo = ph0; prep(T); } } }
       for (const [r, gk] of TS.guys) setFirst(r, 40, F(TS.sm / gk)); // (the guys' codes, written before: at the size taken)
       T7.sizes = { l1: +TS.l1.toFixed(2), sm: +TS.sm.toFixed(2), mm: [+(TS.l1 * TS.mm).toFixed(2), +(TS.sm * TS.mm).toFixed(2)], tried }; T7.grid = { n: NU, cell: +cell.toFixed(1) }; T7.sheets = N; // (beta 4.8: the grid (the template's cell / n), and the GEO sheets)
       const smaller = [], overRoad = [], phAway = [], withLine = [], phOwnL = [], phSmall = [];
@@ -3710,8 +3740,9 @@
         let ty = G.top;
         if (Y) { // beta 4.8: an ID, a loop's length, a closure's name: its lines as texts (a closure: its block's attributes), top-aligned
           const P = [{ s: T.l1, x: G.W(ax, ty)[0], y: G.W(ax, ty)[1], h, ha: att - 1 }]; lineBox(W1, ty, h); ty -= 1.4 * h;
-          for (const m of T.sm) for (const l of m.lines) { const q = G.W(ax, ty); P.push({ s: l, x: q[0], y: q[1], h: hs, ha: att - 1 }); lineBox(wOf(l, hs), ty, hs); ty -= 1.45 * hs; }
-          const yw = () => { if (Y.write) Y.write(P); else P.forEach((q) => tidyOwn.add(o.text(Y.layer, q.x, q.y, q.h, q.s, { ha: q.ha, va: 3, style: Y.style, color: Y.color }))); };
+          let llq = null; const hl = T.hl || hs; for (const m of T.sm) { if (m.small) { llq = G.W(ax, ty); m.lines.forEach((l) => { lineBox(wOf(l, hl), ty, hl); ty -= 1.45 * hl; }); continue; } for (const l of m.lines) { const q = G.W(ax, ty); P.push({ s: l, x: q[0], y: q[1], h: hs, ha: att - 1 }); lineBox(wOf(l, hs), ty, hs); ty -= 1.45 * hs; } }
+          const yw = () => { if (Y.write) Y.write(P); else P.forEach((q) => tidyOwn.add(o.text(Y.layer, q.x, q.y, q.h, q.s, { ha: q.ha, va: 3, style: Y.style, color: Y.color })));
+            if (llq) { o.mtext(lay('LATLONG'), llq[0], llq[1], hl, Y.ll.mt, { style: '样式 1', att, ls: 0.87, color: +(job.poleStyle || {}).llColor || null, dir: an ? G.u : null }); llDone.add(Y.ll.p); } }; // ((beta 7.16, Fixes) its lat / long under it (step 11's look), as a pole's: its two lines 1.45 of their height apart)
           if (Y.own) { owning(Y.own[0], Y.own[1], Y.own[2], Y.own[3], yw); if (Y.kind === 'clo') retag(Y.own[0], `clolbl:${Y.own[2].id}`, 'closurelabel', Y.own[2], (r) => visAtt(r) || typ(r) === 'TEXT'); } else yw(); // ((beta 7.11, Drawing tools) its element's: an ID its block's, a loop's length its loop's, a closure's name its label)
           T7.syms = (T7.syms || 0) + 1; continue;
         }
@@ -3985,11 +4016,13 @@
     for (const { p, isNew } of odfLate) {
       const mv = odfMoved.get(p), id = String(p.poleId || ''), sz = job.odfLbl === 'id' ? '' : [p.odfSz ? `${p.odfSz} ODF` : '', job.odfLbl === 'conn' ? p.odfConn || '' : ''].filter(Boolean).join(' ');
       const th = Math.min(2.4, Math.max(1.4, IDS.h * 0.8)), r = 5.6, out = mv ? (mv.side === 'left' ? -1 : mv.side === 'right' ? 1 : 0) : 0, cand = [];
-      const add = (x, y, ha, cost) => { const boxes = [textBox(x, y, th, id || ' ', 0, ha, 2)]; if (sz) boxes.push(textBox(x, y - th * 1.5, th, sz, 0, ha, 2)); cand.push({ q: [x, y], ha, boxes, cost }); };
+      const LB = id || sz ? llBlk(p) : null, llT = (x, y) => [x, y - (sz ? th * 1.5 : 0) - th / 2 - LLG * th]; // ((beta 7.16, Fixes) its lat / long right under its label: llT, the top of its first line; above the ODF, the label that much higher)
+      const add = (x, y, ha, cost) => { const boxes = [textBox(x, y, th, id || ' ', 0, ha, 2)]; if (sz) boxes.push(textBox(x, y - th * 1.5, th, sz, 0, ha, 2)); if (LB) boxes.push(llBox(LB, llT(x, y), ha + 1, [1, 0])); cand.push({ q: [x, y], ha, boxes, cost }); };
       if (out) add(p.E + out * (r + 0.8), p.N + (sz ? th * 0.75 : 0), out > 0 ? 0 : 2, 0);
-      add(p.E, p.N - r - 0.8 - th * 0.6, 1, 1); add(p.E, p.N + r + 0.8 + (sz ? th * 2.1 : th * 0.6), 1, 2); add(p.E + (out || 1) * -1 * (r + 0.8), p.N + (sz ? th * 0.75 : 0), (out || 1) < 0 ? 0 : 2, 3);
+      add(p.E, p.N - r - 0.8 - th * 0.6, 1, 1); add(p.E, p.N + r + 0.8 + (sz ? th * 2.1 : th * 0.6) + (LB ? LLG * th + LB.H : 0), 1, 2); add(p.E + (out || 1) * -1 * (r + 0.8), p.N + (sz ? th * 0.75 : 0), (out || 1) < 0 ? 0 : 2, 3);
       for (const dd of [4, 8]) { add(p.E, p.N - r - 0.8 - th * 0.6 - dd, 1, 4 + dd); if (out) add(p.E + out * (r + 0.8 + dd), p.N + (sz ? th * 0.75 : 0), out > 0 ? 0 : 2, 4 + dd); }
       const c = id || sz ? pickC(spots, cand, SITE_W) : null; if (c) spots.add(c.boxes, 'label:odf');
+      if (c && LB) llAt.set(p, { at: llT(c.q[0], c.q[1]), att: c.ha + 1, dir: null, own: [`sitelbl:${p.id}`, 'sitedetails', p, null] }); // ((beta 7.16, Fixes) written in step 11)
       const attrs = c ? { HST_NAM: { v: id, x: c.q[0], y: c.q[1], h: th, ha: c.ha, va: 2 }, HST_COD: { v: sz, x: c.q[0], y: c.q[1] - th * 1.5, h: th, ha: c.ha, va: 2 }, HST_LET: 'H' } : { HST_NAM: id, HST_COD: '', HST_LET: 'H' };
       owning(`site:${p.id}`, 'site', p, { status: { now: isNew ? 'proposed' : 'existing', field: 'status' } }, () => o.insert(isNew ? lay('P-HOST') : lay('X-HOST'), isNew ? 'P-HOST' : 'X-HOST', p.E, p.N, { scale: 0.28, attrs, attrColor: pinColor(p) }));
       retag(`site:${p.id}`, `sitelbl:${p.id}`, 'sitedetails', p, (r) => visAtt(r) && ['HST_NAM', 'HST_COD'].includes(get(r, 2))); // ((beta 7.11, Drawing tools) the ODF and its label: two elements)
@@ -4334,11 +4367,13 @@
     for (const p of pts) {
       if (p.el === 'Pole' || p.onPole) continue;
       if (JNW[p.el] || (p.el === 'Site' && !/olt/i.test(p.siteKind || '')) || (p.el === 'Closure' && BUB(p))) continue; // beta 7.4 / 2.45.6: none for a pull-off or cross-over (the drafter took it off); a tower's is under its name (see its name group) ((beta 7.11, Drawing tools) a closure with a bubble callout: in it)
+      if (llDone.has(p) || !llOk(p)) continue; // ((beta 7.16, Fixes) in its ID's Tidy label; none known: none (it read the toFixed of none))
       const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], ext = inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : 3, hL = TIDY ? TS.sm / kAt(q0[0], q0[1]) : +(job.poleStyle || {}).llH > 0 ? +job.poleStyle.llH : 1.2, w = 10 * hL * CHW, h = 2 * 1.67 * hL; // (beta 4.3: the lat/long height of the drawing style)
+      const A = llAt.get(p); if (A) { owning(...A.own, () => o.mtext(lay('LATLONG'), A.at[0], A.at[1], hL, `{\\fSimSun|b0|i0|c134|p2;${(+p.lat).toFixed(6)}%%D\\P${(+p.lon).toFixed(6)}%%D}`, { style: '样式 1', att: A.att, ...(A.dir ? { dir: A.dir } : {}), color: +(job.poleStyle || {}).llColor || null })); continue; } // ((beta 7.16, Fixes) right under its ID, with it: the place taken with the ID's)
       // v2.41: where every place is taken, over a road edge line or the cable rather than over an ID, a number or a photo
       const kq = TIDY ? kAt(q0[0], q0[1]) : 1, cs = []; for (const r of [ext + 1.5 / kq, ext + 5 / kq, ext + 9 / kq, ext + 13 / kq, ext + 18 / kq]) for (const a of [-45, 45, -135, 135, -90, 90, 0, 180]) { /* (beta 4.8: on a finer grid, as much nearer) */ const u = rotv([1, 0], a), c = add2(q0, u, r + w / 2 * Math.abs(u[0]) + h / 2 * Math.abs(u[1])); cs.push({ q: [c[0] - w / 2, c[1] + h / 2], boxes: [Spots.box(c[0], c[1], w * 1.1, h, 0)] }); }
       const csIn = TIDY ? [...cs.filter((x) => inCellBox(x.boxes[0], q0[0], q0[1])), ...cs.filter((x) => !inCellBox(x.boxes[0], q0[0], q0[1]))] : cs, c = pickW(spots, csIn, LL_W); spots.add(c.boxes); // (beta 4.8: Tidy: a free place wholly on its sheet first)
-      owning(...llOwn(p), () => o.mtext(lay('LATLONG'), c.q[0], c.q[1], hL, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1', color: +(job.poleStyle || {}).llColor || null })); // ((beta 7.11, Drawing tools) with its element: a site's details, a NAP, a closure's label, a box)
+      owning(...llOwn(p), () => o.mtext(lay('LATLONG'), c.q[0], c.q[1], hL, `{\\fSimSun|b0|i0|c134|p2;${(+p.lat).toFixed(6)}%%D\\P${(+p.lon).toFixed(6)}%%D}`, { style: '样式 1', color: +(job.poleStyle || {}).llColor || null })); // ((beta 7.11, Drawing tools) with its element: a site's details, a NAP, a closure's label, a box)
     }
     // 12. v2.34: the name of every named road on every GEO sheet it crosses (once per sheet), on the road where it covers no label;
     //     then buildings and places nearby (named in OpenStreetMap), turned along their road, wholly inside a sheet

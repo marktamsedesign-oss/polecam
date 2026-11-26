@@ -475,7 +475,13 @@
         { t: 'Settings → **Exports and files**: photo sizes and stamps (ID and type, lat/long, **address** from the road pack: road, barangay, city; UTM, time, by, project), KMZ, PDF and DXF defaults, where files are saved.', go: 'settings', hl: '#goExports' },
         { t: 'Export → **Photos with their locations** (and Settings → Exports and files) → **Same stamp on the plan\'s photos** (off at first): the plan\'s photos (the photos beside the plan DXF, its PDF and the One PDF) get the caption band of this ZIP, with the fields picked under More options (ID and type, lat / long, address, UTM, date and time, taken by, project), instead of Plan style\'s lat, long and address. It works with **Stamp on the photo files** on. Plan style → Photos → **Stamp on the plan\'s photos** then says *Using the geotag photo stamp instead*. The ZIP\'s own photos stay as they are.', go: 'export', hl: '#setStampPlan' },
         { t: 'In the camera, **0.5×** shows when the phone lets the app use its ultra-wide lens; many phones give a web app 1× and up only.' },
-        { t: 'At the bottom of Settings: **Text size**, and keep the help text open on every screen.', go: 'settings' },
+        { t: 'At the bottom of Settings: **Text size**, the **Theme** (Light, Dark or Same as the phone), and keep the help text open on every screen.', go: 'settings' },
+      ] },
+    // (beta 7.16, Theme) the owner: "Dark mode or Light mode on the theme."
+    { id: 'theme', aud: 'user', cat: 'Settings', title: 'Theme: light or dark', kw: 'theme dark mode light mode night mode dark theme light theme black background white background colour color scheme look appearance same as the phone screen bright sun eyes',
+      steps: [
+        { t: 'Settings → at the bottom, **Theme**: **Light** (the default), **Dark**, or **Same as the phone** (dark while the phone is in dark mode, and changing with it). Kept on this phone.', go: 'settings', hl: '#setTheme' },
+        { t: 'In **Dark** every screen is dark; the plan on the **Drawing** and the **CEF plan** stay on white paper, as they print, and the map stays as it is. The files you export (PDF, DXF, KMZ, Excel) are the same in every theme.' },
       ] },
     { id: 'offline', aud: 'user', cat: 'Settings', title: 'Offline maps', kw: 'offline map pack no signal download import pmtiles satellite street layer tiles area download protomaps openstreetmap road pack roadpack together all packs eye hide pack join no line',
       steps: [
@@ -490,6 +496,13 @@
         { t: 'Settings → **Invite a coworker (QR)**: a small QR code and **Send the invite link** for someone of your company. The coworker scans it or taps the link (in the G-eSAA app: *Open in the G-eSAA app*), then fills in name, mobile and email; the company comes from the invite. A company key inside stays hidden; send it only inside your company.', go: 'settings', hl: '#inviteBtn', when: 'It shows once you joined a company list.' },
         { t: '**Move to another phone…**: one QR code or link with your company list and your details. Move projects and photos with **Share** on each project card (or Export → Backup of the project).', go: 'settings', hl: '#moveBtn' },
         { t: '**Reset user…** removes your name, company and key from this phone; projects and photos stay.', go: 'settings', hl: '#resetUser' },
+      ] },
+    // (beta 7.16, Permissions) what each user may do: the admin allows or blocks features; a locked one says "Ask your admin to allow …"
+    { id: 'perms', aud: 'user', cat: 'Settings', title: 'What you may do: the features your admin allows', kw: 'permission permissions allowed allow locked lock feature features blocked block access rights limit limited',
+      steps: [
+        { t: 'Your admin may allow or block features for each user. **Survey** (records, map, photos, backup) is always allowed; **KMZ export** (the Google Earth map, project share and the team mailbox) too, unless your admin blocks it; **Plan drawing**, **Other exports**, **CEF plan**, **Drawing editing**, **Client templates** and **Team admin** when your admin allows them.', go: 'settings', hl: '#permMe', when: 'It shows once your admin limits what users may do.' },
+        { t: 'A locked feature shows a 🔒 and **Ask your admin to allow** its name, for example *Ask your admin to allow Plan drawing*: its tile in Export, **Edit** on the Drawing (View stays), Invite a coworker. A tap on it says what to ask for.' },
+        { t: 'Settings → Account → **Your features** says what you may use now. A change by your admin reaches this phone at its next sync (Sync, or opening the app) and stays for use without signal. A phone that has not joined a company list keeps every feature.', go: 'settings', hl: '#permMe', when: 'It shows once your admin limits what users may do.' },
       ] },
     { id: 'sync', aud: 'user', cat: 'Settings', title: 'The online sheet (sites and progress)', kw: 'online sheet google sync sites progress dates offline hourly manual',
       steps: [
@@ -601,6 +614,14 @@
         { t: '**To remove a company:** delete its row in the sheet\'s Company List tab, tap **Refresh from the sheet**, then Save and share the list.', go: 'admin', hl: '#admCoRefresh', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**To remove an admin user:** delete their row in the sheet\'s Admin users tab: a phone verified by the emailed code loses the admin company at its next refresh. For a user who is also in the list: Refresh from the sheet, then Save. The admin who saves always stays an admin. With no admin users at all, anyone of the admin company with the PIN is an admin. Someone who knew the PIN: also **Change the admin PIN**.', go: 'admin', hl: '#admUsersSheet, #admUsers', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**To change the admin company:** choose another one, then Save. Leaving it empty is not recommended: every user could then change the list and verify deficiencies (Save asks first).', go: 'admin', hl: '#admOwner', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+      ] },
+    // (beta 7.16, Permissions) the admin allows or blocks features per user, in Administration and in the online sheet's User permissions tab
+    { id: 'adm-perms', aud: 'admin', cat: 'Administration', title: 'User permissions: what each user may do', kw: 'user permissions permission allow block feature features per user limit access rights default lock locked',
+      steps: [
+        { t: '**User permissions**: tick **Limit what users may do**, then **Add** each user by their email (as in their Your details). Each user has a chip for each feature: green = allowed. A user not listed has **Survey** and **KMZ export** (with project share and the team mailbox) only. Admin users always have everything.', go: 'admin', hl: '#admPermBox', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: 'The features: **KMZ export** (Google Earth map, project share, team mailbox), **Plan drawing** (the plan for AutoCAD, its PDF, the One PDF, the splicing details), **Other exports** (material list, photo ZIP and photo report, route and spans, pole list, completion report, deficiency lists, punchlist), **CEF plan**, **Drawing editing** (Edit on the Drawing; View stays), **Client templates**, **Team admin** (Invite a coworker; Administration).' },
+        { t: '**Save and share the list**: the permissions go with it. With the online sheet\'s Admin key on this phone they are also written to the sheet\'s **User permissions** tab (sheet script v2.43.5): one row per email, Yes or No per feature (a blank cell: as set here, else what a user not listed has). Edit them there too: phones take the tab at their next sync, and where it says Yes or No it wins. The sheet\'s Settings → **User permissions** is the same switch: Yes, No (every user has every feature), blank (as set here).', go: 'admin', hl: '#admPermBox', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**To put a user back** to what a user not listed has: × on their card. **To remove the limits**: untick Limit what users may do and save (or No in the sheet).' },
       ] },
     { id: 'adm-invite', aud: 'admin', cat: 'Administration', title: 'Invite a company\'s users (company keys)', kw: 'invite company key makecompanykeys first user qr link contractor join cancel remove revoke vendor admin staff',
       steps: [
@@ -876,5 +897,5 @@
     }
     return null;
   }
-  root.GESAA_TUTORIAL = { version: '2.45.17', topics: T, search, query, settings, help }; // beta 6.7 (UX step 2): version = app.js APP_VER (no beta part, so main needs no change)
+  root.GESAA_TUTORIAL = { version: '2.45.18', topics: T, search, query, settings, help }; // beta 6.7 (UX step 2): version = app.js APP_VER (no beta part, so main needs no change)
 })(typeof self !== 'undefined' ? self : this);
