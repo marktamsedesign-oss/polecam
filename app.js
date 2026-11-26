@@ -4194,8 +4194,7 @@
   /* (beta 7.16, Theme) Dark (Settings › Theme): the Drawing's plan stays a white sheet of paper, as a PDF viewer shows a page, on the app's dark
      surround (#drawWrap's --drw-bg): the sheet covers what the plan draws (its GEO sheets and what is round them) with a margin. The map under the
      drawing, the Edit route drawing and Light: the whole canvas paper, as before. */
-  const drwDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
-  const DRW_SURROUND = '#0a1220';
+  function drwDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
   function drwPaper(g, d) {
     const P = drw.ph, PL = P && P.plan; if (!PL) return;
     if (!PL.ext) { // (once a plan: what it draws, in metres from its origin)
@@ -4206,7 +4205,7 @@
     for (const sh of (P.grid && P.grid.sheets) || []) { b[0] = Math.min(b[0], sh.box[0]); b[1] = Math.min(b[1], sh.box[1]); b[2] = Math.max(b[2], sh.box[2]); b[3] = Math.max(b[3], sh.box[3]); }
     if (!(b[0] <= b[2] && b[1] <= b[3])) return;
     const m = Math.max(4, 0.03 * Math.max(b[2] - b[0], b[3] - b[1])), [x0, y0] = drwPx([b[0] - m, b[3] + m]), [x1, y1] = drwPx([b[2] + m, b[1] - m]), cv = g.canvas;
-    g.save(); g.fillStyle = DRW_SURROUND; g.fillRect(0, 0, cv.width, cv.height);
+    g.save(); g.fillStyle = '#0a1220'; g.fillRect(0, 0, cv.width, cv.height); // (the surround: #drawWrap's Dark --drw-bg)
     g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = 14 * d; g.fillStyle = '#fbfbf8'; g.fillRect(x0, y0, x1 - x0, y1 - y0); g.restore();
   }
   window.addEventListener('gesaa-theme', () => { if (drw && !$('drawing').hidden) drawDrawing(); }); // ((beta 7.16, Theme) changed while the Drawing is open: drawn again)
