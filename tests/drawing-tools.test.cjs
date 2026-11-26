@@ -293,8 +293,8 @@ test('the closure bubble callout (job.cloStyle bubble): dashed circle, pointer, 
 });
 
 test('byte for byte: with none of the new fields, empty, or at their defaults, the DXF as beta 7.10 made it', () => {
-  // [template, job, labels, SHA-256 (first 16) of beta 7.10's DXF] ((beta 7.15, Fixes) the rich route has an ODC and an OLT site: their lat / long now right under
-  // their ID (plan-fixes.test.cjs), so those are as 7.15 makes them; with that left out, 7.10's (7.14's: e56c60919689af6f, 3a862dc17942f1df, 7cf94958c75fe3e5,
+  // [template, job, labels, SHA-256 (first 16) of beta 7.10's DXF] ((beta 7.16, Fixes) the rich route has an ODC and an OLT site: their lat / long now right under
+  // their ID (plan-fixes.test.cjs), so those are as 7.16 makes them; with that left out, 7.10's (7.14's: e56c60919689af6f, 3a862dc17942f1df, 7cf94958c75fe3e5,
   // 0be0b37d1b765109, 704628b71c2b5f19); the 12 poles: 7.10's)
   const WANT = [['blocks', 'rich', 'std', '411550f2b5ad3db1'], ['blocks', 'rich', 'tidy', '9e96e81b6067ba90'], ['square', 'rich', 'std', '857dabd2b781f1e5'], ['square', 'rich', 'tidy', '83c7c3ae3d2d139c'],
     ['made-up', 'rich', 'std', '6b7c798af3befdc7'], ['blocks', '12', 'std', 'cf81b00c70b2b16b'], ['blocks', '12', 'num', 'bc344468f5120a2c']];
@@ -330,7 +330,7 @@ test('(beta 7.13) a pole\'s number placed by hand: the size it had where the pla
   { const v = { labels: 'tidy', numStyle: { color: 3 } }, A = look(T.build(SEED_SQ, madeUpJob(v)), 'num:s3'), B = look(T.build(SEED_SQ, madeUpJob({ ...v, pins: { 'num:s3': { at: [9, 12] } }, style: { 'num:s3': { h: 1.5 } } })), 'num:s3');
     near(B.h, 1.5 * A.h, 1e-9, 'Text +: half as high again'); near(B.d, 1.5 * A.d, 1e-9, 'its circle too'); near(B.so[0], 0.08 * B.h, 1e-9, 'its shadow in proportion'); }
   // no number placed by hand (nothing, other items placed by hand and styled; Standard: a number placed by hand): the DXF as beta 7.12 made it (its SHA-256's first 16)
-  // ((beta 7.15, Fixes) the rich route's ODC and OLT site: their lat / long now right under their ID, so those three are as 7.15 makes them; 7.14's: 3a862dc17942f1df,
+  // ((beta 7.16, Fixes) the rich route's ODC and OLT site: their lat / long now right under their ID, so those three are as 7.16 makes them; 7.14's: 3a862dc17942f1df,
   // e213767ec1a48e4e, 4507e7bd291f9104)
   const WANT = [['blocks', 'rich', 'tidy', 'none', '9e96e81b6067ba90'], ['blocks', 'rich', 'tidy', 'other', '9c29509b51ac0df9'], ['square', '12', 'tidy', 'other', '25c77cf9e9440fb0'],
     ['blocks', 'rich', 'std', 'num', 'a50433ef772499b1'], ['square', '12', 'std', 'num', 'd2e0594b498480a0'], ['square', '12', 'tnum', 'other', 'f9fab3a8a8751f16']];

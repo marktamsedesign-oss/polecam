@@ -5,11 +5,11 @@
    - Plan style › 20 m loops at boxes: Written (pts[].boxLoop): each box's "20m LOOP" an item of its box (loop:<id>, its point the box's, no pole); the
      plan built (since beta 7.11 the end of the build read the id of the loop's pole, a box has none: no export, no plan preview) for every kind of box
      (handhole, manhole, service box, ODC, ODF, an OLT site, a tower), Standard and Tidy, placed by hand too; the Drawing's display list made.
-   - The owner's "can you put the latlong coordinates directly below the element? as you can see here, the MH-0003 and latlong is on different side or
+   - (beta 7.16, Fixes) the owner's "can you put the latlong coordinates directly below the element? as you can see here, the MH-0003 and latlong is on different side or
      away from each other": a handhole's, manhole's, service box's, ODC's, ODF's, OLT site's, a NAP's and a closure's (on its own) lat / long right
      under its ID (as a pole's details: turned with it; Tidy: its label's smaller lines), its place found with the ID's; one item, its lines the ID
      then lat and long (an OLT site's: its name's item); placed by hand, both move. Crowded places Auto: the ID's thin line to the block's edge.
-   - Byte for byte: a plan without them (poles, a tower, a pull-off and a cross-over, a NAP and a closure on a pole, a closure with a bubble callout,
+   - (beta 7.16, Fixes) byte for byte: a plan without them (poles, a tower, a pull-off and a cross-over, a NAP and a closure on a pole, a closure with a bubble callout,
      boxes the template has no symbol for, a NAP and an ODC with no ID) as beta 7.14 made it (its SHA-256).
    Every name, number and place is made up; tests/fixtures/plan-seed-made-up-blocks.dxf is the made-up template with plain made-up symbols (its
    handhole's block renamed here to stand for a manhole's or a service box's). */

@@ -282,7 +282,7 @@ test('byte for byte: without job.text, job.notes and job.order (or them empty), 
   // [template, labels, beta 7.11's fields, SHA-256 (first 16) of beta 7.11's DXF (dxftpl.js of 72bd50f)] ((beta 7.13, Drawing fixes) Tidy with 'tools': its number placed by
   // hand (num:s3) now keeps its block's size and its shadow under it (the owner: "Pole Numbering when moved generates a shadow and sometimes automaticall reduce"): only that
   // number's own entities differ from 7.11's (and 7.12's: e16a139826e3e705, 906e8693334ff396), so these two are as 7.13 makes them)
-  // ((beta 7.15, Fixes) the made-up route has an ODC and an OLT site: their lat / long now right under their ID (plan-fixes.test.cjs), so every one is as 7.15
+  // ((beta 7.16, Fixes) the made-up route has an ODC and an OLT site: their lat / long now right under their ID (plan-fixes.test.cjs), so every one is as 7.16
   // makes it; with that left out, each is 7.11's (7.14's, in this order: 6fb978e0b69800ce, 72d7af12b1eff23f, c6233c476caf5915, fc5729e8d29e8a2d, 028e88fc640c1438,
   // 4193fe5e5825a3c9, a99c1ee1162c0618, bbb3f85dbe141f35, c6690bb804ba961a, 892b706506278590, 231a48cd949a26f6, 4ac241e93d6272ef))
   const WANT = [['blocks', 'std', 'tools', 'e29ee12a0a60d295'], ['blocks', 'std', 'lines', '6ba130f837f4d87a'], ['blocks', 'std', 'bubble', '266baf68df817eee'], ['blocks', 'tidy', 'tools', 'a445c4f1d5bc552d'],
