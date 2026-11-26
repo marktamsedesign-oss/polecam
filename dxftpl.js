@@ -1371,6 +1371,7 @@
       ['PLAN MESSENGER', 1, 'Continuous', 18, 'The extended messengers of pull-offs and cross-overs'],
       ['PLAN LEADER', 8, 'Continuous', -3, 'The thin lines from a label, an ID, a loop\'s or a span\'s length, a photo or a note to what it names'],
       ['PLAN ROAD', 7, 'Continuous', -3, 'The roads\' edge lines (footpaths stay grey and bridges blue)', 'road'],
+      ['PLAN GRID', 6, 'Continuous', -3, 'The map sheets\' grid on the plan: each sheet\'s cell (its name in PLAN SHEET NAME)', 'grid'],
     ],
     sym: [
       ['P-POLE', 'A proposed pole'], ['existing electric pole', 'An existing electric (or other owner\'s) pole'], ['existing telecom pole', 'An existing telecom pole'],
@@ -2451,7 +2452,7 @@
     for (let i = I0; i <= I1; i++) for (let j = J0; j <= J1; j++) {
       if (!gridAll && ![-1, 0, 1].some((di) => [-1, 0, 1].some((dj) => used.has(key(i + di, j + dj))))) continue;
       const x0 = gox + i * cell, y0 = goy + j * cell;
-      o.lwpoly(lay('GRIDS'), [[x0, y0], [x0 + cell, y0], [x0 + cell, y0 + cell], [x0, y0 + cell]], { closed: true, color: 6 });
+      { const [kl, ko] = kitLine('PLAN GRID', lay('GRIDS'), { closed: true, color: 6 }); o.lwpoly(kl, [[x0, y0], [x0 + cell, y0], [x0 + cell, y0 + cell], [x0, y0 + cell]], ko); } // ((templates, As-plan kit) on the kit's grid layer)
       if ((job.labels === 'tidy' && used.has(key(i, j))) || gSet) { // beta 6.0: the sheet's name in the corner chosen (top right unless set), its size and colour as set; under the details, nothing keeps off it (see-through: drawn first, the details over it)
         const [sx, sy, att] = GPOS[gPos], mx = cell * 0.04, my = cell * 0.03;
         o.mtext(lay('GRIDNO.', 'GRIDNO'), sx > 0 ? x0 + cell - mx : x0 + mx, sy > 0 ? y0 + cell - my : y0 + my, shH || ghS, cellName(i, j), kitT('PLAN SHEET NAME', { att, color: gCol }));
@@ -6317,12 +6318,13 @@
       one, as the Out writers do); null: the app's Arial (an MTEXT's font codes) */
   const kitSrc = (S, src, LOOK) => { if (LOOK && LOOK.style) return LOOK.style; const has = (n) => (S.styles.has(n) ? n : null); return src === 'arial' ? has('arial') || has('Standard') : src === 'latlong' ? has('样式 1') || has('Standard') : src === 'standard' ? has('Standard') : null; };
   /** (templates, As-plan kit) a kit layer's starting look on this template: { color, lt, lw }: today's (an aerial cable's line type the template's DASHED or
-      AERCA, else its cable layer's; the roads' their layer's), or what a client's finished plan taught for its kind (LOOK.kinds[learn]: its colour, line
+      AERCA, else its cable layer's; the roads' their layer's; the grid's its layer's line type and weight), or what a client's finished plan taught for its kind (LOOK.kinds[learn]: its colour, line
       type when the template has it, weight) */
   function kitToday(d, S, nm, LOOK) {
     const k = PLAN_KIT.layers.find((x) => x[0] === nm), lay = (n, f) => (S.layers.has(n) ? n : f || '0'), Lr = (n) => S.layers.get(n) || null; let [, color, lt, lw] = k;
     if (/^PLAN CABLE AE/.test(nm)) { const r = Lr(lay('PROPOSED FOC AERIAL 6 CORE', 'Proposed foc aerial')); lt = ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) || (r && get(r, 6)) || 'Continuous'; }
     if (nm === 'PLAN ROAD') { const r = Lr(lay('ROAD PAVEMENT')); if (r) { color = Math.abs(parseInt(get(r, 62, '7'), 10) || 7); lt = String(get(r, 6, 'Continuous')); lw = parseInt(get(r, 370, '-3'), 10); if (!Number.isFinite(lw)) lw = -3; } }
+    if (nm === 'PLAN GRID') { const r = Lr(lay('GRIDS')); if (r) { lt = String(get(r, 6, 'Continuous')); lw = parseInt(get(r, 370, '-3'), 10); if (!Number.isFinite(lw)) lw = -3; } } // (its colour the app's, 6; its line type and weight its layer's)
     const q = LOOK && LOOK.kinds && k[5] ? LOOK.kinds[k[5]] : null;
     if (q && typeof q === 'object') { const c = parseInt(q.color, 10), w = +q.lw; if (c >= 1 && c <= 255) color = c; if (typeof q.lt === 'string' && S.ltypes.has(q.lt)) lt = q.lt; if (q.lw != null && q.lw !== '' && Number.isFinite(w) && w >= 0 && w <= 211) lw = LW_SNAP.reduce((a, b) => (Math.abs(b - w) < Math.abs(a - w) ? b : a), 0); }
     return { color, lt: S.ltypes.has(lt) ? lt : 'Continuous', lw };

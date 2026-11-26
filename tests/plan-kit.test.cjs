@@ -2,7 +2,8 @@
    layers and blocks, found by name, give each kind of text, line and symbol of the as-plan its look (dxftpl.js PLAN_KIT); GeDxfTpl.withKit(seed) is the
    starting kit (the admin's Download: every kit entry the template lacks added with today's look, and a STYLE KEY sheet); GeDxfTpl.kitOf(seed) what a
    template has of it. Run: node --test tests/plan-kit.test.cjs (or python3 tests/run_all.py --only plan-kit).
-   - the kit's names: every kind once (PLAN_KIT); kitOf reads a template's (its names in any case) and, for what it lacks, today's look;
+   - the kit's names: every kind once (PLAN_KIT); kitOf reads a template's (its names in any case) and, for what it lacks, today's look; the starting kit
+     takes what a client's finished plan taught (G-ESAA_LOOK.kinds, stage10 B4) where it taught it;
    - a kit change changes the plan: a text style's font (a bold part in its bold one), height (annotative: printed mm, the kind's sizes in proportion; else
      metres), width factor and slant; the sheets' names and the BOQ table in theirs; a layer's colour, line type and weight (its lines BYLAYER; a Default
      weight: each cable its size's); a symbol (the template's own G-ESAA PULL-OFF; its own new tower not made red); the kit over a client template's look;
@@ -94,12 +95,12 @@ const KIT = T.withKit(KS); // the starting kit of the made-up company-like templ
 
 test('the kit\'s names: every kind once; kitOf reads a template\'s (in any case) and today\'s look for what it lacks', () => {
   const P = T.PLAN_KIT;
-  assert.equal(P.text.length, 18); assert.equal(P.layers.length, 7); assert.equal(P.sym.length, 41);
+  assert.equal(P.text.length, 18); assert.equal(P.layers.length, 8); assert.equal(P.sym.length, 41);
   for (const L of [P.text, P.layers, P.sym]) { assert.equal(new Set(L.map((x) => x.name.toUpperCase())).size, L.length, 'each name once'); L.forEach((x) => assert.ok(x.what && x.what.length >= 7, `${x.name}: what it is`)); }
   [...P.text, ...P.layers].forEach((x) => assert.match(x.name, /^PLAN [A-Z ]+$/, 'a drafter-readable name'));
   ['PLAN POLE DETAILS', 'PLAN POLE NUMBER', 'PLAN LAT LONG', 'PLAN ID', 'PLAN SPAN LENGTH', 'PLAN CABLE LABEL', 'PLAN LOOP', 'PLAN CLOSURE', 'PLAN SITE', 'PLAN ATTACHMENT', 'PLAN STREET', 'PLAN LANDMARK', 'PLAN NOTE', 'PLAN TABLE', 'PLAN LEGEND', 'PLAN SHEET NAME', 'PLAN KEY MAP NAME', 'PLAN VICINITY MAP']
     .forEach((n, i) => assert.equal(P.text[i].name, n));
-  assert.deepEqual(P.layers.map((x) => [x.name, x.color, x.lw]), [['PLAN CABLE AE', 1, -3], ['PLAN CABLE UG', 3, -3], ['PLAN CABLE AE EXISTING', 5, -3], ['PLAN CABLE UG EXISTING', 5, -3], ['PLAN MESSENGER', 1, 18], ['PLAN LEADER', 8, -3], ['PLAN ROAD', 7, -3]]);
+  assert.deepEqual(P.layers.map((x) => [x.name, x.color, x.lw]), [['PLAN CABLE AE', 1, -3], ['PLAN CABLE UG', 3, -3], ['PLAN CABLE AE EXISTING', 5, -3], ['PLAN CABLE UG EXISTING', 5, -3], ['PLAN MESSENGER', 1, 18], ['PLAN LEADER', 8, -3], ['PLAN ROAD', 7, -3], ['PLAN GRID', 6, -3]]);
   // a template without the kit: none of it; today's look (its arial style's font, its Standard's, its 样式 1's; its road layer; its DASHED)
   const k0 = T.kitOf(KS), t0 = Object.fromEntries(k0.text.map((x) => [x.name, x])), l0 = Object.fromEntries(k0.layers.map((x) => [x.name, x])), s0 = Object.fromEntries(k0.sym.map((x) => [x.name, x]));
   assert.ok([...k0.text, ...k0.layers].every((x) => !x.has));
@@ -159,7 +160,7 @@ test('a kit change changes the plan: a layer\'s colour, line type and weight (BY
   const J = () => job({ labels: 'tidy' });
   const P0 = read(T.build(KIT, J())), cab0 = P0.model.filter((r) => typ(r) === 'LWPOLYLINE' && g(r, 8) === 'PLAN CABLE AE');
   assert.ok(cab0.length > 3 && cab0.every((r) => g(r, 62) == null && g(r, 6) == null && +g(r, 370) > 0), 'the starting kit: BYLAYER, each cable its own weight (the layer\'s Default)');
-  const W = edit(KIT, (d, X) => { const c = X.layer('PLAN CABLE AE'); X.set(c, 62, 6); X.set(c, 370, 50); X.set(c, 6, 'Continuous'); X.set(X.layer('PLAN LEADER'), 62, 4); X.set(X.layer('PLAN ROAD'), 62, 2); const m = X.layer('PLAN MESSENGER'); X.set(m, 62, 3); X.set(m, 370, 35);
+  const W = edit(KIT, (d, X) => { const c = X.layer('PLAN CABLE AE'); X.set(c, 62, 6); X.set(c, 370, 50); X.set(c, 6, 'Continuous'); X.set(X.layer('PLAN LEADER'), 62, 4); X.set(X.layer('PLAN ROAD'), 62, 2); const m = X.layer('PLAN MESSENGER'); X.set(m, 62, 3); X.set(m, 370, 35); X.set(X.layer('PLAN GRID'), 62, 30);
     const po = X.block('G-ESAA PULL-OFF').find((r) => typ(r) === 'LWPOLYLINE'); const k = po.findIndex((p) => p[0] === 90); po.splice(k, po.length - k, [90, '3'], [70, '1'], [43, '0.14'], [10, '-0.5'], [20, '-0.5'], [10, '0.5'], [20, '-0.5'], [10, '0.0'], [20, '0.5']);
     for (const r of X.block('G-ESAA P-BTS')) if (typ(r) !== 'ATTDEF' && g(r, 62) != null) X.set(r, 62, 3); });
   const P1 = read(T.build(W, J())), L = (nm) => P1.layer(nm), res = (r) => [g(r, 62) == null ? +g(L(g(r, 8)), 62) : +g(r, 62), g(r, 6) == null ? g(L(g(r, 8)), 6) : g(r, 6), g(r, 370) == null ? +g(L(g(r, 8)), 370, -3) : +g(r, 370)];
@@ -168,6 +169,7 @@ test('a kit change changes the plan: a layer\'s colour, line type and weight (BY
   const lead = P1.model.filter((r) => g(r, 8) === 'PLAN LEADER'); assert.ok(lead.length > 0 && lead.every((r) => res(r)[0] === 4), 'the thin lines');
   const road = P1.model.filter((r) => g(r, 8) === 'PLAN ROAD'); assert.ok(road.some((r) => res(r)[0] === 2) && road.filter((r) => g(r, 62) != null).every((r) => [8, 5].includes(+g(r, 62))), 'the roads\' edges (footpaths grey, bridges blue)');
   const msg = P1.model.filter((r) => g(r, 8) === 'PLAN MESSENGER'); assert.ok(msg.length >= 4 && msg.every((r) => res(r)[0] === 3 && res(r)[2] === 35), 'the messengers');
+  const grid = P1.model.filter((r) => g(r, 8) === 'PLAN GRID'); assert.ok(grid.length >= 4 && grid.every((r) => typ(r) === 'LWPOLYLINE' && res(r)[0] === 30), 'the sheets\' grid');
   // the symbols: the template's own pull-off; its own new tower kept as it is (made red only when the app makes it)
   const blk = (P, nm) => { const B = P.S.blocks.get(nm); return B ? B.ents : null; };
   assert.equal(+g(blk(P1, 'G-ESAA PULL-OFF').find((r) => typ(r) === 'LWPOLYLINE'), 90), 3, 'the template\'s pull-off');
