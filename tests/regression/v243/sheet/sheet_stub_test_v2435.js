@@ -1,26 +1,28 @@
 #!/usr/bin/env node
 /*
- * sheet_stub_test_v24518.js — offline test of PoleCam-online-sheet_v2.45.18.gs (no network, synthetic data only).
- * v2.45.18 (beta 7.16, Permissions): the tab "User permissions" (one row per user email, one column per feature, Yes / No, TRUE / FALSE
- * or a ticked box; blank = what a user not listed has) and Settings → "User permissions" (No until the admin turns it on).
- *   - setup adds the tab (its header, Yes / No drop-downs on the feature columns) and the setting, once; nothing else.
- *   - G-eSAA before 2.45.18 (no pv) gets exactly what v2.43.2 sends (every read compared, the time left out).
- *   - A phone's read (pv=1, its email): { on, row (only the cells filled in), at }; a row of another company (company keys) does not
+ * sheet_stub_test_v2435.js — offline test of PoleCam-online-sheet_v2.43.5.gs (no network, synthetic data only).
+ * v2.43.5 (G-eSAA 2.45.18 / beta 7.16, Permissions): the owner's script v2.43.4 plus the tab "User permissions" (one row per user email,
+ * one column per feature, Yes / No, TRUE / FALSE or a ticked box; blank = what a user not listed has) and Settings → "User permissions"
+ * (No until the admin turns it on).
+ *   - setup (on a v2.43.4 sheet) adds the tab (its header, Yes / No drop-downs on the feature columns) and the setting, once; nothing else.
+ *   - G-eSAA 2.45.17 and older (no pv, an older version) get exactly what v2.43.4 sends (every read compared, the time left out), but the
+ *     script's version (sv: 2.43.5).
+ *   - A phone of 2.45.18 or later (its version, or pv=1): { on, row (only the cells filled in), at }; a row of another company (company keys) does not
  *     count; with User permissions on, a user not listed is added at their first sync (not the admin company; once; 2000 rows at most).
  *   - The admin phone (Admin key): the whole tab (perms); setPerms writes the rows (a new row at once, only the changed cells of an
  *     existing one, Updated, by whom), clears the rows of users put back to the default, sets the setting; never a formula in a cell.
  *
- *   node sheet_stub_test_v24518.js        (GS_FILE: test another copy)
+ *   node sheet_stub_test_v2435.js        (GS_FILE: test another copy)
  *
  * Uses the stand-ins of ../e2e/sheet_env.js (the in-memory spreadsheet and the Apps Script services of sheet_stub_test.js).
  * Prints PASS / FAIL per check; exits 1 when any check fails.
  */
 'use strict';
 const path = require('path');
-process.env.GS_FILE = process.env.GS_FILE || path.join(__dirname, 'PoleCam-online-sheet_v2.45.18.gs');
+process.env.GS_FILE = process.env.GS_FILE || path.join(__dirname, 'PoleCam-online-sheet_v2.43.5.gs');
 const env = require('../e2e/sheet_env.js');
 const { world } = env;
-const BASE_GS = path.join(__dirname, 'PoleCam-online-sheet_v2.43.2.gs');
+const BASE_GS = path.join(__dirname, 'PoleCam-online-sheet_v2.43.4.gs'); // (the script the owner runs before this one)
 
 let pass = 0, fail = 0;
 function check(name, cond, info) {
@@ -45,16 +47,16 @@ function setting(k, v) { const st = tab('Settings'), L = st.getRange(1, 1, st.ge
 const settingRows = (k) => tab('Settings').rowsAsText().filter((r) => r[0] === k);
 /** A cell of a user's row, by its header (as the admin types it in the sheet). */
 function cell(e, head, v) { const sh = tab('User permissions'), h = header('User permissions'), c = h.indexOf(head), L = sh.getRange(1, 1, sh.getLastRow(), h.length).getValues(), r = L.findIndex((x, i) => i && String(x[h.indexOf('Email')]).toLowerCase() === e); if (r < 0 || c < 0) throw new Error('no cell ' + e + ' ' + head); sh.getRange(r + 1, c + 1).setValue(v); }
-const strip = (o) => { const x = JSON.parse(JSON.stringify(o)); delete x.updated; return x; };
+const strip = (o) => { const x = JSON.parse(JSON.stringify(o)); delete x.updated; delete x.sv; return x; };
 
 /* ================================================================== run */
 const base = env.load(BASE_GS);
 const gs = env.load(env.NEW_GS);
 const post = (g, b) => env.post(g, b), get = (g, p) => env.get(g, p);
 
-section('setup (a v2.43.2 sheet, then v2.45.18)');
+section('setup (a v2.43.4 sheet, then v2.43.5)');
 base.setup();
-check('v2.43.2 setup: no User permissions tab, no setting', !tab('User permissions') && !settingRows('User permissions').length);
+check('v2.43.4 setup: no User permissions tab, no setting', !tab('User permissions') && !settingRows('User permissions').length && !!tab('Coops'));
 tab('Companies').getRange(2, 1, 3, 1).setValues([[CO_A], [CO_B], [CO_ADMIN]]);
 tab('CompanyKeys').getRange(2, 1, 3, 4).setValues([[CO_A, KEY_A, 'No', 'Yes'], [CO_B, KEY_B, 'No', ''], [CO_ADMIN, KEY_ADMIN, 'Yes', '']]);
 tab('Tasks').getRange(2, 1, 2, 9).setValues([['T-A0000001', 'Demo Survey Poblacion', 'Survey', 'SITE-001', CO_A, 'Field Engineer 1', CO_A, 'Active', ''],
@@ -63,7 +65,7 @@ tab('Admin users').getRange(2, 1, 1, 5).setValues([[INSPECTOR, 'Demo Inspector',
 const READ = gs.settings_()['Read key'], ADMIN = gs.settings_()['Admin key'];
 const sheetsBefore = world.ss.getNumSheets(), settingsBefore = tab('Settings').getLastRow();
 gs.setup();
-check('v2.45.18 setup adds the tab "User permissions" with its header', eq(header('User permissions'), HEAD), header('User permissions'));
+check('v2.43.5 setup adds the tab "User permissions" with its header', eq(header('User permissions'), HEAD), header('User permissions'));
 check('its header bold, row 1 frozen, no other row', tab('User permissions').frozen === 1 && HEAD.every((_, i) => tab('User permissions').bold['1,' + (i + 1)] === true) && tab('User permissions').getLastRow() === 1);
 check('one tab added, nothing else', world.ss.getNumSheets() === sheetsBefore + 1, world.ss.getSheets().map((s) => s.name));
 check('Settings → User permissions added: No (off until the admin turns it on)', eq(settingRows('User permissions').map((r) => r[1]), ['No']) && tab('Settings').getLastRow() === settingsBefore + 1, settingRows('User permissions'));
@@ -72,12 +74,19 @@ gs.setup();
 check('setup again: no second setting row, no second tab', settingRows('User permissions').length === 1 && world.ss.getNumSheets() === sheetsBefore + 1);
 check('the keys are not changed by setup', gs.settings_()['Read key'] === READ && gs.settings_()['Admin key'] === ADMIN);
 
-section('G-eSAA before 2.45.18 (no pv): the answers of v2.43.2');
+section('G-eSAA 2.45.17 and older: the answers of v2.43.4');
+tab('Coops').getRange(2, 1, 2, 4).setValues([['DEMO COOP', 'Region 11', 'Davao del Sur', 'Sample Town'], ['MADE-UP ELECTRIC', 'Region 12', '', 'Demo City, Other Town']]);
 const READS = [{ key: READ, company: CO_A, email: JUAN, v: '2.45.17' }, { ckey: KEY_A, company: '', email: JUAN, v: '2.45.17' }, { ckey: KEY_B, email: ANA, v: '2.43.0' },
-  { ckey: KEY_ADMIN, email: INSPECTOR, v: '2.45.17' }, { key: READ, company: '', akey: ADMIN, v: '2.45.17' }, { key: READ, company: CO_A }, { key: 'wrong' }, { probe: '1' }];
+  { ckey: KEY_ADMIN, email: INSPECTOR, v: '2.45.17' }, { key: READ, company: '', akey: ADMIN, email: 'admin@demo-telco.example', v: '2.45.17' }, { ckey: KEY_A, email: JUAN, v: '2.42.28' },
+  { key: READ, company: CO_A }, { key: 'wrong' }, { probe: '1', v: '2.45.17' }, { ckey: KEY_A, email: JUAN, v: '2.45.9', ch: 'x' }];
 setting('User permissions', 'Yes');
-READS.forEach((p, i) => { const a = strip(get(base, p)), b = strip(get(gs, p)); check(`read ${i + 1} (${Object.keys(p).join(', ')}): the same as v2.43.2, no perm`, eq(a, b) && b.perm === undefined && b.perms === undefined, { a, b }); });
-check('no user added by an older G-eSAA (no pv), even with User permissions on', tab('User permissions').getLastRow() === 1);
+READS.forEach((p, i) => { const a0 = get(base, p), b0 = get(gs, p), a = strip(a0), b = strip(b0); check(`read ${i + 1} (${Object.keys(p).join(', ')}${p.v ? ` ${p.v}` : ''}): the same as v2.43.4, no perm${a0.sv ? ', its version 2.43.5' : ''}`, eq(a, b) && b.perm === undefined && b.perms === undefined && (a0.sv === undefined ? b0.sv === undefined : a0.sv === '2.43.4' && b0.sv === '2.43.5'), { a, b }); });
+check('the coops sent as before (an older beta reads them)', (get(gs, { ckey: KEY_A, email: JUAN, v: '2.45.17' }).coops || []).length === 2);
+check('no user added by an older G-eSAA, even with User permissions on', tab('User permissions').getLastRow() === 1);
+check('G-eSAA 2.45.18 (its version, no pv): perm', eq(get(gs, { ckey: KEY_A, company: '', email: PEDRO, v: '2.45.18' }).perm, { on: true }) && !!rowOf(PEDRO));
+check('a later version (2.46.0): perm (Pedro listed now: his row, blank)', eq(get(gs, { ckey: KEY_A, company: '', email: PEDRO, v: '2.46.0' }).perm, { on: true, row: {} }));
+check('pv=1 (this G-eSAA, before its version number is set): perm', eq(get(gs, { ckey: KEY_A, company: '', email: PEDRO, v: '2.45.17', pv: '1' }).perm, { on: true, row: {} }));
+{ const sh = tab('User permissions'); sh.data = sh.data.slice(0, 1); } // (Pedro again a user never seen)
 setting('User permissions', 'No');
 
 section('a phone of G-eSAA 2.45.18 (pv=1): its own row');
@@ -123,7 +132,7 @@ section('the admin phone (Admin key)');
 r = get(gs, { key: READ, company: '', akey: ADMIN, email: 'admin@demo-telco.example', pv: '1' });
 const pj = (r.perms || []).find((x) => x.e === JUAN);
 check('a read with the Admin key and pv: the whole tab (perms)', Array.isArray(r.perms) && r.perms.length === 2 && pj && eq(pj.f, { kmz: false, plan: true, cef: true, edit: false, admin: true }) && pj.c === CO_A && /first sync/.test(pj.n), r.perms);
-check('without pv (an older admin phone): no perms', get(gs, { key: READ, company: '', akey: ADMIN }).perms === undefined);
+check('an older admin phone (2.45.17, no pv): no perms', get(gs, { key: READ, company: '', akey: ADMIN, v: '2.45.17' }).perms === undefined);
 check('with a company key only: no perms', get(gs, { ckey: KEY_A, email: JUAN, pv: '1' }).perms === undefined);
 check('setPerms without the Admin key: refused (key)', eq(post(gs, { action: 'setPerms', key: READ, users: [{ e: PEDRO, f: { plan: true } }] }), { ok: false, error: 'key' }) && eq(post(gs, { action: 'setPerms', ckey: KEY_A, users: [] }), { ok: false, error: 'key' }) && !rowOf(PEDRO));
 const W0 = tab('User permissions').writes;
@@ -183,13 +192,14 @@ section('a sheet without company keys (each phone says its company)');
 }
 check('all locks released', world.lockHeld === 0);
 
-section('the v2.43.2 tests, run on v2.45.18');
+section('the v2.43.2 tests, run on v2.43.4 and on v2.43.5');
 {
-  const { spawnSync } = require('child_process'), run = (f) => spawnSync(process.execPath, [path.join(__dirname, f)], { env: { ...process.env, GS_FILE: env.NEW_GS }, encoding: 'utf8', timeout: 300000 }).stdout || '';
-  const out = run('sheet_stub_test_v2432.js'), fails = out.split('\n').filter((l) => l.startsWith('FAIL')).map((l) => l.slice(6).trim()), m = /(\d+) passed, (\d+) failed/.exec(out);
-  check('sheet_stub_test_v2432.js: every check passes but the two that count the tabs (one more: User permissions)', !!m && +m[1] >= 190 && eq(fails, ['3 tabs added, nothing else', 'setup again: no new tab']), { m: m && m[0], fails });
-  const qa = run('sheet_qa08_qa18_test.js'), mq = /(\d+) passed, (\d+) failed/.exec(qa);
-  check('sheet_qa08_qa18_test.js: every check passes', !!mq && +mq[1] >= 45 && mq[2] === '0', mq && mq[0]);
+  const { spawnSync } = require('child_process'), run = (f, gsf) => spawnSync(process.execPath, [path.join(__dirname, f)], { env: { ...process.env, GS_FILE: gsf }, encoding: 'utf8', timeout: 300000 }).stdout || '';
+  const res = (out) => ({ fails: out.split('\n').filter((l) => l.startsWith('FAIL')).map((l) => l.slice(6).trim()), m: /(\d+) passed, (\d+) failed/.exec(out) });
+  const A = res(run('sheet_stub_test_v2432.js', BASE_GS)), B = res(run('sheet_stub_test_v2432.js', env.NEW_GS));
+  check('sheet_stub_test_v2432.js: the same checks pass on v2.43.5 as on v2.43.4 (only the two that count the tabs fail on both: Coops, then User permissions)', !!A.m && !!B.m && +B.m[1] >= 190 && A.m[0] === B.m[0] && eq(A.fails, B.fails) && eq(B.fails, ['3 tabs added, nothing else', 'setup again: no new tab']), { a: A.m && A.m[0], b: B.m && B.m[0], fails: B.fails });
+  const Q = res(run('sheet_qa08_qa18_test.js', env.NEW_GS));
+  check('sheet_qa08_qa18_test.js on v2.43.5: every check passes', !!Q.m && +Q.m[1] >= 45 && Q.m[2] === '0', Q.m && Q.m[0]);
 }
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

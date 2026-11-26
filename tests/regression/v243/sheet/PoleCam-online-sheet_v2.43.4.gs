@@ -1,6 +1,6 @@
 /**
- * PoleCam online sheet (v2.45.18) — companies, sites / tasks, map pack links, the signed company list, task progress, the teams
- * (Coordinator / Field Partner, contractor mailboxes) and what each user may do (User permissions) for the PoleCam app.
+ * PoleCam online sheet (v2.43.4) — companies, sites / tasks, map pack links, the signed company list, task progress and the teams
+ * (Coordinator / Field Partner, contractor mailboxes) for the PoleCam app.
  *
  * New setup (once, by the admin):
  *   1. Make a new Google Sheet, e.g. "PoleCam online list".
@@ -168,26 +168,28 @@
  *   the beta: Deploy → Manage deployments → the users' deployment → pencil (Edit) → Version: the beta's version → Deploy. Never use
  *   New deployment for the users' address (see "Updating an existing sheet" above).
  *
- * v2.45.18 (update the same way: paste this file, Save, choose "setup" and Run it once: it adds the tab "User permissions" and the
- *   Settings row "User permissions" = No; nothing new to allow; then Deploy → Manage deployments → pencil (Edit) → Version: New version →
- *   Deploy; for the beta first, a New deployment as for v2.43.2): what each user may do (the owner: "Per user, the admin allows or
- *   blocks features ... allow also to be edit or update via the googlesheet. By default, they are only allow to do the survey and kmz
- *   export (includes project share and team mailbox)").
- *   The tab "User permissions": one row per user email; the columns (found by their header names: you may move them, keep the names)
- *     Email · Company · KMZ export · Plan drawing · Other exports · CEF plan · Drawing editing · Client templates · Team admin · Updated · Notes
- *   A feature cell: Yes (or TRUE, a ticked box) = allowed, No (or FALSE) = blocked, blank = what a user not listed has. Survey (records,
- *   map, photos, backup) is always allowed and has no column. A user not listed (or a blank cell) has KMZ export (the Google Earth map,
- *   project share and the team mailbox) and nothing else. Admin users (the admin phone, and the admin company's staff: the Admin users
- *   tab) always have everything, whatever their row says.
- *   Settings → "User permissions": Yes = the phones follow the tab; No (the default, until you turn it on) = every user has every feature,
- *   as before. The admin phone may also set it (Administration → User permissions → Limit what users may do).
- *   Each phone of G-eSAA 2.45.18 or later gets its own row at each sync (by the email in Your details; with company keys, a row whose
- *   Company is another company's does not count for it) and keeps it for use without signal. With "User permissions" = Yes, a user
- *   not in the tab yet is added at their first sync (Email, Company, the feature cells blank), so you see everyone here and can allow
- *   features by typing Yes. The admin phone (Admin key) gets the whole tab for Administration → User permissions; what it changes there
- *   is written back to the tab (Updated: when). Edits typed in the tab reach the phones at their next sync (the sheet wins).
- *   Merging into a newer script: everything new is in the section "v2.45.18 (User permissions)" at the end, plus the lines marked
- *   "v2.45.18 (User permissions)" in TABS, DEFAULT_SETTINGS, setup, doGet and doPost.
+ * v2.43.3 (update the same way; nothing new to allow): the electric coops and where they operate.
+ *   setup adds the tab Coops: Coop | Region | Towns | Notes. One row per coop (or power company), e.g.
+ *     DLPC | Region 11 | Davao City                 COTELCO | Region 12 | Kabacan, Matalam, Kidapawan City
+ *   Region: pick it from the drop-down (NCR, CAR, Region 1 … Region 13, NIR, BARMM; Region XI or R11 work too). Towns: the cities and
+ *   municipalities it serves, separated by commas ("City" / "City of" may be left out). Leave Towns blank for a coop known only by
+ *   its region. G-eSAA 2.43.1 (beta 3.6) and later get the list at each sync: in an electric pole's record, the coops of the pole's
+ *   town (from the road pack on the phone) come first, then the other coops of its region, then the rest. Every coop of the tab is
+ *   offered on every phone. Older phones get exactly the answers they got before (2.42.x get nothing new; 2.43.0 ignores it).
+ *
+ * v2.43.4 (update the same way; nothing new to allow; run setup once more): the Coops tab as admins keep it, and the map packs' regions.
+ *   Coops: the columns are found by their names (Coop, Region, Province, Town or Towns, Notes, Remarks), so both layouts work:
+ *     one row per town:   DLPC | Region 11 | Davao del Sur | Davao City            (Province and Remarks may be left blank)
+ *     one row per coop:   COTELCO | Region 12 | Kabacan, Matalam, Kidapawan City    (as in v2.43.3)
+ *   Every row of a coop counts (all its towns), each town with its province (a San Isidro in Davao Oriental is not one in
+ *   Davao del Norte). Remarks stay in the sheet. A coop of 2 regions: one row per town, each with its region.
+ *   MapPacks: setup adds the column Region (E) with the same drop-down. G-eSAA beta 3.8 offers a pack where the phone has none for the
+ *   area on its map: Region tells which area a pack is for (blank: the app reads it from the name, e.g. Roads · Davao Region).
+ *   Several regions: separate them with commas. The answer also says the script's version (Settings → Online sheet shows it).
+ *
+ *   The tracker's GDRIVE LINK (the project's Drive folder): a cell may show the full address, linked text (Insert link), a
+ *   HYPERLINK formula or a Drive chip with the folder's name: the script sends the address behind it (a chip: when Google gives its
+ *   link to the script).
  *
  * Company keys (v2.10, recommended): run "makeCompanyKeys" once. Each company gets a short key (e.g. 7KQ4-MX2P-9TRW) in the
  * CompanyKeys tab. A new user types only that key in PoleCam (or scans a coworker's invite QR code): the key tells the
@@ -217,7 +219,7 @@ var TABS = {
   Companies: [['Company']],
   Tasks: [['Task ID', 'Project name', 'Category (Survey / PAT / Defect cleanup / FAT)', 'Site / cluster', 'Contractor', 'Globe representative',
     'For company (blank = everyone)', 'Status (Active / Closed)', 'Notes']],
-  MapPacks: [['Name', 'Google Drive link (shared: Anyone with the link)', 'Size (MB)', 'Notes']],
+  MapPacks: [['Name', 'Google Drive link (shared: Anyone with the link)', 'Size (MB)', 'Notes', 'Region']], // v2.43.4: Region
   CompanyKeys: [['Company', 'Key (give it only to that company)', 'Sees all tasks (Yes / No)', 'Team (Yes / No)']], // v2.43.1: Team per company (blank = No)
   'Admin users': [['Email', 'Name', 'Company ID no.', 'Mobile', 'Job (PAT/FAT inspector, As-Plan approver, Audit approver, As-Built approver)']], // v2.28
   Logos: [['Company', 'Updated', 'Type', 'Picture (base64, set from G-eSAA)']], // v2.34
@@ -228,9 +230,14 @@ var TABS = {
   Team: [['Company', 'Email', 'Name', 'Role', 'Regions', 'Updated', 'Approved (Yes / No)']], // v2.43 (columns found by header: TEAM_COLS); v2.43.2: Approved
   TeamLinks: [['Company', 'Coordinator email', 'Member email', 'Status', 'Updated']], // v2.43
   Mailboxes: [['Company', 'Web app address', 'Key', 'Set up by', 'Google account', 'Checked', 'Status']], // v2.43
-  'User permissions': [['Email', 'Company', 'KMZ export', 'Plan drawing', 'Other exports', 'CEF plan', 'Drawing editing', 'Client templates', 'Team admin', 'Updated', 'Notes']], // v2.45.18 (User permissions)
+  Coops: [['Coop', 'Region', 'Province', 'Town', 'Notes', 'Remarks']], // v2.43.3: the electric coops and where they operate (v2.43.4: one row per town)
 };
+/** v2.43.3: the regions offered in the Coops tab (the names G-eSAA shows; Region XI, R11 or Davao Region are read the same). */
+var COOP_REGIONS = ['NCR', 'CAR', 'Region 1', 'Region 2', 'Region 3', 'Region 4A', 'Region 4B', 'Region 5', 'Region 6', 'NIR', 'Region 7', 'Region 8',
+  'Region 9', 'Region 10', 'Region 11', 'Region 12', 'Region 13', 'BARMM'];
 var CATEGORIES = ['Survey', 'PAT', 'Defect cleanup', 'FAT'];
+/** v2.43.4: this script's version, in the answer to G-eSAA 2.43 and later. */
+var SCRIPT_VER = '2.43.4';
 var FIELDS = ['Task ID', 'Project', 'Category', 'Site', 'Contractor', 'Company', 'Globe representative', 'Status', 'Notes', 'Link',
   'Survey Start Date', 'Survey Completion Date', 'PAT Date', 'FAT Date', 'Region', 'Territory'];
 /** The dates PoleCam writes back (v2.11), and the column each one goes to. */
@@ -278,7 +285,6 @@ var DEFAULT_SETTINGS = [
   ['Mailbox script link', '', 'v2.43: the link to the master mailbox script that coordinators copy into their own Google account. The phones get it with their team (Your details → My role). Blank = none yet.'],
   ['Team codes per company per day', '30', 'v2.43.2: email codes for teams (confirming an email in Settings → Team): at most this many a day for each company.'],
   ['Emails kept for admin codes', '20', 'v2.43.2: team codes stop when this account has this many emails (or fewer) left today, so the admin users still get theirs.'],
-  ['User permissions', 'No', 'v2.45.18: Yes = each user may use only what the User permissions tab allows them (a user not listed: Survey and KMZ export, with project share and the team mailbox). No = every user has every feature, as before. Admin users always have everything.'], // v2.45.18 (User permissions)
 ];
 FIELDS.forEach(function (f) { DEFAULT_SETTINGS.push(['Column: ' + f, '', 'Header of this column in the source. Blank = guess. A dash (-) = not used.']); });
 
@@ -325,7 +331,20 @@ function setup() {
   ensureTaskIds_();
   try { addProgressColumns(); } catch (err) { console.log('Progress columns not added: ' + (err && err.message || err)); }
   try { teamSetup_(); } catch (err) { console.log('Team tabs: ' + (err && err.message || err)); } // v2.43: the Role and Status drop-downs
-  try { permSetup_(); } catch (err) { console.log('User permissions: ' + (err && err.message || err)); } // v2.45.18 (User permissions): the Yes / No drop-downs
+  try { var cs = ss.getSheetByName('Coops'); if (cs) { cs.getRange('A:A').setNumberFormat('@'); // v2.43.3: the coops' names as typed; the Region drop-down
+    cs.getRange('B2:B').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(COOP_REGIONS, true).setAllowInvalid(true).build()); } }
+  catch (err) { console.log('Coops tab: ' + (err && err.message || err)); }
+  try { var mp = ss.getSheetByName('MapPacks'); if (mp) { var rc = packRegionCol_(mp); // v2.43.4: the Region column (E unless it is elsewhere)
+    if (rc < 0) { rc = Math.max(5, mp.getLastColumn() + 1); var hc = mp.getRange(1, 5).getValue(); if (String(hc).trim() === '') rc = 5; mp.getRange(1, rc).setValue('Region').setFontWeight('bold'); }
+    var a1 = colA1_(rc - 1); mp.getRange(a1 + '2:' + a1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(COOP_REGIONS, true).setAllowInvalid(true).build()); } }
+  catch (err) { console.log('MapPacks Region: ' + (err && err.message || err)); }
+}
+/** v2.43.4: the MapPacks tab's Region column (0-based index found by its header), or -1. */
+function packRegionCol_(sh) {
+  if (!sh || sh.getLastColumn() < 1) return -1;
+  var h = sh.getRange(1, 1, 1, Math.min(sh.getLastColumn(), 20)).getValues()[0].map(normHead_);
+  for (var i = 0; i < h.length; i++) if (/^region/.test(h[i])) return i + 1;
+  return -1;
 }
 
 function newKey_() { return Utilities.getUuid().replace(/-/g, '').slice(0, 20); }
@@ -446,7 +465,7 @@ function sourceTasks_(s) {
   var tc = col['Territory'], vc = col['Contractor'], betweenCols = [];
   if (tc >= 0 && vc >= 0) for (var b = Math.min(tc, vc) + 1; b < Math.max(tc, vc); b++) if (rawHead[b]) betweenCols.push(b);
   betweenCols = betweenCols.slice(0, 12);
-  var tasks = [], skipped = 0;
+  var tasks = [], skipped = 0, linkAt = linkCol_(t, col['Link']); // v2.43.4
   for (var i = hr + 1; i < values.length; i++) {
     var r = values[i], project = get(r, 'Project');
     if (!project) continue;
@@ -454,6 +473,7 @@ function sourceTasks_(s) {
     var status = get(r, 'Status');
     if (status && closed.some(function (c) { return status.toLowerCase().indexOf(c) === 0; })) { skipped++; continue; }
     var category = category_(get(r, 'Category'), s['Default category']), site = get(r, 'Site'), link = get(r, 'Link');
+    if (link && !/^https:\/\//.test(link)) link = linkAt(i) || link; // v2.43.4: the address behind linked text, a formula or a chip
     var contractor = get(r, 'Contractor');
     tasks.push({ id: taskIdOf_(t, r, s), project: project.slice(0, 100), category: category, site: site.slice(0, 100), contractor: contractor.slice(0, 100),
       globeRep: get(r, 'Globe representative').slice(0, 100), company: (get(r, 'Company') || contractor).slice(0, 200), status: (status || 'Active').slice(0, 40), notes: get(r, 'Notes').slice(0, 300),
@@ -490,6 +510,20 @@ function sourceSheet_(s) {
     (GUESS[f] || []).some(function (g) { var i = head.indexOf(g); if (i >= 0 && !Object.keys(col).some(function (k) { return col[k] === i && k !== 'Company'; })) { col[f] = i; return true; } return false; });
   });
   return { sh: sh, values: values, hr: hr, head: head, rawHead: rawHead, col: col };
+}
+
+/** v2.43.4: the address behind a cell of the Link column (0-based row i of the data range) when the cell shows something else:
+    a HYPERLINK formula, linked text (Insert link) or a Drive chip, when Google gives its link to the script. Read once, when needed. */
+function linkCol_(t, c) {
+  var got = null;
+  return function (i) {
+    if (c < 0) return '';
+    if (!got) { got = { f: [], rt: [] }; try { var rg = t.sh.getRange(1, c + 1, Math.max(1, t.values.length), 1); try { got.f = rg.getFormulas(); } catch (e) { got.f = []; } try { got.rt = rg.getRichTextValues(); } catch (e) { got.rt = []; } } catch (e) { /* the text as shown */ } }
+    var f = String((got.f[i] || [])[0] || ''), m = /HYPERLINK\(\s*"(https:\/\/[^"]+)"/i.exec(f); if (m) return m[1].slice(0, 300);
+    var rt = (got.rt[i] || [])[0], u = null;
+    if (rt) { try { u = rt.getLinkUrl(); if (!u && rt.getRuns) { var rs = rt.getRuns(); for (var k = 0; k < rs.length && !u; k++) u = rs[k].getLinkUrl(); } } catch (e) { u = null; } }
+    return u && /^https:\/\//.test(u) ? String(u).slice(0, 300) : '';
+  };
 }
 
 /** CompanyKeys rows with a key: {normalized company: {key, all, team}}. v2.43.1: team = the row's "Team (Yes / No)" is Yes. */
@@ -550,8 +584,11 @@ function doGet(e) {
   var wantR = codes_(p.region, regionCode_), wantT = codes_(p.terr, terrCode_); // v2.25: the user's regions and territories
   if (p.area === '1' && (!wantR.length || !wantT.length)) tasks = []; // v2.27: a user with no region or no territory ticked gets no site
   else if (wantR.length || wantT.length) tasks = tasks.filter(function (t) { return areaOk_(t.region, wantR, regionCode_) && areaOk_(t.territory, wantT, terrCode_); });
-  var packs = rows_('MapPacks', 4).filter(function (r) { return String(r[1]).trim(); }).map(function (r) {
-    return { name: String(r[0]).trim(), link: String(r[1]).trim(), sizeMB: Number(r[2]) || 0, notes: String(r[3]).trim() };
+  var packRc = -1; try { packRc = verAtLeast_(p.v, '2.43') ? packRegionCol_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MapPacks')) : -1; } catch (e) { packRc = -1; } // v2.43.4
+  var packs = rows_('MapPacks', Math.max(4, packRc)).filter(function (r) { return String(r[1]).trim(); }).map(function (r) {
+    var pk = { name: String(r[0]).trim(), link: String(r[1]).trim(), sizeMB: Number(r[2]) || 0, notes: String(r[3]).trim() };
+    if (packRc > 0) { var rg = String(r[packRc - 1] || '').trim().slice(0, 80); if (rg) pk.region = rg; } // v2.43.4: the area it is for
+    return pk;
   });
   var strict = Object.keys(companyKeys_()).length > 0;
   if (strict && !acc.all) companies = acc.you ? [matchName_(companies, acc.you)] : []; // with company keys, users do not see the other companies
@@ -571,10 +608,40 @@ function doGet(e) {
   if (p.aem && p.atok) { try { out.adminMe = adminMe_(p.aem, p.atok); } catch (e) { /* the read goes on without it */ } } // v2.42.18: a verified admin user: its own row only
   var sr = String(s['Site required'] || '').trim(); if (sr) out.siteRequired = yes_(sr); // v2.42.18: a new Survey / PAT must use a site of this sheet
   if (verAtLeast_(p.v, '2.43')) out.teamOn = !!(own && own.team); // v2.43.1: Team for this company key (CompanyKeys → Team); older apps get no new field
+  if (verAtLeast_(p.v, '2.43')) { out.sv = SCRIPT_VER; // v2.43.4: the script's version
+    try { var cp = coops_(); if (cp.length) { var ch = hash_(JSON.stringify(cp)).slice(0, 16); if (String(p.ch || '') === ch) out.coopsSame = ch; else { out.coops = cp; out.coopsH = ch; } } } // v2.43.3 (v2.43.4: only when it changed)
+    catch (e) { /* the read goes on without it */ } }
   if (p.email) { try { out.credit = creditInfo_(p, s); } catch (e) { /* the read goes on without it */ } } // v2.42.6
   if (!acc.none) { try { var cl = cseLeads_(s); if (cl) out.cseLeads = cl; } catch (e) { /* the read goes on without it */ } } // v2.42.12: the CSE Lead of each territory
-  if (p.pv) { try { var pm = permOf_(p, s); if (pm) out.perm = pm; if (isAdmin_(p, s)) out.perms = permList_(); } catch (e) { console.log('perm: ' + (e && e.message || e)); } } // v2.45.18 (User permissions): this user's row (G-eSAA 2.45.18 or later); the whole tab to the admin phone
   return json_(out);
+}
+
+/** v2.43.3: the Coops tab: [{ n: name (capitals), r: region as typed, t: [towns] }].
+    v2.43.4: its columns found by their names (Coop, Region, Province, Town or Towns; no header: A, B, C as in v2.43.3): one row per
+    town or one row per coop with its towns separated by commas; every row of a coop counts. Each coop: n, r (its first region), t
+    (its towns), p (the province of each town, when any is given), g (the region of each town, when one differs from r). At most 400
+    coops of 600 towns each. */
+function coops_() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Coops'); if (!sh || sh.getLastRow() < 2) return [];
+  var nc = Math.min(Math.max(sh.getLastColumn(), 3), 12), v = sh.getRange(1, 1, Math.min(sh.getLastRow(), 8000), nc).getValues();
+  var head = v[0].map(normHead_), find = function (re) { for (var i = 0; i < head.length; i++) if (re.test(head[i])) return i; return -1; };
+  var cN = find(/^(coops?|electric coop|power company|name)( name)?$|^coop\b/), cR = find(/\bregion\b/), cP = find(/\bprov/), cT = find(/^(towns?|cit(y|ies)|municipalit)/);
+  if (cN < 0 || cT < 0) { cN = 0; cR = 1; cT = 2; cP = -1; } // (no header: the v2.43.3 layout)
+  var out = [], by = {}, clean = function (x, n) { return String(x == null ? '' : x).trim().replace(/\s+/g, ' ').slice(0, n); };
+  for (var i = 1; i < v.length; i++) {
+    var r = v[i], n = clean(r[cN], 40).toUpperCase(); if (!n) continue;
+    var c = by[n]; if (!c) { if (out.length >= 400) continue; c = by[n] = { n: n, r: '', t: [], p: [], g: [], seen: {} }; out.push(c); }
+    var rg = cR >= 0 ? clean(r[cR], 40) : '', pv = cP >= 0 ? clean(r[cP], 60) : '';
+    if (!c.r && rg) c.r = rg;
+    String(r[cT] == null ? '' : r[cT]).split(/[,;\n]+/).forEach(function (x) {
+      var t = clean(x, 60); if (!t || c.t.length >= 600) return; var k = (t + '|' + pv).toUpperCase(); if (c.seen[k]) return; c.seen[k] = 1;
+      c.t.push(t); c.p.push(pv); c.g.push(rg);
+    });
+  }
+  return out.map(function (c) { var o = { n: c.n, r: c.r, t: c.t };
+    if (c.p.some(function (x) { return x; })) o.p = c.p;
+    if (c.g.some(function (x) { return x && x !== c.r; })) o.g = c.g;
+    return o; });
 }
 
 /** v2.42.12: the CSE LEAD tab (Territory, Full Name): the CSE Lead of each territory, for the plan's title blocks. Looked for in the
@@ -733,7 +800,6 @@ function doPost(e) {
   if (body.action === 'setList') return setList_(body);
   if (body.action === 'setCredit') return setCredit_(body, s); // v2.42.7: the admin phone gives credits or unlimited
   if (body.action === 'teamCoords' || body.action === 'teamCoordSet') return teamAdmin_(body); // v2.43.2: the admin phone approves coordinators
-  if (body.action === 'setPerms') return setPerms_(body); // v2.45.18 (User permissions): the admin phone's changes to the User permissions tab
   if (body.action !== 'addCompanies' || !Array.isArray(body.companies)) return json_({ ok: false, error: 'action' });
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -762,12 +828,17 @@ function setPacks_(packs) {
   lock.waitLock(20000);
   try {
     var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MapPacks');
+    var rc = packRegionCol_(sh), was = {}; // v2.43.4: each pack keeps its Region (found by its link), unless the app sends one
+    if (rc > 0 && sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, rc).getValues().forEach(function (r) { var l = String(r[1]).trim(); if (l) was[l] = String(r[rc - 1] || '').trim(); });
     var rows = packs.slice(0, 50).map(function (p) {
       var link = String(p.link || '').trim().slice(0, 300);
       return [String(p.name || '').trim().slice(0, 100), /^https:\/\/drive\.google\.com\//.test(link) ? link : '', Number(p.sizeMB) || '', ''];
     }).filter(function (r) { return r[1]; });
+    var regs = rows.map(function (r) { var p = packs.filter(function (x) { return String(x.link || '').trim() === r[1]; })[0]; return [String((p && p.region) || was[r[1]] || '').trim().slice(0, 80)]; });
     if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 4).clearContent();
+    if (rc > 0 && sh.getLastRow() > 1) sh.getRange(2, rc, sh.getLastRow() - 1, 1).clearContent();
     if (rows.length) sh.getRange(2, 1, rows.length, 4).setNumberFormat('@').setValues(rows); // plain text: no formulas
+    if (rows.length && rc > 0) sh.getRange(2, rc, rows.length, 1).setValues(regs);
     return json_({ ok: true, packs: rows.length });
   } finally { lock.releaseLock(); }
 }
@@ -1584,160 +1655,3 @@ function teamAdmin_(body) {
     return json_({ ok: true, status: yes ? 'approved' : 'declined' });
   } finally { lock.releaseLock(); }
 }
-
-/* ==== v2.45.18 (User permissions) ==== what each user may do (see the note at the top). The phones send pv=1 with their read (G-eSAA
-   2.45.18 or later): they get their own row (perm); the admin phone (Admin key) gets the whole tab too (perms) and writes its changes
-   back (setPerms). Older G-eSAA get exactly the answers they got before. */
-/** The features, in the tab's order: [the key the phones use, the column's header, what a user not listed has, other headers it is
-    found by (compared without case or punctuation)]. Survey (records, map, photos) is always allowed: it has no column. */
-var PERM_FEATS = [
-  ['kmz', 'KMZ export', true, ['kmz', 'google earth', 'kmz project share team mailbox']],
-  ['plan', 'Plan drawing', false, ['plan', 'plan drawings', 'dxf']],
-  ['exp', 'Other exports', false, ['exports', 'other export']],
-  ['cef', 'CEF plan', false, ['cef', 'cef plans']],
-  ['edit', 'Drawing editing', false, ['drawing edit', 'edit drawing', 'editing']],
-  ['tpl', 'Client templates', false, ['client template', 'templates']],
-  ['admin', 'Team admin', false, ['admin']],
-];
-var PERM_MAX = 2000, PERM_TAB = 'User permissions'; // the rows read (and users added at their first sync) at most
-/** An email as the tab and the phones keep it (lower case), or '' (not an email; a leading = + - @ never reaches a cell). */
-function permEmail_(v) { var e = String(v == null ? '' : v).trim().toLowerCase().slice(0, 120); return /^[^\s@=+\-][^\s@]*@[^\s@]+\.[^\s@]{2,}$/.test(e) ? e : ''; }
-/** Text for a cell: never read as a formula. */
-function permText_(v, n) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().replace(/^[=+@-]+/, '').slice(0, n || 100); }
-/** A feature cell: true (Yes, TRUE, a ticked box), false (No, FALSE), or null (blank, or not understood: what a user not listed has). */
-function permCell_(v) {
-  if (v === true || v === false) return v;
-  var t = String(v == null ? '' : v).trim();
-  if (/^(y|yes|true|1|on|allow|allowed|ok|✓|✔)$/i.test(t)) return true;
-  if (/^(n|no|false|0|off|block|blocked|x|✗|✘)$/i.test(t)) return false;
-  return null;
-}
-/** Settings → User permissions: Yes = the phones follow the tab; anything else (No, blank, the row missing) = off, as before. */
-function permOn_(s) { return yes_((s || settings_())[PERM_TAB]); }
-/** The tab: { sh, col (0-based column of email, company, updated, notes and each feature; -1 = none), rows [{ r (sheet row), e, v }], lc },
-    or null when there is no such tab (make: made, with its header). */
-function permTab_(make) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(PERM_TAB);
-  if (!sh && make) { sh = ss.insertSheet(PERM_TAB); sh.getRange(1, 1, 1, TABS[PERM_TAB][0].length).setValues(TABS[PERM_TAB]).setFontWeight('bold'); sh.setFrozenRows(1); }
-  if (!sh) return null;
-  var lc = Math.max(1, sh.getLastColumn()), head = sh.getRange(1, 1, 1, lc).getValues()[0].map(normHead_), col = {};
-  var find = function (names) { for (var i = 0; i < names.length; i++) { var k = head.indexOf(names[i]); if (k >= 0) return k; } return -1; };
-  col.email = find(['email', 'e mail', 'user email', 'email address']); col.company = find(['company', 'vendor', 'company name']);
-  col.updated = find(['updated', 'last updated']); col.notes = find(['notes', 'note', 'remarks']);
-  PERM_FEATS.forEach(function (f) { col[f[0]] = find([normHead_(f[1])].concat(f[3])); });
-  var rows = [], n = sh.getLastRow() - 1;
-  if (col.email >= 0 && n > 0) sh.getRange(2, 1, Math.min(n, PERM_MAX + 500), lc).getValues().forEach(function (v, i) { var e = permEmail_(v[col.email]); if (e) rows.push({ r: i + 2, e: e, v: v }); });
-  return { sh: sh, col: col, rows: rows, lc: lc };
-}
-/** A row's features: only the cells filled in ({ plan: true, kmz: false }); a blank cell is left out (what a user not listed has). */
-function permFeats_(v, col) {
-  var f = {};
-  PERM_FEATS.forEach(function (x) { var c = col[x[0]]; if (c >= 0) { var b = permCell_(v[c]); if (b !== null) f[x[0]] = b; } });
-  return f;
-}
-function permAt_(v, col) { var x = col.updated >= 0 ? v[col.updated] : ''; return x instanceof Date ? (isNaN(x.getTime()) ? '' : x.toISOString()) : String(x == null ? '' : x).trim().slice(0, 30); }
-/** setup: the Yes / No drop-downs on the feature columns (any other value is still taken: TRUE / FALSE, a ticked box). */
-function permSetup_() {
-  var t = permTab_(true), yn = SpreadsheetApp.newDataValidation().requireValueInList(['Yes', 'No'], true).build();
-  PERM_FEATS.forEach(function (f) { var c = t.col[f[0]]; if (c >= 0) t.sh.getRange(colA1_(c) + '2:' + colA1_(c)).setDataValidation(yn); });
-  if (t.col.email >= 0) t.sh.getRange(colA1_(t.col.email) + ':' + colA1_(t.col.email)).setNumberFormat('@'); // emails as typed
-}
-/** A phone's read (pv=1 with its email): { on, row: its features (only the cells filled in), at } or { on } (not listed). With company
-    keys, a row whose Company is another company's does not count for this phone. With User permissions on, a user not in the tab yet
-    is added (Email, Company; the feature cells blank) so that the admin sees everyone. null: no email. */
-function permOf_(p, s) {
-  var e = permEmail_(p.email); if (!e) return null;
-  var on = permOn_(s), out = { on: on }, t = permTab_(false);
-  var own = keyOwner_(companyKeys_(), p.ckey), co = own ? own.name : permText_(p.company, 100), nc = normCo_(co);
-  var hit = null;
-  if (t && t.col.email >= 0) for (var i = 0; i < t.rows.length; i++) if (t.rows[i].e === e) { hit = t.rows[i]; break; }
-  if (hit) {
-    var rc = t.col.company >= 0 ? String(hit.v[t.col.company] || '').trim() : '';
-    if (rc && own && normCo_(rc) !== nc) return out; // that email is listed for another company: as a user not listed
-    out.row = permFeats_(hit.v, t.col); var at = permAt_(hit.v, t.col); if (at) out.at = at;
-    return out;
-  }
-  if (on && nc && !(own && own.all) && seeAll_().indexOf(nc) < 0 && (!t || t.rows.length < PERM_MAX)) permAdd_(e, co); // the admin company has everything: not added
-  return out;
-}
-/** A new row for a user at their first sync (blank feature cells). Not when another request holds the lock (the next sync adds it). */
-function permAdd_(e, co) {
-  var lock = LockService.getScriptLock(); if (!lock.tryLock(5000)) return;
-  try {
-    var t = permTab_(true); if (t.col.email < 0) return;
-    for (var i = 0; i < t.rows.length; i++) if (t.rows[i].e === e) return;
-    var row = []; for (var c = 0; c < t.lc; c++) row.push('');
-    row[t.col.email] = e; if (t.col.company >= 0) row[t.col.company] = permText_(co, 100);
-    if (t.col.notes >= 0) row[t.col.notes] = 'Added by G-eSAA ' + new Date().toISOString().slice(0, 10) + ' (first sync)';
-    t.sh.getRange(Math.max(2, t.sh.getLastRow() + 1), 1, 1, t.lc).setNumberFormat('@').setValues([row]);
-  } finally { lock.releaseLock(); }
-}
-/** The whole tab, for the admin phone (Administration → User permissions): [{ e, c, f, at, n }], PERM_MAX at most. */
-function permList_() {
-  var t = permTab_(false); if (!t || t.col.email < 0) return [];
-  return t.rows.slice(0, PERM_MAX).map(function (x) {
-    return { e: x.e, c: t.col.company >= 0 ? String(x.v[t.col.company] || '').trim().slice(0, 100) : '', f: permFeats_(x.v, t.col), at: permAt_(x.v, t.col), n: t.col.notes >= 0 ? String(x.v[t.col.notes] || '').trim().slice(0, 120) : '' };
-  });
-}
-/** Settings → User permissions = Yes or No (the row added when it is missing). */
-function permSetOn_(on) {
-  var st = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings'); if (!st) return;
-  var v = st.getLastRow() >= 2 ? st.getRange(2, 1, st.getLastRow() - 1, 1).getValues() : [];
-  for (var i = 0; i < v.length; i++) if (String(v[i][0]).trim() === PERM_TAB) { st.getRange(i + 2, 2).setValue(on ? 'Yes' : 'No'); return; }
-  var d = DEFAULT_SETTINGS.filter(function (x) { return x[0] === PERM_TAB; })[0];
-  st.getRange(st.getLastRow() + 1, 1, 1, 3).setNumberFormat('@').setValues([[PERM_TAB, on ? 'Yes' : 'No', d ? d[2] : '']]);
-}
-/** The admin phone (Admin key, checked by doPost): users [{ e, c, f: { kmz: true, plan: false, … } }] written in their rows (a new email
-    gets a row; only the cells that change are written; Updated: now); gone [emails]: their feature cells cleared (what a user not listed
-    has); on (true / false): Settings → User permissions. 500 users at most a request. */
-function setPerms_(body) {
-  var users = (Array.isArray(body.users) ? body.users : []).slice(0, 500), gone = (Array.isArray(body.gone) ? body.gone : []).slice(0, 500);
-  var by = permText_(body.by, 120), lock = LockService.getScriptLock(); if (!lock.tryLock(20000)) return json_({ ok: false, error: 'busy' });
-  try {
-    var t = permTab_(true), now = new Date().toISOString(), n = 0, at = {}, next = Math.max(2, t.sh.getLastRow() + 1), note = 'Set in G-eSAA' + (by ? ' by ' + by : '');
-    if (t.col.email < 0) return json_({ ok: false, error: 'no Email column' });
-    t.rows.forEach(function (x) { at[x.e] = x; });
-    var put = function (r, c, v) { if (c >= 0) t.sh.getRange(r, c + 1).setNumberFormat('@').setValue(v); };
-    users.forEach(function (u) {
-      var e = permEmail_(u && u.e), f = u && u.f && typeof u.f === 'object' ? u.f : {}; if (!e) return;
-      var x = at[e];
-      if (!x) { // a new row, written at once
-        var row = []; for (var c = 0; c < t.lc; c++) row.push('');
-        row[t.col.email] = e; if (t.col.company >= 0) row[t.col.company] = permText_(u.c, 100);
-        PERM_FEATS.forEach(function (k) { if (t.col[k[0]] >= 0 && typeof f[k[0]] === 'boolean') row[t.col[k[0]]] = f[k[0]] ? 'Yes' : 'No'; });
-        if (t.col.updated >= 0) row[t.col.updated] = now; if (t.col.notes >= 0) row[t.col.notes] = note;
-        t.sh.getRange(next, 1, 1, t.lc).setNumberFormat('@').setValues([row]); at[e] = { r: next, e: e, v: row }; next++; n++; return;
-      }
-      var did = false;
-      PERM_FEATS.forEach(function (k) {
-        var c = t.col[k[0]]; if (c < 0 || typeof f[k[0]] !== 'boolean' || permCell_(x.v[c]) === f[k[0]]) return;
-        put(x.r, c, f[k[0]] ? 'Yes' : 'No'); x.v[c] = f[k[0]] ? 'Yes' : 'No'; did = true;
-      });
-      if (t.col.company >= 0 && u.c && !String(x.v[t.col.company] || '').trim()) { put(x.r, t.col.company, permText_(u.c, 100)); did = true; }
-      if (did) { put(x.r, t.col.updated, now); put(x.r, t.col.notes, note); n++; }
-    });
-    gone.forEach(function (g) {
-      var x = at[permEmail_(g)]; if (!x) return;
-      var did = false;
-      PERM_FEATS.forEach(function (k) { var c = t.col[k[0]]; if (c >= 0 && permCell_(x.v[c]) !== null) { put(x.r, c, ''); x.v[c] = ''; did = true; } });
-      if (did) { put(x.r, t.col.updated, now); put(x.r, t.col.notes, 'Back to what a user not listed has, in G-eSAA' + (by ? ' by ' + by : '')); n++; }
-    });
-    if (typeof body.on === 'boolean' && body.on !== permOn_(settings_())) permSetOn_(body.on);
-    console.log('User permissions: ' + n + ' row(s) written by the admin phone' + (by ? ' (' + by + ')' : '') + (typeof body.on === 'boolean' ? ', on: ' + body.on : ''));
-    return json_({ ok: true, n: n, on: permOn_(settings_()) });
-  } finally { lock.releaseLock(); }
-}
-/** Run from the editor: what the phones get from the User permissions tab, in the execution log. */
-function testPermissions() {
-  var s = settings_(), t = permTab_(false);
-  console.log('Settings → User permissions: ' + (permOn_(s) ? 'Yes (the phones follow the tab)' : 'No (every user has every feature, as before)'));
-  if (!t) { console.log('No tab named "' + PERM_TAB + '": run setup.'); return; }
-  if (t.col.email < 0) { console.log('The tab has no Email column (row 1).'); return; }
-  PERM_FEATS.forEach(function (f) { if (t.col[f[0]] < 0) console.log('No column "' + f[1] + '": every user has what a user not listed has (' + (f[2] ? 'allowed' : 'blocked') + ').'); });
-  console.log(t.rows.length + ' user(s). A user not listed: ' + PERM_FEATS.filter(function (f) { return f[2]; }).map(function (f) { return f[1]; }).join(', ') + ' (and Survey).');
-  t.rows.slice(0, 50).forEach(function (x) {
-    var f = permFeats_(x.v, t.col);
-    console.log(x.e + ': ' + PERM_FEATS.filter(function (k) { return f[k[0]] === undefined ? k[2] : f[k[0]]; }).map(function (k) { return k[1]; }).concat(['Survey']).join(', '));
-  });
-}
-/* ==== end of v2.45.18 (User permissions) ==== */
