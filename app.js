@@ -959,6 +959,12 @@
   const applyTextSize = () => { const v = [0.8, 0.9, 1, 1.15, 1.3, 1.45].includes(+S.textScale) ? +S.textScale : 0.9; document.documentElement.style.setProperty('--fs', String(v)); $('setTextSize').value = String(v); };
   applyTextSize();
   $('setTextSize').addEventListener('change', () => { S.textScale = +$('setTextSize').value; persist(); applyTextSize(); if (typeof map !== 'undefined' && map) setTimeout(() => map.invalidateSize(), 50); });
+  /* (beta 7.16, Theme) Settings › Theme: Light (the default), Dark, or Same as the phone (auto: Dark while the phone is in dark mode); kept on the phone
+     with the other settings (S.theme). index.html's first script has put it on the page before anything was drawn (GESAA_THEME): here the choice. */
+  const themeOf = () => (['dark', 'auto'].includes(S.theme) ? S.theme : 'light');
+  const applyTheme = () => { if (window.GESAA_THEME) window.GESAA_THEME.set(themeOf()); else document.documentElement.setAttribute('data-theme', themeOf() === 'dark' ? 'dark' : 'light'); $('setTheme').value = themeOf(); };
+  applyTheme();
+  $('setTheme').addEventListener('change', () => { S.theme = $('setTheme').value; persist(); applyTheme(); LOG.info('theme', S.theme); });
   $('setShowHelp').checked = !!S.showHelp;
   $('setShowHelp').addEventListener('change', () => { S.showHelp = $('setShowHelp').checked; persist(); document.querySelectorAll('details.help').forEach((d) => { d.open = S.showHelp; }); });
 
