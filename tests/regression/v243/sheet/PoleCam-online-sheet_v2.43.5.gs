@@ -192,19 +192,22 @@
  *   link to the script).
  *
  * v2.43.5 (update the same way; nothing new to allow; run setup once more: it adds the tab "User permissions" and the Settings row
- *   "User permissions" = No): what each user may do (G-eSAA 2.45.18 / beta 7.16; the owner: "Per user, the admin allows or blocks
+ *   "User permissions", blank): what each user may do (G-eSAA 2.45.18 / beta 7.16; the owner: "Per user, the admin allows or blocks
  *   features ... allow also to be edit or update via the googlesheet. By default, they are only allow to do the survey and kmz export
  *   (includes project share and team mailbox)").
  *   The tab "User permissions": one row per user email; the columns (found by their header names: you may move them, keep the names)
  *     Email · Company · KMZ export · Plan drawing · Other exports · CEF plan · Drawing editing · Client templates · Team admin · Updated · Notes
- *   A feature cell: Yes (or TRUE, a ticked box) = allowed, No (or FALSE) = blocked, blank = what a user not listed has. Survey (records,
+ *   A feature cell: Yes (or TRUE, a ticked box) = allowed, No (or FALSE) = blocked, blank = as the admin phone set it (Administration →
+ *   User permissions, saved with the company list), else what a user not listed has. Survey (records,
  *   map, photos, backup) is always allowed and has no column. A user not listed (or a blank cell) has KMZ export (the Google Earth map,
  *   project share and the team mailbox) and nothing else. Admin users (the admin phone, and the admin company's staff: the Admin users
  *   tab) always have everything, whatever their row says.
- *   Settings → "User permissions": Yes = the phones follow the tab; No (the default, until you turn it on) = every user has every feature,
- *   as before. The admin phone may also set it (Administration → User permissions → Limit what users may do).
+ *   Settings → "User permissions": Yes = the phones follow the tab; No = every user has every feature, as before; blank (as setup adds it) =
+ *   as the admin phone set it (Administration → User permissions → Limit what users may do; off until turned on there). The admin phone
+ *   writes Yes or No here when it changes that switch.
  *   Each phone of G-eSAA 2.45.18 or later gets its own row at each sync (by the email in Your details; with company keys, a row whose
- *   Company is another company's does not count for it) and keeps it for use without signal. With "User permissions" = Yes, a user not
+ *   Company is another company's does not count for it) and keeps it for use without signal; where the sheet says Yes or No it wins over
+ *   the company list (a blank cell or no row: the list). With "User permissions" = Yes, a user not
  *   in the tab yet is added at their first sync (Email, Company, the feature cells blank), so you see everyone here and can allow features
  *   by typing Yes. The admin phone (Admin key) gets the whole tab for Administration → User permissions; what it changes there is written
  *   back to the tab (Updated: when). Edits typed in the tab reach the phones at their next sync (the sheet wins). Run "testPermissions"
@@ -306,7 +309,7 @@ var DEFAULT_SETTINGS = [
   ['Mailbox script link', '', 'v2.43: the link to the master mailbox script that coordinators copy into their own Google account. The phones get it with their team (Your details → My role). Blank = none yet.'],
   ['Team codes per company per day', '30', 'v2.43.2: email codes for teams (confirming an email in Settings → Team): at most this many a day for each company.'],
   ['Emails kept for admin codes', '20', 'v2.43.2: team codes stop when this account has this many emails (or fewer) left today, so the admin users still get theirs.'],
-  ['User permissions', 'No', 'v2.43.5: Yes = each user may use only what the User permissions tab allows them (a user not listed: Survey and KMZ export, with project share and the team mailbox). No = every user has every feature, as before. Admin users always have everything.'], // v2.43.5 (User permissions)
+  ['User permissions', '', 'v2.43.5: Yes = each user may use only what the User permissions tab (and the admin phone) allows them (a user not listed: Survey and KMZ export, with project share and the team mailbox). No = every user has every feature, as before. Blank = as the admin phone set it (Administration → User permissions; off until turned on there). Admin users always have everything.'], // v2.43.5 (User permissions)
 ];
 FIELDS.forEach(function (f) { DEFAULT_SETTINGS.push(['Column: ' + f, '', 'Header of this column in the source. Blank = guess. A dash (-) = not used.']); });
 
@@ -1709,8 +1712,9 @@ function permCell_(v) {
   if (/^(n|no|false|0|off|block|blocked|x|✗|✘)$/i.test(t)) return false;
   return null;
 }
-/** Settings → User permissions: Yes = the phones follow the tab; anything else (No, blank, the row missing) = off, as before. */
-function permOn_(s) { return yes_((s || settings_())[PERM_TAB]); }
+/** Settings → User permissions: true (Yes: the phones follow the tab), false (No: every user has every feature, as before), null (blank,
+    the row missing, or not understood: as the admin phone set it with the company list). */
+function permOn_(s) { var t = String((s || settings_())[PERM_TAB] == null ? '' : (s || settings_())[PERM_TAB]).trim(); return yes_(t) ? true : /^(n|no|false|0|off)$/i.test(t) ? false : null; }
 /** The tab: { sh, col (0-based column of email, company, updated, notes and each feature; -1 = none), rows [{ r (sheet row), e, v }], lc },
     or null when there is no such tab (make: made, with its header). */
 function permTab_(make) {
@@ -1739,9 +1743,10 @@ function permSetup_() {
   PERM_FEATS.forEach(function (f) { var c = t.col[f[0]]; if (c >= 0) t.sh.getRange(colA1_(c) + '2:' + colA1_(c)).setDataValidation(yn); });
   if (t.col.email >= 0) t.sh.getRange(colA1_(t.col.email) + ':' + colA1_(t.col.email)).setNumberFormat('@'); // emails as typed
 }
-/** A phone's read (pv=1 with its email): { on, row: its features (only the cells filled in), at } or { on } (not listed). With company
-    keys, a row whose Company is another company's does not count for this phone. With User permissions on, a user not in the tab yet
-    is added (Email, Company; the feature cells blank) so that the admin sees everyone. null: no email. */
+/** A phone's read (pv=1 with its email): { on (true, false, or null: blank, as the company list says), row: its features (only the cells
+    filled in), at } or { on } (not listed). With company keys, a row whose Company is another company's does not count for this phone.
+    With User permissions = Yes, a user not in the tab yet is added (Email, Company; the feature cells blank) so that the admin sees everyone.
+    null: no email. */
 function permOf_(p, s) {
   var e = permEmail_(p.email); if (!e) return null;
   var on = permOn_(s), out = { on: on }, t = permTab_(false);
@@ -1754,7 +1759,7 @@ function permOf_(p, s) {
     out.row = permFeats_(hit.v, t.col); var at = permAt_(hit.v, t.col); if (at) out.at = at;
     return out;
   }
-  if (on && nc && !(own && own.all) && seeAll_().indexOf(nc) < 0 && (!t || t.rows.length < PERM_MAX)) permAdd_(e, co); // the admin company has everything: not added
+  if (on === true && nc && !(own && own.all) && seeAll_().indexOf(nc) < 0 && (!t || t.rows.length < PERM_MAX)) permAdd_(e, co); // the admin company has everything: not added
   return out;
 }
 /** A new row for a user at their first sync (blank feature cells). Not when another request holds the lock (the next sync adds it). */
@@ -1819,7 +1824,7 @@ function setPerms_(body) {
       PERM_FEATS.forEach(function (k) { var c = t.col[k[0]]; if (c >= 0 && permCell_(x.v[c]) !== null) { put(x.r, c, ''); x.v[c] = ''; did = true; } });
       if (did) { put(x.r, t.col.updated, now); put(x.r, t.col.notes, 'Back to what a user not listed has, in G-eSAA' + (by ? ' by ' + by : '')); n++; }
     });
-    if (typeof body.on === 'boolean' && body.on !== permOn_(settings_())) permSetOn_(body.on);
+    if (typeof body.on === 'boolean' && body.on !== permOn_(settings_())) permSetOn_(body.on); // (blank before: written as Yes or No)
     console.log('User permissions: ' + n + ' row(s) written by the admin phone' + (by ? ' (' + by + ')' : '') + (typeof body.on === 'boolean' ? ', on: ' + body.on : ''));
     return json_({ ok: true, n: n, on: permOn_(settings_()) });
   } finally { lock.releaseLock(); }
@@ -1827,7 +1832,7 @@ function setPerms_(body) {
 /** Run from the editor: what the phones get from the User permissions tab, in the execution log. */
 function testPermissions() {
   var s = settings_(), t = permTab_(false);
-  console.log('Settings → User permissions: ' + (permOn_(s) ? 'Yes (the phones follow the tab)' : 'No (every user has every feature, as before)'));
+  var on = permOn_(s); console.log('Settings → User permissions: ' + (on === true ? 'Yes (the phones follow the tab)' : on === false ? 'No (every user has every feature, as before)' : 'blank (as the admin phone set it in Administration; off until turned on there)'));
   if (!t) { console.log('No tab named "' + PERM_TAB + '": run setup.'); return; }
   if (t.col.email < 0) { console.log('The tab has no Email column (row 1).'); return; }
   PERM_FEATS.forEach(function (f) { if (t.col[f[0]] < 0) console.log('No column "' + f[1] + '": every user has what a user not listed has (' + (f[2] ? 'allowed' : 'blocked') + ').'); });

@@ -3,7 +3,7 @@
  * sheet_stub_test_v2435.js — offline test of PoleCam-online-sheet_v2.43.5.gs (no network, synthetic data only).
  * v2.43.5 (G-eSAA 2.45.18 / beta 7.16, Permissions): the owner's script v2.43.4 plus the tab "User permissions" (one row per user email,
  * one column per feature, Yes / No, TRUE / FALSE or a ticked box; blank = what a user not listed has) and Settings → "User permissions"
- * (No until the admin turns it on).
+ * (blank as setup adds it: as the admin phone set it; Yes; No).
  *   - setup (on a v2.43.4 sheet) adds the tab (its header, Yes / No drop-downs on the feature columns) and the setting, once; nothing else.
  *   - G-eSAA 2.45.17 and older (no pv, an older version) get exactly what v2.43.4 sends (every read compared, the time left out), but the
  *     script's version (sv: 2.43.5).
@@ -68,7 +68,7 @@ gs.setup();
 check('v2.43.5 setup adds the tab "User permissions" with its header', eq(header('User permissions'), HEAD), header('User permissions'));
 check('its header bold, row 1 frozen, no other row', tab('User permissions').frozen === 1 && HEAD.every((_, i) => tab('User permissions').bold['1,' + (i + 1)] === true) && tab('User permissions').getLastRow() === 1);
 check('one tab added, nothing else', world.ss.getNumSheets() === sheetsBefore + 1, world.ss.getSheets().map((s) => s.name));
-check('Settings → User permissions added: No (off until the admin turns it on)', eq(settingRows('User permissions').map((r) => r[1]), ['No']) && tab('Settings').getLastRow() === settingsBefore + 1, settingRows('User permissions'));
+check('Settings → User permissions added: blank (as the admin phone sets it; off until turned on there)', eq(settingRows('User permissions').map((r) => r[1]), ['']) && tab('Settings').getLastRow() === settingsBefore + 1, settingRows('User permissions'));
 check('Yes / No drop-downs on the 7 feature columns (C to I)', [3, 4, 5, 6, 7, 8, 9].every((c) => tab('User permissions').validations.some((v) => v.c === c && eq(v.rule.list, ['Yes', 'No']))) && !tab('User permissions').validations.some((v) => v.c === 1 || v.c === 2 || v.c > 9));
 gs.setup();
 check('setup again: no second setting row, no second tab', settingRows('User permissions').length === 1 && world.ss.getNumSheets() === sheetsBefore + 1);
@@ -90,7 +90,14 @@ check('pv=1 (this G-eSAA, before its version number is set): perm', eq(get(gs, {
 setting('User permissions', 'No');
 
 section('a phone of G-eSAA 2.45.18 (pv=1): its own row');
-let r = get(gs, { ckey: KEY_A, company: '', email: JUAN, pv: '1', v: '2.45.18' });
+let r;
+setting('User permissions', '');
+r = get(gs, { ckey: KEY_A, company: '', email: JUAN, pv: '1', v: '2.45.18' });
+check('User permissions blank: perm { on: null } (as the company list says), nobody added', eq(r.perm, { on: null }) && tab('User permissions').getLastRow() === 1, r.perm);
+setting('User permissions', 'maybe');
+check('a value not understood: as blank', eq(get(gs, { ckey: KEY_A, company: '', email: JUAN, pv: '1' }).perm, { on: null }));
+setting('User permissions', 'No');
+r = get(gs, { ckey: KEY_A, company: '', email: JUAN, pv: '1', v: '2.45.18' });
 check('User permissions off (No): perm { on: false }, nobody listed', eq(r.perm, { on: false }), r.perm);
 check('off: the user is not added to the tab', tab('User permissions').getLastRow() === 1);
 setting('User permissions', 'Yes');
@@ -169,7 +176,8 @@ section('a sheet set up before (no setting row, the tab made by hand) and the ca
   const st = tab('Settings'), L = st.getRange(1, 1, st.getLastRow(), 3).getValues().filter((x) => x[0] !== 'User permissions');
   st.data = []; st.getRange(1, 1, L.length, 3).setValues(L);
   r = get(gs, { ckey: KEY_A, company: '', email: PEDRO, pv: '1' });
-  check('no "User permissions" setting: off', r.perm.on === false);
+  check('no "User permissions" setting: as blank (on null)', r.perm.on === null);
+  check('the admin phone: permsOn null too', get(gs, { key: READ, company: '', akey: ADMIN, pv: '1' }).permsOn === null);
   r = post(gs, { action: 'setPerms', key: ADMIN, on: true });
   check('setPerms on: the setting row added (Yes)', r.ok && r.on === true && eq(settingRows('User permissions').map((x) => x[1]), ['Yes']));
   const sh = tab('User permissions'), n0 = rowsOf('User permissions').length, fill = [];

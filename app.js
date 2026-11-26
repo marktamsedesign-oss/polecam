@@ -17852,10 +17852,10 @@
       ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}), // v2.32: the plan template's id
       ...(typeof j.siteRequired === 'boolean' ? { siteRequired: j.siteRequired } : {}), // v2.42.18: the sheet's Settings → Site required
       ...(typeof j.teamOn === 'boolean' ? { teamOn: j.teamOn } : {}), // v2.43 beta 3.2 (QA-17): Team for this company (sheet → CompanyKeys → Team)
-      ...(j.perm && typeof j.perm === 'object' && typeof j.perm.on === 'boolean' ? { perm: { on: j.perm.on, row: permRowClean(j.perm.row), ...(j.perm.at ? { at: s100(j.perm.at, 30) } : {}) } } : {}), // (beta 7.16, Permissions) this user's row of User permissions (sheet v2.43.5)
+      ...(j.perm && typeof j.perm === 'object' && (typeof j.perm.on === 'boolean' || j.perm.on === null) ? { perm: { on: j.perm.on, row: permRowClean(j.perm.row), ...(j.perm.at ? { at: s100(j.perm.at, 30) } : {}) } } : {}), // (beta 7.16, Permissions) this user's row of User permissions (sheet v2.43.5; on null: its switch blank)
       ...(Array.isArray(j.perms) ? { perms: j.perms.filter((r) => r && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(r.e || '')) && String(r.e).length <= 120).slice(0, 2000) // (beta 7.16, Permissions) the whole tab, to the admin phone
         .map((r) => ({ e: String(r.e).trim().toLowerCase(), c: s100(r.c), f: permRowClean(r.f) || {}, at: s100(r.at, 30), n: s100(r.n, 120) })) } : {}),
-      ...(typeof j.permsOn === 'boolean' ? { permsOn: j.permsOn } : {}) }; // (beta 7.16, Permissions) the sheet's Settings → User permissions, to the admin phone
+      ...(typeof j.permsOn === 'boolean' || (j.permsOn === null && Array.isArray(j.perms)) ? { permsOn: j.permsOn } : {}) }; // (beta 7.16, Permissions) the sheet's Settings → User permissions (null: blank), to the admin phone
   }
   let cloudBusy = null, cloudErr = '';
   /** v2.42.18: "a new Survey or PAT must use a site of the online sheet": the sheet's Settings → Site required (Yes / No), which every
@@ -17985,11 +17985,14 @@
      editing, client templates, team admin. allow also to be edit or update via the googlesheet. By default, they are only allow to do the
      survey and kmz export (includes project share and team mailbox)". The features: PERM_F (by pol()). Survey is always allowed; a user
      not listed has KMZ export too, and nothing else.
-     Where a user's permissions come from (by the email in Your details):
-       - the online sheet of this list (script v2.45.18: its tab "User permissions" and Settings → User permissions), as this phone last read
-         it (S.permSheet, kept for use without signal). The sheet wins: what the admin types in the tab reaches the phones at their next sync;
-       - else the signed company list (S.team.perms: what Administration → User permissions saved; it travels with every list version, by
-         the online sheet or the join link, as the policies do). A phone with neither: as before.
+     Where a user's permissions come from (by the email in Your details), for each feature and for the switch:
+       - the online sheet of this list (sheet script v2.43.5: its tab "User permissions" and Settings → User permissions), as this phone last read
+         it (S.permSheet, kept for use without signal): where it says Yes or No it wins (what the admin types in the tab reaches the phones at
+         their next sync);
+       - where it is blank (or the user has no row, or the sheet's script is older): the signed company list (S.team.perms: what Administration
+         → User permissions saved; it travels with every list version, by the online sheet or the join link, as the policies do), so that the
+         admin's switch and settings reach every phone even when the admin phone could not write them to the sheet;
+       - else what a user not listed has. A phone with neither: as before.
      Nobody is limited on a phone with no company list (a solo phone keeps every feature it had), on the admin phone and for the admin
      company's admin users (isAdmin; the admin company with adminUserOk), nor anywhere until the admin turns permissions on (Administration
      → User permissions → Limit what users may do, or the sheet's Settings → User permissions = Yes): an update locks nobody out by itself.
@@ -18010,10 +18013,10 @@
   function permState() {
     if (!S.team) return { on: false, why: 'solo', row: null };
     try { if (permAdmin()) return { on: false, why: 'admin', row: null }; } catch (e) { return { on: false, why: 'start', row: null }; } // (while the app starts: nothing to export yet)
-    const sh = permSheetNow(); if (sh) return { on: !!sh.on, why: 'sheet', row: sh.row || null, at: sh.at || '' };
-    const L = listPerms();
-    if (L) { const d = permDecode(L.u ? L.u[permMe()] : ''), co = normCo((S.user && S.user.company) || S.keyCompany || ''); return { on: !!L.on, why: 'list', row: d.c && co && normCo(d.c) !== co ? null : d.f }; } // (an entry of another company's user: not theirs)
-    return { on: false, why: 'none', row: null };
+    const sh = permSheetNow(), L = listPerms(); if (!sh && !L) return { on: false, why: 'none', row: null };
+    const d = permDecode(L && L.u ? L.u[permMe()] : ''), co = normCo((S.user && S.user.company) || S.keyCompany || ''), lrow = d.c && co && normCo(d.c) !== co ? {} : d.f; // (an entry of another company's user: not theirs)
+    const son = sh && typeof sh.on === 'boolean' ? sh.on : null; // (the sheet's Settings → User permissions: Yes, No, or blank: the list's switch)
+    return { on: son != null ? son : !!(L && L.on), why: son != null ? 'sheet' : L ? 'list' : 'none', row: { ...lrow, ...((sh && sh.row) || {}) }, ...(sh && sh.rowAt ? { at: sh.rowAt } : {}) }; // (each feature: the sheet's Yes / No, else the list's, else the default)
   }
   /** Whether this user may use the feature k now. */
   function permOk(k) {
@@ -18084,10 +18087,10 @@
   let permSig = '';
   /** Called where permissions may change: the locks shown anew only when what this user may do changed. */
   function permAfter(force) { const s = PERM_F.map((f) => (permOk(f.k) ? 1 : 0)).join('') + permState().why; if (!force && s === permSig) return; permSig = s; permUi(); }
-  /** The sheet's answer of a read (cleanCloud's perm; none: a script older than v2.45.18): kept on this phone for its user's email. */
+  /** The sheet's answer of a read (cleanCloud's perm; none: a sheet script older than v2.43.5): kept on this phone for its user's email. */
   function permNote(url, p) {
     const was = JSON.stringify(S.permSheet || null);
-    S.permSheet = p && typeof p.on === 'boolean' && permMe() ? { src: url, e: permMe(), at: new Date().toISOString(), on: p.on, row: p.row || null, ...(p.at ? { rowAt: p.at } : {}) } : null;
+    S.permSheet = p && (typeof p.on === 'boolean' || p.on === null) && permMe() ? { src: url, e: permMe(), at: new Date().toISOString(), on: p.on, row: p.row || null, ...(p.at ? { rowAt: p.at } : {}) } : null;
     if (JSON.stringify({ ...(S.permSheet || {}), at: '' }) !== JSON.stringify({ ...(JSON.parse(was) || {}), at: '' })) LOG.info('perm.sheet', { on: S.permSheet ? S.permSheet.on : null, row: S.permSheet && S.permSheet.row ? Object.keys(S.permSheet.row).length : 0 });
   }
   setTimeout(() => permAfter(true), 0); // (the locks shown once the app has started: the list and the sheet's row kept are read then)
@@ -18103,12 +18106,13 @@
   function permDraft(C0) { // (C0: an answer of the sheet just read by Administration, else this phone's last read of the list's sheet)
     const L = listPerms(), C = C0 || (S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url ? S.cloud : null), rows = C && Array.isArray(C.perms) ? C.perms : null;
     const users = new Map(), chg = new Set();
-    if (L && L.u) Object.entries(L.u).forEach(([e, v]) => { const d = permDecode(v); users.set(e, { c: d.c, f: permFull(d.f) }); });
+    const f0 = {}; // (each user's features as the list sets them: under the sheet's blank cells)
+    if (L && L.u) Object.entries(L.u).forEach(([e, v]) => { const d = permDecode(v); f0[e] = d.f; users.set(e, { c: d.c, f: permFull(d.f) }); });
     if (rows) {
       const seen = new Set(rows.map((r) => r.e)); [...users.keys()].forEach((e) => { if (!seen.has(e)) chg.add(e); });
-      rows.forEach((r) => users.set(r.e, { c: r.c || (users.get(r.e) || {}).c || '', f: permFull(r.f), n: r.n || '', at: r.at || '' }));
+      rows.forEach((r) => users.set(r.e, { c: r.c || (users.get(r.e) || {}).c || '', f: permFull({ ...(f0[r.e] || {}), ...r.f }), n: r.n || '', at: r.at || '' }));
     }
-    const son = C && typeof C.permsOn === 'boolean' ? C.permsOn : C && C.perm && typeof C.perm.on === 'boolean' ? C.perm.on : null, on = son != null ? son : !!(L && L.on);
+    const son = C && typeof C.permsOn === 'boolean' ? C.permsOn : C && C.perm && typeof C.perm.on === 'boolean' ? C.perm.on : null, on = son != null ? son : !!(L && L.on); // (the sheet's switch blank: the list's)
     return { on, on0: on, sheetOn: son, sheet: !!rows, users, chg, q: '', more: 0, touched: false };
   }
   function renderAdmPerm() {
@@ -18158,10 +18162,10 @@
     const P0 = S.permPend && S.team && S.team.src && S.permPend.url === S.team.src.url ? S.permPend : null, users = new Map(), gone = new Set();
     if (P0) { (P0.users || []).forEach((x) => users.set(x.e, x)); (P0.gone || []).forEach((x) => gone.add(x)); }
     D.chg.forEach((m) => { const x = D.users.get(m); if (x) { users.set(m, { e: m, c: x.c || '', f: { ...x.f } }); gone.delete(m); } else { users.delete(m); gone.add(m); } });
-    if (!users.size && !gone.size && D.sheetOn === D.on && !(P0 && typeof P0.on === 'boolean')) return null;
-    return { users: [...users.values()], gone: [...gone], on: !!D.on };
+    if (!users.size && !gone.size && D.on === D.on0 && !(P0 && typeof P0.on === 'boolean')) return null; // (the switch is written to the sheet when changed here)
+    return { users: [...users.values()], gone: [...gone], ...(D.on !== D.on0 || (P0 && typeof P0.on === 'boolean') ? { on: !!D.on } : {}) }; // (a blank switch in the sheet stays blank unless changed here)
   }
-  /** The admin phone writes the users changed here to the online sheet's User permissions tab (script v2.45.18), and its switch. Not
+  /** The admin phone writes the users changed here to the online sheet's User permissions tab (sheet script v2.43.5), and its switch. Not
       answered: kept (S.permPend) and sent again at the next sync. */
   async function pushPermsToSheet(url, pay, quiet) {
     if (!url || !S.onlineAdminKey || !pay) return false;
@@ -18169,7 +18173,7 @@
       const U = pay.users || [], G = pay.gone || [];
       for (let i = 0; i === 0 || i < Math.max(U.length, G.length); i += 400) {
         const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setPerms', users: U.slice(i, i + 400), gone: G.slice(i, i + 400), on: pay.on, by: permMe() }) });
-        if (!j || !j.ok) throw new Error(j && j.error === 'action' ? 'its script is older than v2.45.18 (update it to keep them in its User permissions tab)' : (j && j.error) || 'no answer');
+        if (!j || !j.ok) throw new Error(j && j.error === 'action' ? 'its script is older than v2.43.5 (update it to keep them in its User permissions tab)' : (j && j.error) || 'no answer');
       }
       S.permPend = null; persist(); LOG.info('sheet.perms', { n: U.length, gone: G.length, on: pay.on });
       return true;

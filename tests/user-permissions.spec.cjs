@@ -6,7 +6,7 @@
    regression/v243/e2e/sheet_env.js, answering the app's requests to its web-app address (routed here). Every name, email and place is made up.
    - A solo phone (no company list): every feature, as before (no lock, Edit on the Drawing, no "Your features").
    - The admin makes the company list (Set up a new organisation, the sheet's companies, its Admin key) without touching permissions: a user of the
-     list keeps every feature (the update locks nobody out), the sheet answers "off" and lists nobody.
+     list keeps every feature (the update locks nobody out), the sheet's switch is blank (as the admin phone sets it) and lists nobody.
    - Administration → User permissions (a phone, 390 x 844): Limit what users may do, users added by email (a wrong one refused), a chip per feature;
      Save: the list carries them (signed, version 2), the sheet's tab gets the rows (Yes / No, Updated), its Settings → User permissions = Yes.
    - A user not listed (the default): Survey and KMZ export only: Export's tiles locked (🔒 Ask your admin to allow …), not in Everything nor the quick
@@ -16,7 +16,8 @@
    - A user allowed Plan drawing (by the admin's editor): its tiles open; Several at once picked, then blocked by a sync: refused before it starts
      (nothing made half); the plan made; an export under way keeps what was allowed when it started (a sync that blocks it meanwhile: the plan
      still made, blocked after).
-   - The sheet edited by hand (a Yes typed in the tab): the phone follows at its next sync (the sheet wins); offline (the app reopened): the row kept.
+   - The sheet edited by hand (a Yes typed in the tab): the phone follows at its next sync (the sheet's Yes / No win); offline (the app reopened):
+     the row kept; the sheet's switch blank: the list's switch decides, a blank cell: the list's, else the default.
    - The admin phone and the admin company's users have everything.
    No page errors, no page sideways. Uses isolated browser contexts and a local HTTP server on a free port. */
 'use strict';
@@ -51,6 +52,8 @@ const header = (n) => tab(n).getRange(1, 1, 1, tab(n).getLastColumn()).getValues
 const rowsOf = (n) => { const sh = tab(n); if (!sh || sh.getLastRow() < 2) return []; const h = header(n); return sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues().map((r) => Object.fromEntries(h.map((k, i) => [k, r[i]]))); };
 const permRow = (e) => rowsOf('User permissions').find((r) => String(r.Email).toLowerCase() === e) || null;
 const setting = (k) => { const st = tab('Settings'), r = st.getRange(1, 1, st.getLastRow(), 2).getValues().find((x) => x[0] === k); return r ? r[1] : undefined; };
+/** A value typed in the sheet's Settings tab. */
+const setSetting = (k, v) => { const st = tab('Settings'), L = st.getRange(1, 1, st.getLastRow(), 2).getValues(), i = L.findIndex((x) => x[0] === k); assert.ok(i > 0, k); st.getRange(i + 1, 2).setValue(v); };
 function cell(e, head, v) { const sh = tab('User permissions'), h = header('User permissions'), L = sh.getRange(1, 1, sh.getLastRow(), h.length).getValues(), r = L.findIndex((x, i) => i && String(x[h.indexOf('Email')]).toLowerCase() === e); assert.ok(r > 0, `${e} in the tab`); sh.getRange(r + 1, h.indexOf(head) + 1).setValue(v); }
 const sheetLog = [];
 
@@ -177,7 +180,7 @@ test('a solo phone (no company list): every feature, as before', async () => {
   } finally { await ctx.close(); }
 });
 
-test('the admin makes the list (permissions untouched): its users keep every feature; the sheet says off', async () => {
+test('the admin makes the list (permissions untouched): its users keep every feature; the sheet\'s switch blank, nobody listed', async () => {
   admin = await open({ state: null });
   const { page, errors } = admin;
   await page.fill('#pfName', ADMIN.name); await page.fill('#pfMobile', ADMIN.mobile); await page.fill('#pfEmail', ADMIN.email);
@@ -196,14 +199,15 @@ test('the admin makes the list (permissions untouched): its users keep every fea
   team1 = await page.evaluate(() => JSON.parse(JSON.stringify(window.__polecam.S.team)));
   assert.equal(team1.perms, undefined, 'permissions never used: the list as before (no perms)');
   const p = await perm(page); assert.equal(p.admin, true); assert.equal(p.state.why, 'admin');
-  assert.equal(setting('User permissions'), 'No'); assert.equal(rowsOf('User permissions').length, 0, 'nobody listed');
+  assert.equal(setting('User permissions'), '', 'the sheet\'s switch blank (as the admin phone sets it)'); assert.equal(rowsOf('User permissions').length, 0, 'nobody listed');
   assert.deepEqual(errors, []);
   // a user of the list: every feature (the sheet answers off; nobody is added to the tab while off)
   const u = await open({ state: userState(PEDRO, team1) });
   try {
     await u.page.evaluate(() => window.__polecam.cloudSync(true)); await u.page.waitForTimeout(500);
     const q = await perm(u.page);
-    assert.equal(q.state.why, 'sheet'); assert.equal(q.state.on, false); assert.deepEqual(FEATS.filter((k) => !q.ok[k]), []);
+    assert.equal(q.state.why, 'none'); assert.equal(q.state.on, false); assert.deepEqual(FEATS.filter((k) => !q.ok[k]), []);
+    assert.equal(q.sheet.on, null, 'the sheet answered: its switch blank');
     assert.ok(sheetLog.some((x) => x.get === PEDRO.email && x.pv === '1'), 'the phone asks with pv=1');
     assert.equal(permRow(PEDRO.email), null, 'not added while off');
     const X = await exportTiles(u.page); assert.deepEqual(Object.entries(X.tiles).filter(([, t]) => t.locked).map(([k]) => k), []);
@@ -219,7 +223,7 @@ test('Administration → User permissions (a phone): on, users by email, a chip 
   await pg.fill('#admPin', '1234'); await pg.click('#admUnlock'); await until(pg, () => !document.getElementById('admMain').hidden, null, 20); await pg.waitForTimeout(600);
   // User permissions: its section opened (the sections fold), on, two users
   await pg.evaluate(() => { const h = document.querySelector('#admPermBox > h3'); if (document.getElementById('admPermBox').classList.contains('shut')) h.click(); });
-  assert.equal(await pg.evaluate(() => document.getElementById('admPermOn').checked), false, 'off, as the sheet says');
+  assert.equal(await pg.evaluate(() => document.getElementById('admPermOn').checked), false, 'off (the sheet blank, the list without permissions)');
   await pg.check('#admPermOn');
   await pg.fill('#admPermEmail', 'not an email'); await pg.click('#admPermAdd'); await pg.waitForTimeout(200);
   assert.ok((await toasts(pg)).some((t) => /Type the user.s email/.test(t)), 'a wrong email refused');
@@ -399,6 +403,12 @@ test('the sheet edited by hand reaches the phone at its next sync (the sheet win
     // back online: the next sync follows the sheet
     await page.evaluate(() => { window.__offline = false; }); await page.evaluate(() => window.__polecam.cloudSync(true)); await page.waitForTimeout(500);
     assert.equal((await perm(page)).ok.cef, false);
+    // the sheet's switch blank: the list's (on, version 2) decides; the row's Yes / No still win, its blank cells: the list's, else the default
+    setSetting('User permissions', ''); cell(PEDRO.email, 'Other exports', '');
+    await page.evaluate(() => window.__polecam.cloudSync(true)); await page.waitForTimeout(500);
+    p = await perm(page);
+    assert.equal(p.state.why, 'list'); assert.equal(p.state.on, true); assert.deepEqual(Object.entries(p.ok).filter(([, v]) => v).map(([k]) => k), ['survey'], 'KMZ No and CEF No from the sheet, the rest as a user not listed');
+    setSetting('User permissions', 'Yes');
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); }
 });
@@ -424,7 +434,7 @@ test('the admin puts a user back (×) and turns permissions off; not written at 
   await pg.fill('#admPin', '1234'); await pg.click('#admUnlock'); await until(pg, () => !document.getElementById('admMain').hidden, null, 20); await pg.waitForTimeout(1500);
   await pg.evaluate(() => { const h = document.querySelector('#admPermBox > h3'); if (document.getElementById('admPermBox').classList.contains('shut')) h.click(); });
   const d0 = await pg.evaluate(() => window.__polecam.permDraft());
-  assert.deepEqual(d0.users[PEDRO.email].f, { kmz: false, plan: false, exp: true, cef: false, edit: false, tpl: false, admin: false }, 'Pedro\'s row as the sheet has it (typed by hand)');
+  assert.deepEqual(d0.users[PEDRO.email].f, { kmz: false, plan: false, exp: false, cef: false, edit: false, tpl: false, admin: false }, 'Pedro\'s row as the sheet has it (typed by hand; Other exports blank: the default)');
   await pg.click(`#admPermList [data-e="${PEDRO.email}"] [data-pa="del"]`); await pg.uncheck('#admPermOn');
   net.noPerms = true; const t0 = (await toasts(pg)).length;
   await pg.evaluate(() => document.getElementById('admSave').click()); await answer(pg, 'OK'); await pg.waitForTimeout(800);
@@ -433,7 +443,7 @@ test('the admin puts a user back (×) and turns permissions off; not written at 
   assert.deepEqual(T3.perms, { on: false, at: T3.perms.at, u: { [JUAN.email]: 'PA' } }, 'the list: off, Juan kept');
   assert.ok((await toasts(pg)).slice(t0).some((x) => /^User permissions not written to the online sheet/.test(x)), 'said');
   let p = await perm(pg); assert.deepEqual(p.pend && { users: p.pend.users, gone: p.pend.gone, on: p.pend.on }, { users: [], gone: [PEDRO.email], on: false }, 'kept to be sent again');
-  assert.equal(setting('User permissions'), 'Yes', 'not written yet'); assert.equal(permRow(PEDRO.email)['Other exports'], true);
+  assert.equal(setting('User permissions'), 'Yes', 'not written yet'); assert.equal(permRow(PEDRO.email)['KMZ export'], 'No');
   // the next sync sends it
   net.noPerms = false; await pg.evaluate(() => window.__polecam.cloudSync(true)); await pg.waitForTimeout(800);
   await until(pg, () => !window.__polecam.perm().pend, null, 20);
