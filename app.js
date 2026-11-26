@@ -4025,6 +4025,7 @@
     if (drwEd) drw.selRun = fibAdd != null ? fibAdd : fibSel; // beta 6.7: Edit route: the cable in the bar (or lit) lit as on the map
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
     g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
+    if (drwDark() && drwBase() === 'off' && drwPlanOn()) drwPaper(g, d); // ((beta 7.16, Theme) Dark: the plan a white sheet on a dark surround)
     if (drwBase() !== 'off') { drawUnderlay(g); underlaySoon(); } // v2.36: the map under the drawing
     if (drwPlanOn()) { drwPlanDraw(g, d, cv, v); return; } // (beta 7.9, Drawing preview) the plan as its PDF prints it
     if (!$('drawTb').hidden) { $('drawTb').hidden = true; $('drawTbPal').hidden = true; $('drawWrap').classList.remove('tbtop'); } // ((beta 7.11, Drawing tools) the Drawing as before (Edit route, a pull-off's poles, no plan): no toolbar)
@@ -4190,7 +4191,28 @@
     if (jnPick) jnPaintDrw(g, d); // beta 6.9: a pull-off's or cross-over's poles being tapped
   }
   /** The north arrow and the scale bar, at the upper right. */
+  /* (beta 7.16, Theme) Dark (Settings › Theme): the Drawing's plan stays a white sheet of paper, as a PDF viewer shows a page, on the app's dark
+     surround (#drawWrap's --drw-bg): the sheet covers what the plan draws (its GEO sheets and what is round them) with a margin. The map under the
+     drawing, the Edit route drawing and Light: the whole canvas paper, as before. */
+  const drwDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+  const DRW_SURROUND = '#0a1220';
+  function drwPaper(g, d) {
+    const P = drw.ph, PL = P && P.plan; if (!PL) return;
+    if (!PL.ext) { // (once a plan: what it draws, in metres from its origin)
+      const b = [Infinity, Infinity, -Infinity, -Infinity]; for (const r of PL.runs) { b[0] = Math.min(b[0], r.box[0]); b[1] = Math.min(b[1], r.box[1]); b[2] = Math.max(b[2], r.box[2]); b[3] = Math.max(b[3], r.box[3]); }
+      PL.ext = b[0] <= b[2] ? b : null;
+    }
+    const b = PL.ext ? [PL.ext[0] + PL.origin[0], PL.ext[1] + PL.origin[1], PL.ext[2] + PL.origin[0], PL.ext[3] + PL.origin[1]] : [Infinity, Infinity, -Infinity, -Infinity];
+    for (const sh of (P.grid && P.grid.sheets) || []) { b[0] = Math.min(b[0], sh.box[0]); b[1] = Math.min(b[1], sh.box[1]); b[2] = Math.max(b[2], sh.box[2]); b[3] = Math.max(b[3], sh.box[3]); }
+    if (!(b[0] <= b[2] && b[1] <= b[3])) return;
+    const m = Math.max(4, 0.03 * Math.max(b[2] - b[0], b[3] - b[1])), [x0, y0] = drwPx([b[0] - m, b[3] + m]), [x1, y1] = drwPx([b[2] + m, b[1] - m]), cv = g.canvas;
+    g.save(); g.fillStyle = DRW_SURROUND; g.fillRect(0, 0, cv.width, cv.height);
+    g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = 14 * d; g.fillStyle = '#fbfbf8'; g.fillRect(x0, y0, x1 - x0, y1 - y0); g.restore();
+  }
+  window.addEventListener('gesaa-theme', () => { if (drw && !$('drawing').hidden) drawDrawing(); }); // ((beta 7.16, Theme) changed while the Drawing is open: drawn again)
   function drwNorthScale(g, d, cv, v) {
+    if (drwDark()) { const sb0 = [10, 20, 50, 100, 200, 500, 1000, 2000].find((m) => m * v.sc > 70 * d) || 2000, x0 = Math.min(cv.width - 26 * d - sb0 * v.sc, cv.width - 40 * d) - 10 * d; // ((beta 7.16, Theme) Dark: on a piece of paper, the dark surround round the plan's sheet under them or not)
+      g.save(); g.fillStyle = 'rgba(251,251,248,.92)'; g.beginPath(); if (g.roundRect) g.roundRect(x0, 10 * d, cv.width - 10 * d - x0, 66 * d, 8 * d); else g.rect(x0, 10 * d, cv.width - 10 * d - x0, 66 * d); g.fill(); g.restore(); }
     g.fillStyle = '#1b1b1b'; g.strokeStyle = '#1b1b1b'; g.lineWidth = 1.5 * d;
     const nx = cv.width - 26 * d, ny = 30 * d; g.beginPath(); g.moveTo(nx, ny - 14 * d); g.lineTo(nx + 7 * d, ny + 8 * d); g.lineTo(nx, ny + 3 * d); g.lineTo(nx - 7 * d, ny + 8 * d); g.closePath(); g.fill();
     g.font = `700 ${11 * d}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('N', nx, ny + 10 * d);
