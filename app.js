@@ -14030,7 +14030,7 @@
     set('stSite', `Name ${{ on: 'on the tower', top: 'top', side: 'side', bottom: 'bottom' }[P.site.name]} · ${P.site.move === 'point' ? 'kept at its point' : 'moved aside'} · ODF ${P.odf.place === 'auto' ? 'Auto' : P.odf.place}`);
     set('stVic', `Zoom ${on(P.vic.zoom)} · circle ${P.vic.area ? 'shown' : 'hidden'}`);
     set('stGrid', `Split ${P.grid.split ? `1/${P.grid.split}` : 'Auto'} · ${S.exp.dxfBoqGrid !== false ? 'BOQ table on each sheet' : 'no BOQ table'} · name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}`);
-    { const t = projTpl(); set('stTpl', !S.project ? `${tplList().length ? `${tplList().length} client template${tplList().length === 1 ? '' : 's'} on this phone` : 'Company template'} · open a project to choose` : t ? `${t.name} (client)${t.cef ? ' · as-plan and CEF' : ''}` : `Company template${tplList().length ? ` · ${tplList().length} client template${tplList().length === 1 ? '' : 's'} on this phone` : ''}`); } // (beta 7.15, Client templates)
+    { const t = projTpl(); set('stTpl', !tplAllowed() ? 'Company template · 🔒 client templates' : !S.project ? `${tplList().length ? `${tplList().length} client template${tplList().length === 1 ? '' : 's'} on this phone` : 'Company template'} · open a project to choose` : t ? `${t.name} (client)${t.cef ? ' · as-plan and CEF' : ''}` : `Company template${tplList().length ? ` · ${tplList().length} client template${tplList().length === 1 ? '' : 's'} on this phone` : ''}`); } // (beta 7.15, Client templates)
     set('stFile', `${dxfMode() === 'tpl' ? (S.dxfSeed ? 'Company template ✓' : 'Company plan, no template yet') : 'Simple drawing'} · UTM ${S.zone}N · loops in the PMI ${on(S.exp.pmiLoops !== false)}`);
   }
   /** A section of Plan style, a card or one in More settings, by its id (stNum…) or the tutorial's part (numbers, sheets, file…); null for none. */
@@ -14351,8 +14351,14 @@
   function tplKey(id) { return `~tpl:${id}`; }
   function tplList() { return Array.isArray(S.tpls) ? S.tpls : []; }
   function tplById(id) { return id ? tplList().find((t) => t.id === id) || null : null; }
-  /** The client template a project uses, or null (the company template). */
-  function projTpl(proj) { const n = proj || S.project; return n ? tplById(pmeta(n).tpl) : null; }
+  /** (templates, permissions) Client templates allowed for this user (beta 7.16's User permissions, permOk('tpl')): when blocked, every
+      project is made on the company template (its choice is kept for when the admin allows it again) and Plan style › Template shows the
+      company template only, its client templates' buttons locked. While the app starts (the permissions not read yet): allowed, as
+      permState says then (nothing is exported yet; the locks are shown once the app has started). */
+  function tplAllowed() { try { return permOk('tpl'); } catch (e) { return true; } }
+  function tplAsk() { try { return permAsk('tpl'); } catch (e) { return 'Ask your admin to allow Client templates'; } }
+  /** The client template a project uses, or null (the company template; (templates, permissions) also when Client templates is blocked). */
+  function projTpl(proj) { const n = proj || S.project; return n && tplAllowed() ? tplById(pmeta(n).tpl) : null; }
   function tplGet(id) { return dbGet('packs', tplKey(id)).catch(() => null); }
   /** The CEF seed of the project's client template (vendor/cef prints the CEF plan on it): { name, text, look }, or null (no client template, or
       it has no CEF sheet: the CEF's own frame, as before). */
@@ -14372,11 +14378,12 @@
   /** Plan style › Template: the project's choice and the client templates on this phone. */
   function renderTplCard() {
     const sel = $('tplSel'); if (!sel) return;
-    const cur = projTpl(), L = tplList();
-    sel.innerHTML = ''; [['', 'Company template'], ...L.map((t) => [t.id, `${t.name} (client)`])].forEach(([v, n]) => { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.appendChild(o); });
-    sel.value = cur ? cur.id : ''; sel.disabled = !S.project;
+    const ok = tplAllowed(), cur = projTpl(), L = tplList(), lock = (b) => { try { permMark(b, 'tpl'); } catch (e) { /* the app starting: marked at its first permUi */ } }; // ((templates, permissions) blocked: the company template only)
+    sel.innerHTML = ''; [['', 'Company template'], ...(ok ? L.map((t) => [t.id, `${t.name} (client)`]) : [])].forEach(([v, n]) => { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.appendChild(o); });
+    sel.value = cur ? cur.id : ''; sel.disabled = !S.project || !ok;
     $('tplSelSum').textContent = !S.project ? 'Open a project to choose its template.' : cur ? `This project's as-plan${cur.cef ? ' and CEF plan are' : ' is'} made on ${cur.name}${cur.cef ? '' : ' (the CEF plan on its own frame: the template has no CEF sheet)'}. New projects start with the last one chosen.`
       : 'This project\'s plan is made on the company template (Plan file). New projects start with the last one chosen.';
+    if (!ok) $('tplSelSum').textContent = `${S.project ? 'This project\'s plan is made on the company template (Plan file).' : 'Plans are made on the company template (Plan file).'} 🔒 Client templates: ${tplAsk()}.`;
     const box = $('tplList'); box.innerHTML = '';
     if (!L.length) { const p = document.createElement('small'); p.className = 'sthint'; p.textContent = 'None yet.'; box.appendChild(p); }
     L.forEach((t) => {
@@ -14385,12 +14392,13 @@
       d.querySelector('b').textContent = t.name;
       d.querySelector('small').textContent = `${t.from && t.from.file ? `From ${t.from.file}` : 'Client template'} · ${String(t.at || '').slice(0, 10)}${t.look && t.look.sheet ? ` · ${t.look.sheet.unit === 'in' ? `${t.look.sheet.paper[0]} × ${t.look.sheet.paper[1]} in` : `${Math.round(t.look.sheet.paper[0])} × ${Math.round(t.look.sheet.paper[1])} mm`}` : ''} · ${t.cef ? 'as-plan and CEF' : 'as-plan only'}${uses ? ` · used by ${uses} project${uses === 1 ? '' : 's'}` : ''}${t.ok === false ? ' · check: see Make again' : ''}`;
       const row = d.querySelector('.row'), btn = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = `btn small${cls ? ` ${cls}` : ''}`; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); return b; };
-      if (S.project && !(cur && cur.id === t.id)) btn('Use for this project', () => tplChoose(S.project, t.id), 'primary');
-      btn('Rename', () => guard(() => tplRename(t.id), 'Not renamed'));
-      btn('Make again', () => guard(() => tplMakeAgain(t.id), 'Template not opened'));
-      btn('Remove', () => guard(() => tplRemove(t.id), 'Not removed'));
+      if (S.project && !(cur && cur.id === t.id)) lock(btn('Use for this project', () => tplChoose(S.project, t.id), 'primary'));
+      lock(btn('Rename', () => guard(() => tplRename(t.id), 'Not renamed')));
+      lock(btn('Make again', () => guard(() => tplMakeAgain(t.id), 'Template not opened')));
+      lock(btn('Remove', () => guard(() => tplRemove(t.id), 'Not removed')));
       box.appendChild(d);
     });
+    lock($('tplAdd')); // ((templates, permissions) each a Client templates button: refused and said by the click gate when it is blocked)
   }
   $('tplSel').addEventListener('change', () => tplChoose(S.project, $('tplSel').value));
   $('tplAdd').addEventListener('click', () => { $('tplFile').value = ''; $('tplFile').click(); });
@@ -18491,8 +18499,9 @@
      A locked feature is shown with a 🔒 and "Ask your admin to allow <feature>" (not hidden), and its action is refused by every way in: a
      tap, a key, the tutorial's Show me, a click() of the app or of a test (the click gate below), and the functions themselves (the Drawing's
      Edit, Undo and Redo, Edit route; the CEF plan's editor and files; the splicing details; the shares and the team mailbox). An export under
-     way is never left half-made: what was allowed when it started holds until it ends (permHold). Client templates (not in this version
-     yet): permOk('tpl') is the switch their screens and seedText() use when they come. */
+     way is never left half-made: what was allowed when it started holds until it ends (permHold). Client templates ((templates, permissions)):
+     projTpl() follows permOk('tpl') (tplAllowed), so the project's plans (seedText, the Drawing, the exports, the CEF plan's template) are on
+     the company template while it is blocked, and Plan style › Template shows the company template only, its buttons locked. */
   let permHold = null; // (an export under way: the features as they were when it started)
   const permMe = () => String((S.user && S.user.email) || '').trim().toLowerCase();
   /** The admin phone, and the admin company's admin users (the admin PIN, or verified by the online sheet's Admin users tab): everything. */
@@ -18574,6 +18583,7 @@
       if (!$('export').hidden) xTilesRender();
       if (!permOk('edit')) { if (drw && drw.mode === 'edit' && $('drawTxtBox').hidden) drwModeSet('view', 'perm'); if (drwEd) drwEditSet(false); }
       try { if (!$('projects').hidden) renderProjects(); } catch (e) { /* not open */ }
+      try { renderStyle(); } catch (e) { LOG.warn('perm.tpl', errInfo(e)); } // ((templates, permissions) Plan style › Template: the company template only, or the client templates again)
     } catch (e) { LOG.warn('perm.ui', errInfo(e)); }
   }
   let permSig = '';

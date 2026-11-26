@@ -332,6 +332,49 @@ test('a user not listed (the default): Survey and KMZ export only; locked, refus
   } finally { await ctx.close(); }
 });
 
+test('(templates, permissions) a user without Client templates: Plan style › Template shows the company template only, its buttons locked, refused and said; the project\'s plan on the company template, its choice kept', async () => {
+  assert.ok(adminTeam && adminTeam.perms, 'the admin saved permissions');
+  const { ctx, page, errors } = await open({ state: userState({ ...PEDRO, email: 'rosa@demo-contractor.example', name: 'Rosa Cruz' }, team1) }); // (the user not listed above)
+  try {
+    await page.evaluate(() => window.__polecam.cloudSync(true)); await page.waitForTimeout(600);
+    await until(page, () => window.__polecam.S.team.rev === 2, null, 20);
+    assert.equal((await perm(page)).ok.tpl, false, 'Client templates blocked (a user not listed)');
+    // a client template on this phone and the project on it, as Plan style › Template saves them (made up)
+    await page.evaluate(async ({ A, text }) => {
+      const P = window.__polecam, S = P.S;
+      await new Promise((res, rej) => { const r = indexedDB.open('polecam'); r.onsuccess = () => { const d = r.result, tx = d.transaction('packs', 'readwrite'); tx.objectStore('packs').put({ k: '~tpl:tplA', id: 'tplA', name: 'DEMO CLIENT A', plan: `999\r\nDEMO CLIENT A\r\n${text}`, cef: null, look: null }); tx.oncomplete = () => { d.close(); res(); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); });
+      S.tpls = [{ id: 'tplA', name: 'DEMO CLIENT A', at: '2026-11-01T08:00:00.000Z', from: { file: 'demo-client-a.dxf', size: 1000 }, client: 'DEMO CLIENT', look: null, ok: true, cef: false }];
+      S.meta[A] = { ...S.meta[A], tpl: 'tplA' }; P.persist();
+    }, { A, text: SEED_SQ });
+    assert.deepEqual(await page.evaluate((n) => ({ of: window.__polecam.tpl.of(n), kept: window.__polecam.S.meta[n].tpl }), A), { of: '', kept: 'tplA' }, 'the project on the company template while blocked; its choice kept');
+    assert.equal(await page.evaluate((n) => window.__polecam.tpl.seedText(n), A), SEED_SQ, 'its plan made on the company template');
+    // Plan style › Template (from the Drawing)
+    await closeAll(page);
+    await page.evaluate(() => document.getElementById('drawBtn').click()); await page.waitForTimeout(700);
+    await page.evaluate(() => { const d = document.querySelector('dialog[open]'); if (d) d.close(); });
+    await page.evaluate(() => document.getElementById('drawSetBtn').click()); await page.waitForTimeout(700);
+    await page.evaluate(() => { const d = document.getElementById('stTpl'); d.open = true; d.scrollIntoView(); }); await page.waitForTimeout(300);
+    const card = await page.evaluate(() => ({ opts: [...document.getElementById('tplSel').options].map((o) => o.textContent), off: document.getElementById('tplSel').disabled, sum: document.getElementById('tplSelSum').textContent,
+      line: document.querySelector('#stTpl .secsum').textContent, btns: [...document.querySelectorAll('#tplList button'), document.getElementById('tplAdd')].map((b) => [b.textContent, b.classList.contains('permlock'), b.dataset.perm, b.title]) }));
+    assert.deepEqual(card.opts, ['Company template'], 'the company template only'); assert.equal(card.off, true);
+    assert.equal(card.sum, 'This project\'s plan is made on the company template (Plan file). 🔒 Client templates: Ask your admin to allow Client templates.');
+    assert.equal(card.line, 'Company template · 🔒 client templates');
+    assert.deepEqual(card.btns.map((b) => b[0]), ['Use for this project', 'Rename', 'Make again', 'Remove', 'Add a client\'s template…']);
+    assert.ok(card.btns.every((b) => b[1] && b[2] === 'tpl' && b[3] === 'Ask your admin to allow Client templates'), JSON.stringify(card.btns));
+    if (process.env.SHOTS) await page.screenshot({ path: path.join(process.env.SHOTS, 'user-permissions-template-phone.png') });
+    // each refused before its own action (no question, no file chooser) and said; nothing changed
+    const t0 = (await toasts(page)).length, r0 = await nRefused(page);
+    await page.evaluate(() => { window.__picked = 0; document.getElementById('tplFile').addEventListener('click', () => { window.__picked++; }); });
+    await page.click('#tplAdd', { force: true }); await page.waitForTimeout(200);
+    await page.evaluate(() => [...document.querySelectorAll('#tplList button')].forEach((b) => b.click())); await page.waitForTimeout(400);
+    assert.deepEqual(await refused(page, r0), ['tpl:tplAdd', 'tpl:tap', 'tpl:tap', 'tpl:tap', 'tpl:tap'], 'Add, Use for this project, Rename, Make again, Remove: each refused');
+    assert.ok((await toasts(page)).slice(t0).includes('Ask your admin to allow Client templates'));
+    assert.deepEqual(await page.evaluate((n) => ({ picked: window.__picked, asked: !!document.querySelector('#askBox:not([hidden])'), review: !document.getElementById('tplReview').hidden, list: window.__polecam.tpl.list().map((t) => t.name), kept: window.__polecam.S.meta[n].tpl }), A),
+      { picked: 0, asked: false, review: false, list: ['DEMO CLIENT A'], kept: 'tplA' });
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); }
+});
+
 test('a user allowed Plan drawing: the plan made; an export under way keeps what was allowed when it started; the list version and the row from the sheet', async () => {
   const { ctx, page, errors } = await open({ state: userState(JUAN, team1), desk: true });
   try {
