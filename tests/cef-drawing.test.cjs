@@ -8,6 +8,10 @@
      dashed red below the ground) in the top view, the isometric and the riser pole detail, named PROPOSED CONCRETE ENCASEMENT, the pole itself
      existing; the CEF table counts the pole as existing and its new encasement (a riser pole marked existing no longer counts as PROP. RISER
      POLE); one with no cable up it stays existing, all of it; a pedestal box in place of the encasement: none, as before.
+   - (4) "Exit Conduits to porthole: FOC not using the conduit holes.": the UG fiber goes up inside the exit conduit to the mouth of its pipe (0.07 m
+     above the block, or above the item's height; before, it left at 0.4 m whatever the height, out of the side of a taller one) and runs level from
+     there; it goes through the porthole by a hole of its own (the bottom row first, the one in line with where it comes from), level through the
+     wall at the hole's height, and the inside (its detail too) starts there; two cables through one porthole take two holes.
    - Without the new choice and away from what the fixes change, every output (the DXF with its layout tabs and of the older kind, the sheets,
      the PDF, the KML, the table and its notes) byte for byte as beta 7.15 (6e2bd49) made them: SHA-256 of that engine's output on the same plans.
    Every name, number and place is made up. */
@@ -173,6 +177,36 @@ test('(3) an existing pole with a new riser: the riser, the U-guard and the conc
   /* with a pedestal box at the foot of an existing pole, no encasement (as before) */
   const ped = mk('epoleR'); ped.els.find((e) => e.t === 'epole').ped = 'P';
   assert.equal(sq(own(run(`buildTop(SK, { labels: true }).prims`, ped), 'EPOLE_1'), 'pp'), 0); assert.deepEqual(rows(ped)[2], ['CONCRETE ENCASEMENT', '']);
+});
+
+/** the route of a plan: its pieces, upright pieces and sums, and each porthole's holes on the site (W on the wall line, O on its outer face, z above the ground) */
+const ROUTE = `(() => { const g = routeGeom(SK), r3 = (v) => Math.round(v * 1000) / 1000, P = (p) => [r3(p[0]), r3(p[1])];
+  const holes = []; for (const c of SK.els) if (c.t === 'cabin') cabinPorts(c).forEach((q, k) => portHoles(c, q).forEach((h, i) => { const H = holeAt(c, q, h); holes.push({ c: c.id, k, i, W: P(H.W), O: P(H.O), z: r3(baseZ(SK, c) + H.z) }); }));
+  return { legs: g.legs.map((l) => ({ f: l.f, i: l.i, cn: l.cn || 0, type: l.type, a: P(l.a), b: P(l.b), za: r3(l.za), zb: r3(l.zb), cab: l.cab || '' })), verts: g.verts.map((v) => ({ kind: v.kind, at: P(v.at), z0: r3(v.z0), z1: r3(v.z1), cab: v.cab || '', cn: v.cn || 0 })), sum: g.sum, parts: g.parts.map((p) => p.sum), exits: g.exits.map((x) => ({ at: P(x.at), g: x.g, h: x.h })), holes, via: g.parts.map((p) => p.via || null) }; })()`;
+const near = (p, q, t = 0.006) => Math.hypot(p[0] - q[0], p[1] - q[1]) < t;
+/** the hole a cable goes through: the piece through the wall, level, from the outer face to the wall line, at a hole of the porthole */
+function through(R, cn, c) { const l = R.legs.find((q) => q.cn === cn && q.cab === c && q.type === 'open' && R.holes.some((h) => near(q.a, h.O) && near(q.b, h.W))); return l ? Object.assign({ l }, R.holes.find((h) => near(l.a, h.O) && near(l.b, h.W))) : null; }
+test('(4) the UG fiber goes up inside the exit conduit and leaves it at its mouth, and goes through the porthole by a hole of its own, level through the wall', () => {
+  /* one cable: up the exit conduit to the mouth of its pipe (the block 0.4 m, the pipe 0.07 m above it), level to the wall, up to the bottom middle hole, through it */
+  const R = run(ROUTE, mk('cabin1')), c = 'k2', ex = R.verts.find((v) => v.kind === 'exit'), up = R.verts.find((v) => v.kind === 'drop' && !v.cab);
+  assert.equal(ex.z1, 0.47, 'up to the mouth'); const lv = R.legs.find((l) => l.type === 'open' && !l.cab); assert.equal(lv.za, 0.47); assert.equal(lv.zb, 0.47); assert.ok(near(lv.a, R.exits[0].at), 'from the pipe the cable is in');
+  const h = through(R, 0, c); assert.ok(h, 'through a hole'); assert.equal(h.i, 1, 'the bottom row, the one in line with where it comes from'); assert.equal(h.l.za, h.z); assert.equal(h.l.zb, h.z, 'level through the wall'); assert.equal(h.z, 2.22);
+  assert.ok(near(up.at, h.O) && up.z0 === 0.47 && up.z1 === h.z, 'up the wall to the hole, on its outer face');
+  assert.ok(near(lv.b, h.O), 'from the mouth to below the hole');
+  /* the inside of the cabin, as its detail draws it: from the same hole */
+  const V = run(`viaRoute(SK, SK.els.find((e) => e.t === 'cabin'))`, mk('cabin1'));
+  assert.ok(Math.abs(V.startZ - h.z) < 1e-6, 'the inside starts at the height of the hole'); assert.ok(near([V.ug.pts[0].x, V.ug.pts[0].y], run(`(() => { const c = SK.els.find((e) => e.t === 'cabin'), q = cabinPorts(c)[0]; return holeAt(c, q, portHoles(c, q)[1]).o; })()`, mk('cabin1'))), 'and its point');
+  /* a taller exit conduit (1.2 m up the wall): the cable goes up inside it to its mouth, not out of its side at 0.4 m */
+  const T = run(ROUTE, (() => { const S = mk('cabin1'); S.els.find((e) => e.t === 'exit').h = 1.2; return S; })());
+  assert.equal(T.verts.find((v) => v.kind === 'exit').z1, 1.27); assert.ok(T.legs.filter((l) => l.type === 'open' && !l.cab).every((l) => l.za === 1.27 && l.zb === 1.27), 'level from the mouth');
+  /* with its conduits only: the same mouth */
+  assert.equal(run(ROUTE, mk('cabin1Bare')).verts.find((v) => v.kind === 'exit').z1, 0.47);
+  /* two cables through one porthole: a hole each, both level through the wall */
+  const two = mk('cabin1'); two.more = [{ id: 'c2', ae: { pts: [], cable: '24C FIG. 8' }, ug: { pts: JSON.parse(JSON.stringify(two.route.ug.pts)), legs: JSON.parse(JSON.stringify(two.route.ug.legs)), cable: '24C DUCT' }, note: '' }];
+  const R2 = run(ROUTE, two), h0 = through(R2, 0, c), h1 = through(R2, 1, c);
+  assert.ok(h0 && h1 && h0.i !== h1.i, `a hole each (${h0 && h0.i}, ${h1 && h1.i})`); assert.equal(h1.z, 2.22, 'the bottom row first');
+  /* the sample site: the cable leaves its exit conduit at the mouth; its length as before */
+  const N = run(ROUTE, mk('named')); assert.deepEqual(N.verts.filter((v) => v.kind === 'exit').map((v) => v.z1), [0.47]); assert.equal(N.sum.ugt, 31.2);
 });
 
 test('without the new choices, and away from what the fixes change, the CEF plan\'s files are byte for byte as beta 7.15 (6e2bd49) made them', async () => {
