@@ -354,6 +354,56 @@ test('a kit changed in the template changes what the CEF writes: a style\'s font
   assert.deepEqual(rules(r.text), []);
 });
 
+/* (templates, company CEF template) vendor/cef/cefkit.js: a company CEF template checked (Load a CEF template) and its kit completed (Download it).
+   tests/fixtures/cef-company-made-up.dxf: the generic one edited as a drafter might (tests/fixtures/mkcefcompany.py): its STYLE KEY deleted and
+   purged (CEF NOTICE, CEF-PHOTO, CEF NORTH ARROW gone), CEF BODY 3 mm in romans.shx, CEF VIEW TITLE 6 mm, a text of its own on sheet CEF. */
+const KIT = require('../vendor/cef/cefkit.js');
+const COMPANY = fs.readFileSync(path.join(__dirname, 'fixtures', 'cef-company-made-up.dxf'), 'utf8');
+const SYN = SYNTH_JS ? require(SYNTH_JS) : null;
+test('(templates, company CEF template) a CEF template checked: the generic and a company one printable, their kit counted; a plan template, a sheet too small, no fields and not a DXF refused, saying why', () => {
+  const g = KIT.check(GENERIC, T, GENERIC, SYN);
+  assert.equal(g.ok, true, g.problems.join(' ')); assert.deepEqual(g.notes, []);
+  assert.deepEqual(g.sheet, { paper: [420, 297], unit: 'mm', drawing: [308, 281], tables: true, cover: true, fields: TODAY_FIELDS });
+  assert.deepEqual(g.kit, { styles: [17, 17], layers: [22, 22], dashed: true, north: true, key: true, missing: { styles: [], layers: [] } });
+  const c = KIT.check(COMPANY, T, GENERIC, SYN);
+  assert.equal(c.ok, true, c.problems.join(' ')); assert.deepEqual(c.kit.missing, { styles: ['CEF NOTICE'], layers: ['CEF-PHOTO'] }); assert.equal(c.kit.north, false); assert.equal(c.kit.key, false);
+  assert.deepEqual(c.notes, ['Of the CEF\'s style kit it lacks 1 text style and 1 layer: those print as the app\'s own look (Download adds them).']);
+  const plan = KIT.check(fs.readFileSync(path.join(__dirname, 'fixtures', 'plan-seed-made-up-square.dxf'), 'utf8'), T, GENERIC, SYN);
+  assert.equal(plan.ok, false); assert.deepEqual(plan.problems, ['It has no sheet (layout) named CEF: the app copies that sheet for every page of a CEF plan.']);
+  const small = KIT.check(edited((d, S) => { const L = S.layouts.find((q) => q.name === 'CEF'), br = S.br.get(L.brh), vp = d.sec('ENTITIES').recs.filter((r) => typ(r) === 'VIEWPORT' && owner(r) === get(br, 5)).find((r) => get(r, 8) === 'CEF-VP-DRAWING'); setCode(vp, 40, '150.0'); setCode(vp, 41, '100.0'); }), T, GENERIC, SYN);
+  assert.equal(small.ok, false); assert.match(small.problems[0], /^Its drawing area \(150 x 100 mm\) is too small for the CEF sheets \(at least 120 x 120 mm\)\.$/);
+  const bare = KIT.check(GENERIC.replace(/@@(\w+)@@/g, '$1'), T, GENERIC, SYN);
+  assert.equal(bare.ok, false); assert.deepEqual(bare.problems, ['Its CEF sheet has no fields (@@NAME@@): the title block would print empty.']);
+  for (const x of ['', 'not a dxf', '0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n']) { const r = KIT.check(x, T, GENERIC, SYN); assert.equal(r.ok, false); assert.match(r.problems[0], /^It is not a text DXF the app can read|^It has no sheet \(layout\) named CEF/, JSON.stringify(r.problems)); }
+});
+test('(templates, company CEF template) Download it: the company\'s template with the CEF\'s style kit completed (the STYLE KEY sheet, the text style, layer and north arrow it lacked) and the STYLE KEY\'s heights its own; AutoCAD\'s rules; the generic one as it is', () => {
+  const r = KIT.complete(COMPANY, GENERIC, T);
+  assert.deepEqual(r.added, { styles: ['CEF NOTICE'], layers: ['CEF-PHOTO'], ltypes: [], blocks: ['CEF NORTH ARROW'], appids: [], key: true, values: 17 });
+  const S = T.structure(new T.Doc(r.text)), sty = (nm) => S.T.find((x) => typ(x) === 'STYLE' && get(x, 2) === nm);
+  assert.deepEqual(S.layouts.filter((q) => q.name !== 'Model').map((q) => q.name).sort(), ['CEF', 'CEF COVER', 'STYLE KEY']);
+  assert.equal(get(sty('CEF BODY'), 3), 'romans.shx'); assert.equal(num(sty('CEF BODY'), 40), 3); assert.equal(num(sty('CEF NOTICE'), 40), 2.6, 'the style it lacked, as the app prints it');
+  assert.ok(S.layers.has('CEF-PHOTO') && S.blocks.has('CEF NORTH ARROW') && r.text.includes('DEMO TELCO STANDARD'));
+  const key = S.layouts.find((q) => q.name === 'STYLE KEY'), ents = S.blocks.get(get(S.br.get(key.brh), 2)).ents;
+  const tag = (what, nm) => ents.find((e) => { const k = e.findIndex((p) => p[0] === 1001 && p[1] === 'GESAA_KEY'); return k > 0 && e[k + 1][1] === what && e[k + 2][1] === nm; });
+  assert.equal(get(tag('height', 'CEF BODY'), 1), '3 mm'); assert.equal(num(tag('sample', 'CEF BODY'), 40), 3); assert.equal(get(tag('height', 'CEF VIEW TITLE'), 1), '6 mm'); assert.equal(num(tag('sample', 'CEF VIEW TITLE'), 40), 5);
+  assert.equal(get(tag('height', 'CEF LABEL'), 1), '2.4 mm');
+  assert.ok(ents.some((e) => typ(e) === 'INSERT' && get(e, 2) === 'CEF NORTH ARROW'), 'the STYLE KEY shows the north arrow');
+  assert.deepEqual(rules(r.text).filter((p) => !/field left/.test(p)), []);
+  const a = audit(r.text); if (a != null) assert.match(a, /^0 0 \d+/, `ezdxf: ${a}`);
+  assert.equal(KIT.check(r.text, T, GENERIC, SYN).ok, true); assert.deepEqual(KIT.check(r.text, T, GENERIC, SYN).kit.missing, { styles: [], layers: [] });
+  const again = KIT.complete(r.text, GENERIC, T); assert.deepEqual(again.added, { styles: [], layers: [], ltypes: [], blocks: [], appids: [], key: false, values: 17 }, 'complete: nothing more to add');
+  const gen = KIT.complete(GENERIC, GENERIC, T); assert.deepEqual(gen.added, { styles: [], layers: [], ltypes: [], blocks: [], appids: [], key: false, values: 17 });
+  assert.deepEqual(T.structure(new T.Doc(gen.text)).layouts.map((q) => q.name).sort(), T.structure(new T.Doc(GENERIC)).layouts.map((q) => q.name).sort());
+  // a template of its own (no kit at all: a made-up client CEF seed): every kit style, layer, the line type, the north arrow and the STYLE KEY added
+  const own = KIT.complete(SEED, GENERIC, T);
+  assert.equal(own.added.styles.length, 17); assert.equal(own.added.ltypes.length, 1); assert.deepEqual(own.added.blocks, ['CEF NORTH ARROW']); assert.equal(own.added.key, true); assert.ok(own.added.appids.includes('AcadAnnotative') && own.added.appids.includes('GESAA_KEY'));
+  assert.deepEqual(rules(own.text).filter((p) => !/field left/.test(p)), []);
+  const a2 = audit(own.text); if (a2 != null) assert.match(a2, /^0 0 \d+/, `ezdxf: ${a2}`);
+  // printed on: the company's (completed) and the CEF's plan on it as on the company's own
+  const out = onTpl(r.text, SK.sample, { dims: DIMS });
+  assert.deepEqual(rules(out.text), []); assert.ok(out.text.includes('DEMO TELCO STANDARD'));
+});
+
 test('without a template: the CEF\'s DXF (with its layout tabs, and of the older kind), its PDF, sheets and KML as beta 7.16 made them, byte for byte', async () => {
   // [plan, file, SHA-256 (first 16) of what beta 7.16 (3a0ad90: vendor/cef/30_core.js, 40_iso.js, 50_export.js) made of it, in this same context: each plan's
   // sheets made twice (every page; no details or photo pages), its DXFs, sheets and PDF made of them, in this order]

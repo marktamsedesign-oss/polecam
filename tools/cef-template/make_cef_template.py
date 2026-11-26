@@ -29,6 +29,7 @@ doc.header['$MEASUREMENT'] = 1
 doc.header['$LTSCALE'] = 1.0
 doc.header['$PSLTSCALE'] = 1     # line types in paper millimetres on every sheet, as the CEF's PDF draws its dashes
 doc.appids.new('AcadAnnotative')
+doc.appids.new('GESAA_KEY')     # (templates, CEF template kit) the STYLE KEY's values the app writes anew from the template's own styles (GeCefKit.complete)
 doc.linetypes.add('CEF-DASHED', pattern=[3.7, 2.4, -1.3], description='CEF dashed __ __ __')
 
 # ---- the layers: the CEF's own (LAYERS), as its PDF prints them; and the template's own (they do not print) ----
@@ -121,8 +122,8 @@ for x, s in ((14, 'NAME'), (62, 'SAMPLE'), (122, 'HEIGHT'), (136, 'WHAT IT WRITE
 y -= 5; hline(14, 205, y)
 for name, (font, bold, h, what, who) in KIT.items():
     rh = 7.2; tx(name, 14, y - 4.6, 1.8)
-    tx('AaBb 123' if h <= 3 else 'AaBb', 62, y - 5.4, min(h, 5), style=name)
-    tx('%g mm' % h, 122, y - 4.6, 1.5)
+    tx('AaBb 123' if h <= 3 else 'AaBb', 62, y - 5.4, min(h, 5), style=name).set_xdata('GESAA_KEY', [(1000, 'sample'), (1000, name)])
+    tx('%g mm' % h, 122, y - 4.6, 1.5).set_xdata('GESAA_KEY', [(1000, 'height'), (1000, name)])
     words, line, lines = what.split(' '), '', []
     for w in words:
         if len(line) + len(w) + 1 > 52: lines.append(line); line = w
