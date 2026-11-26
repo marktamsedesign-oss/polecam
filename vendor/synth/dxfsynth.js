@@ -438,7 +438,6 @@
     { k: 'cable', label: 'Cables (proposed)' }, { k: 'cableExisting', label: 'Cables (existing)' }, { k: 'pole', label: 'Poles' }, { k: 'symbol', label: 'Closures, loops, boxes' },
     { k: 'road', label: 'Roads' }, { k: 'grid', label: 'Sheet grid' },
   ];
-  const KIND = new Map(KINDS.map((x) => [x.k, x]));
   const TXT_RE = {
     latLong: /^[-+]?\d{1,3}\.\d{4,}\s*°?\s*[NSEW]?$|^\d{1,3}\s*°\s*\d{1,2}\s*'\s*\d{1,2}(\.\d+)?\s*"\s*[NSEW]$/, spanLen: /^\d{1,4}(\.\d+)?\s*(M|MTRS?|METERS?|METRES?)\.?$/i, poleNo: /^\d{1,3}$/,
     loopText: /\bLOOP\b|\bSLACK\b|\bRESERVE\b|\bCOIL\b/i, closureLabel: /CLOSURE|SPLICE|\bJOINT\b|\bFOSC\b|\bJC\b/i, gridLabel: /^[A-Z]{1,2}\s?-\s?\d{1,2}$/,
