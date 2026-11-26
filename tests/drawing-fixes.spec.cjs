@@ -4,7 +4,8 @@
      when neither is on; drawn again when the tick, the band's fields or Plan style's stamp change; each stamped picture made once (kept per photo and stamp).
    - his second video: Regenerate plan preview, "Making the plan preview…", then nothing: when the preview cannot be made, the Drawing says so where Regenerate says
      what it does ("The plan preview could not be made: <reason>. Try Regenerate; if it fails again, export to see the reason.") and logs it (draw.plan.fail): the
-     plan's worker answering that it failed, the worker crashing, the worker not answering, an error in the app's own preview code. Made again: said no more.
+     plan's worker answering that it failed, the worker crashing, the worker not answering, the plan made but its drawing not ("could not be drawn": the Drawing
+     as before, the photos placed), an error in the app's own preview code. Made again: said no more.
    - the export's "Cannot read properties of null (reading 'id')": a project whose kept Drawing edits hold leftovers (a null note, a note without a place, an order
      op for an item that is gone, a turn and a style for a point deleted since, null pins) previews, counts what was changed by hand and exports, the plan's job
      holding none of them.
@@ -52,11 +53,12 @@ const RECS = POLES.map(([id, poleId, lat, lon], i) => ({ id, project: NAME, elem
 const LINKS = [['t1', 's1', 'F12'], ...POLES.slice(1).map((p, i) => [POLES[i][0], p[0], 'F12'])];
 const way = (id, name, hw, pts) => ({ type: 'way', id, tags: { highway: hw, name }, geometry: pts.map(([lat, lon]) => ({ lat, lon })) });
 const OVERPASS = { version: 0.6, elements: [way(1, 'MADE-UP ST', 'residential', [[LA0 - 0.00008, LO0 - 0.0006], [LA0 - 0.00008, LO0 + 4 * DD + 0.00008]]), way(2, 'SAMPLE AVE', 'tertiary', [[LA0 - 0.00008, LO0 + 4 * DD + 0.00008], [LA0 + 3 * DD + 0.0006, LO0 + 4 * DD + 0.00008]])] };
-/** Stand-ins for the plan's worker: one that says the plan failed, one that crashes, one that never answers. */
+/** Stand-ins for the plan's worker: one that says the plan failed, one that crashes, one that never answers, one whose plan's drawing (dxfpdf.js) fails. */
 const WORKERS = {
   fail: "self.onmessage = (e) => { self.postMessage({ id: e.data && e.data.id, ok: false, err: 'DEMO WORKER FAILURE: the plan builder stopped' }); };",
   crash: "self.onmessage = () => { throw new Error('DEMO WORKER CRASH'); };",
   silent: 'self.onmessage = () => {};',
+  draw: "self.GeDxfPdf = { planList: () => { throw new Error('DEMO DRAW FAILURE'); } };\n" + fs.readFileSync(path.join(root, 'dxf-worker.js'), 'utf8'), // (the plan made, its drawing not: the worker answers with perr)
 };
 /** The app with the made-up project and template (o.pl: Plan style; o.exp: export settings; o.meta: the project's kept Drawing edits; o.worker: a stand-in). */
 async function open(o) {
@@ -183,17 +185,19 @@ test('the stamped photos kept are bounded: more photos on the screen than are ke
   await ctx.close();
 });
 
-test('the preview that cannot be made says so where Regenerate says what it does, and logs it: the worker says it failed, the worker crashes, the worker does not answer, the app\'s own preview code stops', async () => {
-  for (const [kind, re] of [['fail', /DEMO WORKER FAILURE/], ['crash', /DEMO WORKER CRASH/], ['silent', /no answer in 2 s/]]) {
+test('the preview that cannot be made says so where Regenerate says what it does, and logs it: the worker says it failed, the worker crashes, the worker does not answer, the plan\'s drawing fails, the app\'s own preview code stops', async () => {
+  for (const [kind, re] of [['fail', /DEMO WORKER FAILURE/], ['crash', /DEMO WORKER CRASH/], ['silent', /no answer in 2 s/], ['draw', /DEMO DRAW FAILURE/]]) {
+    const how = kind === 'draw' ? 'drawn' : 'made', head = new RegExp(`^The plan preview could not be ${how}: `);
     const phone = kind === 'fail', vw = phone ? 393 : 1280, { ctx, page, errors } = await open({ worker: kind, desk: !phone }); // (the first on a phone: the message on a few lines, on the screen)
     if (kind === 'silent') await page.evaluate(() => window.__polecam.drwPreviewWait(2000));
     await drawing(page);
-    const s = await said(page, /^The plan preview could not be made: /, 30000);
+    const s = await said(page, head, 30000);
     assert.match(s.t, re, `${kind}: the reason`); assert.match(s.t, /\. Try Regenerate; if it fails again, export to see the reason\.$/, `${kind}: what to do`); assert.ok(s.fail && s.shown && !s.busy, `${kind}: by Regenerate, not busy ${JSON.stringify(s)}`);
     assert.ok((await fails(page)).some((x) => re.test(x.msg || '')), `${kind}: logged (draw.plan.fail)`); await shot(page, `fixes-fail-${kind}.png`);
     const bub = await page.evaluate(() => { const b = document.getElementById('drawRegenT').getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; }); assert.ok(bub[0] >= 0 && bub[2] <= vw && bub[3] - bub[1] > 20, `${kind}: on the screen, on a few lines ${bub}`);
     // Regenerate again: Making… in its place, then said again (never a silent stop)
-    await page.click('#drawRegen'); const s2 = await said(page, /^The plan preview could not be made: /, 30000); assert.match(s2.t, re);
+    if (kind === 'draw') assert.equal((await page.evaluate(() => window.__polecam.drwPh())).frames.length > 0, true, 'draw: the photos placed (the plan made)');
+    await page.click('#drawRegen'); const s2 = await said(page, head, 30000); assert.match(s2.t, re);
     assert.deepEqual(errors, []);
     await ctx.close();
   }
