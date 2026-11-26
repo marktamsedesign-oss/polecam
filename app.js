@@ -15399,7 +15399,7 @@
     const pre = prefix || '', pts = points.filter((p) => p.project === name).sort((a, b) => (a.created < b.created ? -1 : 1));
     if (!isAcc(name)) projKey(name); // v2.42.6: the credits' project key travels with it
     const files = [{ name: `${pre}points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: new Date().toISOString(), by: byLine(), exportedBy: exporterInfo(), points: pts }, null, 1) }];
-    const pids = [...new Set(pts.flatMap(allPids).concat(cefHooks.pids ? cefHooks.pids(name) : []))]; // (v2.44: + the photos of its CEF plans)
+    const pids = [...new Set(pts.flatMap(allPids).concat(cefHooks.pids ? cefHooks.pids(name) : [], notesOf(pmeta(name)).map((n) => n.photo && n.photo.pid).filter(Boolean)))]; // (v2.44: + the photos of its CEF plans) ((beta 7.16, Fixes) + the photos added on its Drawing: drwNotes)
     for (let i = 0; i < pids.length; i++) {
       busy(`Packing photos ${i + 1} / ${pids.length}`, i / pids.length);
       const ph = await dbGet('photos', pids[i]);
@@ -15547,6 +15547,10 @@
       await dbPut('points', p);
       const i = points.findIndex((x) => x.id === p.id); if (i >= 0) points[i] = p; else points.push(p);
       (o.written || (o.written = [])).push(p.id); // (beta 3.3: for the same pole twice)
+    }
+    if (proj && o.fresh) for (const nt of notesOf(pmeta(proj))) { // ((beta 7.16, Fixes) a project brought in whole (a backup): the photos added on its Drawing, from the file when it has them)
+      const pid = nt.photo && nt.photo.pid; if (!pid) continue; const clean = await z.get(`${pre}photos/${pid}.jpg`), thumb = await z.get(`${pre}thumbs/${pid}.jpg`);
+      if (clean || thumb) await dbPut('photos', { id: pid, clean: clean && new Blob([clean], { type: 'image/jpeg' }), thumb: thumb && new Blob([thumb], { type: 'image/jpeg' }) });
     }
     if (proj) {
       if (meta.meta && S.meta[proj] !== meta.meta) {
