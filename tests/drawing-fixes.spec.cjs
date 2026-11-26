@@ -165,6 +165,24 @@ test('a road pack on the phone: the geotag band\'s address in the preview is loo
   await ctx.close();
 });
 
+test('the stamped photos kept are bounded: more photos on the screen than are kept, the others plain and none made over and over; looked at closer, those on the screen stamped', async () => {
+  const { ctx, page, errors } = await open({ exp: { stampOnPlan: true } });
+  await page.evaluate(() => window.__polecam.drwStampCap(3)); // (60 in the app: 3 here, 8 photos on the screen)
+  await drawing(page, 0.5); await shown(page, (x) => x.count && x.count.pictures === 8);
+  let S = null; for (let i = 0; i < 150; i++) { await page.waitForTimeout(200); S = await stampOf(page); if (!S.busy && !S.queue && S.made.filter((x) => x.ok).length >= 3) break; }
+  assert.equal(S.made.length, 3, `3 kept: ${JSON.stringify(S)}`); assert.ok(S.made.every((x) => x.ok));
+  const keys = S.made.map((x) => x.key).sort(), n0 = S.n;
+  for (let k = 0; k < 6; k++) { await page.evaluate(() => window.__polecam.drwRedraw()); await page.waitForTimeout(150); }
+  S = await stampOf(page); assert.equal(S.n, n0, 'none made again (the 3 kept are on the screen)'); assert.deepEqual(S.made.map((x) => x.key).sort(), keys, 'the same 3'); assert.equal(S.queue, 0);
+  // closer: the photos on the screen now stamped (the others let go in turn)
+  await page.evaluate(([la, lo]) => { const r = document.getElementById('drawCanvas').getBoundingClientRect(); window.__polecam.drwLook(la, lo, 0.12, r.width * 0.5, r.height * 0.5); }, [LA0 + 0.0002, LO0 + 3.2 * DD]);
+  for (let i = 0; i < 150; i++) { await page.waitForTimeout(200); S = await stampOf(page); if (!S.busy && !S.queue) break; }
+  await page.waitForTimeout(300); assert.ok(S.made.length <= 3, `still 3 at most ${JSON.stringify(S.made)}`);
+  const B = await photoBand(page); assert.ok(B.dark > 0.25 && B.band > 0.12, `the photo on the screen stamped ${JSON.stringify(B)}`);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test('the preview that cannot be made says so where Regenerate says what it does, and logs it: the worker says it failed, the worker crashes, the worker does not answer, the app\'s own preview code stops', async () => {
   for (const [kind, re] of [['fail', /DEMO WORKER FAILURE/], ['crash', /DEMO WORKER CRASH/], ['silent', /no answer in 2 s/]]) {
     const phone = kind === 'fail', vw = phone ? 393 : 1280, { ctx, page, errors } = await open({ worker: kind, desk: !phone }); // (the first on a phone: the message on a few lines, on the screen)

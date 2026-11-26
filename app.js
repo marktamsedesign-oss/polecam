@@ -2546,7 +2546,7 @@
      pdfJpeg's own drawing: 800 px on its long side, the band sized as it prints), then kept small (a bitmap 320 px across) per photo and per stamp (its settings,
      the point's place and record, the address), so a pan or a zoom draws it at once; made one at a time, only for the photos on the screen, the plain picture
      until it is made. The tick, the stamp's fields or Plan style's stamp changed: the photos stamped anew (another key); let go when the Drawing closes. */
-  const drwStamps = new Map(); let drwStampQ = [], drwStampBusy = false, drwStampLoc = null;
+  const drwStamps = new Map(); let DRW_STAMPS = 60, drwStampQ = [], drwStampBusy = false, drwStampLoc = null, drwStampN = 0; // (60 kept at most: 320 px on their long side, about 18 MB; how many made)
   /** The stamp the export burns into the plan's photos now: { geo: true, fields } (Same stamp on the plan's photos), { geo: false, pst, mm } (Plan style's), or null. */
   function drwStampNow() {
     if (geoOnPlan()) return { geo: true, fields: Array.isArray(S.exp.stampFields) ? S.exp.stampFields.slice() : null };
@@ -2561,25 +2561,28 @@
     poleLocations(L, true, true).catch((e) => { LOG.warn('draw.stamp.addr', errInfo(e)); return new Map(); }).then((M) => { if (drwStampLoc && drwStampLoc.busy === sig) drwStampLoc = { sig, busy: '', map: M || new Map() }; if (drw && !$('drawing').hidden) drawDrawing(); });
     return null;
   }
-  /** Point it's photo stamped as the plan prints it (an ImageBitmap), or null: no stamp now, or not made yet (asked for: the plain picture until then). St: drwStampNow(). */
+  /** A point's photo stamped as the plan prints it (an ImageBitmap), or null: no stamp now, or not made yet (asked for: the plain picture until then). St: drwStampNow(). */
   function drwStampPic(it, St) {
     const q = it && it.p; if (St === undefined) St = drwStampNow(); if (!q || !St || !Number.isFinite(+q.lat) || !Number.isFinite(+q.lon)) return null;
     const pid = coverPid(q) || q.id; let addr = '';
     if (St.geo ? !St.fields || St.fields.includes('addr') : St.pst === 'addr') { const A = drwStampAddr(); if (!A) return null; addr = A.get(q.id) || ''; } // (the address, worked out quietly here: the geotag band's own lookup shows the busy screen)
     const key = St.geo ? `${pid}|G|${JSON.stringify(St.fields)}|${q.updated || ''}|${q.lat},${q.lon}|${S.zone}|${addr}` : `${pid}|P|${St.pst}|${St.mm}|${(+q.lat).toFixed(6)},${(+q.lon).toFixed(6)}|${addr}`;
-    const T = drwStamps.get(key); if (T) { if (T.bm) { drwStamps.delete(key); drwStamps.set(key, T); } return T.bm; } // (the latest used last: the oldest first out)
-    if (!drwStampQ.some((J) => J.key === key)) { drwStampQ.push({ key, pid, band: St.geo ? null : { lat: q.lat, lon: q.lon, addr, mm: St.mm }, geo: St.geo ? { p: q, fields: St.fields, addr } : null }); if (drwStampQ.length > 200) drwStampQ.shift(); }
+    const T = drwStamps.get(key); if (T) { T.f = drwFrameN; if (T.bm) { drwStamps.delete(key); drwStamps.set(key, T); } return T.bm; } // (the latest used last: the oldest first out)
+    if (drwStamps.size >= DRW_STAMPS && ![...drwStamps.values()].some((x) => x.f < drwFrameN)) return null; // (as many on the screen as are kept: the others plain, none made and let go in turn)
+    const J0 = drwStampQ.find((J) => J.key === key); if (J0) J0.f = drwFrameN;
+    else { drwStampQ.push({ key, pid, f: drwFrameN, band: St.geo ? null : { lat: q.lat, lon: q.lon, addr, mm: St.mm }, geo: St.geo ? { p: q, fields: St.fields, addr } : null }); if (drwStampQ.length > 200) drwStampQ.shift(); }
     if (!drwStampBusy) setTimeout(drwStampPump, 0); return null;
   }
   /** The stamped pictures asked for, made one at a time (the export's drawing, then small); the Drawing drawn again as each comes. */
   async function drwStampPump() {
+    drwStampQ = drwStampQ.filter((J) => J.f >= drwFrameN - 1); // (asked for in the last frames only: one off the screen since is not made)
     if (drwStampBusy || !drwStampQ.length || !drw || $('drawing').hidden) return; drwStampBusy = true; const J = drwStampQ.shift();
     try {
-      let bm = null; const cv = await photoCanvas(J.pid, 800, null, null, J.band, J.geo);
+      let bm = null; const cv = await photoCanvas(J.pid, 800, null, null, J.band, J.geo); drwStampN++;
       if (cv) { const k = Math.min(1, 320 / Math.max(cv.width, cv.height)); bm = await createImageBitmap(cv, { resizeWidth: Math.max(1, Math.round(cv.width * k)), resizeHeight: Math.max(1, Math.round(cv.height * k)), resizeQuality: 'high' }); cv.width = 0; cv.height = 0; }
-      while (drwStamps.size >= 80) { const [k0, x] = drwStamps.entries().next().value; drwStamps.delete(k0); if (x.bm) x.bm.close(); }
-      drwStamps.set(J.key, { bm }); if (!drwThumbQ) drwThumbQ = requestAnimationFrame(() => { drwThumbQ = 0; if (drw && !$('drawing').hidden) drawDrawing(); });
-    } catch (e) { LOG.warn('draw.stamp', errInfo(e)); drwStamps.set(J.key, { bm: null }); } // (not made: the plain picture)
+      while (bm && drwStamps.size >= DRW_STAMPS) { let k0 = null; for (const [k, x] of drwStamps) if (x.f < drwFrameN) { k0 = k; break; } if (k0 == null) { bm.close(); bm = null; break; } const x = drwStamps.get(k0); drwStamps.delete(k0); if (x.bm) x.bm.close(); } // (the oldest not on the screen now let go; all on it: this one not kept)
+      if (bm) drwStamps.set(J.key, { bm, f: J.f }); if (!drwThumbQ) drwThumbQ = requestAnimationFrame(() => { drwThumbQ = 0; if (drw && !$('drawing').hidden) drawDrawing(); });
+    } catch (e) { LOG.warn('draw.stamp', errInfo(e)); drwStamps.set(J.key, { bm: null, f: J.f }); } // (not made: the plain picture)
     finally { drwStampBusy = false; if (drwStampQ.length) setTimeout(drwStampPump, 30); }
   }
   /** No plan to preview (the Simple drawing, no template on the phone): the Drawing as before. */
@@ -23299,7 +23302,8 @@
       for (let q = IT[4 * k + 2]; q < IT[4 * k + 2] + IT[4 * k + 3]; q++) { const f = SB[3 * q], c = SB[3 * q + 1], L = []; for (let j = 0; j < c; j++) L.push([Pp[2 * (f + j)] + o[0], Pp[2 * (f + j) + 1] + o[1]]); out.lines.push(L); } }
     return out; };
   window.__polecam.drwMvItem = (id) => { const m = drw && mvById(id); if (!m) return null; const i = mvIx(id), PL = drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; return JSON.parse(JSON.stringify({ ...m, handles: m.handles.length, canNow: canOf(m), lifted: L ? { off: L.off, xf: L.xf } : null, boxNow: drwMvBox(m, i) })); };
-  window.__polecam.drwStamp = () => ({ now: drwStampNow(), made: [...drwStamps.entries()].map(([k, x]) => ({ key: k, ok: !!x.bm, w: x.bm ? x.bm.width : 0, h: x.bm ? x.bm.height : 0 })), queue: drwStampQ.length, busy: drwStampBusy, addr: drwStampLoc && drwStampLoc.map ? Object.fromEntries(drwStampLoc.map) : null }); // ((beta 7.15, Fixes) tests: the stamped photos of the preview)
+  window.__polecam.drwStamp = () => ({ now: drwStampNow(), made: [...drwStamps.entries()].map(([k, x]) => ({ key: k, ok: !!x.bm, w: x.bm ? x.bm.width : 0, h: x.bm ? x.bm.height : 0 })), queue: drwStampQ.length, busy: drwStampBusy, n: drwStampN, addr: drwStampLoc && drwStampLoc.map ? Object.fromEntries(drwStampLoc.map) : null });
+  window.__polecam.drwStampCap = (n) => { if (n > 0) DRW_STAMPS = +n; return DRW_STAMPS; }; // ((beta 7.15, Fixes) tests: how many stamped photos are kept) // ((beta 7.15, Fixes) tests: the stamped photos of the preview)
   window.__polecam.drwPreviewWait = (ms) => { if (ms > 0) PH_WAIT = +ms; return PH_WAIT; }; // ((beta 7.15, Fixes) tests: how long the preview's worker is waited for)
   window.__polecam.drwJobTools = () => (drw && drw.ph ? JSON.parse(JSON.stringify(drw.ph.tools || null)) : null);
   window.__polecam.drwCands = (x, y, mouse) => (drw ? drwCands({ clientX: x, clientY: y, pointerType: mouse ? 'mouse' : 'touch' }).map((c) => ({ ...c })) : null); // ((beta 7.11, Drawing tools) tests: what a tap there goes through)
