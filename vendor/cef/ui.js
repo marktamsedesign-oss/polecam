@@ -64,8 +64,8 @@ function signSave() { try { if (HOST && HOST.setSign) HOST.setSign(Object.assign
    text as before. APP.serial: Project details' Serial Number, on the cover and in the title block when it is known. */
 function appSketch(S0) { const X = Object.assign({}, S0), g = signOf(); X.site = Object.assign({}, S0.site, { by: g.by, chk: g.chk, apr: g.apr, org: APP.org || S0.site.org || '', link: APP.link || S0.site.link || '', serial: APP.serial || '' }); return X; }
 /* the sheets of the engine, with the app's own line under the frame instead of the demo's, and CHECKED BY filled in */
-function appSheets(X, opt) {
-  const sh = buildSheets(X, opt), foot = String(APP.footer || APP.ver || 'G-eSAA').replace(/[^\x20-\x7E]/g, '-').slice(0, 220);
+function appSheets(X, opt, sd) {      /* (beta 7.15, CEF template) sd: the project's CEF template read (CefTpl.seed): the sheets laid out for its drawing area */
+  const sh = sd ? tplSheets(X, sd, opt) : buildSheets(X, opt), foot = String(APP.footer || APP.ver || 'G-eSAA').replace(/[^\x20-\x7E]/g, '-').slice(0, 220);
   for (const s of sh) {
     for (const p of s.prims) if (p.k === 'tx') { if (p.s === DEMO_LINE) p.s = foot; else if (p.s.indexOf('NOT IN THIS SET: THE VICINITY MAP') === 0) p.s = 'NOT IN THIS SET: THE VICINITY MAP.'; }
   }
@@ -83,7 +83,53 @@ async function picDims(X) {
   for (const k in LOGO) D['logos/' + k + '_logo.png'] = [LOGO[k].w, LOGO[k].h];
   return D;
 }
-async function dxfText(X) { const d = dxfSet(); return sheetsDXF(dxfSheets(X), d.old ? { old: true } : { dims: await picDims(X) }); }
+async function dxfText(X, tp) {      /* (beta 7.15, CEF template) tp: the project's CEF template (tplNow): the DXF on it, unless the DXF of beta 4.2 is asked for (it has no layouts) */
+  const d = dxfSet();
+  if (tp && !d.old) { const r = tplTry(() => tplDxf(X, tp, { details: d.det, photos: d.ph })); if (r) { const dims = await picDims(X), t = tplTry(() => CefTpl.write(r.sheets, r.sd, tp.T, { dims, fields: r.fields, logos: tplLogos() })); if (t) { TPLON.dxf = true; return t; } } }
+  return sheetsDXF(dxfSheets(X), d.old ? { old: true } : { dims: await picDims(X) }); }
+/* ---------- (beta 7.15, CEF template) the CEF plan on the project's CEF template ----------
+   The owner: "dxf for asplan and cef must be based from a template dxf … By changing the template dxf, the app can now accomodate plan creation
+   from different clients using its template." A project with a client's CEF template (the app's Plan style › Template) has its CEF sheets on
+   that client's sheet: the DXF made on the template (50_export.js: tplSheets, CefTpl), the PDF that DXF printed by the app (dxfpdf.js, the
+   As-Plan's printer). The template comes from the app when the files are made, not when the plan is opened (one can be megabytes). None: the
+   app's own frame, as before. One that cannot be used: the app's frame, and the note says why (TPLX). */
+let TPLX = '', TPLON = { dxf: false, pdf: false };      /* why the template could not be used; which files of this export are on it */
+const footLine = () => String(APP.footer || APP.ver || 'G-eSAA').replace(/[^\x20-\x7E]/g, '-').slice(0, 220);
+async function tplNow() {
+  TPLX = ''; TPLON = { dxf: false, pdf: false }; if (!HOST || !HOST.cefTpl) return null;
+  try {
+    const t = await HOST.cefTpl(APP.job || ''); if (!t || typeof t.text !== 'string' || !t.text) return null;
+    const T = HOST.dxfLib ? await HOST.dxfLib() : null; if (!T || !T.Doc) throw new Error('the drawing library did not load');
+    const tp = { name: String(t.name || '').slice(0, 80), text: t.text, look: t.look && typeof t.look === 'object' ? t.look : null, vals: t.fields && typeof t.fields === 'object' ? t.fields : null, T, foot: footLine() };
+    tp.sd = CefTpl.seed(tp.text, T, tp.look, { name: tp.name, foot: tp.foot, vals: tp.vals });      /* (read now: a template the CEF cannot be printed on is said before anything is made) */
+    return tp;
+  } catch (e) { TPLX = String((e && e.message) || e).slice(0, 160); return null; }
+}
+const tplTry = f => { try { return f(); } catch (e) { TPLX = String((e && e.message) || e).slice(0, 160); return null; } };
+/* the sheets on the template (a fresh reading of it each time: the DXF is made on it), and what fills its fields */
+function tplDxf(X, tp, opt) { const sd = tp.sd || CefTpl.seed(tp.text, tp.T, tp.look, { name: tp.name, foot: tp.foot, vals: tp.vals }); tp.sd = null; return { sd, sheets: appSheets(X, opt, sd), fields: tb => cefFields(X, tb, { foot: tp.foot, vals: tp.vals }) }; }
+/* the PDF on the template: its DXF with every page, printed by the app with the photos and logos; null when it could not be made */
+async function tplPdf(X, tp) {
+  if (!HOST || !HOST.cefPdf) return null; const r = tplTry(() => tplDxf(X, tp, {})); if (!r) return null;
+  try {
+    const text = CefTpl.write(r.sheets, r.sd, tp.T, { dims: await picDims(X), fields: r.fields, logos: tplLogos() }), AI = allImg(), images = {};
+    for (const sh of r.sheets) for (const im of sh.images) { const src = AI[im.id]; if (src) images[im.file.replace(/^.*\//, '')] = b64bytes(src); }
+    for (const k in LOGO) if (LOGO[k] && LOGO[k].src) images[k + '_logo.png'] = b64bytes(LOGO[k].src);      /* (beta 7.15, CEF template kit) the logos in the template's logo boxes */
+    const pdf = await HOST.cefPdf(text, { images, title: 'CEF plan ' + (X.site.name || '') + (X.site.id ? ' ' + X.site.id : '') });
+    if (!pdf || !pdf.length) return null; TPLON.pdf = true; return { pdf: new Uint8Array(pdf), sheets: r.sheets };      /* (the app's bytes copied into this page's own) */
+  } catch (e) { TPLX = String((e && e.message) || e).slice(0, 160); return null; }
+}
+/* (beta 7.15, CEF template kit) the app's logos (as the ZIP has them, logos/…) for the template's logo boxes (CEF-LOGO-CLIENT, CEF-LOGO-VENDOR) */
+const tplLogos = () => { const o = {}; for (const k in LOGO) if (LOGO[k] && LOGO[k].w > 0 && LOGO[k].h > 0) o[k] = { file: 'logos/' + k + '_logo.png', px: LOGO[k].w, py: LOGO[k].h }; return o; };
+/* the README says the sheets are on the client's template */
+const tplReadme = (t, tp) => (tp ? t.replace('\r\nFILES\r\n', '\r\nTEMPLATE\r\n  The sheets are on the client\'s CEF template' + (tp.name ? ' ' + tp.name : '') + ': its frame and title block (filled for each sheet), its text styles, layers and symbols. The DXF is a copy of the template with a layout for each sheet.\r\n\r\nFILES\r\n').replace(' (an A3 page that shows that sheet)', ' (the template\'s sheet, showing that page)').replace('Sheet scales at A3:', 'Sheet scales on the template\'s sheet:') : t);
+/* what the note says of the template, for the files of an export (kind: pdf, dxf or zip) */
+function tplSaid(tp, kind) {
+  if (!tp) return TPLX ? ' The client\'s template could not be used (' + TPLX + '): the sheets are on the app\'s own frame.' : '';
+  const want = kind === 'pdf' ? ['pdf'] : kind === 'dxf' ? ['dxf'] : ['dxf', 'pdf'], old = dxfSet().old, bad = want.filter(k => !TPLON[k] && !(k === 'dxf' && old)), nm = tp.name ? ' ' + tp.name : '';
+  if (bad.length) return ' The ' + bad.map(k => k.toUpperCase()).join(' and ') + ' could not be made on the client\'s template' + nm + (TPLX ? ' (' + TPLX + ')' : '') + ': on the app\'s own frame.';
+  return ' On the client\'s template' + nm + '.' + (old && want.includes('dxf') ? ' The DXF of the older kind has no layouts: it is on the app\'s own frame.' : '');
+}
 function dxfBox() {
   const d = dxfSet(), sw = (k, on, t, s) => '<label class="swr"><input type="checkbox" data-k="dxf.' + k + '"' + (on ? ' checked' : '') + '><span><b>' + t + '</b><small>' + s + '</small></span></label>';
   return '<h3>Pages of the DXF</h3><p class="hint" style="margin-top:0">Always in it: cover page, contents, legend, isometric and top view. The PDF has every page.</p>' + sw('det', d.det, 'Details pages', 'The inside of a cabin and the open cabinets (ODC)') + sw('ph', d.ph, 'Photo pages', 'The site photos, six to a page')
@@ -1623,31 +1669,31 @@ function openSketch(file) {
 }
 /* beta 4.1: the same files as Save ZIP, handed to the app (its Drawing export puts them in a folder of its own ZIP) */
 async function planFiles() {
-  const X = appSketch(ROOT), base = baseName(X), sheets = appSheets(X), pdf = await appPdf(await toPDF(sheets, allImg(), X)), g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X) }, { name: base + '_CEF.pdf', data: pdf }];
+  const X = appSketch(ROOT), base = baseName(X), tp = await tplNow(), tq = tp ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)), g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X, tp) }, { name: base + '_CEF.pdf', data: pdf }];      /* (beta 7.15, CEF template: tp, the project's CEF template) */
   if (g) files.push({ name: base + '_CEF.kml', data: toKML(X, g) });      /* (14 Nov) one DXF: the top view alone on its map position is no longer made */
   for (const k in LOGO) files.push({ name: 'logos/' + k + '_logo.png', data: b64bytes(LOGO[k].src) });
   X.photos.forEach((p, i) => { const src = IMG[p.id]; if (src) files.push({ name: 'photos/photo_' + String(i + 1).padStart(2, '0') + '.jpg', data: b64bytes(src), pid: p.id }); });
-  files.push({ name: base + '_CEF_sketch.json', data: JSON.stringify(ROOT, null, 1) }, { name: 'README.txt', data: appReadme(readme(X, base, g, sheets)) });
-  return { base, files };
+  files.push({ name: base + '_CEF_sketch.json', data: JSON.stringify(ROOT, null, 1) }, { name: 'README.txt', data: tplReadme(appReadme(readme(X, base, g, sheets)), tp) });
+  return { base, files, tpl: tp && (TPLON.dxf || TPLON.pdf) ? tp.name || 'template' : '', tplErr: TPLX };
 }
 async function doExport(kind) {
   const note = (t, c) => { setMsg(t, c); say(t); drawChrome(); };      /* (19:25) said on the status line too: the export is on the toolbar now */
   if (busy || !dl) return; busy = true; note('Building the files…', 'note');
   try {
     saveNow();
-    const X = appSketch(ROOT), base = baseName(X), sheets = appSheets(X), pdf = kind === 'dxf' ? null : await appPdf(await toPDF(sheets, allImg(), X)); let name, data;
-    if (kind === 'dxf') { name = base + '_CEF_sheets.dxf'; data = new Blob([await dxfText(X)], { type: 'application/dxf' }); }      /* (19:25) the DXF alone */
+    const X = appSketch(ROOT), base = baseName(X), tp = await tplNow(), tq = tp && kind !== 'dxf' ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = kind === 'dxf' ? null : await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)); let name, data;      /* (beta 7.15, CEF template: tp, the project's CEF template) */
+    if (kind === 'dxf') { name = base + '_CEF_sheets.dxf'; data = new Blob([await dxfText(X, tp)], { type: 'application/dxf' }); }      /* (19:25) the DXF alone */
     else if (kind === 'pdf') { name = base + '_CEF.pdf'; data = new Blob([pdf], { type: 'application/pdf' }); }
     else {
-      const g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X) }, { name: base + '_CEF.pdf', data: pdf }];
+      const g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X, tp) }, { name: base + '_CEF.pdf', data: pdf }];
       if (g) files.push({ name: base + '_CEF.kml', data: toKML(X, g) });      /* (14 Nov) one DXF */
       for (const k in LOGO) files.push({ name: 'logos/' + k + '_logo.png', data: b64bytes(LOGO[k].src) });
       X.photos.forEach((p, i) => { const src = IMG[p.id]; if (src) files.push({ name: 'photos/photo_' + String(i + 1).padStart(2, '0') + '.jpg', data: b64bytes(src), pid: p.id }); });
-      files.push({ name: base + '_CEF_sketch.json', data: JSON.stringify(ROOT, null, 1) }, { name: 'README.txt', data: appReadme(readme(X, base, g, sheets)) });
+      files.push({ name: base + '_CEF_sketch.json', data: JSON.stringify(ROOT, null, 1) }, { name: 'README.txt', data: tplReadme(appReadme(readme(X, base, g, sheets)), tp) });
       data = await HOST.zip(files); name = base + '_CEF.zip';                                  /* the app's own ZIP: it adds exported_by.txt and the photos as they are kept */
     }
     await dl.save({ filename: name, data, kind }); busy = false; { const np = kind === 'dxf' && !dxfSet().old ? dxfSheets(X).reduce((s, q) => s + q.images.length, 0) : 0;      /* (14 Nov) the DXF alone has its pictures as links */
-      note((kind === 'pdf' ? 'The PDF' : kind === 'dxf' ? 'The DXF' : 'The ZIP') + ' is ready: ' + name + '.' + (np ? ' Its photos and logos are linked files: they come with Both (the ZIP), in the photos and logos folders beside the DXF.' : ''), 'good'); }
+      note((kind === 'pdf' ? 'The PDF' : kind === 'dxf' ? 'The DXF' : 'The ZIP') + ' is ready: ' + name + '.' + (np ? ' Its photos and logos are linked files: they come with Both (the ZIP), in the photos and logos folders beside the DXF.' : '') + tplSaid(tp, kind), TPLX ? 'warn' : 'good'); }
   } catch (e) {
     const c = e && e.code; busy = false;
     note(c === 'declined' ? 'Not saved. The save was cancelled.' : c ? 'Could not save here (' + c + ').' : 'Could not build the files: ' + (e && e.message ? e.message : e), 'warn');

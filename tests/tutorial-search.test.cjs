@@ -320,11 +320,12 @@ test('(c) every Plan style row (.strow, .psrow, .swrow) and section carries its 
   const cs = styleHtml.split('<details class="stcs">').slice(1).map((x) => x.slice(0, x.indexOf('</details>')));
   assert.deepEqual(cs.flatMap((x) => [...x.matchAll(/\bdata-find="([^"]+)"/g)].map((m) => m[1])), [], 'Colours and sizes rows: data-findx');
   // (beta 7.8, Plan style cards): 7 cards (Pole numbers, Pole details and span lengths, Cable labels (FOC), Photos, Landmarks, Location map, Map
-  // sheets) and 6 sections in More settings; the main choices (.plb, the rows of Basic before) in their cards
+  // sheets) and 6 sections in More settings; the main choices (.plb, the rows of Basic before) in their cards. (beta 7.15, Client templates) + the
+  // Template card first (the project's template: the company's or a client's)
   const secs = [...styleHtml.matchAll(/<details class="stgrp stsec(?: plcard)?"[^>]*data-find="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(secs.length, 13, secs.join(', '));
+  assert.equal(secs.length, 14, secs.join(', '));
   const cards = [...styleHtml.slice(styleHtml.indexOf('id="plCards"'), styleHtml.indexOf('id="plMore"')).matchAll(/<details class="stgrp stsec plcard"[^>]*data-find="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(cards, ['Pole numbers', 'Pole details and span lengths', 'Cable labels (FOC)', 'Photos', 'Landmarks', 'Location map (vicinity map)', 'Map sheets']);
+  assert.deepEqual(cards, ['Template', 'Pole numbers', 'Pole details and span lengths', 'Cable labels (FOC)', 'Photos', 'Landmarks', 'Location map (vicinity map)', 'Map sheets']);
   const bl = [...styleHtml.matchAll(/<(?:div|label)\b[^>]*\bclass="(?:[^"]*\s)?plb(?:\s[^"]*)?"[^>]*\bdata-find="([^"]+)"/g)].map((m) => m[1].replace(/&#39;/g, "'"));
   assert.deepEqual(bl, ['Pole numbers in this project', 'Pole number colours', 'Pole labels', 'Clamp types beside each pole', '20 m loops at boxes', 'Photos on the plan', 'Stamp on the plan\'s photos', 'BOQ table on each map sheet']);
 });

@@ -2,7 +2,7 @@
    plan-export-v3), in the browser. Run: node --test tests/plan-export.spec.cjs (or python3 tests/run_all.py --only plan-export).
    A made-up As-Plan project, 4 poles (no cable, no company template on this phone), on a phone (390x844) and a computer (1280x900).
    Plan style:
-   - the seven cards (Pole numbers, Pole details and span lengths, Cable labels (FOC), Photos, Landmarks, Location map, Map sheets),
+   - the cards ((beta 7.15, Client templates) Template, then Pole numbers, Pole details and span lengths, Cable labels (FOC), Photos, Landmarks, Location map, Map sheets),
      each saying in one line what it is set to; More settings under them, folded; no tabs;
    - one card open at a time: a card opened closes the other; the preview shows its part of the plan (Photos: the photos; Location
      map: the location map; Map sheets: the sheets), and the street again once none is open;
@@ -78,12 +78,12 @@ const cards = (page) => page.evaluate(() => ({ cards: [...document.querySelector
 const sideways = (page) => page.evaluate(() => [...document.querySelectorAll('section.sheet:not([hidden]) .body')].some((b) => b.scrollWidth > b.clientWidth + 1) || document.documentElement.scrollWidth > innerWidth);
 
 for (const size of ['phone', 'desk']) {
-  test(`${size}: Plan style: seven cards, one open at a time, each in one line; the preview follows; a summary follows its setting; Reset to recommended`, async () => {
+  test(`${size}: Plan style: eight cards (beta 7.15: Template first), one open at a time, each in one line; the preview follows; a summary follows its setting; Reset to recommended`, async () => {
     const { ctx, page, errors } = await open(size); page.__desk = size === 'desk';
     try {
       await page.evaluate(() => document.getElementById('goPlanStyle').click()); await page.waitForTimeout(900);
       let c = await cards(page);
-      assert.deepEqual(c.cards.map(([id]) => id), ['stNum', 'stPole', 'stCab', 'stPh', 'stLm', 'stVic', 'stGrid']);
+      assert.deepEqual(c.cards.map(([id]) => id), ['stTpl', 'stNum', 'stPole', 'stCab', 'stPh', 'stLm', 'stVic', 'stGrid']); // ((beta 7.15, Client templates) the project's template first)
       assert.ok(c.cards.every(([, o, sum]) => !o && sum.trim().length > 3), `every card closed, each with its line: ${JSON.stringify(c.cards)}`);
       assert.equal(c.more, false, 'More settings folded'); assert.equal(c.tabs, false, 'no Basic / Advanced tabs');
       assert.equal(c.scene, 'street');
