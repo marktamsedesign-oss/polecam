@@ -14364,10 +14364,11 @@
     return (st.generic = t);
   }
   async function cefKit() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeCefKit) await loadScript('vendor/cef/cefkit.js'); return window.GeCefKit; }
-  /** Who may download the CEF template and load one: the admin phone, a phone with no company list, a user the admin allowed Team admin
-      (when the admin limits what users may do). Loading: also anyone while the admin shares no CEF template, or lets users load their own
-      plan template (Administration: Users may load a plan template file of their own), as the plan template's Load template file. */
-  function cefTplAdmin() { try { if (!S.team || isAdmin()) return true; return !!permState().on && permOk('admin'); } catch (e) { return !S.team; } }
+  /** Who may download the CEF template and load one: a phone with no company list, the admin phone and the admin company's admin users
+      (permAdmin), a user the admin allowed Team admin (when the admin limits what users may do): as B3's tplRoundOk('company'). Loading:
+      also anyone while the admin shares no CEF template, or lets users load their own plan template (Administration: Users may load a plan
+      template file of their own), as the plan template's Load template file. */
+  function cefTplAdmin() { try { if (!S.team || permAdmin()) return true; return !!permState().on && permOk('admin'); } catch (e) { return !S.team; } }
   function cefTplCanLoad() { try { return cefTplAdmin() || !cefSeedId() || pol().userTpl === true; } catch (e) { return false; } }
   /** A CEF template kept on this phone as the company's, when the CEF can be printed on it (else an error in plain words). Returns the check. */
   async function storeCefSeed(text, name, from, id) {
