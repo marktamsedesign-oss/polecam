@@ -144,7 +144,7 @@ test('a computer: a client\'s finished plan learned (its sheets\' roles, the loo
     await page.waitForFunction(() => !document.getElementById('tprCheck').hidden, null, { timeout: 120000 }); await page.waitForTimeout(400);
     const res = await page.evaluate(() => document.getElementById('tplCheckRes').innerText);
     assert.match(res, /no problem found/); assert.match(res, /Sheets left out: PLAN-2/); assert.match(res, /vicinity map's picture removed/); assert.match(res, /Tables: 16 value/); assert.match(res, /No CEF sheet in their plan/);
-    assert.match(res, /Style kit: 13 entries as their plan draws them \(PLAN POLE DETAILS ← pole ids and details, /);
+    assert.match(res, /Style kit: 14 entries as their plan draws them \(PLAN POLE DETAILS ← pole ids and details, /);
     assert.ok(await inkOf(page, 'tplCheckPic') > 1000, 'the made-up plan\'s picture');
     if (process.env.SHOTS) await page.screenshot({ path: path.join(process.env.SHOTS, 'client-plan-template-review.png'), fullPage: false });
     await page.evaluate(() => document.getElementById('tplSave').click());

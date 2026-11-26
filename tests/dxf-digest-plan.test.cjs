@@ -170,9 +170,9 @@ test('the style kit: what was learned under the kit\'s names; the plan drawn on 
   }
   assert.equal(D['D-SMALL'].wf, 0.8, 'their small style narrowed'); assert.equal(tx['PLAN SPAN LENGTH'].wf, 0.8);
   for (const nm of ['PLAN SITE', 'PLAN ATTACHMENT', 'PLAN NOTE', 'PLAN TABLE']) assert.deepEqual([tx[nm].has, tx[nm].h, tx[nm].font], [true, 0, 'arialn.ttf'], `${nm}: not taught, the template's look (its font, the app's size × its scale)`);
-  assert.deepEqual(m.kit, { ...want, 'PLAN CABLE AE': 'cable', 'PLAN CABLE AE EXISTING': 'cableExisting', 'PLAN ROAD': 'road' });
+  assert.deepEqual(m.kit, { ...want, 'PLAN CABLE AE': 'cable', 'PLAN CABLE AE EXISTING': 'cableExisting', 'PLAN ROAD': 'road', 'PLAN GRID': 'grid' }); // (the kit's PLAN GRID layer, since tplb-kit 443bc93: their grid's look taught to it)
   // each taught layer: their cable's, existing cable's and road's colour, line type and weight
-  for (const [nm, k] of [['PLAN CABLE AE', 'cable'], ['PLAN CABLE AE EXISTING', 'cableExisting'], ['PLAN ROAD', 'road']]) assert.deepEqual([ly[nm].has, ly[nm].color, ly[nm].lt, ly[nm].lw], [true, kinds[k].color, kinds[k].lt, kinds[k].lw], nm);
+  for (const [nm, k] of [['PLAN CABLE AE', 'cable'], ['PLAN CABLE AE EXISTING', 'cableExisting'], ['PLAN ROAD', 'road'], ['PLAN GRID', 'grid']]) assert.deepEqual([ly[nm].has, ly[nm].color, ly[nm].lt, ly[nm].lw], [true, kinds[k].color, kinds[k].lt, kinds[k].lw], nm);
   assert.deepEqual([ly['PLAN CABLE AE'].lt, ly['PLAN CABLE AE EXISTING'].lt], ['Continuous', 'DASHED'], 'their proposed cable solid, their existing one dashed');
   // the symbols: their blocks under the plan's names
   const S0 = info(m.plan).S; for (const b of ['P-POLE', 'existing telecom pole', 'P-Joint', 'loopp']) assert.ok(S0.blocks.has(b), b);
