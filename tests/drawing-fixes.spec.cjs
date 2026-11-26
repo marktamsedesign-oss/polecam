@@ -1,4 +1,4 @@
-/* (beta 7.15, Fixes) the owner, on beta 7.14 / main 2.45.16 ("push to beta and main after all fix pass - very urgent"):
+/* (beta 7.16, Fixes) the owner, on beta 7.14 / main 2.45.16 ("push to beta and main after all fix pass - very urgent"):
    - "Stamp on the plan's photos: enabled but not shown on preview": the Drawing's plan preview shows each photo as the export makes it for the plan: the geotag
      band with Export › Photos with their locations › Same stamp on the plan's photos (its fields), else Plan style › Photos › Stamp on the photos (lat, long), plain
      when neither is on; drawn again when the tick, the band's fields or Plan style's stamp change; each stamped picture made once (kept per photo and stamp).

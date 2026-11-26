@@ -2165,7 +2165,7 @@
   const strHash = (s) => { let h = 2166136261, k = 5381; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h = Math.imul(h ^ c, 16777619); k = (Math.imul(k, 33) + c) | 0; } return `${s.length}:${(h >>> 0).toString(36)}:${(k >>> 0).toString(36)}`; };
   function drwPhSoon(ms) { clearTimeout(drwPhT); drwPhT = setTimeout(() => { drwPhGo(false); }, ms == null ? 300 : ms); }
   /** (beta 7.9, Drawing preview) The preview made now (force: again, even when nothing changed: Regenerate plan preview). */
-  function drwPhGo(force) { return drwPhRun(force).catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) { drw.phBusy = false; drwPlanUi(); drwPlanFail(e); } }); } // ((beta 7.15, Fixes) the app's own preview code stopped: said, never silent)
+  function drwPhGo(force) { return drwPhRun(force).catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) { drw.phBusy = false; drwPlanUi(); drwPlanFail(e); } }); } // ((beta 7.16, Fixes) the app's own preview code stopped: said, never silent)
   /** The preview being made stops (an export, Back). */
   function drwPhStop() { clearTimeout(drwPhT); drwPhGen++; drwPhForce = false; if (drw) drw.phBusy = false; phStopBuild(); }
   function phStopBuild() { phBuild = null; if (phWorkerEnd) { const f = phWorkerEnd; phWorkerEnd = null; try { phWorker.terminate(); } catch (e) { /* gone */ } phWorker = null; f(); } }
@@ -2179,7 +2179,7 @@
     if (!seed || !seedOk(seed)) { drwPlanNone(); return; } // (no template on the phone: the Drawing as before)
     if (!drw.plWant) { drw.plWant = true; drwPlanUi(); } // ((beta 7.9, Drawing preview) a plan to preview: Regenerate plan preview on the Drawing)
     const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live()) return; // (the records as an export sees them)
-    if (!st) { drwPlanFail('the export has no plan drawing to make'); return; } // ((beta 7.15, Fixes) said, never a silent stop)
+    if (!st) { drwPlanFail('the export has no plan drawing to make'); return; } // ((beta 7.16, Fixes) said, never a silent stop)
     // ((beta 7.9, Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
     const sk = `${seed.length}|${(S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once)
     const job = J.jobOf(st), sig = strHash(`${seedSigC.h}|${JSON.stringify({ ...job, date: 0 })}`), M = drwPhMem.get(proj);
@@ -2188,9 +2188,9 @@
     phStopBuild(); const me = { sig }; phBuild = me; drw.phBusy = true; drwPhForce = false; drwPlanUi(); // (another one being made stops: the newest is the one shown)
     const t0 = Date.now(), res = await planPreview(seed, job); if (phBuild !== me) return; phBuild = null;
     const rep = res && res.report;
-    if (!rep || !rep.photoAt) { if (drw && drw.project === proj) { drw.phBusy = false; drwPlanUi(); if (res) drwPlanFail(res.fail || 'the plan builder did not say where its photos go'); } return; } // (the plan could not be made: the photos stay as they are; (beta 7.15, Fixes) and it is said, why)
-    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); drwPlanFail(e, 'drawn'); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before ((beta 7.15, Fixes) and said))
-    if (res.perr) { LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) }); if (!plan) drwPlanFail(res.perr, 'drawn'); } // ((beta 7.15, Fixes) the plan made but not its drawing (dxfpdf.js): said, the photos placed as before)
+    if (!rep || !rep.photoAt) { if (drw && drw.project === proj) { drw.phBusy = false; drwPlanUi(); if (res) drwPlanFail(res.fail || 'the plan builder did not say where its photos go'); } return; } // (the plan could not be made: the photos stay as they are; (beta 7.16, Fixes) and it is said, why)
+    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); drwPlanFail(e, 'drawn'); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before ((beta 7.16, Fixes) and said))
+    if (res.perr) { LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) }); if (!plan) drwPlanFail(res.perr, 'drawn'); } // ((beta 7.16, Fixes) the plan made but not its drawing (dxfpdf.js): said, the photos placed as before)
     const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
       planAt: rep.photoAt, fileId: Object.fromEntries([...Object.entries(job.photos || {}).map(([id, x]) => [x.file, id]), ...(job.notes || []).filter((n) => n.photo && n.photo.file).map((n) => [n.photo.file, `note:${n.id}`])]), /* ((beta 7.12, Drawing edit) and each photo note's) */ lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (beta 7.10, Plan kept) the labels and split it was made with)
       mv: Array.isArray(rep.movable) ? rep.movable : null, mvIdx: new Map((rep.movable || []).map((m, i) => [m.id, i])), // ((beta 7.10, Drawing labels) the items the Drawing may move, and each one's place in that list)
@@ -2207,7 +2207,7 @@
   function drwPhNextShow() { const N = drw && drw.phNext; if (!N || drw.mvDrag || drw.hDrag || drw.phDrag) return; drw.phNext = null; if (drw.ph && drw.ph.n > N.ph.n) return; drw.ph = N.ph; drwPlanShow(N.force); }
   /** The plan made for the preview in a worker of its own (an export never waits for it): its report and ((beta 7.9, Drawing preview) dxf-worker.js
    *  only: 'plan') its model space as the PDF prints it, { report, plan }, sent back; null when it fails. */
-  /* (beta 7.15, Fixes) The owner's video: Regenerate plan preview, "Making the plan preview…", then nothing. The plan's worker answers, crashes, or does not answer:
+  /* (beta 7.16, Fixes) The owner's video: Regenerate plan preview, "Making the plan preview…", then nothing. The plan's worker answers, crashes, or does not answer:
      every way it fails now comes back with its reason ({ fail }), said on the Drawing (drwPlanFail); null only when it was stopped on purpose (a newer preview,
      an export, Back). No answer in PH_WAIT ms (2 minutes: a 300-pole Tidy plan takes seconds): the worker let go, "no answer". */
   let PH_WAIT = 120000;
@@ -2272,7 +2272,7 @@
     if (sel || dr) { g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 5 * d; g.strokeRect(-w / 2, -h / 2, w, h); }
     if (!pl || dr || drwPhMoved(id)) { // ((beta 7.9, Drawing preview) over the plan: the plan draws its picture where it prints it; here only its frame, unless it moved)
       g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(-w / 2, -h / 2, w, h);
-      const th = pl && w >= 20 * d && h >= 20 * d ? drwStampPic(it) || drwThumb(it) : null; // (its picture, from the phone, once it is read) ((beta 7.15, Fixes) stamped as the export stamps it)
+      const th = pl && w >= 20 * d && h >= 20 * d ? drwStampPic(it) || drwThumb(it) : null; // (its picture, from the phone, once it is read) ((beta 7.16, Fixes) stamped as the export stamps it)
       if (th) g.drawImage(th, -w / 2, -h / 2, w, h);
       else { const k = Math.min(w / 18, h / 14) * 0.8, s = (u) => u * k, X = -s(9), Y = -s(7); // (the picture sign, as the frames before)
         g.fillStyle = hand ? '#74c0fc' : '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill(); } }
@@ -2421,11 +2421,11 @@
     const LF = PL.lifted, lifted = (o) => o >= 0 && LF && LF.has(o); // ((beta 7.10, Drawing labels) the items moved since this plan was made: drawn last, where they are now)
     /** a picture (a pole's photo): its picture from the phone where the plan prints it (ox, oy: moved by, metres); moved since, where it is now (drwPhFrame) */
     const S0 = [sc, 0, 0, -sc, e, f], setM = (Q) => g.setTransform(Q[0], Q[1], Q[2], Q[3], Q[4], Q[5]); // ((beta 7.11, Drawing tools) A: a lifted item's matrix in the plan's metres, else none)
-    const STP = drwStampNow(); // ((beta 7.15, Fixes) the stamp the export burns into the plan's photos now)
+    const STP = drwStampNow(); // ((beta 7.16, Fixes) the stamp the export burns into the plan's photos now)
     const pic = (im, A) => {
       const m = im.m, id = drw.ph.fileId ? drw.ph.fileId[im.name] : null, nt = id != null && /^note:/.test(id) ? noteNow(id) : null, it = id != null && !nt ? drwEdById(id) : null; // ((beta 7.12, Drawing edit) a photo note's picture: its note's)
       if (it && drwPhMoved(id)) return;
-      const big = Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d, bm = !big ? null : nt ? (nt.photo && nt.photo.pid ? drwThumbPid(nt.photo.pid) : null) : it ? drwStampPic(it, STP) || drwThumb(it) : null, Mi = [m[0], m[1], -m[2], -m[3], m[2] + m[4], m[3] + m[5]]; // ((beta 7.15, Fixes) stamped as the export stamps it)
+      const big = Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d, bm = !big ? null : nt ? (nt.photo && nt.photo.pid ? drwThumbPid(nt.photo.pid) : null) : it ? drwStampPic(it, STP) || drwThumb(it) : null, Mi = [m[0], m[1], -m[2], -m[3], m[2] + m[4], m[3] + m[5]]; // ((beta 7.16, Fixes) stamped as the export stamps it)
       setM(affMul(S0, A ? affMul(A, Mi) : Mi));
       if (bm) g.drawImage(bm, 0, 0, 1, 1); else { g.fillStyle = '#e9ecef'; g.fillRect(0, 0, 1, 1); } // (until it is read, or none: a grey square)
       nT++;
@@ -2542,8 +2542,8 @@
     return null;
   }
   /** The photos' pictures let go (the Drawing closed). */
-  function drwThumbsFree() { for (const x of drwThumbs.values()) if (x.bm) x.bm.close(); drwThumbs.clear(); for (const x of drwStamps.values()) if (x.bm) x.bm.close(); drwStamps.clear(); drwStampQ = []; drwStampLoc = null; } // ((beta 7.15, Fixes) and the stamped ones, their addresses (worked out again next time: a road pack added since))
-  /* (beta 7.15, Fixes) The owner: "Stamp on the plan's photos: enabled but not shown on preview." The Drawing's plan preview shows each pole's photo as the export
+  function drwThumbsFree() { for (const x of drwThumbs.values()) if (x.bm) x.bm.close(); drwThumbs.clear(); for (const x of drwStamps.values()) if (x.bm) x.bm.close(); drwStamps.clear(); drwStampQ = []; drwStampLoc = null; } // ((beta 7.16, Fixes) and the stamped ones, their addresses (worked out again next time: a road pack added since))
+  /* (beta 7.16, Fixes) The owner: "Stamp on the plan's photos: enabled but not shown on preview." The Drawing's plan preview shows each pole's photo as the export
      makes it for the plan: with the band the export burns into it (Export › Photos with their locations › Same stamp on the plan's photos: the geotag band with the
      fields chosen; else Plan style › Photos › Stamp on the photos: lat, long and the address), plain when neither is on. Drawn as the export draws it (photoCanvas,
      pdfJpeg's own drawing: 800 px on its long side, the band sized as it prints), then kept small (a bitmap 320 px across) per photo and per stamp (its settings,
@@ -2594,11 +2594,11 @@
   function drwPlanShow(said) {
     if (!drw) return; drwMvShowPins(); if (drw.mvSel && !(drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.mvSel))) drw.mvSel = null; drw.mvSels = drwSels(); drwPhHint(); drwPlanUi(); renderDrawLegend(); drwTbRender(); drawDrawing(); // ((beta 7.10, Drawing labels) each item where its pin puts it, until the plan made with it comes) ((beta 7.11, Drawing tools) the selection still on the plan, its toolbar)
     if (drw.selWant && drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.selWant) && !drw.add && !drwSels().length) { const w = drw.selWant; drw.selWant = null; drwMvTap(w); } // ((beta 7.12, Drawing edit) a note just added: selected once the plan has it)
-    if (drw.plFail && drw.ph && drw.ph.plan && (drw.ph.made || 0) >= drw.plFail.at) { drw.plFail = null; const b = $('drawRegenT'); if (b.classList.contains('fail')) { b.classList.remove('fail'); b.textContent = ''; } } // ((beta 7.15, Fixes) a plan made after it: its failure said no more (the photos shown without the plan, or the one made before: still said))
+    if (drw.plFail && drw.ph && drw.ph.plan && (drw.ph.made || 0) >= drw.plFail.at) { drw.plFail = null; const b = $('drawRegenT'); if (b.classList.contains('fail')) { b.classList.remove('fail'); b.textContent = ''; } } // ((beta 7.16, Fixes) a plan made after it: its failure said no more (the photos shown without the plan, or the one made before: still said))
     if (said && drw.ph && !drw.plFail) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
   }
   let rkAgainOn = ''; // ((beta 7.14, Roads again) the project whose roads are being got again ('': none), roadsAgain)
-  /** (beta 7.15, Fixes) The plan preview could not be made (e: an Error or a reason; how: 'made' or 'drawn'): said plainly where Regenerate says what it does (a toast
+  /** (beta 7.16, Fixes) The plan preview could not be made (e: an Error or a reason; how: 'made' or 'drawn'): said plainly where Regenerate says what it does (a toast
    *  when Regenerate is not there), kept 20 s or until the next preview, and logged (draw.plan.fail). Never a silent stop. */
   function drwPlanFail(e, how) {
     const err = e instanceof Error ? e : new Error(String((e && e.message) || e || 'unknown')), why = String(err.message || 'unknown').replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').slice(0, 220);
@@ -2613,7 +2613,7 @@
     const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen');
     rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
     { const rd = $('drawRoads'), on = !!rkAgainOn; rd.hidden = rg.hidden || !$('dxfRoads').checked; rd.disabled = on; rd.setAttribute('aria-busy', String(on)); rg.classList.toggle('withrd', !rd.hidden); } // ((beta 7.14, Roads again) Get the roads again beside it, while the plan has roads (Plan style); not while they are being got)
-    if (busy) { $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; $('drawRegenT').classList.remove('fail'); } else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = ''; // ((beta 7.15, Fixes) a failure said: Making… in its place)
+    if (busy) { $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; $('drawRegenT').classList.remove('fail'); } else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = ''; // ((beta 7.16, Fixes) a failure said: Making… in its place)
     $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
     drwChgRender(pl); // ((beta 7.14, Changed by hand) in Edit: how many moved and changed by hand, its list (7.9–7.13's chip "placed by hand · Back to automatic": its Put all back))
     drwIcoRender(); // ((beta 7.10, Drawing labels) Undo, while there is a change to take back; (beta 7.12, Drawing edit) in the row of the Drawing's tools)
@@ -2694,7 +2694,7 @@
    *  which takes pins first, has the item whole), poleAt (the poles and sites moved on the plan), style and styleKind (the toolbar's: This one, All like it),
    *  leaders (Plan style › Lines to the pole: photos, pole details, numbers; sent when one is off) and cloStyle (Plan style › Closure labels: Bubble). */
   function toolJob(m, P) {
-    // ((beta 7.15, Fixes) the owner's export stopped on "Cannot read properties of null (reading 'id')": what is kept of the Drawing's edits reaches the plan only when
+    // ((beta 7.16, Fixes) the owner's export stopped on "Cannot read properties of null (reading 'id')": what is kept of the Drawing's edits reaches the plan only when
     // it is whole (an entry left empty by an older version, a cut-off save or a point deleted since: left out), so neither the preview nor the export trips on it)
     const o = {}, cp = (v) => JSON.parse(JSON.stringify(v)), mv = mvOk(m && m.mvPin, isObj), ks = Object.keys(mv);
     if (ks.length) o.pins = Object.fromEntries(ks.map((id) => [id, { ...(pin710(m, id) || {}), ...cp(mv[id]) }]));
@@ -2709,7 +2709,7 @@
     const hd = Object.keys(mvOk(m && m.mvHide, (v) => !!v)); if (hd.length) o.hide = hd; // ((beta 7.12, Drawing edit) the items deleted from the plan only)
     return o;
   }
-  /* (beta 7.15, Fixes) Whole entries only, for the plan and the count of what was changed by hand: an object; a point's place [E, N]; an ordering op { id, op }. */
+  /* (beta 7.16, Fixes) Whole entries only, for the plan and the count of what was changed by hand: an object; a point's place [E, N]; an ordering op { id, op }. */
   const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
   const isEN = (v) => Array.isArray(v) && v.length >= 2 && Number.isFinite(+v[0]) && Number.isFinite(+v[1]);
   /** M's entries (a pmeta map: mvPin, mvStyle…) whose key is a name and whose value passes ok; {} for anything else. */
@@ -2717,7 +2717,7 @@
   /** The draw order kept (pmeta mvOrder), its whole ops only. */
   const orderOk = (m) => (m && Array.isArray(m.mvOrder) ? m.mvOrder : []).filter((x) => isObj(x) && x.id != null && String(x.id) !== '' && typeof x.op === 'string');
   /** (beta 7.12, Drawing edit) A project's notes (pmeta() m): the texts and photos added on its plan. */
-  const notesOf = (m) => (m && Array.isArray(m.drwNotes) ? m.drwNotes.filter((n) => isObj(n) && n.id && isEN(n.at)) : []); // ((beta 7.15, Fixes) a note whole: an id, a place of numbers) ((beta 7.16, Fixes) drwNotes)
+  const notesOf = (m) => (m && Array.isArray(m.drwNotes) ? m.drwNotes.filter((n) => isObj(n) && n.id && isEN(n.at)) : []); // ((beta 7.16, Fixes) a note whole: an id, a place of numbers) ((beta 7.16, Fixes) drwNotes)
   /* (beta 7.16, Fixes) The project's REMARKS / NOTES (Projects › the project's details, #curNotes: pmeta().notes, a text, since long before) and the texts and
      photos added on the Drawing (beta 7.12 to 7.15: pmeta().notes too, a list) shared one key: a note added on the Drawing wiped the remarks; with notes, the
      remarks box showed "[object Object]" and a remark typed there wiped every note; the remarks no longer went to the team (shareMeta left notes out). The
@@ -2739,7 +2739,7 @@
   function notesMoveAll() { let n = 0; for (const k of Object.keys((S && S.meta) || {})) if (notesMove(k, true) >= 0) n++; if (n) persist(); return n; }
   /** A note as the plan's job has it (job.notes): its photo by the file the export writes next to the DXF (NOTE_<id>.jpg; its bytes made from the photo store). */
   const noteJob = (n) => { const o = { id: String(n.id), kind: n.kind === 'photo' ? 'photo' : 'text', at: [+n.at[0], +n.at[1]] }; if (+n.rot) o.rot = +n.rot;
-    if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map((x) => (x == null ? '' : String(x))); /* ((beta 7.15, Fixes) a line left empty: empty, not "null") */ for (const k of ['h', 'bold', 'italic', 'color', 'align', 'wrap', 'spacing', 'font', 'underline']) if (n[k] != null) o[k] = n[k]; } // ((beta 7.14, Text editor) its format: align, wrap, spacing, font, underline)
+    if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map((x) => (x == null ? '' : String(x))); /* ((beta 7.16, Fixes) a line left empty: empty, not "null") */ for (const k of ['h', 'bold', 'italic', 'color', 'align', 'wrap', 'spacing', 'font', 'underline']) if (n[k] != null) o[k] = n[k]; } // ((beta 7.14, Text editor) its format: align, wrap, spacing, font, underline)
     else { o.photo = { file: `NOTE_${n.id}.jpg`, px: +((n.photo || {}).px) || 800, py: +((n.photo || {}).py) || 600 }; if (+n.size > 0) o.size = +n.size; }
     return o; };
   /** (beta 7.12, Drawing edit) A note's item on the plan (report.movable id note:<id>, kind note or notephoto). */
@@ -3886,11 +3886,11 @@
   const chgPid = (id) => { const s0 = String(id), i = s0.indexOf(':'); return i > 0 && CHG_PT.has(s0.slice(0, i)) ? s0.slice(i + 1).split(':')[0] : null; };
   /** What the Drawing changed in records, kept with the plan's edits (nm: the project's pmeta being kept, changed here; E: [[element id, [point ids]], …]; w: moved,
    *  status, del, text). */
-  const drwRecLog = (nm, E, w) => { if (E && E.length) { const L = { ...mvOk(nm.mvRec, isObj) }; for (const [id, P] of E) { const x = L[id] || {}, p0 = Array.isArray(x.p) ? x.p : [], w0 = Array.isArray(x.w) ? x.w : []; L[id] = { p: [...new Set([...p0.map(String), ...P.map(String)])], w: [...new Set([...w0, w])] }; } nm.mvRec = L; } return nm; }; // ((beta 7.15, Fixes) an entry left broken: made whole)
+  const drwRecLog = (nm, E, w) => { if (E && E.length) { const L = { ...mvOk(nm.mvRec, isObj) }; for (const [id, P] of E) { const x = L[id] || {}, p0 = Array.isArray(x.p) ? x.p : [], w0 = Array.isArray(x.w) ? x.w : []; L[id] = { p: [...new Set([...p0.map(String), ...P.map(String)])], w: [...new Set([...w0, w])] }; } nm.mvRec = L; } return nm; }; // ((beta 7.16, Fixes) an entry left broken: made whole)
   /** The elements changed by hand on a project's plan: rows { id, kind, did (Set of CHG_DID), rec (Set of CHG_REC: in the record), moved, note, of (All like it: the
    *  kind) }, in the plan's order (the others after, the styles for All like it last). An element of a point deleted since: not listed. */
   function drwChgRows(proj) {
-    const m = pmeta(proj), R = new Map(), alive = new Set(points.filter((p) => p && p.project === proj).map((p) => String(p.id))), T = mvOk(m.mvTurn, (v) => v != null), NT = notesOf(m), N = new Set(NT.map((n) => `note:${n.id}`)); // ((beta 7.15, Fixes) whole entries only (mvOk, notesOf): a leftover of an older version or of a point deleted since is not counted)
+    const m = pmeta(proj), R = new Map(), alive = new Set(points.filter((p) => p && p.project === proj).map((p) => String(p.id))), T = mvOk(m.mvTurn, (v) => v != null), NT = notesOf(m), N = new Set(NT.map((n) => `note:${n.id}`)); // ((beta 7.16, Fixes) whole entries only (mvOk, notesOf): a leftover of an older version or of a point deleted since is not counted)
     const row = (id) => { const k = String(id); let r = R.get(k); if (!r) { r = { id: k, did: new Set(), rec: new Set() }; R.set(k, r); } return r; };
     const near = (a, b) => Array.isArray(a) && Array.isArray(b) && Math.hypot(+a[0] - +b[0], +a[1] - +b[1]) < 0.05;
     for (const pid of Object.keys(mvOk(m.phPin, isEN))) row(`ph:${pid}`).did.add('moved');
@@ -14710,8 +14710,8 @@
     // beta 6.6 (the owner: "under drawing style, let the user decide, off by default"): Drawing style › Loops at boxes and ODF entrances › Written: each such loop the PMI counts, for the plan to write beside its point
     const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
     const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
-    const phPin = mvOk(m.phPin, isEN); // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres) ((beta 7.15, Fixes) whole ones only)
-    const numPin = mvOk(m.numPin, isEN), lblPin = mvOk(m.lblPin, isEN), cabPin = mvOk(m.cabPin, (v) => isObj(v) && isEN(v.at)); // ((beta 7.15, Fixes) whole ones only)
+    const phPin = mvOk(m.phPin, isEN); // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres) ((beta 7.16, Fixes) whole ones only)
+    const numPin = mvOk(m.numPin, isEN), lblPin = mvOk(m.lblPin, isEN), cabPin = mvOk(m.cabPin, (v) => isObj(v) && isEN(v.at)); // ((beta 7.16, Fixes) whole ones only)
     // ((beta 7.10, Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
     const gridKeep = pinsAny(m) ? planGridOf(m) : null; // ((beta 7.10, Plan kept) the plan edited on the Drawing keeps its grid: its sheets and their names; (beta 7.10, Drawing labels) a photo, label, number or pole's details placed by hand)
     const tools = toolJob(m, PS); // ((beta 7.11, Drawing tools) the items turned, styled, their arrow's tip, the poles moved on the Drawing, Lines to the pole, Closure labels: only those set)
@@ -14948,7 +14948,7 @@
 
   /* ---- beta 3.5: the Photo report (RTA-like) ---- */
   /** Where each pole is, in words: the nearest named road (within 60 m) of the road pack, its barangay and city / municipality. */
-  async function poleLocations(list, keepBusy, quiet) { // (beta 6.4: keepBusy: the busy screen of the export stays) ((beta 7.15, Fixes) quiet: no busy screen at all, for the Drawing's preview)
+  async function poleLocations(list, keepBusy, quiet) { // (beta 6.4: keepBusy: the busy screen of the export stays) ((beta 7.16, Fixes) quiet: no busy screen at all, for the Drawing's preview)
     const out = new Map(); if (!list.length) return out;
     const la = list.map((p) => p.lat), lo = list.map((p) => p.lon), pad = 0.002, bb = [Math.min(...la) - pad, Math.min(...lo) - pad, Math.max(...la) + pad, Math.max(...lo) + pad];
     let A = null, R = null;
@@ -15849,10 +15849,10 @@
 
   /** Smaller JPEG for the PDF so a report with hundreds of photos stays shareable. */
   async function pdfJpeg(pid, maxPx, stampLines, stampColor, quality, band, geo) { // (beta 6.4: band: the plan photo's stamp, planStamp; beta 7.6 / 2.45.8: geo { p, fields }: the geotag band instead, geoStamp)
-    const cv = await photoCanvas(pid, maxPx, stampLines, stampColor, band, geo); if (!cv) return null; // ((beta 7.15, Fixes) drawn by photoCanvas: the Drawing's preview draws the plan's photos the same way)
+    const cv = await photoCanvas(pid, maxPx, stampLines, stampColor, band, geo); if (!cv) return null; // ((beta 7.16, Fixes) drawn by photoCanvas: the Drawing's preview draws the plan's photos the same way)
     return new Uint8Array(await (await toBlob(cv, quality || 0.72)).arrayBuffer());
   }
-  /** (beta 7.15, Fixes) A photo drawn as pdfJpeg makes it (maxPx on its long side, its stamps burned in), as a canvas; null without its picture. */
+  /** (beta 7.16, Fixes) A photo drawn as pdfJpeg makes it (maxPx on its long side, its stamps burned in), as a canvas; null without its picture. */
   async function photoCanvas(pid, maxPx, stampLines, stampColor, band, geo) {
     const ph = await dbGet('photos', pid).catch(() => null);
     if (!ph || !ph.clean) return null;
@@ -15867,7 +15867,7 @@
       stampLines.forEach((t, i) => { g.font = `${i ? '' : '700 '}${fs}px sans-serif`; g.fillText(t, pad * 1.5, cv.height - bandH + pad + i * lh, cv.width - pad * 3); });
     }
     if (band) planStamp(g, cv.width, cv.height, band);
-    if (geo) await geoStamp(g, cv.width, cv.height, geo.p, null, null, { fields: geo.fields, ...(geo.addr != null ? { addr: geo.addr } : {}) }); // ((beta 7.15, Fixes) the Drawing's preview: its address given (found quietly); the export: looked up here as before)
+    if (geo) await geoStamp(g, cv.width, cv.height, geo.p, null, null, { fields: geo.fields, ...(geo.addr != null ? { addr: geo.addr } : {}) }); // ((beta 7.16, Fixes) the Drawing's preview: its address given (found quietly); the export: looked up here as before)
     return cv;
   }
   /** beta 6.4: the caption band of a photo on the plan (Drawing style › Photos on the plan › Stamp on the photos): lat, long (6 decimals)
@@ -16497,7 +16497,7 @@
     ['stampFields', 'stampFields2'].forEach((id) => $(id).querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(S.exp.stampFields.includes(c.dataset.v)))));
     ['setStampPlan', 'setStampPlan2'].forEach((id) => { const el = $(id), sub = $(`${id}Sub`); if (!el) return; el.disabled = !S.exp.stamp; if (sub) sub.textContent = S.exp.stamp ? `The plan\u2019s photos get this caption band (the fields ${id === 'setStampPlan' ? 'under More options' : 'above'}) instead of lat, long and address` : 'Only with Stamp on the photo files'; }); // beta 7.6 / 2.45.8: greyed with the stamp off (geoOnPlan)
     [['setZone', 'zone'], ['setSym', 'sym'], ['setTxt', 'txt']].forEach(([a, key]) => { const el = $(a); if (el) el.value = String(S[key]); }); // (beta 6.7, UX step 4; critic: S.zone, S.sym, S.txt: Plan style › Plan file only, their Settings copies setZone2, setSym2, setTxt2 gone)
-    if (drw && drw.view && !$('drawing').hidden) drawDrawing(); // ((beta 7.15, Fixes) the stamp on the plan's photos changed: the Drawing's photos as the export makes them now)
+    if (drw && drw.view && !$('drawing').hidden) drawDrawing(); // ((beta 7.16, Fixes) the stamp on the plan's photos changed: the Drawing's photos as the export makes them now)
   }
   Object.entries(expIds).forEach(([key, ids]) => ids.forEach(([id, kind]) => {
     const el = $(id); if (!el) return;
@@ -23330,8 +23330,8 @@
     return out; };
   window.__polecam.drwMvItem = (id) => { const m = drw && mvById(id); if (!m) return null; const i = mvIx(id), PL = drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; return JSON.parse(JSON.stringify({ ...m, handles: m.handles.length, canNow: canOf(m), lifted: L ? { off: L.off, xf: L.xf } : null, boxNow: drwMvBox(m, i) })); };
   window.__polecam.drwStamp = () => ({ now: drwStampNow(), made: [...drwStamps.entries()].map(([k, x]) => ({ key: k, ok: !!x.bm, w: x.bm ? x.bm.width : 0, h: x.bm ? x.bm.height : 0 })), queue: drwStampQ.length, busy: drwStampBusy, n: drwStampN, addr: drwStampLoc && drwStampLoc.map ? Object.fromEntries(drwStampLoc.map) : null });
-  window.__polecam.drwStampCap = (n) => { if (n > 0) DRW_STAMPS = +n; return DRW_STAMPS; }; // ((beta 7.15, Fixes) tests: how many stamped photos are kept) // ((beta 7.15, Fixes) tests: the stamped photos of the preview)
-  window.__polecam.drwPreviewWait = (ms) => { if (ms > 0) PH_WAIT = +ms; return PH_WAIT; }; // ((beta 7.15, Fixes) tests: how long the preview's worker is waited for)
+  window.__polecam.drwStampCap = (n) => { if (n > 0) DRW_STAMPS = +n; return DRW_STAMPS; }; // ((beta 7.16, Fixes) tests: how many stamped photos are kept) // ((beta 7.16, Fixes) tests: the stamped photos of the preview)
+  window.__polecam.drwPreviewWait = (ms) => { if (ms > 0) PH_WAIT = +ms; return PH_WAIT; }; // ((beta 7.16, Fixes) tests: how long the preview's worker is waited for)
   window.__polecam.drwJobTools = () => (drw && drw.ph ? JSON.parse(JSON.stringify(drw.ph.tools || null)) : null);
   window.__polecam.drwCands = (x, y, mouse) => (drw ? drwCands({ clientX: x, clientY: y, pointerType: mouse ? 'mouse' : 'touch' }).map((c) => ({ ...c })) : null); // ((beta 7.11, Drawing tools) tests: what a tap there goes through)
   window.__polecam.shareMeta = (n) => JSON.parse(JSON.stringify(shareMeta(n || S.project))); // ((beta 7.11, Drawing tools) tests: what a project shares with the team)
