@@ -2269,7 +2269,7 @@
     if (sel || dr) { g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 5 * d; g.strokeRect(-w / 2, -h / 2, w, h); }
     if (!pl || dr || drwPhMoved(id)) { // ((beta 7.9, Drawing preview) over the plan: the plan draws its picture where it prints it; here only its frame, unless it moved)
       g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(-w / 2, -h / 2, w, h);
-      const th = pl && w >= 20 * d && h >= 20 * d ? drwThumb(it) : null; // (its picture, from the phone, once it is read)
+      const th = pl && w >= 20 * d && h >= 20 * d ? drwStampPic(it) || drwThumb(it) : null; // (its picture, from the phone, once it is read) ((beta 7.15, Fixes) stamped as the export stamps it)
       if (th) g.drawImage(th, -w / 2, -h / 2, w, h);
       else { const k = Math.min(w / 18, h / 14) * 0.8, s = (u) => u * k, X = -s(9), Y = -s(7); // (the picture sign, as the frames before)
         g.fillStyle = hand ? '#74c0fc' : '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill(); } }
@@ -2418,10 +2418,11 @@
     const LF = PL.lifted, lifted = (o) => o >= 0 && LF && LF.has(o); // ((beta 7.10, Drawing labels) the items moved since this plan was made: drawn last, where they are now)
     /** a picture (a pole's photo): its picture from the phone where the plan prints it (ox, oy: moved by, metres); moved since, where it is now (drwPhFrame) */
     const S0 = [sc, 0, 0, -sc, e, f], setM = (Q) => g.setTransform(Q[0], Q[1], Q[2], Q[3], Q[4], Q[5]); // ((beta 7.11, Drawing tools) A: a lifted item's matrix in the plan's metres, else none)
+    const STP = drwStampNow(); // ((beta 7.15, Fixes) the stamp the export burns into the plan's photos now)
     const pic = (im, A) => {
       const m = im.m, id = drw.ph.fileId ? drw.ph.fileId[im.name] : null, nt = id != null && /^note:/.test(id) ? noteNow(id) : null, it = id != null && !nt ? drwEdById(id) : null; // ((beta 7.12, Drawing edit) a photo note's picture: its note's)
       if (it && drwPhMoved(id)) return;
-      const big = Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d, bm = !big ? null : nt ? (nt.photo && nt.photo.pid ? drwThumbPid(nt.photo.pid) : null) : it ? drwThumb(it) : null, Mi = [m[0], m[1], -m[2], -m[3], m[2] + m[4], m[3] + m[5]];
+      const big = Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d, bm = !big ? null : nt ? (nt.photo && nt.photo.pid ? drwThumbPid(nt.photo.pid) : null) : it ? drwStampPic(it, STP) || drwThumb(it) : null, Mi = [m[0], m[1], -m[2], -m[3], m[2] + m[4], m[3] + m[5]]; // ((beta 7.15, Fixes) stamped as the export stamps it)
       setM(affMul(S0, A ? affMul(A, Mi) : Mi));
       if (bm) g.drawImage(bm, 0, 0, 1, 1); else { g.fillStyle = '#e9ecef'; g.fillRect(0, 0, 1, 1); } // (until it is read, or none: a grey square)
       nT++;
@@ -2538,7 +2539,49 @@
     return null;
   }
   /** The photos' pictures let go (the Drawing closed). */
-  function drwThumbsFree() { for (const x of drwThumbs.values()) if (x.bm) x.bm.close(); drwThumbs.clear(); }
+  function drwThumbsFree() { for (const x of drwThumbs.values()) if (x.bm) x.bm.close(); drwThumbs.clear(); for (const x of drwStamps.values()) if (x.bm) x.bm.close(); drwStamps.clear(); drwStampQ = []; drwStampLoc = null; } // ((beta 7.15, Fixes) and the stamped ones, their addresses (worked out again next time: a road pack added since))
+  /* (beta 7.15, Fixes) The owner: "Stamp on the plan's photos: enabled but not shown on preview." The Drawing's plan preview shows each pole's photo as the export
+     makes it for the plan: with the band the export burns into it (Export › Photos with their locations › Same stamp on the plan's photos: the geotag band with the
+     fields chosen; else Plan style › Photos › Stamp on the photos: lat, long and the address), plain when neither is on. Drawn as the export draws it (photoCanvas,
+     pdfJpeg's own drawing: 800 px on its long side, the band sized as it prints), then kept small (a bitmap 320 px across) per photo and per stamp (its settings,
+     the point's place and record, the address), so a pan or a zoom draws it at once; made one at a time, only for the photos on the screen, the plain picture
+     until it is made. The tick, the stamp's fields or Plan style's stamp changed: the photos stamped anew (another key); let go when the Drawing closes. */
+  const drwStamps = new Map(); let drwStampQ = [], drwStampBusy = false, drwStampLoc = null;
+  /** The stamp the export burns into the plan's photos now: { geo: true, fields } (Same stamp on the plan's photos), { geo: false, pst, mm } (Plan style's), or null. */
+  function drwStampNow() {
+    if (geoOnPlan()) return { geo: true, fields: Array.isArray(S.exp.stampFields) ? S.exp.stampFields.slice() : null };
+    const PLS = plStyle(), pst = PLS.photo && PLS.photo.stamp ? PLS.photo.stamp : 'off'; return pst === 'off' ? null : { geo: false, pst, mm: phTidyMm(PLS.photo.size) };
+  }
+  /** The addresses of the project's points with photos for Plan style's stamp, from the road packs on the phone (as planJob gets them; quietly), worked out once for
+   *  where the points are; null while they are being worked out. */
+  function drwStampAddr() {
+    if (!drw) return null; const L = (drw.items || []).map((x) => x.p).filter((p) => p && coverPid(p) && Number.isFinite(+p.lat) && Number.isFinite(+p.lon)), sig = strHash(`${drw.project}|${L.map((p) => `${p.id}:${(+p.lat).toFixed(6)},${(+p.lon).toFixed(6)}`).join(';')}`);
+    if (drwStampLoc && drwStampLoc.sig === sig && drwStampLoc.map) return drwStampLoc.map; if (drwStampLoc && drwStampLoc.busy === sig) return null;
+    drwStampLoc = { sig: '', busy: sig, map: null };
+    poleLocations(L, true, true).catch((e) => { LOG.warn('draw.stamp.addr', errInfo(e)); return new Map(); }).then((M) => { if (drwStampLoc && drwStampLoc.busy === sig) drwStampLoc = { sig, busy: '', map: M || new Map() }; if (drw && !$('drawing').hidden) drawDrawing(); });
+    return null;
+  }
+  /** Point it's photo stamped as the plan prints it (an ImageBitmap), or null: no stamp now, or not made yet (asked for: the plain picture until then). St: drwStampNow(). */
+  function drwStampPic(it, St) {
+    const q = it && it.p; if (St === undefined) St = drwStampNow(); if (!q || !St || !Number.isFinite(+q.lat) || !Number.isFinite(+q.lon)) return null;
+    const pid = coverPid(q) || q.id; let addr = '';
+    if (St.geo ? !St.fields || St.fields.includes('addr') : St.pst === 'addr') { const A = drwStampAddr(); if (!A) return null; addr = A.get(q.id) || ''; } // (the address, worked out quietly here: the geotag band's own lookup shows the busy screen)
+    const key = St.geo ? `${pid}|G|${JSON.stringify(St.fields)}|${q.updated || ''}|${q.lat},${q.lon}|${S.zone}|${addr}` : `${pid}|P|${St.pst}|${St.mm}|${(+q.lat).toFixed(6)},${(+q.lon).toFixed(6)}|${addr}`;
+    const T = drwStamps.get(key); if (T) { if (T.bm) { drwStamps.delete(key); drwStamps.set(key, T); } return T.bm; } // (the latest used last: the oldest first out)
+    if (!drwStampQ.some((J) => J.key === key)) { drwStampQ.push({ key, pid, band: St.geo ? null : { lat: q.lat, lon: q.lon, addr, mm: St.mm }, geo: St.geo ? { p: q, fields: St.fields, addr } : null }); if (drwStampQ.length > 200) drwStampQ.shift(); }
+    if (!drwStampBusy) setTimeout(drwStampPump, 0); return null;
+  }
+  /** The stamped pictures asked for, made one at a time (the export's drawing, then small); the Drawing drawn again as each comes. */
+  async function drwStampPump() {
+    if (drwStampBusy || !drwStampQ.length || !drw || $('drawing').hidden) return; drwStampBusy = true; const J = drwStampQ.shift();
+    try {
+      let bm = null; const cv = await photoCanvas(J.pid, 800, null, null, J.band, J.geo);
+      if (cv) { const k = Math.min(1, 320 / Math.max(cv.width, cv.height)); bm = await createImageBitmap(cv, { resizeWidth: Math.max(1, Math.round(cv.width * k)), resizeHeight: Math.max(1, Math.round(cv.height * k)), resizeQuality: 'high' }); cv.width = 0; cv.height = 0; }
+      while (drwStamps.size >= 80) { const [k0, x] = drwStamps.entries().next().value; drwStamps.delete(k0); if (x.bm) x.bm.close(); }
+      drwStamps.set(J.key, { bm }); if (!drwThumbQ) drwThumbQ = requestAnimationFrame(() => { drwThumbQ = 0; if (drw && !$('drawing').hidden) drawDrawing(); });
+    } catch (e) { LOG.warn('draw.stamp', errInfo(e)); drwStamps.set(J.key, { bm: null }); } // (not made: the plain picture)
+    finally { drwStampBusy = false; if (drwStampQ.length) setTimeout(drwStampPump, 30); }
+  }
   /** No plan to preview (the Simple drawing, no template on the phone): the Drawing as before. */
   function drwPlanNone() { if (!drw) return; const had = !!drw.ph || drw.plWant; drw.ph = null; drw.phBusy = false; drw.plWant = false; drwPhForce = false; drwPlanUi(); if (had) { drwPhHint(); renderDrawLegend(); drawDrawing(); } }
   /** The preview made (or as made last time): shown. said: made again by Regenerate plan preview: said beside it, a moment. */
@@ -14879,13 +14922,13 @@
 
   /* ---- beta 3.5: the Photo report (RTA-like) ---- */
   /** Where each pole is, in words: the nearest named road (within 60 m) of the road pack, its barangay and city / municipality. */
-  async function poleLocations(list, keepBusy) { // (beta 6.4: keepBusy: the busy screen of the export stays)
+  async function poleLocations(list, keepBusy, quiet) { // (beta 6.4: keepBusy: the busy screen of the export stays) ((beta 7.15, Fixes) quiet: no busy screen at all, for the Drawing's preview)
     const out = new Map(); if (!list.length) return out;
     const la = list.map((p) => p.lat), lo = list.map((p) => p.lon), pad = 0.002, bb = [Math.min(...la) - pad, Math.min(...lo) - pad, Math.max(...la) + pad, Math.max(...lo) + pad];
     let A = null, R = null;
     try { A = await adminFromRoadPacks(list.map((p) => ({ lat: p.lat, lon: p.lon }))); } catch (e) { LOG.warn('report.admin', errInfo(e)); }
-    try { R = await roadsFromRoadPacks(bb); } catch (e) { LOG.warn('report.roads', errInfo(e)); }
-    if (!keepBusy) busy(false);
+    try { R = await roadsFromRoadPacks(bb, undefined, !!quiet); } catch (e) { LOG.warn('report.roads', errInfo(e)); }
+    if (!keepBusy && !quiet) busy(false);
     const roads = ((R && R.roads) || []).filter((r) => r.name);
     const dSeg = (p, a, b) => { const k = Math.cos(p.lat * Math.PI / 180) * 111320, ax = (a[1] - p.lon) * k, ay = (a[0] - p.lat) * 110540, bx = (b[1] - p.lon) * k, by = (b[0] - p.lat) * 110540, dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
       const t = L2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2)) : 0; return Math.hypot(ax + t * dx, ay + t * dy); };
@@ -15776,6 +15819,11 @@
 
   /** Smaller JPEG for the PDF so a report with hundreds of photos stays shareable. */
   async function pdfJpeg(pid, maxPx, stampLines, stampColor, quality, band, geo) { // (beta 6.4: band: the plan photo's stamp, planStamp; beta 7.6 / 2.45.8: geo { p, fields }: the geotag band instead, geoStamp)
+    const cv = await photoCanvas(pid, maxPx, stampLines, stampColor, band, geo); if (!cv) return null; // ((beta 7.15, Fixes) drawn by photoCanvas: the Drawing's preview draws the plan's photos the same way)
+    return new Uint8Array(await (await toBlob(cv, quality || 0.72)).arrayBuffer());
+  }
+  /** (beta 7.15, Fixes) A photo drawn as pdfJpeg makes it (maxPx on its long side, its stamps burned in), as a canvas; null without its picture. */
+  async function photoCanvas(pid, maxPx, stampLines, stampColor, band, geo) {
     const ph = await dbGet('photos', pid).catch(() => null);
     if (!ph || !ph.clean) return null;
     const im = await loadImage(ph.clean), { w, h } = dims(im), sc = Math.min(1, maxPx / Math.max(w, h));
@@ -15789,8 +15837,8 @@
       stampLines.forEach((t, i) => { g.font = `${i ? '' : '700 '}${fs}px sans-serif`; g.fillText(t, pad * 1.5, cv.height - bandH + pad + i * lh, cv.width - pad * 3); });
     }
     if (band) planStamp(g, cv.width, cv.height, band);
-    if (geo) await geoStamp(g, cv.width, cv.height, geo.p, null, null, { fields: geo.fields });
-    return new Uint8Array(await (await toBlob(cv, quality || 0.72)).arrayBuffer());
+    if (geo) await geoStamp(g, cv.width, cv.height, geo.p, null, null, { fields: geo.fields, ...(geo.addr != null ? { addr: geo.addr } : {}) }); // ((beta 7.15, Fixes) the Drawing's preview: its address given (found quietly); the export: looked up here as before)
+    return cv;
   }
   /** beta 6.4: the caption band of a photo on the plan (Drawing style › Photos on the plan › Stamp on the photos): lat, long (6 decimals)
       on one line, the address under it (two lines at most, shortened with … past that), white on a dark band at the foot of the
@@ -16419,6 +16467,7 @@
     ['stampFields', 'stampFields2'].forEach((id) => $(id).querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(S.exp.stampFields.includes(c.dataset.v)))));
     ['setStampPlan', 'setStampPlan2'].forEach((id) => { const el = $(id), sub = $(`${id}Sub`); if (!el) return; el.disabled = !S.exp.stamp; if (sub) sub.textContent = S.exp.stamp ? `The plan\u2019s photos get this caption band (the fields ${id === 'setStampPlan' ? 'under More options' : 'above'}) instead of lat, long and address` : 'Only with Stamp on the photo files'; }); // beta 7.6 / 2.45.8: greyed with the stamp off (geoOnPlan)
     [['setZone', 'zone'], ['setSym', 'sym'], ['setTxt', 'txt']].forEach(([a, key]) => { const el = $(a); if (el) el.value = String(S[key]); }); // (beta 6.7, UX step 4; critic: S.zone, S.sym, S.txt: Plan style › Plan file only, their Settings copies setZone2, setSym2, setTxt2 gone)
+    if (drw && drw.view && !$('drawing').hidden) drawDrawing(); // ((beta 7.15, Fixes) the stamp on the plan's photos changed: the Drawing's photos as the export makes them now)
   }
   Object.entries(expIds).forEach(([key, ids]) => ids.forEach(([id, kind]) => {
     const el = $(id); if (!el) return;
@@ -23250,6 +23299,7 @@
       for (let q = IT[4 * k + 2]; q < IT[4 * k + 2] + IT[4 * k + 3]; q++) { const f = SB[3 * q], c = SB[3 * q + 1], L = []; for (let j = 0; j < c; j++) L.push([Pp[2 * (f + j)] + o[0], Pp[2 * (f + j) + 1] + o[1]]); out.lines.push(L); } }
     return out; };
   window.__polecam.drwMvItem = (id) => { const m = drw && mvById(id); if (!m) return null; const i = mvIx(id), PL = drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; return JSON.parse(JSON.stringify({ ...m, handles: m.handles.length, canNow: canOf(m), lifted: L ? { off: L.off, xf: L.xf } : null, boxNow: drwMvBox(m, i) })); };
+  window.__polecam.drwStamp = () => ({ now: drwStampNow(), made: [...drwStamps.entries()].map(([k, x]) => ({ key: k, ok: !!x.bm, w: x.bm ? x.bm.width : 0, h: x.bm ? x.bm.height : 0 })), queue: drwStampQ.length, busy: drwStampBusy, addr: drwStampLoc && drwStampLoc.map ? Object.fromEntries(drwStampLoc.map) : null }); // ((beta 7.15, Fixes) tests: the stamped photos of the preview)
   window.__polecam.drwPreviewWait = (ms) => { if (ms > 0) PH_WAIT = +ms; return PH_WAIT; }; // ((beta 7.15, Fixes) tests: how long the preview's worker is waited for)
   window.__polecam.drwJobTools = () => (drw && drw.ph ? JSON.parse(JSON.stringify(drw.ph.tools || null)) : null);
   window.__polecam.drwCands = (x, y, mouse) => (drw ? drwCands({ clientX: x, clientY: y, pointerType: mouse ? 'mouse' : 'touch' }).map((c) => ({ ...c })) : null); // ((beta 7.11, Drawing tools) tests: what a tap there goes through)
