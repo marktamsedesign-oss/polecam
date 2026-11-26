@@ -475,7 +475,13 @@
         { t: 'Settings → **Exports and files**: photo sizes and stamps (ID and type, lat/long, **address** from the road pack: road, barangay, city; UTM, time, by, project), KMZ, PDF and DXF defaults, where files are saved.', go: 'settings', hl: '#goExports' },
         { t: 'Export → **Photos with their locations** (and Settings → Exports and files) → **Same stamp on the plan\'s photos** (off at first): the plan\'s photos (the photos beside the plan DXF, its PDF and the One PDF) get the caption band of this ZIP, with the fields picked under More options (ID and type, lat / long, address, UTM, date and time, taken by, project), instead of Plan style\'s lat, long and address. It works with **Stamp on the photo files** on. Plan style → Photos → **Stamp on the plan\'s photos** then says *Using the geotag photo stamp instead*. The ZIP\'s own photos stay as they are.', go: 'export', hl: '#setStampPlan' },
         { t: 'In the camera, **0.5×** shows when the phone lets the app use its ultra-wide lens; many phones give a web app 1× and up only.' },
-        { t: 'At the bottom of Settings: **Text size**, and keep the help text open on every screen.', go: 'settings' },
+        { t: 'At the bottom of Settings: **Text size**, the **Theme** (Light, Dark or Same as the phone), and keep the help text open on every screen.', go: 'settings' },
+      ] },
+    // (beta 7.16, Theme) the owner: "Dark mode or Light mode on the theme."
+    { id: 'theme', aud: 'user', cat: 'Settings', title: 'Theme: light or dark', kw: 'theme dark mode light mode night mode dark theme light theme black background white background colour color scheme look appearance same as the phone screen bright sun eyes',
+      steps: [
+        { t: 'Settings → at the bottom, **Theme**: **Light** (the default), **Dark**, or **Same as the phone** (dark while the phone is in dark mode, and changing with it). Kept on this phone.', go: 'settings', hl: '#setTheme' },
+        { t: 'In **Dark** every screen is dark; the plan on the **Drawing** and the **CEF plan** stay on white paper, as they print, and the map stays as it is. The files you export (PDF, DXF, KMZ, Excel) are the same in every theme.' },
       ] },
     { id: 'offline', aud: 'user', cat: 'Settings', title: 'Offline maps', kw: 'offline map pack no signal download import pmtiles satellite street layer tiles area download protomaps openstreetmap road pack roadpack together all packs eye hide pack join no line',
       steps: [

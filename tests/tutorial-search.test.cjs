@@ -130,6 +130,8 @@ const LINES = [
   ['Drawing fixes', '!right-click on the plan · !context menu on the drawing · right click menu · options menu on the drawing', 'drawing'],
   // (beta 7.14, Roads again): the roads a plan keeps got again (the Drawing, beside Regenerate plan preview; Export's checks)
   ['Roads again', '!get the roads again · !roads again · refresh the roads · update the roads · new roads from openstreetmap · download the roads again', 'drawing'],
+  // (beta 7.16, Theme): Settings › Theme: Light, Dark or Same as the phone (the owner: "Dark mode or Light mode on the theme.")
+  ['Theme', '!theme · !dark mode · !light mode · !night mode · !dark theme · !same as the phone · black background · color scheme · colour scheme', 'theme'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];

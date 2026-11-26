@@ -989,6 +989,12 @@
   const applyTextSize = () => { const v = [0.8, 0.9, 1, 1.15, 1.3, 1.45].includes(+S.textScale) ? +S.textScale : 0.9; document.documentElement.style.setProperty('--fs', String(v)); $('setTextSize').value = String(v); };
   applyTextSize();
   $('setTextSize').addEventListener('change', () => { S.textScale = +$('setTextSize').value; persist(); applyTextSize(); if (typeof map !== 'undefined' && map) setTimeout(() => map.invalidateSize(), 50); });
+  /* (beta 7.16, Theme) Settings › Theme: Light (the default), Dark, or Same as the phone (auto: Dark while the phone is in dark mode); kept on the phone
+     with the other settings (S.theme). index.html's first script has put it on the page before anything was drawn (GESAA_THEME): here the choice. */
+  const themeOf = () => (['dark', 'auto'].includes(S.theme) ? S.theme : 'light');
+  const applyTheme = () => { if (window.GESAA_THEME) window.GESAA_THEME.set(themeOf()); else document.documentElement.setAttribute('data-theme', themeOf() === 'dark' ? 'dark' : 'light'); $('setTheme').value = themeOf(); };
+  applyTheme();
+  $('setTheme').addEventListener('change', () => { S.theme = $('setTheme').value; persist(); applyTheme(); LOG.info('theme', S.theme); });
   $('setShowHelp').checked = !!S.showHelp;
   $('setShowHelp').addEventListener('change', () => { S.showHelp = $('setShowHelp').checked; persist(); document.querySelectorAll('details.help').forEach((d) => { d.open = S.showHelp; }); });
 
@@ -4141,6 +4147,7 @@
     if (drwEd) drw.selRun = fibAdd != null ? fibAdd : fibSel; // beta 6.7: Edit route: the cable in the bar (or lit) lit as on the map
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
     g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
+    if (drwDark() && drwBase() === 'off' && drwPlanOn()) drwPaper(g, d); // ((beta 7.16, Theme) Dark: the plan a white sheet on a dark surround)
     if (drwBase() !== 'off') { drawUnderlay(g); underlaySoon(); } // v2.36: the map under the drawing
     if (drwPlanOn()) { drwPlanDraw(g, d, cv, v); return; } // (beta 7.9, Drawing preview) the plan as its PDF prints it
     if (!$('drawTb').hidden) { $('drawTb').hidden = true; $('drawTbPal').hidden = true; $('drawWrap').classList.remove('tbtop'); } // ((beta 7.11, Drawing tools) the Drawing as before (Edit route, a pull-off's poles, no plan): no toolbar)
@@ -4306,7 +4313,27 @@
     if (jnPick) jnPaintDrw(g, d); // beta 6.9: a pull-off's or cross-over's poles being tapped
   }
   /** The north arrow and the scale bar, at the upper right. */
+  /* (beta 7.16, Theme) Dark (Settings › Theme): the Drawing's plan stays a white sheet of paper, as a PDF viewer shows a page, on the app's dark
+     surround (#drawWrap's --drw-bg): the sheet covers what the plan draws (its GEO sheets and what is round them) with a margin. The map under the
+     drawing, the Edit route drawing and Light: the whole canvas paper, as before. */
+  function drwDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
+  function drwPaper(g, d) {
+    const P = drw.ph, PL = P && P.plan; if (!PL) return;
+    if (!PL.ext) { // (once a plan: what it draws, in metres from its origin)
+      const b = [Infinity, Infinity, -Infinity, -Infinity]; for (const r of PL.runs) { b[0] = Math.min(b[0], r.box[0]); b[1] = Math.min(b[1], r.box[1]); b[2] = Math.max(b[2], r.box[2]); b[3] = Math.max(b[3], r.box[3]); }
+      PL.ext = b[0] <= b[2] ? b : null;
+    }
+    const b = PL.ext ? [PL.ext[0] + PL.origin[0], PL.ext[1] + PL.origin[1], PL.ext[2] + PL.origin[0], PL.ext[3] + PL.origin[1]] : [Infinity, Infinity, -Infinity, -Infinity];
+    for (const sh of (P.grid && P.grid.sheets) || []) { b[0] = Math.min(b[0], sh.box[0]); b[1] = Math.min(b[1], sh.box[1]); b[2] = Math.max(b[2], sh.box[2]); b[3] = Math.max(b[3], sh.box[3]); }
+    if (!(b[0] <= b[2] && b[1] <= b[3])) return;
+    const m = Math.max(4, 0.03 * Math.max(b[2] - b[0], b[3] - b[1])), [x0, y0] = drwPx([b[0] - m, b[3] + m]), [x1, y1] = drwPx([b[2] + m, b[1] - m]), cv = g.canvas;
+    g.save(); g.fillStyle = '#0a1220'; g.fillRect(0, 0, cv.width, cv.height); // (the surround: #drawWrap's Dark --drw-bg)
+    g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = 14 * d; g.fillStyle = '#fbfbf8'; g.fillRect(x0, y0, x1 - x0, y1 - y0); g.restore();
+  }
+  window.addEventListener('gesaa-theme', () => { if (drw && !$('drawing').hidden) drawDrawing(); }); // ((beta 7.16, Theme) changed while the Drawing is open: drawn again)
   function drwNorthScale(g, d, cv, v) {
+    if (drwDark()) { const sb0 = [10, 20, 50, 100, 200, 500, 1000, 2000].find((m) => m * v.sc > 70 * d) || 2000, x0 = Math.min(cv.width - 26 * d - sb0 * v.sc, cv.width - 40 * d) - 10 * d; // ((beta 7.16, Theme) Dark: on a piece of paper, the dark surround round the plan's sheet under them or not)
+      g.save(); g.fillStyle = 'rgba(251,251,248,.92)'; g.beginPath(); if (g.roundRect) g.roundRect(x0, 10 * d, cv.width - 10 * d - x0, 66 * d, 8 * d); else g.rect(x0, 10 * d, cv.width - 10 * d - x0, 66 * d); g.fill(); g.restore(); }
     g.fillStyle = '#1b1b1b'; g.strokeStyle = '#1b1b1b'; g.lineWidth = 1.5 * d;
     const nx = cv.width - 26 * d, ny = 30 * d; g.beginPath(); g.moveTo(nx, ny - 14 * d); g.lineTo(nx + 7 * d, ny + 8 * d); g.lineTo(nx, ny + 3 * d); g.lineTo(nx - 7 * d, ny + 8 * d); g.closePath(); g.fill();
     g.font = `700 ${11 * d}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('N', nx, ny + 10 * d);
@@ -14062,17 +14089,26 @@
     return T.settings(q, I).map((r) => ({ ...r, e: I[r.i], off: plOff(I[r.i]) })).sort((a, b) => b.score - a.score || a.off - b.off || a.i - b.i);
   }
   const PL_FIND_N = 8;
+  /* (beta 7.16, Theme) Find a setting finds the app's Theme too (it is in Settings, not in Plan style): after Plan style's rows, where it is; a tap
+     opens Settings with its row marked. */
+  const APP_FIND = [{ label: 'Theme', where: 'Settings, at the bottom', text: 'Light, Dark, Same as the phone: dark mode, light mode, night mode, dark theme, light theme, black background, appearance', row: 'setThemeRow', ctl: 'setTheme' }];
+  const appFind = (q) => { const T = window.GESAA_TUTORIAL; return T && T.settings ? T.settings(q, APP_FIND).map((r) => APP_FIND[r.i]) : []; };
+  function appFindGo(e) {
+    $('plFindQ').value = ''; plFindRender(); $('settingsBtn').click();
+    setTimeout(() => { const row = $(e.row); if (!row || $('settings').hidden) return; row.scrollIntoView({ block: 'center' }); row.classList.add('sthl'); setTimeout(() => row.classList.remove('sthl'), 9000); try { $(e.ctl).focus({ preventScroll: true }); } catch (x) { /* an old browser */ } }, 120);
+  }
   function plFindRender() {
     const inp = $('plFindQ'), box = $('plFindRes'), n = $('plFindN'), q = inp.value.trim(), T = window.GESAA_TUTORIAL, Q = q && T && T.query ? T.query(q) : null;
     box.innerHTML = '';
     if (!q) { box.hidden = true; n.textContent = ''; return; }
-    const R = Q ? plFind(q) : [];
-    n.textContent = R.length ? `${R.length} setting${R.length === 1 ? '' : 's'} found${R.length > PL_FIND_N ? `: the best ${PL_FIND_N}` : ''}. Tap one to go to it.` : `No setting called “${q}”.`;
+    const R = Q ? plFind(q) : [], A = Q ? appFind(q) : [], N = R.length + A.length; // ((beta 7.16, Theme) A: the app's own settings found)
+    n.textContent = N ? `${N} setting${N === 1 ? '' : 's'} found${R.length > PL_FIND_N ? `: the best ${PL_FIND_N + A.length}` : ''}. Tap one to go to it.` : `No setting called “${q}”.`;
     R.slice(0, PL_FIND_N).forEach((r) => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'plfr';
       const x = document.createElement('b'); tutRich(x, r.e.label, Q.mark); const w = document.createElement('small'); w.textContent = plWhere(r); if (r.off) w.className = 'off';
       b.append(x, w); b.addEventListener('click', () => plFindGo(r.e)); box.appendChild(b);
     });
+    A.forEach((e) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'plfr'; b.dataset.app = e.row; const x = document.createElement('b'); tutRich(x, e.label, Q.mark); const w = document.createElement('small'); w.textContent = e.where; b.append(x, w); b.addEventListener('click', () => appFindGo(e)); box.appendChild(b); });
     const t = document.createElement('button'); t.type = 'button'; t.className = 'linkbtn plfrtut'; t.textContent = `Search the Tutorial for “${q}” ›`;
     t.addEventListener('click', () => { $('tutQ').value = q; openTutorial(); }); box.appendChild(t);
     box.hidden = false;
