@@ -244,6 +244,7 @@
   if (S.stamp === false && !S.v20) S.exp.stamp = false;
   if (S.maxPx && !S.v20) S.exp.maxPx = S.maxPx;
   S.v20 = 1;
+  notesMoveAll(); // (beta 7.16, Fixes) the Drawing's notes out of the remarks' key (a project kept by beta 7.12 to 7.15)
   persist();
 
   /* ================= IndexedDB ================= */
@@ -455,6 +456,8 @@
   const tmHooks = {}; // v2.43 beta 2: the team mailbox's hooks into Projects, New project, the KMZ reference and the capture button (set further down)
   /* ---- project mode + acceptance helpers ---- */
   const pmeta = (name) => (S.meta && S.meta[name || S.project]) || { mode: 'survey' };
+  /** (beta 7.16, Fixes) A project's REMARKS / NOTES (its details: pmeta().notes), a text only: never the Drawing's notes (pmeta().drwNotes, notesMove). */
+  const remarksOf = (m) => (m && typeof m.notes === 'string' ? m.notes : '');
   const isAcc = (name) => pmeta(name).mode === 'acceptance';
   const photosOf = (r) => (r.photos ? r.photos : [{ pid: r.id, label: 'Photo' }]);
   /** Deficiencies that must be rectified (notes are informational). */
@@ -2627,7 +2630,7 @@
    *  changed in records ((beta 7.14, Changed by hand) Put all back, and More › All automatic). */
   function drwAllBack(proj, what, log) {
     drwUndoPush(what);
-    const m = { ...pmeta(proj) }; MV_KEYS.forEach((k) => { if (k !== 'notes') delete m[k]; }); delete m.planGrid; delete m.mvTurn; /* ((beta 7.12, Drawing edit) the texts edited and the draw order too; the notes stay: the user's own) */ S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', log); // ((beta 7.10, Plan kept) and the grid kept: worked out again) ((beta 7.11, Drawing tools) and every item turned or styled, every pole moved)
+    const m = { ...pmeta(proj) }; MV_KEYS.forEach((k) => { if (k !== 'drwNotes') delete m[k]; }); delete m.planGrid; delete m.mvTurn; /* ((beta 7.12, Drawing edit) the texts edited and the draw order too; the notes stay: the user's own) */ S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', log); // ((beta 7.10, Plan kept) and the grid kept: worked out again) ((beta 7.11, Drawing tools) and every item turned or styled, every pole moved)
     if (drw.ph) drw.ph = { ...drw.ph, sig: '', at: Object.fromEntries(Object.entries(drw.ph.at).map(([k, a]) => [k, a.how === 'by hand' ? { ...a, how: 'auto' } : a])) }; // (where they are until the plan's places come)
     drwMvShowPins(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel && drwSels().length <= 1) drwMvTap(drw.mvSel); else if (drwSels().length) { drwSelSay(); drwTbRender(); } drwPlanUi(); drawDrawing(); drwPhSoon(0);
   }
@@ -2662,10 +2665,11 @@
   /* (beta 7.12, Drawing edit) The owner: "allow also the user to edit the text if needed. just to make everything correct before exporting"; "let the user also add a
      text or photo no related with the capture on plans as needed"; "allow order on the selected item, say, sent to back, backward, sent to front or forward". Kept
      per project beside the 7.11 tools (pmeta(), on this phone: shareMeta leaves them out): mvText { [id]: [lines] } (an item's text as edited: job.text; the record
-     stays), mvOrder [{ id, op }] (the draw order: job.order, a later To front / To back of an item drops its earlier ones), notes [{ id, kind: 'text' | 'photo', at,
+     stays), mvOrder [{ id, op }] (the draw order: job.order, a later To front / To back of an item drops its earlier ones), drwNotes [{ id, kind: 'text' | 'photo', at,
      rot, lines, h, bold, italic, color, photo: { pid (the photo store's), px, py }, size }] (the texts and photos the user adds: job.notes, each photo's bytes in the
-     photo store as the plan's photos are, NOTE_<id>.jpg in the export). Undo takes each change back; all back to automatic leaves the notes (the user's own). */
-  const TOOL_KEYS = ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'mvText', 'mvOrder', 'notes', 'mvHide'], MV_KEYS = [...PIN_KEYS, ...TOOL_KEYS]; // ((beta 7.12, Drawing edit) mvHide { [id]: true }: the items left off the plan (job.hide))
+     photo store as the plan's photos are, NOTE_<id>.jpg in the export; (beta 7.16, Fixes) kept in pmeta().notes by 7.12 to 7.15, the project's remarks' key:
+     notesMove). Undo takes each change back; all back to automatic leaves the notes (the user's own). */
+  const TOOL_KEYS = ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'mvText', 'mvOrder', 'drwNotes', 'mvHide'], MV_KEYS = [...PIN_KEYS, ...TOOL_KEYS]; // ((beta 7.12, Drawing edit) mvHide { [id]: true }: the items left off the plan (job.hide))
   /** Something placed by hand in a project (pmeta() m): a photo, a label, a number or a pole's details ((beta 7.10, Plan kept): the grid is kept while there is) ((beta 7.11, Drawing tools) or an item turned or styled, a pole moved). */
   const pinsAny = (m) => MV_KEYS.some((k) => !!(m && m[k] && Object.keys(m[k]).length));
   /** The items of the plan shown that the Drawing may move (report.movable), or none. */
@@ -2713,7 +2717,26 @@
   /** The draw order kept (pmeta mvOrder), its whole ops only. */
   const orderOk = (m) => (m && Array.isArray(m.mvOrder) ? m.mvOrder : []).filter((x) => isObj(x) && x.id != null && String(x.id) !== '' && typeof x.op === 'string');
   /** (beta 7.12, Drawing edit) A project's notes (pmeta() m): the texts and photos added on its plan. */
-  const notesOf = (m) => (m && Array.isArray(m.notes) ? m.notes.filter((n) => isObj(n) && n.id && isEN(n.at)) : []); // ((beta 7.15, Fixes) a note whole: an id, a place of numbers)
+  const notesOf = (m) => (m && Array.isArray(m.drwNotes) ? m.drwNotes.filter((n) => isObj(n) && n.id && isEN(n.at)) : []); // ((beta 7.15, Fixes) a note whole: an id, a place of numbers) ((beta 7.16, Fixes) drwNotes)
+  /* (beta 7.16, Fixes) The project's REMARKS / NOTES (Projects › the project's details, #curNotes: pmeta().notes, a text, since long before) and the texts and
+     photos added on the Drawing (beta 7.12 to 7.15: pmeta().notes too, a list) shared one key: a note added on the Drawing wiped the remarks; with notes, the
+     remarks box showed "[object Object]" and a remark typed there wiped every note; the remarks no longer went to the team (shareMeta left notes out). The
+     Drawing's notes are kept in pmeta().drwNotes now, pmeta().notes is the remarks only (remarksOf). A project kept by 7.12 to 7.15 with a list (or any object)
+     in notes: its notes moved to drwNotes (after those there, each id once, kept as they are), its remarks '' (gone since the first note was added: nothing on
+     the phone keeps them). For every project at start, on a project brought in (a backup, a share) and before a remark is kept; once moved, nothing to do.
+     Returns how many notes moved (-1: nothing to move). batch: the caller saves the settings. */
+  function notesMove(name, batch) {
+    const m0 = S.meta && S.meta[name], v = m0 ? m0.notes : null; if (!m0 || typeof m0 !== 'object' || v == null || typeof v === 'string') return -1;
+    const nm = { ...m0 }, ok = (n) => !!n && typeof n === 'object' && !Array.isArray(n) && n.id != null && String(n.id) !== '';
+    if (typeof v !== 'object') { nm.notes = String(v); S.meta[name] = nm; if (!batch) persist(); LOG.info('notes.move', { moved: 0, dropped: 0, kept: 0, text: true }); return 0; } // (a number, a yes / no: the remarks' text)
+    const had = Array.isArray(nm.drwNotes) ? nm.drwNotes : [], seen = new Set(had.filter(ok).map((n) => String(n.id))), out = had.slice(); let moved = 0, dropped = 0;
+    for (const n of Array.isArray(v) ? v : Object.values(v)) { if (!ok(n) || seen.has(String(n.id))) { dropped++; continue; } seen.add(String(n.id)); out.push(n); moved++; } // (an empty entry, one id twice: left out)
+    if (out.length) nm.drwNotes = out; else delete nm.drwNotes; nm.notes = '';
+    S.meta[name] = nm; if (!batch) persist(); LOG.info('notes.move', { moved, dropped, kept: had.length });
+    return moved;
+  }
+  /** (beta 7.16, Fixes) notesMove for every project on the phone (at start); how many moved. */
+  function notesMoveAll() { let n = 0; for (const k of Object.keys((S && S.meta) || {})) if (notesMove(k, true) >= 0) n++; if (n) persist(); return n; }
   /** A note as the plan's job has it (job.notes): its photo by the file the export writes next to the DXF (NOTE_<id>.jpg; its bytes made from the photo store). */
   const noteJob = (n) => { const o = { id: String(n.id), kind: n.kind === 'photo' ? 'photo' : 'text', at: [+n.at[0], +n.at[1]] }; if (+n.rot) o.rot = +n.rot;
     if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map((x) => (x == null ? '' : String(x))); /* ((beta 7.15, Fixes) a line left empty: empty, not "null") */ for (const k of ['h', 'bold', 'italic', 'color', 'align', 'wrap', 'spacing', 'font', 'underline']) if (n[k] != null) o[k] = n[k]; } // ((beta 7.14, Text editor) its format: align, wrap, spacing, font, underline)
@@ -2991,7 +3014,7 @@
       if (key) { const k = q.kind === 'cable' ? q.key : q.point, rk = drwRotOf(q, nm); nm[key] = { ...(nm[key] || {}), [k]: q.kind === 'cable' ? { at: off, rot: rk != null ? rk : ang } : q.kind === 'details' ? [off[0], off[1], rk != null ? rk : ang] : off }; } // (as it was let go: where, and its angle)
       else { const t = { ...((nm.mvPin || {})[q.id] || {}), at: off }; if (canOf(q).about) delete t.at; nm.mvPin = { ...(nm.mvPin || {}), [q.id]: t }; } // ((beta 7.11) an attachment turns about its pole and stays on it: not moved on its own)
     }
-    if (NT) nm.notes = NT;
+    if (NT) nm.drwNotes = NT;
     S.meta = S.meta || {}; S.meta[proj] = nm; persist(); // (as it was let go: where, and its angle)
     if (at) drw.ph = { ...drw.ph, sig: '', at }; // (the photos where they were let go, until the plan's own places come)
     LOG.info('draw.label.pin', { kind: m.kind, n: grp.length, recs: recs.length, ...(PIN_OF[m.kind] ? { kept: Object.keys(nm[PIN_OF[m.kind]] || {}).length } : {}) });
@@ -3219,7 +3242,7 @@
     }
     if (!plan.length) return; drwUndoPush(what);
     for (const [m, dg] of plan) {
-      if (isNote(m)) { nm.notes = notesOf(nm).map((x) => (`note:${x.id}` === m.id ? (() => { const y = { ...x }; if (dg == null) delete y.rot; else y.rot = dg; return y; })() : x)); n++; continue; } // ((beta 7.12, Drawing edit) a note turned: the note itself)
+      if (isNote(m)) { nm.drwNotes = notesOf(nm).map((x) => (`note:${x.id}` === m.id ? (() => { const y = { ...x }; if (dg == null) delete y.rot; else y.rot = dg; return y; })() : x)); n++; continue; } // ((beta 7.12, Drawing edit) a note turned: the note itself)
       if (m.kind === 'details' || m.kind === 'cable') { const key = PIN_OF[m.kind], k = m.kind === 'cable' ? m.key : m.point, v = (nm[key] || {})[k];
         const at = m.kind === 'cable' ? (v && Array.isArray(v.at) ? v.at : atNow(m)) : Array.isArray(v) ? [v[0], v[1]] : atNow(m);
         nm[key] = { ...(nm[key] || {}), [k]: m.kind === 'cable' ? (dg == null ? { at } : { at, rot: dg }) : dg == null ? [at[0], at[1]] : [at[0], at[1], dg] };
@@ -3280,7 +3303,7 @@
     }
     if (!n) { drwTbRender(); return; }
     drwUndoPush(`style ${a}`); LOG.info('draw.tools.style', { a, v: v || null, n, all });
-    drwKeep({ ...m0, mvStyle: St, mvKind: Sk, ...(NT ? { notes: NT } : {}) });
+    drwKeep({ ...m0, mvStyle: St, mvKind: Sk, ...(NT ? { drwNotes: NT } : {}) });
   }
   /** (beta 7.11, Drawing tools) Existing ↔ Proposed of an item (report.movable can.status): what its record says now (the toolbar shows the change at once). */
   const ST_BOQ = { closureOld: 'cloSt', napOld: 'napSt', nap2Old: 'nap2St', cloSt: 'cloSt', napSt: 'napSt', nap2St: 'nap2St' };
@@ -3466,7 +3489,7 @@
      the toolbar's steps) and colour (the toolbar's), This one / All like it (a plan item). The text box shows the look as near as a browser can (the font's family as
      the PDF prints it, its alignment, bold, italic, underline, spacing, colour, the lines as the width breaks them). Save: one Undo step for the lines (job.text, as
      7.12) and the format: a plan item's job.style[id] (All like it: job.styleKind[kind]); a note's own fields (job.notes[i]: align, wrap, spacing, font, underline, h,
-     bold, italic, color). Kept per project as 7.12's edits are (pmeta mvStyle, mvKind, notes), out of shareMeta as they are. Automatic: the plan's own text and format
+     bold, italic, color). Kept per project as 7.12's edits are (pmeta mvStyle, mvKind, drwNotes), out of shareMeta as they are. Automatic: the plan's own text and format
      back (this one's). */
   const FMT_KEYS = ['align', 'wrap', 'spacing', 'font', 'underline', 'bold', 'italic', 'h', 'color'], SPC_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
   /** The app's fonts, as the builder adds them after the template's (until a plan says report.fonts). */
@@ -3643,7 +3666,7 @@
   function drwNoteSet(m, o, what) {
     const proj = drw.project, m0 = pmeta(proj), id = String(m.id || m).replace(/^note:/, ''); let hit = false;
     const N = notesOf(m0).map((x) => { if (String(x.id) !== id) return x; const y = { ...x }; for (const [k, v] of Object.entries(o)) { if (v == null) delete y[k]; else y[k] = v; } hit = JSON.stringify(y) !== JSON.stringify(x); return y; });
-    if (!hit) return; drwUndoPush(what); LOG.info('draw.note.set', { what, keys: Object.keys(o) }); drwKeep({ ...m0, notes: N });
+    if (!hit) return; drwUndoPush(what); LOG.info('draw.note.set', { what, keys: Object.keys(o) }); drwKeep({ ...m0, drwNotes: N });
   }
   /* (beta 7.12, Drawing edit) Notes: a text or a photo the user adds on the plan, not from a record (the owner: "let the user also add a text or photo no related with
      the capture on plans as needed"). Add text: a tap on the plan where it goes, then the editor; Add photo: the camera or the gallery (a file input: the phone's
@@ -3672,7 +3695,7 @@
   function drwNoteAdd(n0) {
     const proj = drw.project, m0 = pmeta(proj), N = notesOf(m0); let k = Date.now(); while (N.some((x) => String(x.id) === `n${k}`)) k++;
     const n = { id: `n${k}`, ...n0 }; drwUndoPush(n.kind === 'photo' ? 'photo added' : 'text added'); drw.selWant = `note:${n.id}`;
-    LOG.info('draw.note.add', { kind: n.kind, n: N.length + 1, lines: n.lines ? n.lines.length : 0 }); drwKeep({ ...m0, notes: [...N, n] });
+    LOG.info('draw.note.add', { kind: n.kind, n: N.length + 1, lines: n.lines ? n.lines.length : 0 }); drwKeep({ ...m0, drwNotes: [...N, n] });
     toast(n.kind === 'photo' ? 'Photo added to the plan: drag it to move it (↶ undoes)' : 'Text added to the plan: drag it to move it (↶ undoes)', 2600);
   }
   /** A photo picked or taken for a note: kept in the photo store (as the app keeps its photos), its size as the plan's photos are made (800 px on its long side); then a tap places it. */
@@ -3691,7 +3714,7 @@
   function drwNotesDel(L) {
     const T = L.filter(isNote); if (!T.length || !drw) return; const ids = new Set(T.map((m) => m.id)), m0 = pmeta(drw.project);
     drwUndoPush(T.length > 1 ? `${T.length} notes deleted` : 'note deleted'); LOG.info('draw.note.del', { n: T.length });
-    const nm = { ...m0, notes: notesOf(m0).filter((x) => !ids.has(`note:${x.id}`)) }; if (Array.isArray(nm.mvOrder)) nm.mvOrder = nm.mvOrder.filter((o) => !(o && ids.has(o.id)));
+    const nm = { ...m0, drwNotes: notesOf(m0).filter((x) => !ids.has(`note:${x.id}`)) }; if (Array.isArray(nm.mvOrder)) nm.mvOrder = nm.mvOrder.filter((o) => !(o && ids.has(o.id)));
     drwSelClear(); drwKeep(nm); toast(`${T.length > 1 ? `${T.length} notes` : 'Note'} deleted (↶ Undo brings ${T.length > 1 ? 'them' : 'it'} back)`, 3000);
   }
   /* (beta 7.12, Drawing edit) Delete (the owner: "double check every plan element and ensure that it can be edit, delete or update(text, colors and etc) as user requires.
@@ -3762,7 +3785,7 @@
     // the plan's own: left off, the notes
     const m0 = pmeta(proj), nm = { ...m0 }, H = { ...(nm.mvHide || {}) }; for (const x of T) if (x.d.how === 'hide' || x.hide) H[x.m.id] = true; if (Object.keys(H).length) nm.mvHide = H;
     drwRecLog(nm, T.filter((x) => x.d.how === 'field' && recs.has(x.d.point)).map((x) => [x.m.id, [x.d.point]]), 'del'); // ((beta 7.14, Changed by hand) off in its record)
-    const nid = new Set(T.filter((x) => x.d.how === 'note').map((x) => x.m.id)); if (nid.size) { nm.notes = notesOf(nm).filter((n) => !nid.has(`note:${n.id}`)); if (!nm.notes.length) delete nm.notes; }
+    const nid = new Set(T.filter((x) => x.d.how === 'note').map((x) => x.m.id)); if (nid.size) { nm.drwNotes = notesOf(nm).filter((n) => !nid.has(`note:${n.id}`)); if (!nm.drwNotes.length) delete nm.drwNotes; }
     S.meta = S.meta || {}; S.meta[proj] = nm; persist(); drwSelClear(true); $('drawInfo').hidden = true; $('drawHint').hidden = !!S.drawHintOff; // (what was selected is gone: its line too)
     // a point deleted (as its record's Delete)
     const now = new Date().toISOString();
@@ -3787,7 +3810,7 @@
     try {
       const keys = (await dbKeys('photos')).filter((k) => /^drwn/.test(String(k))); if (!keys.length) return;
       const keep = new Set(), add = (N) => { for (const n of Array.isArray(N) ? N : []) if (n && n.photo && n.photo.pid) keep.add(n.photo.pid); };
-      for (const mm of Object.values(S.meta || {})) add(mm && mm.notes); for (const u of drwUndoStack) add(u.pins && u.pins.notes); if (drw && drw.add && drw.add.pid) keep.add(drw.add.pid);
+      for (const mm of Object.values(S.meta || {})) { add(mm && mm.drwNotes); add(mm && mm.notes); } for (const u of drwUndoStack) add(u.pins && u.pins.drwNotes); // ((beta 7.16, Fixes) drwNotes; a project not moved yet (notesMove): its notes' photos kept too) if (drw && drw.add && drw.add.pid) keep.add(drw.add.pid);
       const gone = keys.filter((k) => !keep.has(k)); if (gone.length && !drwNotePrep) { await dbDelMany('photos', gone); LOG.info('draw.note.sweep', { n: gone.length }); }
     } catch (e) { LOG.warn('draw.note.sweep', errInfo(e)); }
   }
@@ -11660,7 +11683,7 @@
     if (cefHooks.projects) cefHooks.projects(); // v2.44: the CEF plan of the open project, or of each of its site pins
     $('renameProject').value = S.project;
     $('purposeRow').hidden = acc || m.purpose === 'CEF-plan'; $('curPurpose').value = m.purpose || 'As-plan'; renderRefInfo();
-    $('curNotes').value = m.notes || '';
+    $('curNotes').value = remarksOf(m); // ((beta 7.16, Fixes) the remarks, a text: never the Drawing's notes)
     { const sh = m.shares, up = (m.updates || []).slice(-4).reverse(), L = []; // v2.42.18: Share: the last one from this phone, the updates received
       if (sh && sh.n && !acc) L.push(`Shared by you: update ${sh.n}${sh.full ? ' (the whole project)' : ''} · ${fmtTime(sh.at)}`);
       up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}${x.cef ? `, ${x.cef}` : ''}${x.spl ? `, ${x.spl}` : ''}`));
@@ -11854,7 +11877,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.notes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.drwNotes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ if (typeof m.notes !== 'string') delete m.notes; /* ((beta 7.16, Fixes) the remarks go to the team again (a text only), as before beta 7.12 */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -11952,7 +11975,7 @@
   function openProjects() { renderProjects(); openSheet('projects'); cloudSync(false); if (tmHooks.openProjects) tmHooks.openProjects(); }
   $('projectBtn').addEventListener('click', openProjects);
   /* v2.21: many projects on one phone: a search (name, category, site, vendor, task ID, notes) */
-  const projWords = (name) => { const m = pmeta(name); return [name, STAGE_LABEL[projKind(name)], PURPOSE_LABEL[m.purpose] || '', m.site, m.contractor, m.taskId, m.notes, m.fromPat].filter(Boolean).join(' ').toLowerCase(); };
+  const projWords = (name) => { const m = pmeta(name); return [name, STAGE_LABEL[projKind(name)], PURPOSE_LABEL[m.purpose] || '', m.site, m.contractor, m.taskId, remarksOf(m), m.fromPat].filter(Boolean).join(' ').toLowerCase(); };
   const projMatch = (name, q) => { const w = projWords(name); return String(q || '').toLowerCase().split(/\s+/).filter(Boolean).every((t) => w.includes(t)); };
   $('projSearch').addEventListener('input', renderTaskList);
 
@@ -12090,7 +12113,7 @@
     if (here) await dupAtMerge(pj, o.written); // beta 3.3 (QA-06)
   }
   [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
-    $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); });
+    $(id).addEventListener('change', () => { if (key === 'notes') notesMove(S.project, true); const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); }); // ((beta 7.16, Fixes) the remarks: the Drawing's notes (drwNotes) as they are)
   });
   $('startFat').addEventListener('click', () => guard(async () => {
     const f = fatOf(S.project); if (f) { openTask(f); return; }
@@ -15505,7 +15528,7 @@
     if (proj) { // v2.42.4: the project's details first (a restore cut short left records with none: a PAT showed as an open survey)
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
-      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, chg, ...mm } = meta.meta; S.meta[proj] = mm; o.fresh = true; } // (beta 3.3: fresh: its spans and cables from before beta 3.3 are the sender's) // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
+      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, chg, ...mm } = meta.meta; S.meta[proj] = mm; o.fresh = true; notesMove(proj, true); } // (beta 3.3: fresh: its spans and cables from before beta 3.3 are the sender's) // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
       persist();
     }
     let n = 0, kept = 0, routeNew = false, goneHere = 0;
