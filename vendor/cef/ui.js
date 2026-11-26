@@ -92,18 +92,37 @@ async function dxfText(X, tp) {      /* (beta 7.15, CEF template) tp: the projec
    from different clients using its template." A project with a client's CEF template (the app's Plan style › Template) has its CEF sheets on
    that client's sheet: the DXF made on the template (50_export.js: tplSheets, CefTpl), the PDF that DXF printed by the app (dxfpdf.js, the
    As-Plan's printer). The template comes from the app when the files are made, not when the plan is opened (one can be megabytes). None: the
-   app's own frame, as before. One that cannot be used: the app's frame, and the note says why (TPLX). */
+   app's own frame, as before. One that cannot be used: the app's frame, and the note says why (TPLX).
+   (templates, company CEF template) The app hands every CEF plan a template now: the project's client template's (kind 'client'), else the
+   company CEF template ('company'), else the app's generic one ('generic', vendor/cef/cef-template-generic.dxf), with a note when the
+   company's could not be had (tp.note). The app's own frame is left only for the DXF of the older kind (no layouts), an editor without the
+   app, and a template that cannot be used. */
 let TPLX = '', TPLON = { dxf: false, pdf: false };      /* why the template could not be used; which files of this export are on it */
 const footLine = () => String(APP.footer || APP.ver || 'G-eSAA').replace(/[^\x20-\x7E]/g, '-').slice(0, 220);
 async function tplNow() {
   TPLX = ''; TPLON = { dxf: false, pdf: false }; if (!HOST || !HOST.cefTpl) return null;
+  let T = null, whose = 'The CEF template';
   try {
-    const t = await HOST.cefTpl(APP.job || ''); if (!t || typeof t.text !== 'string' || !t.text) return null;
-    const T = HOST.dxfLib ? await HOST.dxfLib() : null; if (!T || !T.Doc) throw new Error('the drawing library did not load');
-    const tp = { name: String(t.name || '').slice(0, 80), text: t.text, look: t.look && typeof t.look === 'object' ? t.look : null, vals: t.fields && typeof t.fields === 'object' ? t.fields : null, T, foot: footLine() };
+    const t = await HOST.cefTpl(APP.job || '');
+    T = HOST.dxfLib ? await HOST.dxfLib() : null; if (!T || !T.Doc) throw new Error('the drawing library did not load');
+    if (!t || typeof t.text !== 'string' || !t.text) return await tplGeneric(T, '');      /* ((templates, company CEF template) none from the app: the generic one) */
+    const tp = { name: String(t.name || '').slice(0, 80), text: t.text, look: t.look && typeof t.look === 'object' ? t.look : null, vals: t.fields && typeof t.fields === 'object' ? t.fields : null, T, foot: footLine(),
+      kind: ['company', 'generic'].includes(t.kind) ? t.kind : 'client', note: String(t.note || '').slice(0, 200) };      /* ((templates, company CEF template) whose template it is) */
+    whose = tp.kind === 'company' ? 'The company CEF template' : tp.kind === 'client' ? 'The client\'s template' : whose;
     tp.sd = CefTpl.seed(tp.text, T, tp.look, { name: tp.name, foot: tp.foot, vals: tp.vals });      /* (read now: a template the CEF cannot be printed on is said before anything is made) */
     return tp;
-  } catch (e) { TPLX = String((e && e.message) || e).slice(0, 160); return null; }
+  } catch (e) {
+    TPLX = String((e && e.message) || e).slice(0, 160);
+    if (!T || whose === 'The CEF template' && /generic/i.test(TPLX)) return null;
+    try { return await tplGeneric(T, whose + ' could not be used (' + TPLX + '): on the app\'s generic CEF template.'); } catch (e2) { return null; }      /* ((templates, company CEF template) the generic one, and why) */
+  }
+}
+/* (templates, company CEF template) the app's generic CEF template (vendor/cef/cef-template-generic.dxf, beside this page), read once */
+let GENERIC = null;
+async function tplGeneric(T, note) {
+  if (!GENERIC) { const r = await fetch('cef-template-generic.dxf', { cache: 'force-cache' }); if (!r.ok) throw new Error('the generic CEF template could not be read'); GENERIC = await r.text(); }
+  const tp = { name: 'G-eSAA generic CEF template', text: GENERIC, look: null, vals: null, T, foot: footLine(), kind: 'generic', note: String(note || '').slice(0, 240) };
+  tp.sd = CefTpl.seed(tp.text, T, null, { name: tp.name, foot: tp.foot, vals: null }); return tp;
 }
 const tplTry = f => { try { return f(); } catch (e) { TPLX = String((e && e.message) || e).slice(0, 160); return null; } };
 /* the sheets on the template (a fresh reading of it each time: the DXF is made on it), and what fills its fields */
@@ -121,14 +140,16 @@ async function tplPdf(X, tp) {
 }
 /* (beta 7.15, CEF template kit) the app's logos (as the ZIP has them, logos/…) for the template's logo boxes (CEF-LOGO-CLIENT, CEF-LOGO-VENDOR) */
 const tplLogos = () => { const o = {}; for (const k in LOGO) if (LOGO[k] && LOGO[k].w > 0 && LOGO[k].h > 0) o[k] = { file: 'logos/' + k + '_logo.png', px: LOGO[k].w, py: LOGO[k].h }; return o; };
-/* the README says the sheets are on the client's template */
-const tplReadme = (t, tp) => (tp ? t.replace('\r\nFILES\r\n', '\r\nTEMPLATE\r\n  The sheets are on the client\'s CEF template' + (tp.name ? ' ' + tp.name : '') + ': its frame and title block (filled for each sheet), its text styles, layers and symbols. The DXF is a copy of the template with a layout for each sheet.\r\n\r\nFILES\r\n').replace(' (an A3 page that shows that sheet)', ' (the template\'s sheet, showing that page)').replace('Sheet scales at A3:', 'Sheet scales on the template\'s sheet:') : t);
+/* the README says the sheets are on the client's template ((templates, company CEF template) or the company's, or the app's generic one) */
+const tplWhose = (tp, short) => tp.kind === 'generic' ? 'the app\'s generic CEF template' : (tp.kind === 'company' ? 'the company CEF template' : short ? 'the client\'s template' : 'the client\'s CEF template') + (tp.name ? ' ' + tp.name : '');
+const tplReadme = (t, tp) => (tp ? t.replace('\r\nFILES\r\n', '\r\nTEMPLATE\r\n  The sheets are on ' + tplWhose(tp) + ': its frame and title block (filled for each sheet), its text styles, layers and symbols. The DXF is a copy of the template with a layout for each sheet.\r\n\r\nFILES\r\n').replace(' (an A3 page that shows that sheet)', ' (the template\'s sheet, showing that page)').replace('Sheet scales at A3:', 'Sheet scales on the template\'s sheet:') : t);
 /* what the note says of the template, for the files of an export (kind: pdf, dxf or zip) */
 function tplSaid(tp, kind) {
-  if (!tp) return TPLX ? ' The client\'s template could not be used (' + TPLX + '): the sheets are on the app\'s own frame.' : '';
+  if (!tp) return TPLX ? ' The CEF template could not be used (' + TPLX + '): the sheets are on the app\'s own frame.' : '';
   const want = kind === 'pdf' ? ['pdf'] : kind === 'dxf' ? ['dxf'] : ['dxf', 'pdf'], old = dxfSet().old, bad = want.filter(k => !TPLON[k] && !(k === 'dxf' && old)), nm = tp.name ? ' ' + tp.name : '';
-  if (bad.length) return ' The ' + bad.map(k => k.toUpperCase()).join(' and ') + ' could not be made on the client\'s template' + nm + (TPLX ? ' (' + TPLX + ')' : '') + ': on the app\'s own frame.';
-  return ' On the client\'s template' + nm + '.' + (old && want.includes('dxf') ? ' The DXF of the older kind has no layouts: it is on the app\'s own frame.' : '');
+  const note = tp.note ? ' ' + tp.note : '', olds = old && want.includes('dxf') ? ' The DXF of the older kind has no layouts: it is on the app\'s own frame.' : '';
+  if (bad.length) return ' The ' + bad.map(k => k.toUpperCase()).join(' and ') + ' could not be made on ' + tplWhose(tp, true) + (TPLX ? ' (' + TPLX + ')' : '') + ': on the app\'s own frame.' + note;
+  return (tp.kind === 'client' ? ' On the client\'s template' + nm + '.' : tp.kind === 'company' ? ' On the company CEF template' + nm + '.' : '') + olds + note;      /* ((templates, company CEF template) the generic one: nothing to say) */
 }
 function dxfBox() {
   const d = dxfSet(), sw = (k, on, t, s) => '<label class="swr"><input type="checkbox" data-k="dxf.' + k + '"' + (on ? ' checked' : '') + '><span><b>' + t + '</b><small>' + s + '</small></span></label>';
@@ -1693,7 +1714,7 @@ async function doExport(kind) {
       data = await HOST.zip(files); name = base + '_CEF.zip';                                  /* the app's own ZIP: it adds exported_by.txt and the photos as they are kept */
     }
     await dl.save({ filename: name, data, kind }); busy = false; { const np = kind === 'dxf' && !dxfSet().old ? dxfSheets(X).reduce((s, q) => s + q.images.length, 0) : 0;      /* (14 Nov) the DXF alone has its pictures as links */
-      note((kind === 'pdf' ? 'The PDF' : kind === 'dxf' ? 'The DXF' : 'The ZIP') + ' is ready: ' + name + '.' + (np ? ' Its photos and logos are linked files: they come with Both (the ZIP), in the photos and logos folders beside the DXF.' : '') + tplSaid(tp, kind), TPLX ? 'warn' : 'good'); }
+      note((kind === 'pdf' ? 'The PDF' : kind === 'dxf' ? 'The DXF' : 'The ZIP') + ' is ready: ' + name + '.' + (np ? ' Its photos and logos are linked files: they come with Both (the ZIP), in the photos and logos folders beside the DXF.' : '') + tplSaid(tp, kind), TPLX || (tp && tp.note) ? 'warn' : 'good'); }
   } catch (e) {
     const c = e && e.code; busy = false;
     note(c === 'declined' ? 'Not saved. The save was cancelled.' : c ? 'Could not save here (' + c + ').' : 'Could not build the files: ' + (e && e.message ? e.message : e), 'warn');

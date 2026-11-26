@@ -14273,10 +14273,10 @@
       screen and no message (a download in the background). Returns true when the template is on the phone afterwards. */
   /** v2.32: the template through the online sheet (script v2.32): the website cannot read Google Drive itself, the sheet can.
       Null when there is no sheet or its script is older. */
-  async function seedFromSheet() {
+  async function seedFromSheet(which) { // ((templates, company CEF template) which: 'cefseed' for the CEF template, sheet script v2.43.6)
     if (!viaSheet() || navigator.onLine === false) return null;
     const src = S.team.src, u = new URL(src.url);
-    u.searchParams.set('dxfseed', '1'); u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', (S.user && S.user.company) || '');
+    u.searchParams.set(which === 'cefseed' ? 'cefseed' : 'dxfseed', '1'); u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', (S.user && S.user.company) || '');
     if (S.companyKey) u.searchParams.set('ckey', S.companyKey);
     let j = null;
     try { const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow' }), 120000, 'The online sheet did not answer'); j = await r.json(); }
@@ -14286,8 +14286,8 @@
       j = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
     }
     if (j && j.ok && typeof j.text === 'string') return j;
-    if (j && !j.ok && j.error && !/^(key|company key|action)$/.test(j.error)) throw new Error(`Online sheet: ${j.error}`);
-    return null; // an older sheet script: it does not send the template
+    if (j && !j.ok && j.error && !/^(key|company key|action|no cef template)$/.test(j.error)) throw new Error(`Online sheet: ${j.error}`);
+    return null; // an older sheet script: it does not send the template (v2.43.5 and older: not the CEF template)
   }
   async function downloadSeed(quiet) {
     const id = seedId(); if (!id && !viaSheet()) throw new Error('Your admin has not shared the plan template');
@@ -14338,6 +14338,140 @@
   }
   setTimeout(() => { try { seedInBackground(); } catch (e) { /* not ready */ } }, 8000);
   $('dxfTplGet').addEventListener('click', () => guard(() => downloadSeed(false), 'Template not downloaded'));
+  /* ================= (templates, company CEF template) the CEF plan's template for the company =================
+     The owner: "yes i want the CEF to be a dxf template same as the asplan", "replace the generic one but give me first a generic dxf as a
+     starting point. Iwant this to be the standard for all my clients" and "downloading a template, editing it and loading it back; yes for
+     admin". Every CEF plan is printed on a CEF template (vendor/cef prints it: CefTpl): the project's client template's CEF sheet (7.15,
+     while Client templates is allowed), else the company CEF template, else the app's own generic one (vendor/cef/cef-template-generic.dxf,
+     made by tools/cef-template from the frame the CEF drew before). The company CEF template is kept and shared as the plan template is: on
+     the phone (IndexedDB packs '~cefseed', S.cefSeed { name, size, at, from: file | drive, id, kit }), its Google Drive link in Administration
+     (pol().cefSeed) and the online sheet (cefseed=1, sheet script v2.43.6), fetched by the phones by themselves (an older sheet script: the
+     Android app reads Drive itself, the website asks). Plan style › Template › CEF template: what the CEF plans are printed on, Get it, and
+     for the admin Download it (the one the app uses, its style kit completed: vendor/cef/cefkit.js) and Load a CEF template (checked). */
+  // (function declarations: Plan style draws this row before this part of the app has run; its state on cefState(), not in a let)
+  function cefState() { return cefState.s || (cefState.s = { busy: null, generic: null }); }
+  /** The Drive id of the admin's CEF template: the one the list's online sheet names (its Settings → CEF template, else the link the admin
+      phone sent it with the list: what its cefseed=1 sends), else the company list's own link (an older sheet script, or no sheet). */
+  function cefSeedId() { try { return (S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url && S.cloud.cefSeed) || driveId(pol().cefSeed || '') || ''; } catch (e) { return ''; } }
+  function cefSeedStale() { const i = S.cefSeed, id = cefSeedId(); return !!(i && id && i.from === 'drive' && i.id && i.id !== id); }
+  async function cefSeedText() { const r = await dbGet('packs', '~cefseed').catch(() => null); return r && typeof r.text === 'string' && r.text ? r.text : null; }
+  /** The app's own generic CEF template (its text, read once). */
+  async function cefGeneric() {
+    const st = cefState(); if (st.generic) return st.generic;
+    const r = await fetch('vendor/cef/cef-template-generic.dxf', { cache: 'force-cache' });
+    if (!r.ok) throw new Error(`the generic CEF template could not be read (HTTP ${r.status})`);
+    const t = await r.text(); if (!/\bSECTION\b/.test(t.slice(0, 4000))) throw new Error('the generic CEF template could not be read');
+    return (st.generic = t);
+  }
+  async function cefKit() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeCefKit) await loadScript('vendor/cef/cefkit.js'); return window.GeCefKit; }
+  /** Who may download the CEF template and load one: the admin phone, a phone with no company list, a user the admin allowed Team admin
+      (when the admin limits what users may do). Loading: also anyone while the admin shares no CEF template, or lets users load their own
+      plan template (Administration: Users may load a plan template file of their own), as the plan template's Load template file. */
+  function cefTplAdmin() { try { if (!S.team || isAdmin()) return true; return !!permState().on && permOk('admin'); } catch (e) { return !S.team; } }
+  function cefTplCanLoad() { try { return cefTplAdmin() || !cefSeedId() || pol().userTpl === true; } catch (e) { return false; } }
+  /** A CEF template kept on this phone as the company's, when the CEF can be printed on it (else an error in plain words). Returns the check. */
+  async function storeCefSeed(text, name, from, id) {
+    const K = await cefKit(), G = await cefGeneric(), Sy = await synthReady().catch(() => null);
+    const ck = K.check(String(text || ''), window.GeDxfTpl, G, Sy);
+    if (!ck.ok) throw new Error(`This CEF template cannot be used: ${ck.problems.join(' ')}`);
+    await dbPut('packs', { k: '~cefseed', text: String(text) });
+    S.cefSeed = { name: String(name || 'CEF template.dxf').slice(0, 80), size: String(text).length, at: new Date().toISOString(), from: from || 'file', id: from === 'drive' ? id || cefSeedId() : '', ...(ck.kit ? { kit: { styles: ck.kit.styles, layers: ck.kit.layers, north: ck.kit.north, key: ck.kit.key } } : {}) };
+    persist(); LOG.info('cef.seed', { kb: Math.round(String(text).length / 1024), from: S.cefSeed.from, styles: ck.kit ? ck.kit.styles[0] : null });
+    try { renderTplCard(); } catch (e) { /* not shown */ }
+    return ck;
+  }
+  /** The admin's CEF template fetched and kept (as downloadSeed: the online sheet, else Google Drive). quiet: no busy screen, no question. */
+  async function downloadCefSeed(quiet) {
+    const id = cefSeedId(); if (!id && !viaSheet()) throw new Error('Your admin has not shared a CEF template');
+    if (!quiet) busy('Getting the CEF template from your admin…');
+    try {
+      let text = '', sheetErr = null;
+      try { const j = await seedFromSheet('cefseed'); if (j) { await storeCefSeed(j.text, j.name || 'CEF template from your admin', 'drive', j.id); return true; } } catch (e) { sheetErr = e; LOG.warn('cef.seed.sheet', errInfo(e)); }
+      if (!id) { if (quiet) return false; throw sheetErr || new Error('Your admin has not shared a CEF template'); }
+      if (NATIVE) {
+        const r = await withTimeout(nativeGet(driveDownloadUrl(id), {}, 'text'), 90000, 'Google Drive did not answer');
+        if (r.status !== 200) throw new Error(`Google Drive answered HTTP ${r.status}`);
+        text = typeof r.data === 'string' ? r.data : new TextDecoder().decode(nativeBytes(r.data));
+      } else {
+        if (quiet) return false; // (the website reads Google Drive through the online sheet only)
+        let r = null;
+        try { r = await withTimeout(fetch(driveDownloadUrl(id), { credentials: 'omit' }), 60000, 'Google Drive did not answer'); } catch (e) { LOG.warn('cef.seed.web', errInfo(e)); r = null; }
+        if (!r || !r.ok) {
+          busy(false);
+          const why = sheetErr ? `\n\n(${sheetErr.message || sheetErr})` : viaSheet() ? '\n\nFor your admin: with the online sheet script v2.43.6 the CEF template comes by itself.' : '';
+          const how = await ask('Get the CEF template', `This browser is not allowed to read the file from Google Drive by itself (the Android app can).${cefTplCanLoad() ? '\n\n1. Open in Drive and download the file.\n2. Come back and tap Load a CEF template.' : ''}${why}`, [{ label: 'Open in Drive', value: 'drive', primary: true }, ...(cefTplCanLoad() ? [{ label: 'Load the downloaded file', value: 'load' }] : []), { label: 'Cancel', value: false }]);
+          if (how === 'drive') openExternal(driveViewUrl(id)); else if (how === 'load') { $('tplCefFile').value = ''; $('tplCefFile').click(); }
+          return false;
+        }
+        text = await r.text();
+      }
+      if (/^\s*<!DOCTYPE html|<html/i.test(text.slice(0, 300))) throw new Error('Google Drive sent a web page instead of the CEF template. Ask your admin to set the file’s sharing to “Anyone with the link”.');
+      await storeCefSeed(text, 'CEF template from your admin (Google Drive)', 'drive', id);
+      return true;
+    } finally { if (!quiet) busy(false); }
+  }
+  /** The admin's CEF template fetched in the background as soon as the phone knows of it, and again when a newer one is shared. */
+  function cefSeedInBackground() {
+    const st = cefState(); if (st.busy || (S.cefSeed && !cefSeedStale()) || !cefSeedId() || navigator.onLine === false) return;
+    if (!NATIVE && !viaSheet()) return;
+    st.busy = downloadCefSeed(true).catch((e) => { LOG.warn('cef.seed.bg', errInfo(e)); return false; }).finally(() => { st.busy = null; try { renderTplCard(); } catch (e) { /* not shown */ } });
+    try { renderTplCard(); } catch (e) { /* not shown */ }
+  }
+  setTimeout(() => { try { cefSeedInBackground(); } catch (e) { /* not ready */ } }, 9000);
+  /** The CEF template a project's CEF plan is printed on: { kind (client, company, generic), name, text, look, client, note }. The company's
+      is got first when the admin shares one this phone does not have yet (or a newer one); when it cannot be got, the generic one and a note. */
+  async function cefTplNow(proj) {
+    const ct = await tplCefText(proj); if (ct) return { kind: 'client', ...ct, note: '' };
+    let t = await cefSeedText(), note = '';
+    if ((!t || cefSeedStale()) && cefSeedId() && navigator.onLine !== false) {
+      try { const st = cefState(); if (st.busy) await st.busy.catch(() => {}); else await downloadCefSeed(true); t = await cefSeedText(); } catch (e) { LOG.warn('cef.seed.now', errInfo(e)); }
+    }
+    if (t) return { kind: 'company', name: (S.cefSeed && S.cefSeed.name) || 'Company CEF template', text: t, look: null, client: '', note: cefSeedStale() ? 'A newer company CEF template is shared: get it in Plan style › Template.' : '' };
+    if (cefSeedId()) note = 'The company CEF template is not on this phone yet (Plan style › Template › Get the CEF template): on the generic one.';
+    return { kind: 'generic', name: 'G-eSAA generic CEF template', text: await cefGeneric(), look: null, client: '', note };
+  }
+  /** Download it (the admin): the CEF template the app uses, the company's else the generic one, its style kit completed and its STYLE KEY. */
+  async function cefTplDownload() {
+    if (!cefTplAdmin()) { toast('Ask your admin for the CEF template', 4500); return; }
+    busy('Making the CEF template…'); let text = '', name = '', added = null;
+    try {
+      const K = await cefKit(), G = await cefGeneric(), t = await cefSeedText();
+      if (t) { const r = K.complete(t, G, window.GeDxfTpl); text = r.text; added = r.added; name = `${String((S.cefSeed && S.cefSeed.name) || 'CEF template').replace(/\.dxf$/i, '').replace(/[^\w .()-]+/g, '_').slice(0, 60)}.dxf`; }
+      else { text = G; name = 'G-eSAA_CEF_template_generic.dxf'; }
+      LOG.info('cef.tpl.down', { kind: t ? 'company' : 'generic', kb: Math.round(text.length / 1024), ...(added ? { styles: added.styles.length, layers: added.layers.length, blocks: added.blocks.length, key: added.key } : {}) });
+    } finally { busy(false); }
+    await shareFile(new Blob([text], { type: 'application/dxf' }), name, 'application/dxf');
+    if (added && (added.styles.length || added.layers.length || added.blocks.length || added.key)) toast(`Its style kit completed: ${[added.styles.length ? `${added.styles.length} text style${added.styles.length === 1 ? '' : 's'}` : '', added.layers.length ? `${added.layers.length} layer${added.layers.length === 1 ? '' : 's'}` : '', added.blocks.length ? 'the north arrow' : '', added.key ? 'the STYLE KEY sheet' : ''].filter(Boolean).join(', ')} added as the app prints them`, 6000);
+  }
+  /** Load a CEF template (the admin's edited one): read (a DWG or a binary DXF refused, saying how to save it), checked, then the company CEF
+      template on this phone. */
+  async function cefTplLoad(f) {
+    if (!cefTplCanLoad()) { toast('Your admin shares the CEF template: get it from your admin', 4500); return; }
+    busy('Checking the CEF template…'); let ck = null;
+    try {
+      const G = await synthReady(), rd = G.read(new Uint8Array(await f.arrayBuffer()));
+      if (!rd.ok) { busy(false); await ask('This file cannot be used', rd.error, [{ label: 'OK', value: true, primary: true }]); return; }
+      ck = await storeCefSeed(rd.text, f.name, 'file');
+    } finally { busy(false); }
+    const k = ck.kit, kit = k ? `Its style kit: ${k.styles[0]} of ${k.styles[1]} text styles, ${k.layers[0]} of ${k.layers[1]} layers${k.north ? ', the north arrow' : ''}${k.key ? ', the STYLE KEY' : ''}.` : '';
+    await ask('CEF template ready', `Every CEF plan on this phone is now printed on ${f.name} (a client template's CEF sheet still wins for its project). ${kit}${ck.notes.length ? `\n\n${ck.notes.join('\n')}` : ''}${isAdmin() ? '\n\nTo give it to your team: put the file on Google Drive (shared: Anyone with the link) and its link in Administration › CEF plan template.' : ''}`, [{ label: 'OK', value: true, primary: true }]);
+  }
+  /** Plan style › Template › CEF template: what the CEF plans are printed on, and its buttons. */
+  function renderCefTplRow() {
+    const sum = $('tplCefSum'); if (!sum) return;
+    const st = cefState(), info = S.cefSeed, id = cefSeedId(), stale = cefSeedStale(), ct = (() => { try { return projTpl(); } catch (e) { return null; } })();
+    const kit = info && info.kit && info.kit.styles ? ` · style kit ${info.kit.styles[0]}/${info.kit.styles[1]} text styles, ${info.kit.layers[0]}/${info.kit.layers[1]} layers` : '';
+    const co = st.busy ? 'Getting the company CEF template from your admin…' : info ? `Company CEF template: ✓ ${info.name}${info.from === 'drive' ? ' (from your admin)' : ' (loaded on this phone)'}${stale ? ' · a newer one is shared' : ''}${kit}.`
+      : id ? 'Your admin shares a company CEF template: get it (until then CEF plans are printed on the app\'s generic one).' : 'No company CEF template: CEF plans are printed on the app\'s generic one.';
+    sum.textContent = `${ct && ct.cef ? `This project's CEF plan: on ${ct.name} (its client template). ` : ''}${co}`;
+    $('tplCefGet').hidden = !id || (!!info && !stale); $('tplCefGet').disabled = !!st.busy; $('tplCefGet').textContent = stale ? 'Get the newer CEF template' : 'Get the CEF template';
+    $('tplCefDown').hidden = !cefTplAdmin(); $('tplCefLoad').hidden = !cefTplCanLoad();
+    $('tplCefLoad').textContent = info && info.from === 'file' ? 'Load it back (edited)…' : 'Load a CEF template…';
+  }
+  $('tplCefGet').addEventListener('click', () => guard(() => downloadCefSeed(false), 'CEF template not downloaded'));
+  $('tplCefDown').addEventListener('click', () => guard(() => cefTplDownload(), 'CEF template not made'));
+  $('tplCefLoad').addEventListener('click', () => { $('tplCefFile').value = ''; $('tplCefFile').click(); });
+  $('tplCefFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await cefTplLoad(f); }, 'CEF template not loaded'));
   /* ================= (beta 7.15, Client templates) =================
      The owner: "dxf for asplan and cef must be based from a template dxf. Context: client requires a different template with a different text
      font style, drawing style size and thickness. By changing the template dxf, the app can now accomodate plan creation from different clients
@@ -14399,6 +14533,7 @@
       box.appendChild(d);
     });
     lock($('tplAdd')); // ((templates, permissions) each a Client templates button: refused and said by the click gate when it is blocked)
+    try { renderCefTplRow(); } catch (e) { LOG.warn('cef.tpl.row', errInfo(e)); } // ((templates, company CEF template) the CEF template's row)
   }
   $('tplSel').addEventListener('change', () => tplChoose(S.project, $('tplSel').value));
   $('tplAdd').addEventListener('click', () => { $('tplFile').value = ''; $('tplFile').click(); });
@@ -17015,7 +17150,7 @@
     if (p.poleTypes != null && !(Array.isArray(p.poleTypes) && p.poleTypes.length <= 20 && p.poleTypes.every((t) => t && /^[A-Z]{2,6}$/.test(t.p) && str(t.n, 30)))) return false;
     if (p.adminUsers != null && !list(p.adminUsers, 100, 120)) return false;
     if (p.adminJobs != null && !(typeof p.adminJobs === 'object' && Object.keys(p.adminJobs).length <= 100 && Object.entries(p.adminJobs).every(([k, v]) => k.length <= 120 && Array.isArray(v) && v.length <= 4 && v.every((x) => JOB_NAME[x])))) return false; // v2.28
-    if (!num(p.mloopLen, 1, 100) || !str(p.areaSrc, 300) || !str(p.dxfSeed, 300)) return false; // v2.29; v2.30: the plan template link
+    if (!num(p.mloopLen, 1, 100) || !str(p.areaSrc, 300) || !str(p.dxfSeed, 300) || !str(p.cefSeed, 300)) return false; // v2.29; v2.30: the plan template link; ((templates, company CEF template) the CEF template's)
     if (p.driveKey != null && !(typeof p.driveKey === 'string' && /^[A-Za-z0-9_-]{20,60}$/.test(p.driveKey))) return false; // v2.35: Drive API key (website downloads)
     if (p.boqLists != null && !(typeof p.boqLists === 'object' && Object.entries(p.boqLists).every(([k, v]) => BOQ_OPT[k] && list(v, 40, 40)))) return false; // v2.28
     if (!list(p.detailItems, 40, 40)) return false; // v2.28
@@ -18350,6 +18485,7 @@
     return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, ...(cseLeads ? { cseLeads } : {}), ...(coops && coops.length ? { coops, ...(j.coopsH ? { coopsH: s100(j.coopsH, 40) } : {}) } : {}),
       ...(j.coopsSame ? { coopsSame: s100(j.coopsSame, 40) } : {}), ...(j.sv ? { sv: s100(j.sv, 20) } : {}), scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
       ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}), // v2.32: the plan template's id
+      ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.cefSeed || '')) ? { cefSeed: String(j.cefSeed) } : {}), // ((templates, company CEF template) the CEF template's id, sheet script v2.43.6)
       ...(typeof j.siteRequired === 'boolean' ? { siteRequired: j.siteRequired } : {}), // v2.42.18: the sheet's Settings → Site required
       ...(typeof j.teamOn === 'boolean' ? { teamOn: j.teamOn } : {}), // v2.43 beta 3.2 (QA-17): Team for this company (sheet → CompanyKeys → Team)
       ...(j.perm && typeof j.perm === 'object' && (typeof j.perm.on === 'boolean' || j.perm.on === null) ? { perm: { on: j.perm.on, row: permRowClean(j.perm.row), ...(j.perm.at ? { at: s100(j.perm.at, 30) } : {}) } } : {}), // (beta 7.16, Permissions) this user's row of User permissions (sheet v2.43.5; on null: its switch blank)
@@ -18441,6 +18577,7 @@
         if (moved === 'moved') setTimeout(() => cloudSync(true), 0); // the new list version points to another sheet
         if ((S.syncQ || []).length && (force || syncMode() === 'change')) flushProgress(true);
         try { seedInBackground(); } catch (e) { /* not ready */ } // v2.32: a new plan template from the admin comes by itself
+        try { cefSeedInBackground(); } catch (e) { /* not ready */ } // ((templates, company CEF template) and a new CEF template)
         return true;
       } catch (e) { cloudErr = e.message || String(e); renderCloudInfo(); return false; } finally { cloudBusy = null; }
     })();
@@ -19331,7 +19468,7 @@
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
     { const L0 = pol(); const was = (k) => { const L = L0.boqLists; return L && Array.isArray(L[k]) && L[k].length ? L[k] : k === 'owner' ? [...BOQ_OPT.owner, ...(L0.poleOwners || [])] : BOQ_OPT[k]; }; // v2.28: the lists as they are now
       ADM_LISTS.forEach(([id, k]) => { $(id).value = (k === 'details' ? (Array.isArray(L0.detailItems) && L0.detailItems.length ? L0.detailItems : POLE_DETAIL_ITEMS) : was(k)).join('\n'); }); }
-    $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = ''; $('admAreaSrc').value = P.areaSrc || ''; $('admDxfSeed').value = P.dxfSeed || ''; $('admDriveKey').value = P.driveKey || ''; // v2.29, v2.30, v2.35
+    $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = ''; $('admAreaSrc').value = P.areaSrc || ''; $('admDxfSeed').value = P.dxfSeed || ''; $('admCefSeed').value = P.cefSeed || ''; $('admDriveKey').value = P.driveKey || ''; // v2.29, v2.30, v2.35
     $('admUsers').value = (P.adminUsers || []).map((e) => `${e}${(P.adminJobs || {})[e] ? ` ${P.adminJobs[e].map((k) => JOB_NAME[k]).join(', ')}` : ''}`).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false; // v2.28: with the job
     $('admSiteReq').checked = P.siteRequired === true; $('admUserTpl').checked = P.userTpl === true; // v2.41
     { const sv = sheetSiteReq(); if (sv != null) $('admSiteReq').checked = sv; $('admSiteReq').disabled = sv != null; // v2.42.18: set in the sheet, shown here
@@ -19411,6 +19548,7 @@
     { const a = $('admAreaSrc').value.trim(); if (/^https:\/\/\S+$/.test(a) && a.length <= 300) P.areaSrc = a; else delete P.areaSrc; } // v2.29
     { const k = $('admDriveKey').value.trim(); if (/^[A-Za-z0-9_-]{20,60}$/.test(k)) P.driveKey = k; else delete P.driveKey; } // v2.35
     { const a = $('admDxfSeed').value.trim(); if (driveId(a) && a.length <= 300) P.dxfSeed = a; else delete P.dxfSeed; } // v2.30: the plan template (DXF seed) on Google Drive
+    { const a = $('admCefSeed').value.trim(); if (driveId(a) && a.length <= 300) P.cefSeed = a; else delete P.cefSeed; } // ((templates, company CEF template) the CEF template on Google Drive)
     if (!P.poleTypes.length) delete P.poleTypes;
     const types = form.types.length ? form.types : D.types;
     P.inspTypes = (P.inspTypes || []).filter((x) => types.includes(x)); if (!P.inspTypes.length) P.inspTypes = [types[0]];
@@ -19545,7 +19683,7 @@
     if (!url || !S.onlineAdminKey || !S.team) return;
     try {
       const list = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k });
-      const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setList', list, id: S.team.id, rev: S.team.rev, ...(listKeyEnc() && keApart(S.team) ? { ke: listKeyEnc() } : {}), /* v2.42.5 */ dxfSeed: driveId(pol().dxfSeed || '') || '' }) }); // v2.32: and its plan template
+      const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setList', list, id: S.team.id, rev: S.team.rev, ...(listKeyEnc() && keApart(S.team) ? { ke: listKeyEnc() } : {}), /* v2.42.5 */ dxfSeed: driveId(pol().dxfSeed || '') || '', cefSeed: driveId(pol().cefSeed || '') || '' }) }); // v2.32: and its plan template; ((templates, company CEF template) and its CEF template: sheet script v2.43.6)
       if (!j || !j.ok) throw new Error(j && j.error === 'action' ? 'update the Apps Script in the sheet (v2.9) so phones get the list from it' : j && j.error === 'same version' ? `another admin phone already saved version ${S.team.rev} with other changes: update this phone's list (Settings → Update list), then save your change again` : (j && j.error) || 'no answer'); // v2.42.4: same version
       LOG.info('sheet.list', { rev: S.team.rev }); S.sheetListAt = { url, id: S.team.id, rev: S.team.rev }; persist();
     } catch (e) { LOG.warn('sheet.list.fail', errInfo(e)); toast(`The list was not sent to the online sheet: ${e.message || e}. Phones still get it from the join link or QR code.`, 7000); }
@@ -23264,11 +23402,11 @@
       drawing number and the issue (Project details' DWG / Drawing no., Issue / Revision). */
   async function cefTplOf(job) {
     const c = (job && cefJobCtx[job]) || cefNow; if (!c) return null;
-    const t = window.__gesaaCefTplTest && typeof window.__gesaaCefTplTest === 'object' ? window.__gesaaCefTplTest : await tplCefText(c.name);
+    const t = window.__gesaaCefTplTest && typeof window.__gesaaCefTplTest === 'object' ? window.__gesaaCefTplTest : await cefTplNow(c.name); // ((templates, company CEF template) the client's, else the company's, else the generic one)
     if (!t || typeof t.text !== 'string' || !t.text) return null;
     const F = siteFieldsOf(c.name), iss = sfGet(F, /\b(issue|rev(ision)?)\b/i);
-    LOG.info('cef.tpl', { kb: Math.round(t.text.length / 1024), look: !!t.look });
-    return { name: String(t.name || ''), text: t.text, look: t.look || null, fields: { CLIENT: sfGet(F, /client|customer/i) || String(t.client || ''), DWG_NO: sfGet(F, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss } };
+    LOG.info('cef.tpl', { kb: Math.round(t.text.length / 1024), look: !!t.look, kind: t.kind || 'client' });
+    return { name: String(t.name || ''), text: t.text, look: t.look || null, kind: t.kind || 'client', note: String(t.note || ''), fields: { CLIENT: sfGet(F, /client|customer/i) || String(t.client || ''), DWG_NO: sfGet(F, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss } };
   }
   async function cefDxfLib() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); return window.GeDxfTpl; }
   /** A DXF the editor made on the CEF template, printed as the plan's PDF (o.images: the photos and logos by file name, JPEG or PNG). */
@@ -23976,6 +24114,8 @@
   window.__polecam.newAt = (o) => openEditor({ mode: 'new', element: (o && o.element) || 'Pole', lat: +o.lat, lon: +o.lon, source: 'map', takenAt: new Date().toISOString() }); // beta 4.3 (tests): a new record with no photo
   /* beta 6.7 (tests) */ window.__polecam.drwEdit = (on) => drwEditSet(!!on);
   window.__polecam.tpl = { list: () => JSON.parse(JSON.stringify(tplList())), of: (n) => (projTpl(n) || {}).id || '', choose: (n, id) => tplChoose(n, id || ''), seedText: (n) => seedText(n), cefText: (n) => tplCefText(n), look: (n) => tplLookOf(n), review: () => (TPR ? JSON.parse(JSON.stringify(TPR.map)) : null) }; // ((beta 7.15, Client templates) tests)
+  window.__polecam.cefTpl = { now: async (n) => { const t = await cefTplNow(n); return { kind: t.kind, name: t.name, size: t.text.length, note: t.note }; }, seedText: () => cefSeedText(), info: () => (S.cefSeed ? JSON.parse(JSON.stringify(S.cefSeed)) : null), id: () => cefSeedId(),
+    store: (text, name) => storeCefSeed(text, name, 'file'), get: () => downloadCefSeed(true), complete: async (text) => (await cefKit()).complete(text, await cefGeneric(), window.GeDxfTpl), admin: () => cefTplAdmin(), canLoad: () => cefTplCanLoad() }; // ((templates, company CEF template) tests)
   window.__polecam.drwEd = () => ({ on: drwEd, handles: (drw && drw.edH ? drw.edH : []).map((h) => { const r = $('drawCanvas').getBoundingClientRect(); return { x: r.left + h.x, y: r.top + h.y, r: h.r, n: h.n, a: String(h.a), b: String(h.b) }; }), site: drwSiteArm ? drwSiteArm.kind : null, selRun: drw ? drw.selRun : null, n: drw ? drw.items.length : 0 });
   /* (beta 7.8, Drawing photos) for tests: the plan's photo places of the preview (report.photoAt), whether one is being made, and the frames drawn
      (each one's centre and size in page pixels, its turn), the pins kept, and where a point stands as the Drawing draws it (metres) */

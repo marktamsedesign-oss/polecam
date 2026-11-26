@@ -154,7 +154,7 @@ test('(beta 7.15, CEF template kit) the editor\'s files on the generic CEF templ
   await ctx.close();
 });
 
-test('the editor\'s buttons: Both (ZIP) says the files are on the client\'s template; a template the CEF cannot be printed on: the app\'s frame, and why', async () => {
+test('the editor\'s buttons: Both (ZIP) says the files are on the client\'s template; a template the CEF cannot be printed on: the app\'s generic CEF template, and why', async () => {
   const { ctx, page, errors } = await open(), fr = await cef(page);
   const zip = async (kind) => fr.evaluate(async (kind) => { const got = []; dl.save = async (o) => { got.push(o); }; await doExport(kind || 'zip'); return { n: got.length, name: got[0] && got[0].filename, msg: (msg && msg.t) || '' }; }, kind);
   await setTpl(page, { name: 'DEMO CLIENT A3', text: SEED, look: null });
@@ -166,13 +166,14 @@ test('the editor\'s buttons: Both (ZIP) says the files are on the client\'s temp
   r = await zip(); assert.match(r.msg, /The PDF could not be made on the client's template DEMO CLIENT A3 \(demo printer failure\): on the app's own frame\./);
   await page.evaluate(() => { window.__cefHost.cefPdf = window.__cefHost.cefPdf0; });
   await setTpl(page, { name: 'DEMO BROKEN', text: SEED.replace(/\nCEF\r?\n/g, '\nNOT A CEF SHEET\n'), look: null });
-  r = await zip(); assert.equal(r.n, 1); assert.match(r.msg, /The client's template could not be used \(the template has no CEF sheet\): the sheets are on the app's own frame\./);
-  const F = await files(fr); assert.equal(F.tpl, ''); assert.match(pick(F, /_CEF_sheets\.dxf$/), /G-eSAA CEF DXF R2000/);
+  r = await zip(); assert.equal(r.n, 1); assert.match(r.msg, /The client's template could not be used \(the template has no CEF sheet\): on the app's generic CEF template\./);      /* ((templates, company CEF template) the generic one, no longer the app's own frame) */
+  const F = await files(fr); assert.equal(F.tpl, 'G-eSAA generic CEF template'); assert.equal(F.err, 'the template has no CEF sheet');
+  { const dxf = pick(F, /_CEF_sheets\.dxf$/), sh = sheetsOf(dxf); assert.deepEqual(sh.map((x) => x.name), ['COVER PAGE', 'CONTENTS', 'LEGEND', 'ISOMETRIC', 'TOP VIEW']); assert.ok(/\nCEF-VP-DRAWING\r?\n/.test(dxf) && !/G-eSAA CEF DXF R2000/.test(dxf), 'a copy of the generic template'); }
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
-test('the Drawing export\'s CEF plans (made out of sight) on the template too; no template: the files as before', async () => {
+test('the Drawing export\'s CEF plans (made out of sight) on the template too; no client template: on the app\'s generic CEF template (the app\'s own frame retired)', async () => {
   const { ctx, page, errors } = await open(); await cef(page);
   await page.evaluate(() => window.__polecam.cef.frame && document.querySelector('#cefSheet') && history.back()); await page.waitForTimeout(800);
   await setTpl(page, { name: 'DEMO CLIENT A3', text: SEED, look: null });
@@ -180,11 +181,13 @@ test('the Drawing export\'s CEF plans (made out of sight) on the template too; n
   assert.ok(job.dxf && job.names.every((n) => /^CEF_PLAN_/.test(n)), job.names.join(', '));
   assert.deepEqual(sheetsOf(job.dxf).map((s) => s.name), ['COVER PAGE', 'CONTENTS', 'LEGEND', 'ISOMETRIC', 'TOP VIEW']);
   assert.ok(sheetsOf(job.dxf).every((s) => s.layers.includes('DEMO-BORDER')), 'every sheet on the client\'s frame');
-  // no template: the DXF of the app's own frame, as the editor makes it without one
+  // (templates, company CEF template) no client template (and no company one): the app's generic CEF template, not the app's own frame
   await setTpl(page, null);
-  const fr = await cef(page), F = await files(fr), want = await fr.evaluate(async () => sheetsDXF(dxfSheets(appSketch(ROOT)), { dims: await picDims(appSketch(ROOT)) }));
-  assert.equal(F.tpl, ''); assert.ok(pick(F, /_CEF_sheets\.dxf$/) === want, 'the DXF as before, byte for byte'); assert.ok(!/DEMO-BORDER/.test(want));
-  assert.ok(!/TEMPLATE\r\n/.test(pick(F, /README\.txt$/)));
+  const fr = await cef(page), F = await files(fr), old = await fr.evaluate(async () => sheetsDXF(dxfSheets(appSketch(ROOT)), { dims: await picDims(appSketch(ROOT)) })), dxf = pick(F, /_CEF_sheets\.dxf$/);
+  assert.equal(F.tpl, 'G-eSAA generic CEF template'); assert.equal(F.err, ''); assert.ok(dxf !== old && !/DEMO-BORDER/.test(dxf) && /\nCEF-VP-DRAWING\r?\n/.test(dxf), 'on the generic template');
+  assert.deepEqual(sheetsOf(dxf).map((x) => x.name), ['COVER PAGE', 'CONTENTS', 'LEGEND', 'ISOMETRIC', 'TOP VIEW']);
+  assert.match(pick(F, /README\.txt$/), /TEMPLATE\r\n {2}The sheets are on the app's generic CEF template: its frame/);
+  if (PDFTOTEXT) { const P = pdfPages(b64(pick(F, /_CEF\.pdf$/))); assert.ok(P.n >= 5); assert.ok(P.text[0].includes('CABLE ENTRANCE FACILITY'), 'the PDF printed on it'); }
   assert.deepEqual(errors, []);
   await ctx.close();
 });
