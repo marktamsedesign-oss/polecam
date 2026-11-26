@@ -14519,13 +14519,14 @@
     $('tplSelSum').textContent = !S.project ? 'Open a project to choose its template.' : cur ? `This project's as-plan${cur.cef ? ' and CEF plan are' : ' is'} made on ${cur.name}${cur.cef ? '' : ' (the CEF plan on its own frame: the template has no CEF sheet)'}. New projects start with the last one chosen.`
       : 'This project\'s plan is made on the company template (Plan file). New projects start with the last one chosen.';
     if (!ok) $('tplSelSum').textContent = `${S.project ? 'This project\'s plan is made on the company template (Plan file).' : 'Plans are made on the company template (Plan file).'} 🔒 Client templates: ${tplAsk()}.`;
+    tplRoundRender(cur); // ((templates, Round trip) the admin's Download this template / Load it back)
     const box = $('tplList'); box.innerHTML = '';
     if (!L.length) { const p = document.createElement('small'); p.className = 'sthint'; p.textContent = 'None yet.'; box.appendChild(p); }
     L.forEach((t) => {
       const d = document.createElement('div'), uses = (S.projects || []).filter((n) => pmeta(n).tpl === t.id).length; d.className = `tplit${cur && cur.id === t.id ? ' on' : ''}`; d.dataset.id = t.id;
       d.innerHTML = `<b></b><small></small><div class="row"></div>`;
       d.querySelector('b').textContent = t.name;
-      d.querySelector('small').textContent = `${t.from && t.from.file ? `From ${t.from.file}` : 'Client template'} · ${String(t.at || '').slice(0, 10)}${t.look && t.look.sheet ? ` · ${t.look.sheet.unit === 'in' ? `${t.look.sheet.paper[0]} × ${t.look.sheet.paper[1]} in` : `${Math.round(t.look.sheet.paper[0])} × ${Math.round(t.look.sheet.paper[1])} mm`}` : ''} · ${t.cef ? 'as-plan and CEF' : 'as-plan only'}${uses ? ` · used by ${uses} project${uses === 1 ? '' : 's'}` : ''}${t.ok === false ? ' · check: see Make again' : ''}`;
+      d.querySelector('small').textContent = `${t.from && t.from.file ? `From ${t.from.file}` : 'Client template'}${t.fin ? ' (a finished plan)' : ''}${t.edited ? ' · edited in AutoCAD' : ''} · ${String(t.at || '').slice(0, 10)}${t.look && t.look.sheet ? ` · ${t.look.sheet.unit === 'in' ? `${t.look.sheet.paper[0]} × ${t.look.sheet.paper[1]} in` : `${Math.round(t.look.sheet.paper[0])} × ${Math.round(t.look.sheet.paper[1])} mm`}` : ''} · ${t.cef ? 'as-plan and CEF' : 'as-plan only'}${uses ? ` · used by ${uses} project${uses === 1 ? '' : 's'}` : ''}${t.ok === false ? ' · check: see Make again' : ''}`;
       const row = d.querySelector('.row'), btn = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = `btn small${cls ? ` ${cls}` : ''}`; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); return b; };
       if (S.project && !(cur && cur.id === t.id)) lock(btn('Use for this project', () => tplChoose(S.project, t.id), 'primary'));
       lock(btn('Rename', () => guard(() => tplRename(t.id), 'Not renamed')));
@@ -14536,6 +14537,95 @@
     lock($('tplAdd')); // ((templates, permissions) each a Client templates button: refused and said by the click gate when it is blocked)
     try { renderCefTplRow(); } catch (e) { LOG.warn('cef.tpl.row', errInfo(e)); } // ((templates, company CEF template) the CEF template's row)
   }
+  /* (templates, Round trip) The owner: "downloading a template, editing it and loading it back; yes for admin". The template this project uses
+     (the company template, or its client template) downloaded with its style kit and STYLE KEY sheet (GeDxfTpl.withKit, when the app has it) and
+     where it came from (GeDxfSynth.tagTemplate: the XRECORD G-ESAA_TEMPLATE), edited in AutoCAD, loaded back: checked as a client's template is
+     (a made-up plan drawn on it), then it replaces the company template on this phone (shared with the team as before: its Google Drive link in
+     Administration) or the client template it came from. Who: the admin (tplRoundOk). */
+  /** Whether this user downloads and loads back a template: the admin phone and the admin company's admin users (permAdmin), a phone with no
+      company list (its own admin), and, while user permissions are on, a user allowed Team admin; a client template needs Client templates too. */
+  function tplRoundOk(kind) {
+    let st; try { st = permState(); } catch (e) { return false; }
+    const admin = st.why === 'solo' || st.why === 'admin' || (st.on && permOk('admin'));
+    return !!admin && (kind !== 'client' || tplAllowed());
+  }
+  function tplRoundRender(cur) {
+    const row = $('tplRound'), sum = $('tplRoundSum'); if (!row) return;
+    const kind = cur ? 'client' : 'company', ok = tplRoundOk(kind); row.hidden = !ok; sum.hidden = !ok; if (!ok) return;
+    const has = !!cur || !!S.dxfSeed; $('tplDown').disabled = !has;
+    $('tplDown').textContent = cur ? 'Download this template' : 'Download the company template';
+    sum.textContent = cur ? `Admin: download ${cur.name} (with its style kit and STYLE KEY sheet), edit it in AutoCAD, save it as DXF and load it back here. It is checked first (a made-up plan drawn on it), then it replaces ${cur.name} on this phone.`
+      : has ? 'Admin: download the company template (with its style kit and STYLE KEY sheet), edit it in AutoCAD, save it as DXF and load it back here. It is checked first (a made-up plan drawn on it), then it replaces the company template on this phone; share it with your team as before (its Google Drive link in Administration).'
+        : 'Admin: no company template on this phone yet (Plan file). A template edited in AutoCAD, loaded back here, becomes the company template on this phone once checked.';
+  }
+  const tplFileName = (name) => `${String(name || 'template').replace(/\.dxf$/i, '').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'template'}_template.dxf`;
+  /** The project's template as downloaded: its seed with the style kit (withKit) and its tag. → { name, text, kit } */
+  async function tplDownText() {
+    const cur = projTpl(), kind = cur ? 'client' : 'company';
+    let text = null, name = '';
+    if (cur) { const r = await tplGet(cur.id); text = r && r.plan; name = cur.name; } else { const r = await dbGet('packs', SEED_KEY).catch(() => null); text = r && r.text; name = (S.dxfSeed && S.dxfSeed.name) || 'Company template'; }
+    if (!text) throw new Error(cur ? 'This template is not on this phone any more' : 'No company template on this phone yet (Plan file)');
+    const G = await synthReady(), T = window.GeDxfTpl; let k = text, kit = false;
+    if (T && typeof T.withKit === 'function') { try { k = T.withKit(text, { name }); kit = true; } catch (e) { LOG.warn('tpl.kit', errInfo(e)); } }
+    return { name: tplFileName(name.replace(/\s*\((client|company)\)$/i, '')), text: G.tagTemplate(k, { kind, id: cur ? cur.id : '', name }), kit, kind };
+  }
+  async function tplDownload() {
+    const kind = projTpl() ? 'client' : 'company';
+    if (!tplRoundOk(kind)) { toast(kind === 'client' && !tplAllowed() ? tplAsk() : 'Ask your admin: only the admin downloads and loads back the templates', 4500); return; }
+    busy('Preparing the template…'); let o;
+    try { await sleep(30); o = await tplDownText(); } finally { busy(false); }
+    const blob = new Blob([o.text], { type: 'application/dxf' });
+    if (NATIVE) { const r = await nativeSave({ blob, name: o.name }); toast(`Saved to ${r.where}${o.kit ? '' : ' (its style kit is added when the app has it)'}`, 5000); } else saveBlob(blob, o.name);
+    LOG.info('tpl.down', { kind: o.kind, kb: Math.round(o.text.length / 1024), kit: o.kit });
+  }
+  /** A template edited in AutoCAD, loaded back: read, checked (a made-up plan drawn on it), then what it replaces (by its tag, else asked). */
+  async function tplLoadBack(f) {
+    const cur = projTpl();
+    if (!tplRoundOk('company') && !tplRoundOk('client')) { toast('Ask your admin: only the admin downloads and loads back the templates', 4500); return; }
+    busy('Reading the template…'); let rd = null, ck = null, look = null, tag = null, kit = null;
+    try {
+      const G = await synthReady(); await sleep(30); rd = G.read(new Uint8Array(await f.arrayBuffer()));
+      if (rd.ok) { try { rd.text = G.tidy(rd.text).text; } catch (e) { rd = { ok: false, error: e.message || String(e) }; } } // (tidied as a client's DXF is: what AutoCAD would mend)
+      if (rd.ok) { tag = G.templateTag(rd.text); look = G.lookOf(rd.text); busy('Checking it: a made-up plan drawn on it…'); await sleep(30); ck = G.check({ plan: rd.text, look, cef: null, notes: [] }, {}, { softLayers: true }); try { if (typeof window.GeDxfTpl.kitOf === 'function') kit = window.GeDxfTpl.kitOf(rd.text); } catch (e) { kit = null; } }
+    } finally { busy(false); }
+    if (!rd.ok) { await ask('This file cannot be used', rd.error, [{ label: 'OK', value: true, primary: true }]); return; }
+    if (!ck.ok) { LOG.info('tpl.back', { ok: false, problems: ck.problems.length }); await ask('This template cannot be used', `${ck.problems.join('\n')}\n\nIn AutoCAD: keep its GEO sheet, its square map viewport and its @@ fields; save it as DXF (2000 or later).`, [{ label: 'OK', value: true, primary: true }]); return; }
+    const kitS = kit && Array.isArray(kit.text) ? ` Its style kit: ${kit.text.filter((x) => x.has).length} of ${kit.text.length} text styles, ${(kit.layers || []).filter((x) => x.has).length} of ${(kit.layers || []).length} layers.` : '';
+    const what = `${f.name}: a made-up plan was drawn on it, no problem found.${kitS}${ck.notes.length ? `\n${ck.notes.filter((t) => !/^Made-up plan:/.test(t)).join('\n')}` : ''}`.trim();
+    const T0 = tag && tag.kind === 'client' ? tplById(tag.id) : null;
+    let to = tag && tag.kind === 'company' && tplRoundOk('company') ? 'company' : T0 && tplRoundOk('client') ? `client:${T0.id}` : '';
+    if (to) { if (!(await ask(to === 'company' ? 'Replace the company template?' : `Replace ${T0.name}?`, `${what}\n\nIt replaces ${to === 'company' ? 'the company template on this phone' : `the template ${T0.name} on this phone (the projects using it use the edited one)`}.`, [{ label: 'Cancel', value: false }, { label: 'Replace', value: true, primary: true }]))) return; }
+    else {
+      const opts = [{ label: 'Cancel', value: '' }];
+      if (tplRoundOk('company')) opts.push({ label: 'Replace the company template', value: 'company' });
+      if (cur && tplRoundOk('client')) opts.push({ label: `Replace ${cur.name}`, value: `client:${cur.id}` });
+      if (tplRoundOk('client')) opts.push({ label: 'Add it as a client template', value: 'new' });
+      to = await ask('Which template is it?', `${what}\n\n${tag && tag.kind === 'client' ? `It was downloaded from the client template ${tag.name || ''}, which is not on this phone.` : 'It does not say which template it was downloaded from.'}`, opts);
+      if (!to) return;
+    }
+    const at = new Date().toISOString(), checks = { ok: true, problems: [], notes: ck.notes, tokens: ck.tokens, at, back: f.name };
+    if (to === 'company') {
+      await storeSeed(rd.text, f.name, 'file');
+      await ask('Company template replaced on this phone', 'To share it with your team as before: put this file on Google Drive (Anyone with the link) and its link in Administration → Plan template; the phones get it by themselves (the online sheet sends it to the website).', [{ label: 'OK', value: true, primary: true }]);
+    } else if (to.startsWith('client:')) {
+      const id = to.slice(7), r = await tplGet(id); if (!r) throw new Error('This template is not on this phone any more');
+      await dbPut('packs', { ...r, plan: rd.text, look: look || r.look, at, checks, edited: { at, file: f.name } });
+      S.tpls = tplList().map((x) => (x.id === id ? { ...x, at, look: look || x.look, ok: true, edited: true } : x)); persist();
+      for (const n of (S.projects || []).filter((q) => pmeta(q).tpl === id)) { try { drwPhMem.delete(n); } catch (e) { /* no preview */ } }
+      toast(`${r.name}: the edited template is used ✓`, 3500);
+    } else {
+      const id = uid(), name = String((tag && tag.name) || (look && look.name) || f.name.replace(/\.dxf$/i, '')).replace(/\s*\((client|company)\)$/i, '').slice(0, 60), from = { file: String(f.name).slice(0, 120), size: f.size || rd.text.length };
+      await dbPut('packs', { k: tplKey(id), id, name, at, from, client: '', src: null, plan: rd.text, cef: null, map: null, look, cefLook: null, checks, edited: { at, file: f.name } });
+      S.tpls = [...tplList(), { id, name, at, from, client: '', look, ok: true, cef: false, edited: true }]; persist();
+      if (S.project) tplChoose(S.project, id);
+      toast(`${name} added ✓`, 3000);
+    }
+    LOG.info('tpl.back', { ok: true, to: to === 'company' ? 'company' : to === 'new' ? 'new' : 'client', tagged: !!tag, kit: !!kit });
+    renderStyle();
+  }
+  $('tplDown').addEventListener('click', () => guard(tplDownload, 'Template not downloaded'));
+  $('tplBack').addEventListener('click', () => { if (!tplRoundOk('company') && !tplRoundOk('client')) { toast('Ask your admin: only the admin downloads and loads back the templates', 4500); return; } $('tplBackFile').value = ''; $('tplBackFile').click(); });
+  $('tplBackFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await tplLoadBack(f); }, 'Template not loaded'));
   $('tplSel').addEventListener('change', () => tplChoose(S.project, $('tplSel').value));
   $('tplAdd').addEventListener('click', () => { $('tplFile').value = ''; $('tplFile').click(); });
   $('tplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await tplAddFile(f); }, 'Template not added'));
@@ -14567,7 +14657,9 @@
     LOG.info('tpl.remove', { projects: used.length }); renderStyle(); toast('Template removed', 2500);
   }
   async function tplMakeAgain(id) {
-    const r = await tplGet(id); if (!r || !r.src) throw new Error('This template is not on this phone any more');
+    const r = await tplGet(id); if (!r) throw new Error('This template is not on this phone any more');
+    if (!r.src) throw new Error('This template was loaded back from AutoCAD: there is no client DXF to make it again from'); // ((templates, Round trip))
+    if (r.edited && !(await ask('Make it again?', `${r.name} was edited in AutoCAD and loaded back (${String(r.edited.at || '').slice(0, 10)}, ${r.edited.file || 'a DXF'}). Making it again from the client's DXF leaves those edits out.`, [{ label: 'Cancel', value: false }, { label: 'Make it again', value: true, primary: true }]))) return;
     busy('Reading the client\'s template…'); let dg, G;
     try { G = await synthReady(); await sleep(30); dg = G.digest(r.src, (r.from && r.from.file) || r.name); } finally { busy(false); }
     const p = G.proposal(dg), m = r.map || {}, ids = new Set(dg.sheets.flatMap((s) => s.fields.map((f) => f.id)));
@@ -14596,10 +14688,12 @@
     const styles = dg.styles.map((s) => [s.name, `${s.name} (${s.font || s.face || 'no font'}${s.bold ? ', bold' : ''})`]);
     tprOpt($('tplFont'), styles, map.look.font); tprOpt($('tplBold'), [['', 'None'], ...styles], map.look.bold || '');
     $('tplScale').value = String(map.look.scale || 1); $('tplScaleO').textContent = `× ${(+(map.look.scale || 1)).toFixed(2)}`; $('tplScaleSum').textContent = dg.heights.modelMedian ? `The client's sample texts are ${dg.heights.modelMedian} m high (the plan's labels: about 2.5 m at 1:1100).` : 'The plan\'s own sizes × this.';
+    { const K = map.finished && map.look.kinds && map.look.kinds.poleId, sc = dg.plan && dg.plan.planScale; if (K && K.mm) $('tplScaleSum').textContent = `Their pole IDs: ${K.h} m high at 1:${(sc || 0).toLocaleString('en-US')}, ${K.mm} mm printed (the app's: 2.2 m at 1:1,100, 2.0 mm).`; } // ((templates, Digester))
     const lw = $('tplLw'); lw.innerHTML = '';
     window.GeDxfSynth.LW_KEYS.forEach((k) => { const r = document.createElement('div'); r.className = 'tprrow'; r.innerHTML = '<label></label><select></select>'; r.querySelector('label').textContent = LW_NAME[k] || k; r.querySelector('label').htmlFor = `tplLw_${k}`; const sel = r.querySelector('select'); sel.id = `tplLw_${k}`; sel.dataset.lw = k; tprOpt(sel, [['', 'As the plan draws them'], ...LW_MM.map((v) => [String(v), `${(v / 100).toFixed(2)} mm`])], map.look.lw && map.look.lw[k] != null ? String(map.look.lw[k]) : ''); lw.appendChild(r); });
     const ly = $('tplLayers'); ly.innerHTML = ''; const layers = dg.layers.filter((l) => l.name !== '0').map((l) => [l.name, `${l.name}${l.lw > 0 ? ` (${(l.lw / 100).toFixed(2)} mm)` : ''}`]);
     window.GeDxfSynth.LAYER_CLASSES.forEach((c) => { const r = document.createElement('div'); r.className = 'tprrow'; r.innerHTML = '<label></label><select></select>'; r.querySelector('label').textContent = c.label; r.querySelector('label').htmlFor = `tplLy_${c.k}`; const sel = r.querySelector('select'); sel.id = `tplLy_${c.k}`; sel.dataset.ly = c.k; tprOpt(sel, [['', 'The plan\'s own'], ...layers], map.look.layers[c.k] || ''); ly.appendChild(r); });
+    tprFin(); // ((templates, Digester) a client's finished plan: each sheet's role, what was learned of each kind, its tables)
     const mo = $('tplModel'); mo.innerHTML = '';
     if (!dg.model.groups.length) mo.innerHTML = '<p class="hint">Model space is empty.</p>';
     dg.model.groups.forEach((g) => { const l = document.createElement('label'); l.className = 'check'; l.innerHTML = '<input type="checkbox"><span></span>'; const cb = l.querySelector('input'); cb.dataset.g = g.id; cb.checked = (map.model.keep || []).includes(g.id);
@@ -14608,24 +14702,87 @@
     if ($('tplReview').hidden) openSheet('tplReview');
     setTimeout(() => tprPic(TPR && TPR.pic), 30);
   }
+  /* (templates, Digester) A client's finished plan in the review: "A finished plan of theirs" (shown when its route is drawn: the digest's own call
+     ticked), each sheet's role (the builder's sheet it becomes, or left out) in place of the three sheets and the ones kept, what was learned of each
+     kind of thing their plan draws, and the tables the app fills. Ticking or unticking it makes the choices again (the name typed kept). */
+  const TPR_HINT = 'The plan is drawn on the plan sheet (one sheet for each part of the route, at 1:1100), the key map on its own sheet or a copy of the plan sheet; the CEF plan on the CEF sheet.';
+  const tprByTab = () => TPR.dg.sheets.slice().sort((a, b) => a.tab - b.tab).map((s) => s.name);
+  /** The finished plan's sheets kept (its first plan sheet, and every other sheet whose role is not Left out or a second plan sheet), tab order. */
+  function tprKept() { const R = TPR.map.roles || {}, byTab = tprByTab(), plan = byTab.find((n) => R[n] === 'plan'); return byTab.filter((n) => R[n] && R[n] !== 'out' && (R[n] !== 'plan' || n === plan)); }
+  /** The table values as the proposal makes them (each value cell's token, '' emptied), by table. */
+  function tprTab0(P) { const o = { pmi: {}, row: {} }; if (P && P.pmi) for (const q of P.pmi.rows) o.pmi[q.handle] = q.how === 'token' ? q.token : ''; if (P && P.row) for (const q of [...P.row.munis, ...P.row.brgys, ...P.row.totals]) o.row[q.handle] = q.token || ''; return o; }
+  /** Under each sheet's role: its map's scale, and what becomes of it (a second plan sheet: left out, the app copies the first). */
+  function tprRoleNotes() {
+    const P = TPR.dg.plan, R = TPR.map.roles || {}, byTab = tprByTab(), plan = byTab.find((n) => R[n] === 'plan');
+    $('tplRoles').querySelectorAll('select[data-role]').forEach((sel) => {
+      const n = sel.dataset.role, sh = TPR.dg.sheets.find((s) => s.name === n), sc = P.scale[n] && sh && sh.vps.length ? `Its map at 1:${P.scale[n].toLocaleString('en-US')}` : '';
+      const what = R[n] === 'plan' && n !== plan ? `left out: the app copies ${plan} for each part of the route` : R[n] === 'vicinity' ? 'its picture removed: the app makes its own' : R[n] === 'out' ? 'not in the template' : '';
+      sel.parentElement.querySelector('small').textContent = [sc, what].filter(Boolean).join(' · ');
+    });
+  }
+  function tprFin() {
+    const { dg, map } = TPR, G = window.GeDxfSynth, P = dg.plan || null, fin = !!map.finished && !!(P && P.drawn);
+    if (map.finished && !fin) map.finished = false; // (a choice kept from before, its plan no longer read as drawn: made as a template)
+    $('tplFinRow').hidden = !(P && P.drawn); $('tplFin').checked = fin;
+    $('tplFinSum').textContent = !P || !P.drawn ? '' : fin ? `Found ${P.poles} poles along ${P.cableM} m of cable${P.signs.length ? `, ${P.signs.join(', ')}` : ''}${P.planScale ? `; their plan sheets at 1:${P.planScale.toLocaleString('en-US')} (the app's at 1:1,100)` : ''}. The template is their plan without the plan itself: the app draws its own on it.`
+      : `It has a drawn route (${P.poles} poles, ${P.cableM} m of cable). Tick this when it is a finished plan of theirs, not a template with a sample drawing.`;
+    $('tplSheetHint').textContent = fin ? 'What each sheet of their plan is. The plan sheet is copied for each part of the route; the key map and the vicinity map are aimed by the app (the vicinity map\'s picture is the app\'s), the PMI and ROW tables filled; the others kept as they are, or left out.' : TPR_HINT;
+    $('tplSheetSel').hidden = fin; $('tplKeep').hidden = fin; $('tplRoles').hidden = !fin; $('tplKindsBox').hidden = !fin; $('tprTables').hidden = !fin || !(P.pmi || P.row);
+    const rb = $('tplRoles'); rb.innerHTML = '';
+    if (!fin) return;
+    const roles = G.ROLES.map((r) => [r.k, r.name ? `${r.label} → ${r.name}` : r.label]);
+    tprByTab().forEach((n) => {
+      const sh = dg.sheets.find((s) => s.name === n), r = document.createElement('div'); r.className = 'tprrow'; r.innerHTML = '<label></label><select></select><small></small>';
+      const id = `tplRole_${n.replace(/\W+/g, '_')}`, sel = r.querySelector('select'); r.querySelector('label').textContent = `${n} (${sh.units === 'in' ? `${sh.paper[0]} × ${sh.paper[1]} in` : `${Math.round(sh.paper[0])} × ${Math.round(sh.paper[1])} mm`}${sh.vps.length ? '' : ', no viewport'})`; r.querySelector('label').htmlFor = id;
+      sel.id = id; sel.dataset.role = n; tprOpt(sel, roles, (map.roles || {})[n] || 'other');
+      sel.addEventListener('change', () => { tprRead(); tprSheets(); tprRoleNotes(); tprDirty(); tprPic(n); }); sel.addEventListener('focus', () => tprPic(n));
+      rb.appendChild(r);
+    });
+    tprRoleNotes();
+    // what was learned of each kind (the look of sections 3 and 4 is set from it)
+    const K = P.kinds || {}, kb = $('tplKinds'); kb.innerHTML = '';
+    const fontOf = (st) => { const x = dg.styles.find((y) => y.name === st); return x ? x.font || x.face || '' : ''; };
+    // (each kind: the kit entries it fills (GeDxfTpl.PLAN_KIT's text styles and layers taught by it; the poles' and symbols' blocks under the plan's names), else the template's look)
+    const PK = window.GeDxfTpl && window.GeDxfTpl.PLAN_KIT, wf = (st) => { const x = dg.styles.find((y) => y.name === st); return x && x.wf && Math.abs(x.wf - 1) > 1e-6 ? x.wf : null; };
+    const into = (k, o) => [...(PK ? [...PK.text, ...PK.layers].filter((e) => e.learn === k).map((e) => e.name) : []),
+      ...((k === 'pole' || k === 'symbol') && o.blocks ? Object.entries(map.symbols || {}).filter(([, b]) => b && o.blocks.some((q) => q.name === b)).map(([sy]) => sy) : [])];
+    G.KINDS.forEach((x) => {
+      const o = K[x.k]; if (!o) return; const d = document.createElement('div'); d.innerHTML = '<b></b><small></small><small class="kit"></small>'; d.querySelector('b').textContent = x.label;
+      const ks = into(x.k, o); d.querySelector('.kit').textContent = ks.length ? `→ ${ks.join(', ')}` : '→ no kit entry: the template\'s look';
+      const lw = o.lw != null && o.lw >= 0 ? `${(o.lw / 100).toFixed(2)} mm thick` : '';
+      d.querySelector('small').textContent = [o.n ? `${o.n} on their plan` : '', `layer ${o.layer}`, o.style ? `${o.style}${fontOf(o.style) ? ` (${fontOf(o.style)}${wf(o.style) ? `, width ${wf(o.style)}` : ''})` : ''}` : '', o.h != null ? `${o.h} m high${o.mm ? `, ${o.mm} mm printed` : ''}${o.k ? `, ×${o.k} the app's` : ''}` : '',
+        o.blocks ? `blocks ${o.blocks.map((b) => `${b.name}${b.n ? ` ×${b.n}` : ''}`).join(', ')}` : o.block ? `block ${o.block}` : '', o.lt && !/^continuous$/i.test(o.lt) ? o.lt.toLowerCase() : '', lw, `colour ${o.color}`].filter(Boolean).join(' · ');
+      kb.appendChild(d);
+    });
+    $('tplKindsSum').textContent = kb.children.length ? `How their plan draws each kind of thing${P.planScale ? ` (its plan sheets at 1:${P.planScale.toLocaleString('en-US')})` : ''}, and the entry of the template's style kit it fills (→): its text style (their font, printed height, width), layer (colour, line type, weight) or block. A kind with no kit entry takes the font, text size, line weights and layers below.` : 'Nothing of their plan\'s drawing was read.';
+    // the tables the app fills (a box unticked: the client's figures kept as they are)
+    const tb = $('tplTables'); tb.innerHTML = ''; const T0 = tprTab0(P);
+    for (const [k, t] of [['pmi', P.pmi], ['row', P.row]]) {
+      if (!t) continue; const l = document.createElement('label'); l.className = 'check'; l.innerHTML = '<input type="checkbox"><span></span>'; const cb = l.querySelector('input'); cb.dataset.tab = k;
+      cb.checked = Object.keys(T0[k]).some((h) => (map.tables || {})[h] !== '-');
+      l.querySelector('span').textContent = k === 'pmi' ? `PMI table${t.space ? ` (on the sheet ${t.space})` : ''}: the app's figures in ${t.rows.length} rows (${t.rows.map((q) => `${q.label} ${q.value}`).slice(0, 6).join(', ')}${t.rows.length > 6 ? '…' : ''})`
+        : `ROW table${t.space ? ` (on the sheet ${t.space})` : ''}: the places along the route (now ${[...t.munis.map((q) => q.value), ...t.brgys.map((q) => q.value)].slice(0, 5).join(', ')}${t.munis.length + t.brgys.length > 5 ? '…' : ''})`;
+      tb.appendChild(l);
+    }
+  }
   /** The other sheets (kept or not) and the fields of the sheets used, after the sheets are chosen. */
   function tprSheets() {
-    if (!TPR) return; const { dg, map } = TPR, used = new Set([map.plan, map.keymap, map.cef].filter(Boolean));
-    const kb = $('tplKeep'); kb.innerHTML = ''; const others = dg.sheets.filter((s) => !used.has(s.name));
+    if (!TPR) return; const { dg, map } = TPR, fin = !!map.finished, used = new Set([map.plan, map.keymap, map.cef].filter(Boolean));
+    const kb = $('tplKeep'); kb.innerHTML = ''; const others = fin ? [] : dg.sheets.filter((s) => !used.has(s.name));
     if (others.length) { const h = document.createElement('p'); h.className = 'hint'; h.textContent = 'The template\'s other sheets: kept in the as-plan, or left out.'; kb.appendChild(h); }
     others.forEach((s) => { const l = document.createElement('label'); l.className = 'check'; l.innerHTML = '<input type="checkbox"><span></span>'; const cb = l.querySelector('input'); cb.dataset.keep = s.name; cb.checked = (map.keep || []).includes(s.name); l.querySelector('span').textContent = `Keep the sheet ${s.name}`; kb.appendChild(l); });
     const FL = window.GeDxfSynth.FIELDS, opts = [['', 'Keep the template\'s text'], ['-', 'Leave it blank'], ...FL.map((f) => [f.key, f.label])];
     const box = $('tplFields'); box.innerHTML = '';
-    const shown = [...new Set([map.plan, map.keymap, map.cef, ...(map.keep || [])].filter(Boolean))];
+    const shown = fin ? tprKept() : [...new Set([map.plan, map.keymap, map.cef, ...(map.keep || [])].filter(Boolean))], RL = new Map(window.GeDxfSynth.ROLES.map((r) => [r.k, r]));
     shown.forEach((sn) => {
-      const sh = dg.sheets.find((s) => s.name === sn); if (!sh) return;
-      const h = document.createElement('p'); h.className = 'hint'; h.innerHTML = `<b></b>`; h.firstChild.textContent = `Sheet ${sn}${sn === map.plan ? ' (plan)' : ''}${sn === map.keymap ? ' (key map)' : ''}${sn === map.cef ? ' (CEF)' : ''}: ${sh.fields.length ? `${sh.fields.length} field${sh.fields.length === 1 ? '' : 's'}` : 'no fields found'}`; box.appendChild(h);
+      const sh = dg.sheets.find((s) => s.name === sn); if (!sh) return; const role = fin ? RL.get((map.roles || {})[sn]) : null;
+      const h = document.createElement('p'); h.className = 'hint'; h.innerHTML = `<b></b>`; h.firstChild.textContent = `Sheet ${sn}${role ? ` (${role.name || role.label.toLowerCase()})` : `${sn === map.plan ? ' (plan)' : ''}${sn === map.keymap ? ' (key map)' : ''}${sn === map.cef ? ' (CEF)' : ''}`}: ${sh.fields.length ? `${sh.fields.length} field${sh.fields.length === 1 ? '' : 's'}` : 'no fields found'}`; box.appendChild(h);
       sh.fields.forEach((f, i) => {
         const r = document.createElement('div'); r.className = 'tprf'; r.dataset.fid = f.id; r.dataset.sheet = sn;
         const sure = f.sure >= 0.9 ? 'sure' : f.sure >= 0.75 ? 'likely' : f.guess ? 'a guess' : 'not known';
         r.innerHTML = `<span class="n">${i + 1}</span><span class="w"><b></b><small></small></span><select></select>`;
         r.querySelector('b').textContent = f.label || f.tag || '(no label)';
-        r.querySelector('small').textContent = `${f.kind === 'label' ? 'No value text: one is added beside it' : `Now: ${f.value ? `“${f.value.slice(0, 40)}”` : '(empty)'}`} · ${sure}`;
+        r.querySelector('small').textContent = `${f.kind === 'label' ? 'No value text: one is added beside it' : `Now: ${f.prefix && f.how === 'inline' && f.cross ? `${f.prefix}` : ''}${f.value ? `“${f.value.slice(0, 40)}”` : '(empty)'}`} · ${f.cross ? 'the same as a title block\'s' : sure}`;
         const sel = r.querySelector('select'); sel.setAttribute('aria-label', `What fills ${f.label || f.tag || 'this field'}`); tprOpt(sel, opts, Object.prototype.hasOwnProperty.call(map.fields, f.id) ? map.fields[f.id] : f.key);
         const n = r.querySelector('.n'); n.classList.toggle('none', !sel.value || sel.value === '-');
         sel.addEventListener('change', () => { n.classList.toggle('none', !sel.value || sel.value === '-'); tprDirty(); tprPic(sn); });
@@ -14638,8 +14795,14 @@
   function tprRead() {
     if (!TPR) return null; const m = TPR.map;
     m.name = $('tplName').value.trim().slice(0, 60) || m.name; m.client = $('tplClient').value.trim().slice(0, 60);
-    m.plan = $('tplPlan').value; m.keymap = $('tplKey').value; m.cef = $('tplCef').value; m.exported = $('tplExported').checked;
-    m.keep = [...$('tplKeep').querySelectorAll('input[data-keep]')].filter((c) => c.checked).map((c) => c.dataset.keep);
+    if (m.finished) { // ((templates, Digester) each sheet's role: the plan, key map and CEF sheets and the ones kept follow from them; the tables ticked)
+      m.roles = { ...(m.roles || {}) }; $('tplRoles').querySelectorAll('select[data-role]').forEach((s) => { m.roles[s.dataset.role] = s.value; });
+      const byTab = tprByTab(), first = (k) => byTab.find((n) => m.roles[n] === k) || '';
+      m.plan = first('plan'); m.keymap = first('keymap'); m.cef = first('cef'); m.keep = byTab.filter((n) => n !== m.plan && n !== m.keymap && !['plan', 'out', 'cef'].includes(m.roles[n]));
+      const T0 = tprTab0(TPR.dg.plan); m.tables = { ...(m.tables || {}) };
+      $('tplTables').querySelectorAll('input[data-tab]').forEach((c) => { for (const [h, tok] of Object.entries(T0[c.dataset.tab] || {})) m.tables[h] = c.checked ? tok : '-'; });
+    } else { m.plan = $('tplPlan').value; m.keymap = $('tplKey').value; m.cef = $('tplCef').value; m.keep = [...$('tplKeep').querySelectorAll('input[data-keep]')].filter((c) => c.checked).map((c) => c.dataset.keep); }
+    m.exported = $('tplExported').checked;
     $('tplFields').querySelectorAll('.tprf').forEach((r) => { m.fields[r.dataset.fid] = r.querySelector('select').value; });
     document.querySelectorAll('#tplSyms select, #tplSymsMore select').forEach((s) => { m.symbols[s.dataset.sym] = s.value || null; });
     m.look.font = $('tplFont').value; m.look.bold = $('tplBold').value; m.look.scale = +$('tplScale').value || 1;
@@ -14671,7 +14834,12 @@
   ['tplPlan', 'tplKey', 'tplCef'].forEach((id) => $(id).addEventListener('change', () => { tprRead(); tprSheets(); tprDirty(); tprPic($(id).value || TPR.map.plan); }));
   $('tplPicAll').addEventListener('change', () => { if (TPR) tprPic(TPR.pic); });
   $('tplScale').addEventListener('input', () => { $('tplScaleO').textContent = `× ${(+$('tplScale').value).toFixed(2)}`; tprDirty(); });
-  $('tplReview').addEventListener('change', (e) => { if (e.target.closest('#tplSyms, #tplSymsMore, #tplLw, #tplLayers, #tplModel, #tplKeep') || ['tplFont', 'tplBold', 'tplExported', 'tplName', 'tplClient'].includes(e.target.id)) tprDirty(); });
+  $('tplReview').addEventListener('change', (e) => { if (e.target.closest('#tplSyms, #tplSymsMore, #tplLw, #tplLayers, #tplModel, #tplKeep, #tplTables') || ['tplFont', 'tplBold', 'tplExported', 'tplName', 'tplClient'].includes(e.target.id)) tprDirty(); });
+  $('tplFin').addEventListener('change', () => { // ((templates, Digester) a finished plan or a template: the choices made again for it, the names typed kept)
+    if (!TPR) return; const nm = $('tplName').value.trim(), cl = $('tplClient').value.trim(), p = window.GeDxfSynth.proposal(TPR.dg, { finished: $('tplFin').checked });
+    tprOpen({ text: TPR.text, dg: TPR.dg, file: TPR.file, size: TPR.size, id: TPR.id, map: { ...p, ...(nm ? { name: nm } : {}), ...(cl ? { client: cl } : {}) } });
+    LOG.info('tpl.finished', { on: !!p.finished });
+  });
   /** Make and check: the seeds made from the choices, a made-up plan drawn on them; the problems in plain words, its first sheet as a picture. */
   async function tprMake() {
     const m = tprRead(); if (!m) return; const G = await synthReady();
@@ -14681,7 +14849,7 @@
     const res = $('tplCheckRes'); res.innerHTML = '';
     const d = document.createElement('div'); d.className = `tprres${ck.ok ? '' : ' bad'}`;
     d.innerHTML = `<b></b><ul></ul>`; d.querySelector('b').textContent = ck.ok ? '✓ The made-up plan was drawn on this template: no problem found.' : `${ck.problems.length} problem${ck.problems.length === 1 ? '' : 's'}:`;
-    const ul = d.querySelector('ul'); [...ck.problems, ...ck.notes, `Fields: ${ck.tokens.join(', ') || 'none'}`, made.cef ? `CEF template: sheet ${m.cef}${ck.cef ? `, fields ${ck.cef.tokens.join(', ')}` : ''}` : 'No CEF template: the CEF plan keeps its own frame.'].forEach((t) => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+    const ul = d.querySelector('ul'); [...ck.problems, ...ck.notes, `Fields: ${ck.tokens.join(', ') || 'none'}`, made.cef ? `CEF template: sheet ${m.cef}${ck.cef ? `, fields ${ck.cef.tokens.join(', ')}` : ''}` : m.finished ? 'No CEF sheet in their plan: the CEF plan is made as for the company.' : 'No CEF template: the CEF plan keeps its own frame.'].forEach((t) => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
     res.appendChild(d); $('tprCheck').hidden = false;
     const cv = $('tplCheckPic'), ctx = cv.getContext('2d');
     try { const page = ck.built ? window.GeDxfPdf.layoutPages(ck.built.text, { only: ['GEO'] }).pages[0] : null; if (page) { cv.height = Math.round(cv.width * page.h / page.w); G.paint(ctx, page, cv.width, cv.height, {}); } else ctx.clearRect(0, 0, cv.width, cv.height); } catch (e) { LOG.warn('tpl.checkpic', errInfo(e)); }
@@ -14693,10 +14861,10 @@
     if (!TPR || !TPR.made) return; const m = TPR.map, made = TPR.made, id = TPR.id || uid(), at = new Date().toISOString(), name = (m.name || 'Client template').slice(0, 60);
     const from = { file: String(TPR.file || '').slice(0, 120), size: TPR.size || TPR.text.length };
     await dbPut('packs', { k: tplKey(id), id, name, at, from, client: m.client || '', src: TPR.text, plan: made.plan, cef: made.cef, map: m, look: made.look, cefLook: made.cefLook, checks: TPR.check });
-    const meta = { id, name, at, from, client: m.client || '', look: made.look, ok: !!(TPR.check && TPR.check.ok), cef: !!made.cef };
+    const meta = { id, name, at, from, client: m.client || '', look: made.look, ok: !!(TPR.check && TPR.check.ok), cef: !!made.cef, ...(m.finished ? { fin: true } : {}) };
     S.tpls = [...tplList().filter((t) => t.id !== id), meta]; persist();
     if (!TPR.id && S.project) tplChoose(S.project, id);
-    LOG.info('tpl.save', { kb: Math.round(made.plan.length / 1024), cef: !!made.cef, again: !!TPR.id });
+    LOG.info('tpl.save', { kb: Math.round(made.plan.length / 1024), cef: !!made.cef, again: !!TPR.id, fin: !!m.finished });
     TPR = null; await closeSheet(); renderStyle(); toast(`${name} saved ✓`, 3000);
   }
   $('tplMake').addEventListener('click', () => guard(tprMake, 'Template not made'));
@@ -15238,10 +15406,11 @@
       const pname = values.PROJECT_TYPE || sfGet(SF, /project\s*name/i) || proj, who = e.name || sg.by || '';
       const at = rows.find((r) => r.el === 'Site') || rows.find((r) => r.el === 'Pole') || rows[0], dms = (v, P, N) => { if (!Number.isFinite(+v)) return ''; const h = v < 0 ? N : P; let a = Math.abs(+v), d = Math.floor(a), mm = Math.floor((a - d) * 60), ss = (a - d - mm / 60) * 3600; if (ss >= 59.995) { ss = 0; mm++; } if (mm >= 60) { mm = 0; d++; } return `${d}%%d${String(mm).padStart(2, '0')}'${ss.toFixed(2).padStart(5, '0')}"${h}`; }; // (%%d: AutoCAD's degree sign, read the same by every DXF version)
       const km = Object.fromEntries(['KEYMAP', ...Array.from({ length: 8 }, (_, k) => `KEYMAP (${k + 2})`)].map((n) => [n, '']));
+      const vm = Object.fromEntries(['VICINITY MAP', ...Array.from({ length: 8 }, (_, k) => `VICINITY MAP (${k + 2})`)].map((n) => [n, ''])); // ((templates, Digester) a client's vicinity map sheet: its scale the builder's, as the key map's)
       Object.assign(values, { PROJECT_TYPE: pname, LINK: pname, LOCATION: known ? [sName, sPla].filter(Boolean).join('_') : (m.site || ''), SITE_NAME: sName || m.site || '', SITE_ID: sPla, SERIAL: sSerial,
         DWG_NO: sfGet(SF, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss, PREPARED_BY: who, DRAWN_BY: who, CHECKED_BY: chk, APPROVED_BY: sg.apr || '',
         CLIENT: sfGet(SF, /client|customer/i) || (projTpl(proj) || {}).client || '', SHEET_TITLE: { ...Object.fromEntries(Object.keys(km).map((n) => [n, 'KEY MAP'])), '*': 'ROUTE PLAN' }, PLAN_KIND: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN',
-        COORDINATES: at ? `${dms(at.lat, 'N', 'S')} ${dms(at.lon, 'E', 'W')}` : '', ...(S.exp.dxfLabels !== 'tidy' ? { SCALE: { ...km, '*': '1 : 1,100 METERS' } } : {}) }); // (the key map's scale: dxftpl's; Tidy's finer sheets: dxftpl's)
+        COORDINATES: at ? `${dms(at.lat, 'N', 'S')} ${dms(at.lon, 'E', 'W')}` : '', ...(S.exp.dxfLabels !== 'tidy' ? { SCALE: { ...km, ...vm, '*': '1 : 1,100 METERS' } } : {}) }); // (the key map's scale: dxftpl's; Tidy's finer sheets: dxftpl's)
     }
     /* beta 6.0: the PMI's quantities item by item, each where it is, for the BOQ table of each GEO sheet (dxftpl adds them up by grid
        cell): a span's length where its length is written on the plan (each run when the PMI counts the runs), a loop at its point, a
@@ -24114,7 +24283,8 @@
   window.__polecam.vicinity = async (o) => { const v = await vicinityJpeg(+o.E, +o.N, +o.size, o.zone || S.zone, !!o.south, null, o.street ? null : SAT_SOURCE, o.zCap || 0); if (!v || !v.jpg) return null; let s = ''; for (let i = 0; i < v.jpg.length; i += 0x8000) s += String.fromCharCode.apply(null, v.jpg.subarray(i, i + 0x8000)); return { b64: btoa(s), px: v.px, z: v.z, sat: !!v.sat }; }; // beta 4.3 (tests)
   window.__polecam.newAt = (o) => openEditor({ mode: 'new', element: (o && o.element) || 'Pole', lat: +o.lat, lon: +o.lon, source: 'map', takenAt: new Date().toISOString() }); // beta 4.3 (tests): a new record with no photo
   /* beta 6.7 (tests) */ window.__polecam.drwEdit = (on) => drwEditSet(!!on);
-  window.__polecam.tpl = { list: () => JSON.parse(JSON.stringify(tplList())), of: (n) => (projTpl(n) || {}).id || '', choose: (n, id) => tplChoose(n, id || ''), seedText: (n) => seedText(n), cefText: (n) => tplCefText(n), look: (n) => tplLookOf(n), review: () => (TPR ? JSON.parse(JSON.stringify(TPR.map)) : null) }; // ((beta 7.15, Client templates) tests)
+  window.__polecam.tpl = { list: () => JSON.parse(JSON.stringify(tplList())), of: (n) => (projTpl(n) || {}).id || '', choose: (n, id) => tplChoose(n, id || ''), seedText: (n) => seedText(n), cefText: (n) => tplCefText(n), look: (n) => tplLookOf(n), review: () => (TPR ? JSON.parse(JSON.stringify(TPR.map)) : null), // ((beta 7.15, Client templates) tests)
+    down: () => tplDownText(), back: (text, name) => tplLoadBack(new File([text], name || 'edited_template.dxf', { type: 'application/dxf' })), roundOk: (k) => tplRoundOk(k) }; // ((templates, Round trip) tests)
   window.__polecam.cefTpl = { now: async (n) => { const t = await cefTplNow(n); return { kind: t.kind, name: t.name, size: t.text.length, note: t.note }; }, seedText: () => cefSeedText(), info: () => (S.cefSeed ? JSON.parse(JSON.stringify(S.cefSeed)) : null), id: () => cefSeedId(),
     store: (text, name) => storeCefSeed(text, name, 'file'), get: () => downloadCefSeed(true), complete: async (text) => (await cefKit()).complete(text, await cefGeneric(), window.GeDxfTpl), admin: () => cefTplAdmin(), canLoad: () => cefTplCanLoad() }; // ((templates, company CEF template) tests)
   window.__polecam.drwEd = () => ({ on: drwEd, handles: (drw && drw.edH ? drw.edH : []).map((h) => { const r = $('drawCanvas').getBoundingClientRect(); return { x: r.left + h.x, y: r.top + h.y, r: h.r, n: h.n, a: String(h.a), b: String(h.b) }; }), site: drwSiteArm ? drwSiteArm.kind : null, selRun: drw ? drw.selRun : null, n: drw ? drw.items.length : 0 });
