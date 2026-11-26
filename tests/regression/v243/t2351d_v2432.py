@@ -31,8 +31,8 @@ async def main():
         ids = await pg.evaluate("[...document.querySelectorAll('#tutList .tuttopic')].map((b) => b.dataset.topic)")
         T = await pg.evaluate("GESAA_TUTORIAL.topics.filter((t) => t.aud === 'admin').map((t) => ({ id: t.id, rm: t.steps.some((s) => /\\*\\*To (remove|cancel|untie|change|go back)/.test(s.t)) }))")
         need_rm = [t['id'] for t in T if t['id'] not in ('adm-inspect', 'adm-approve', 'adm-remove') and not t['rm']]
-        check('the admin guide lists 17 topics (v2.43: Stable and beta; beta 3.2: Switch Team on for a company), the Google Drive API key and "Remove or undo admin settings" among them; every setting topic says how to remove or undo it',
-              len(ids) == 17 and 'adm-beta' in ids and 'adm-team' in ids and 'adm-drivekey' in ids and ids[-1] == 'adm-remove' and not need_rm, (ids, need_rm))
+        check('the admin guide lists 18 topics (v2.43: Stable and beta; beta 3.2: Switch Team on for a company; beta 7.16: User permissions), the Google Drive API key and "Remove or undo admin settings" among them; every setting topic says how to remove or undo it',
+              len(ids) == 18 and 'adm-perms' in ids and 'adm-beta' in ids and 'adm-team' in ids and 'adm-drivekey' in ids and ids[-1] == 'adm-remove' and not need_rm, (ids, need_rm))
         # 2. the API key topic: the website address for the Google Cloud restriction filled in (the site part, then /*)
         await pg.evaluate("window.POLECAM_SITE = 'https://marktamsedesign-oss.github.io/polecam/'")
         await pg.click('#tutList .tuttopic[data-topic="adm-drivekey"]'); await W(pg, 300)
