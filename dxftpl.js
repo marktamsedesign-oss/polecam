@@ -496,6 +496,7 @@
       o = o || {}; const r = this.base('TEXT', layer, o), ha = o.ha || 0, va = o.va || 0;
       r.push([100, 'AcDbText'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(h)], [1, s]);
       if (o.rot) r.push([50, F(o.rot)]);
+      if (o.wf && Math.abs(o.wf - 1) > 1e-9) r.push([41, F(o.wf)]); // ((templates, As-plan kit) a kit style's width factor)
       if (o.obl) r.push([51, F(o.obl)]); // v2.42.11: slanted (oblique angle, degrees)
       r.push([7, this.style(o.style)]);
       if (ha || va) r.push([72, I(ha)], [11, F(x)], [21, F(y)], [31, '0.0']);
@@ -503,7 +504,7 @@
       return this.add(r);
     }
     mtext(layer, x, y, h, s, o) {
-      o = o || {}; const r = this.base('MTEXT', layer, o); if (this.d.look) s = lookCodes(this.d, s); // ((beta 7.15, Template look) its font codes the look's)
+      o = o || {}; const r = this.base('MTEXT', layer, o); if (this.d.look && !this.kitS(o.style)) s = lookCodes(this.d, s); // ((beta 7.15, Template look) its font codes the look's) ((templates, As-plan kit) an MTEXT in a kit style: its own)
       r.push([100, 'AcDbMText'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(h)], [41, '0.0'], [71, I(o.att || 1)], [72, I(1)]);
       if (o.dir) r.push([11, F(o.dir[0])], [21, F(o.dir[1])], [31, '0.0']); // turned: its x axis
       const chunks = []; for (let i = 0; i < s.length; i += 250) chunks.push(s.slice(i, i + 250)); if (!chunks.length) chunks.push('');
@@ -515,7 +516,8 @@
     }
     solid(layer, p, o) { const r = this.base('SOLID', layer, o), q = p.length > 3 ? p[3] : p[2]; r.push([100, 'AcDbTrace'], [10, F(p[0][0])], [20, F(p[0][1])], [30, '0.0'], [11, F(p[1][0])], [21, F(p[1][1])], [31, '0.0'], [12, F(p[2][0])], [22, F(p[2][1])], [32, '0.0'], [13, F(q[0])], [23, F(q[1])], [33, '0.0']); return this.add(r); } // v2.42.24: a filled triangle (a leader's arrow)
     circle(layer, x, y, rad, o) { const r = this.base('CIRCLE', layer, o); r.push([100, 'AcDbCircle'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(rad)]); return this.add(r); }
-    style(s) { if (this.d.look && this.d.look.style) return lookFor(this.d, s); return s && this.S.styles.has(s) ? s : 'Standard'; } // ((beta 7.15, Template look) every text the plan writes in the look's style)
+    style(s) { if (this.d.look && this.d.look.style && !this.kitS(s)) return lookFor(this.d, s); return s && this.S.styles.has(s) ? s : 'Standard'; } // ((beta 7.15, Template look) every text the plan writes in the look's style)
+    kitS(s) { return !!(this.d.kitS && s && this.d.kitS.has(String(s).toUpperCase())); } // ((templates, As-plan kit) a text the plan writes in a kit style keeps it: the kit wins over the look)
     /** An INSERT of a seed block, placed so the drawn symbol's centre is at (x, y), with attributes by tag. */
     insert(layer, name, x, y, o) {
       o = o || {}; const blk = this.S.blocks.get(name); if (!blk) return null;
@@ -1280,7 +1282,8 @@
     const LN = new Set(d.sec('TABLES').recs.filter((r) => typ(r) === 'LAYER').map((r) => String(get(r, 2, '')))); // (the seed's layers, read from its table)
     const layers = {}; if (v.layers && typeof v.layers === 'object' && !Array.isArray(v.layers)) for (const [k, c] of Object.entries(v.layers)) if (typeof c === 'string' && c && c !== k && LN.has(c)) layers[k] = c;
     const sh = v.sheet && typeof v.sheet === 'object' ? v.sheet : null, mm = sh ? n(sh.mm) : null, sc = n(tx.scale);
-    return { name: String(v.name || ''), style: sm ? String(get(sm, 2)) : null, bold: sm && sb ? String(get(sb, 2)) : null, main: fontOf(sm), boldF: sm ? fontOf(sb) : null, scale: sc != null && sc > 0 ? Math.max(0.5, Math.min(3, sc)) : 1, lw, layers, sheet: mm > 0 ? { mm } : null };
+    return { name: String(v.name || ''), style: sm ? String(get(sm, 2)) : null, bold: sm && sb ? String(get(sb, 2)) : null, main: fontOf(sm), boldF: sm ? fontOf(sb) : null, scale: sc != null && sc > 0 ? Math.max(0.5, Math.min(3, sc)) : 1, lw, layers, sheet: mm > 0 ? { mm } : null,
+      kinds: v.kinds && typeof v.kinds === 'object' && !Array.isArray(v.kinds) ? v.kinds : null }; // ((templates, As-plan kit) the kinds a client's finished plan taught (stage10 B4): the starting kit's (withKit))
   }
   /** (beta 7.15, Template look) whether a style name is one of the look's and how: { b, i } (its bold style, its main or bold one's ' B' / ' I' / ' BI'); null: not the look's */
   function lookBI(d, nm) {
@@ -1320,6 +1323,105 @@
     if (!d.look || !d.look.style || String(raw).indexOf('\\') < 0) return raw;
     const T = mtTokens(String(raw)); let ch = false;
     for (const t of T) { if (t.k !== 'c' || !/^\\[fF]/.test(t.s)) continue; const bi = codeBI(d, t.s), c = lookCode(d, bi.b, bi.i); if (c == null || c === t.s) continue; t.s = c; ch = true; }
+    return ch ? T.map((t) => t.s).join('') : raw;
+  }
+  /* ---------------- (templates, As-plan kit) the as-plan style kit (stage10 B2; stage8 Principles 1–2; the CEF's CEF_KIT is the model) ----------------
+     The owner: (should a template control how the app draws everything — fonts, sizes, thickness, symbols — for every project, including the
+     company's?) "Yes definitely. That was the intention of a template". The plan template's OWN tables, found by these names, give each kind of
+     text, line and symbol of the as-plan its look; a kind the template has no entry for keeps today's (the 7.15 look's when the seed has one,
+     else the app's), so the company template without the kit gives today's plan byte for byte.
+     text: [style, where today's font comes from (withKit, kitOf: 'arial', the texts written in the template's arial style; 'standard', in its
+     Standard; 'latlong', in its 样式 1; 'code', MTEXT font codes of Arial), what it controls, the plan's elements whose texts it is (report.movable
+     kinds), the kind a client's finished plan taught (G-ESAA_LOOK.kinds, stage10 B4: withKit starts from it)]. Their texts (TEXT, MTEXT) take its
+     font (an MTEXT's font codes too, each part's bold and italic kept; a bold part its bold style's, '<style> B', when the template has one), its
+     width factor and oblique angle (a TEXT's), and its height (Principle 2: an annotative style's is the printed height in mm on the GEO sheets,
+     else the drawing's units: metres on the plan, the paper's units in a sheet's box; 0: the app's own size). A kind's sizes keep their proportions:
+     its height is its largest text's (a pole's first line, a label not made smaller for its room).
+     layers: [layer, today's colour, line type, weight (1/100 mm; -3 Default: the app's own weight, by the cable's size), what it draws, the kind
+     a finished plan taught]: the lines of that kind drawn on it, BYLAYER (its colour and line type; its weight unless it is Default).
+     sym: [block, what it is]: the symbols are the template's blocks by name, as before (the STYLE KEY lists them); the app's own (G-ESAA …)
+     are made by the app when the template has none of that name. A block's attributes (a tower's name and PLA ID, a closure's JT and ID) are the
+     symbol's: they keep the style of their attribute definition, as before. */
+  const PLAN_KIT = {
+    text: [
+      ['PLAN POLE DETAILS', 'arial', 'A pole\'s details: its ID, type and height, clamps and owner (Standard: the lines beside the pole; Tidy: its block\'s lines)', ['details'], 'poleId'],
+      ['PLAN POLE NUMBER', 'arial', 'A pole\'s number in its circle (beside the pole; in a Tidy block it follows the block)', ['number'], 'poleNo'],
+      ['PLAN LAT LONG', 'latlong', 'Latitudes and longitudes (in a pole\'s details, under an ID, in a site\'s details): their font; their size follows what they are in', [], 'latLong'],
+      ['PLAN ID', 'arial', 'The IDs of NAPs and LCPs, handholes, manholes, service boxes, pull-offs and cross-overs', ['pole', 'nap'], 'poleId'],
+      ['PLAN SPAN LENGTH', 'arial', 'The spans\' lengths', ['span'], 'spanLen'],
+      ['PLAN CABLE LABEL', 'arial', 'The cable labels along the spans and the cable\'s name along its run', ['cable', 'cablename'], 'cableLabel'],
+      ['PLAN LOOP', 'standard', 'The loops\' lengths (20m LOOP) at the poles and the boxes', ['loop'], 'loopText'],
+      ['PLAN CLOSURE', 'arial', 'The closures\' labels: PROPOSED CLOSURE and its ID, a bubble\'s lines', ['closurelabel'], 'closureLabel'],
+      ['PLAN SITE', 'arial', 'The sites\' names and PLA IDs (towers, OLTs), the ODC\'s ID and an ODF\'s label', ['sitename', 'sitedetails'], 'siteName'],
+      ['PLAN ATTACHMENT', 'arial', 'On the poles: the guys\' codes, the arms\' names, the clamp tags, EXTENDED MESSENGER', ['clamp', 'guy', 'ground', 'arm', 'msgtext'], null],
+      ['PLAN STREET', 'arial', 'The streets\' names', ['road'], 'streetName'],
+      ['PLAN LANDMARK', 'standard', 'The landmarks\' names (buildings and places)', ['landmark'], null],
+      ['PLAN NOTE', 'arial', 'The notes added on the Drawing (their font; each keeps the size it was given)', ['note'], 'note'],
+      ['PLAN TABLE', 'standard', 'Each GEO sheet\'s BOQ table and the RTA / JPA legend under it (its height: as their rows allow)', [], null],
+      ['PLAN LEGEND', 'arial', 'The RTA / JPA legend on a sheet of its own (LEGENDS, else KEYMAP; its height: as its rows allow)', [], null],
+      ['PLAN SHEET NAME', 'standard', 'The GEO sheets\' names in their corner', [], 'gridLabel'],
+      ['PLAN KEY MAP NAME', 'code', 'The sheets\' names on the key map (their font; each fills its cell)', [], null],
+      ['PLAN VICINITY MAP', 'arial', 'The vicinity maps\' road and place names and the maps\' credit lines (their font; their sizes follow the map)', [], null],
+    ],
+    layers: [
+      ['PLAN CABLE AE', 1, 'DASHED', -3, 'Proposed aerial FOC cables (each cable\'s weight by its size while this layer\'s weight is Default)', 'cable'],
+      ['PLAN CABLE UG', 3, 'Continuous', -3, 'Proposed underground FOC cables (each cable\'s weight by its size while this layer\'s weight is Default)'],
+      ['PLAN CABLE AE EXISTING', 5, 'DASHED', -3, 'Existing aerial cables', 'cableExisting'],
+      ['PLAN CABLE UG EXISTING', 5, 'Continuous', -3, 'Existing underground cables'],
+      ['PLAN MESSENGER', 1, 'Continuous', 18, 'The extended messengers of pull-offs and cross-overs'],
+      ['PLAN LEADER', 8, 'Continuous', -3, 'The thin lines from a label, an ID, a loop\'s or a span\'s length, a photo or a note to what it names'],
+      ['PLAN ROAD', 7, 'Continuous', -3, 'The roads\' edge lines (footpaths stay grey and bridges blue)', 'road'],
+    ],
+    sym: [
+      ['P-POLE', 'A proposed pole'], ['existing electric pole', 'An existing electric (or other owner\'s) pole'], ['existing telecom pole', 'An existing telecom pole'],
+      ['G-ESAA EXISTING GT POLE', 'An existing Globe or Bayantel pole (a blue disc; made by the app)'], ['P-Joint', 'A proposed closure (its JT and ID attributes)'], ['loopp', 'A maintenance loop on the cable'],
+      ['SG', 'A side guy'], ['HG', 'A head guy (a down guy too)'], ['SW', 'A sidewalk guy'], ['SWH', 'A sidewalk head guy'], ['proposed pole to pole guy', 'A pole-to-pole guy'],
+      ['proposed grounding', 'A grounding (its rod and wire)'], ['proposed riser', 'A riser (the cable down the pole)'], ['proposed single arm', 'A single arm on the pole'], ['double arm', 'A double arm'], ['10 pin', 'A 10-pin arm'],
+      ['extension 44 arm', 'An extension arm (44)'], ['extension arm 26', 'An extension arm (26)'], ['G-ESAA TELCO ARM', 'A telco arm (made by the app)'], ['G-ESAA TELCO ARM R', 'A telco arm the other way round (made by the app)'],
+      ['proposed NAP', 'A proposed NAP'], ['existing NAP', 'An existing NAP'], ['1_16NAP', 'A NAP 1x16'], ['dummy nap', 'A dummy NAP'], ['proposed Double NAP', 'A double NAP'],
+      ['proposed LCP', 'An LCP (local convergence point)'], ['proposed Handhole', 'A proposed handhole'], ['HANDHOLE', 'An existing handhole'], ['PROPOSED MAN HOLE', 'A proposed manhole'], ['MH', 'An existing manhole'],
+      ['proposed service box', 'A proposed service box'], ['SB', 'An existing service box'], ['X-BTS', 'A tower (its name and PLA ID attributes)'], ['G-ESAA P-BTS', 'A new tower (made by the app: X-BTS in red)'], ['OLT1', 'An existing OLT'],
+      ['7', 'A proposed OLT'], ['P-HOST', 'A proposed ODF'], ['X-HOST', 'An existing ODF'], ['G-ESAA ODC', 'An ODC cabinet (made by the app)'],
+      ['G-ESAA PULL-OFF', 'A pull-off (made by the app)'], ['G-ESAA CROSS-OVER', 'A cross-over (made by the app)'],
+    ],
+  };
+  /** (templates, As-plan kit) whether a STYLE record is annotative (AutoCAD's AcadAnnotative xdata: its AnnotativeData flag 1) */
+  const annotOf = (r) => { const k = r.findIndex((p) => p[0] === 1001 && String(p[1]).trim() === 'AcadAnnotative'); if (k < 0) return false; const v = []; for (let i = k + 1; i < r.length && r[i][0] !== 1001; i++) if (r[i][0] === 1070) v.push(parseInt(r[i][1], 10)); return (v.length > 1 ? v[1] : v[0]) === 1; }; // (AnnotativeData { version, flag })
+  /** (templates, As-plan kit) what a template has of the kit (d: its Doc): { text: { style name: { style, font: styleFont's + app's family / pf / v, boldF:
+      its bold one's ('<style> B'; null: none), h, annot, wf, obl } }, layers: { layer name: { lw (1/100 mm; -3 Default), color, lt } }, any }; its names
+      found in any case */
+  function kitRead(d) {
+    const T = d.sec('TABLES').recs, text = {}, layers = {};
+    const fontOf = (r) => { const f = styleFont(r), app = APP_FONTS.find((a) => a.file === fontBase(f.file)); return { style: String(get(r, 2)), file: f.file, shx: f.shx, family: f.shx ? null : f.family || (app && app.family) || null, pf: f.flags != null && (f.flags & 0xff) ? f.flags & 0xff : app && app.pf ? app.pf : 34, flags: f.flags, v: app ? app.v : null, bold: f.bold, italic: f.italic }; };
+    for (const [nm] of PLAN_KIT.text) {
+      const r = styleRec(d, nm); if (!r) continue; const rb = styleRec(d, `${nm} B`); // (its bold one, when the template has it: an SHX font's bold font)
+      text[nm] = { style: String(get(r, 2)), font: fontOf(r), boldF: rb ? fontOf(rb) : null, h: Math.max(0, num(r, 40, 0)), annot: annotOf(r), wf: num(r, 41, 1) > 0 ? num(r, 41, 1) : 1, obl: num(r, 50, 0) };
+    }
+    const LU = new Map(T.filter((r) => typ(r) === 'LAYER').map((r) => [String(get(r, 2, '')).toUpperCase(), r]));
+    for (const [nm] of PLAN_KIT.layers) { const r = LU.get(nm.toUpperCase()); if (r) layers[nm] = { name: String(get(r, 2)), lw: parseInt(get(r, 370, '-3'), 10), color: Math.abs(parseInt(get(r, 62, '7'), 10) || 7), lt: String(get(r, 6, 'Continuous')) }; }
+    return { text, layers, any: Object.keys(text).length + Object.keys(layers).length > 0 };
+  }
+  /** (templates, As-plan kit) the kit's text kind of a plan element's kind (report.movable kind); null: none */
+  const KIT_OF_KIND = (() => { const m = new Map(); for (const [nm, , , kinds] of PLAN_KIT.text) for (const k of kinds) m.set(k, nm); return m; })();
+  /** (templates, As-plan kit) the kit's style for a text of kind K bold b, italic i: a bold one its bold style when the template has one ('<style> B'); else
+      the kit's style itself, or (a TrueType font, the text bold or italic and the style not) a bold / italic style of its font made once ('<style> B', 'I',
+      'BI'; as 7.15's look made them); an SHX font: the style as it is */
+  function kitStyle(d, K, b, i) {
+    if (b && K.boldF) return K.boldF.style;
+    const F0 = K.font, bb = !!b && !F0.bold, ii = !!i && !F0.italic; if (F0.shx || (!bb && !ii)) return K.style;
+    const name = `${K.style} ${bb ? 'B' : ''}${ii ? 'I' : ''}`; if (styleRec(d, name)) return name;
+    const wb = !!b, file = F0.v ? F0.v[wb && ii ? 2 : wb ? 0 : 1] : F0.file, fl = ((F0.flags != null ? F0.flags : F0.pf) & ~0x3000000) + (wb ? 0x2000000 : 0) + (ii ? 0x1000000 : 0);
+    return addTextStyle(d, { styles: new Set() }, name, file, F0.family || null, fl, K.style) || K.style;
+  }
+  /** (templates, As-plan kit) the MTEXT font code of kind K for a part bold b, italic i: its bold style's font for a bold one when it has one; \F<file>; an SHX
+      font, \f<Family>|b…|i…|c0|p…; a TrueType one; null: a TrueType font of no known family (the code left as it is) */
+  const kitCode = (K, b, i) => { const F0 = b && K.boldF ? K.boldF : K.font; return F0.shx ? `\\F${F0.file};` : F0.family ? `\\f${F0.family}|b${b ? 1 : 0}|i${i ? 1 : 0}|c0|p${F0.pf};` : null; };
+  /** (templates, As-plan kit) a font code's bold and italic (codeBI's: \f…|b1|i1; a \F<file>; code bold when its file is the look's bold font's or the kit's) */
+  const kitBI = (d, K, c) => { const bi = codeBI(d, c), f = /^\\F([^;|]*)/.exec(c); return { b: bi.b || !!(f && K.boldF && K.boldF.file && f[1].trim().toLowerCase() === K.boldF.file.toLowerCase()), i: bi.i }; };
+  /** (templates, As-plan kit) an MTEXT's text with its font codes made the kit style's font (each part's bold and italic kept) */
+  function kitCodes(d, K, raw) {
+    if (String(raw).indexOf('\\') < 0) return raw; const T = mtTokens(String(raw)); let ch = false;
+    for (const t of T) { if (t.k !== 'c' || !/^\\[fF]/.test(t.s)) continue; const bi = kitBI(d, K, t.s), c = kitCode(K, bi.b, bi.i); if (c == null || c === t.s) continue; t.s = c; ch = true; }
     return ch ? T.map((t) => t.s).join('') : raw;
   }
   /** (beta 7.14, Text format) where a line breaks to wrap it (its letters L: [{ v (as it reads), s (an MTEXT's: as written) }]; w(a, z): the width of letters a
@@ -1821,6 +1923,8 @@
   const ID_STYLE = { bold: false, color: 0, h: 2.5 }; // the IDs of NAPs, the ODC, handholes… (v2.40 and before: 2.5 m, by layer, not bold)
   const VIC_STYLE = { circle: 2, circleW: 7, route: 0, routeW: 16.5 }; // the vicinity map: the PROJECT AREA circle (yellow) and the route (0: by cable, red new / blue existing); widths per 1.5 km of map
   const TA_BLOCK = 'G-ESAA TELCO ARM'; // v2.42.1: the telco arm on the plan (from above); v2.42.2: and its twin 'G-ESAA TELCO ARM R' (TELCO turned round)
+  /** beta 6.9: a pull-off's block (a square) and a cross-over's (a circle), a unit across ((templates, As-plan kit) here: the starting kit makes them too) */
+  const JN_POLYS = { 'G-ESAA PULL-OFF': [{ pts: [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]], closed: true, w: 0.14 }], 'G-ESAA CROSS-OVER': [{ pts: Array.from({ length: 32 }, (_, k) => [0.5 * Math.cos(k * Math.PI / 16), 0.5 * Math.sin(k * Math.PI / 16)]), closed: true, w: 0.14 }] };
   const ODC_H = 9, ODC_BLOCK = 'G-ESAA ODC'; // v2.41: the ODC cabinet on the plan: its block (an isometric view), 9 m high
   const pinColor = (p) => (p && p.color && PIN_ACI[p.color] != null ? PIN_ACI[p.color] : null);
   /** beta 3.7: the line from a site's point (from its mark's edge) to its tower drawn beside it: to the tower's base or its top,
@@ -2069,6 +2173,20 @@
     const FONTS = fontsOf(d); // ((beta 7.14, Text format) the template's fonts (as cleaned) and the app's, before the plan adds styles of its own)
     const LOOK = seedText.indexOf('G-ESAA_LOOK') >= 0 ? lookOf(d, S) : null; if (LOOK) d.look = LOOK; // ((beta 7.15, Template look) a client template's look: the Out writers and the end of the build follow it)
     const LKW = (k) => (LOOK && LOOK.lw[k] != null ? LOOK.lw[k] : null), seedH = LOOK ? new Set(d.byHandle.keys()) : null; // (its line weight for a class; the seed's own records, for its layers below)
+    { const SK = S.layouts.find((L) => L.name === 'STYLE KEY'); if (SK) S = dropSheet(d, S, SK); } // ((templates, As-plan kit) a template's STYLE KEY sheet is the drafter's: not the plan's)
+    const KIT0 = kitRead(d), KIT = KIT0.any ? KIT0 : null; // ((templates, As-plan kit) what the template has of the kit; none: as before, byte for byte)
+    if (KIT) d.kitS = new Set(Object.values(KIT.text).flatMap((K) => [K.style, ...(K.boldF ? [K.boldF.style] : [])]).map((n) => n.toUpperCase())); // (the Out writers keep a kit style: the kit wins over the look)
+    const PBTS0 = S.blocks.has('G-ESAA P-BTS'); // ((templates, As-plan kit) a template's own new tower (the starting kit's): its look kept, not made red)
+    const KMOV = new Map(); // ((templates, As-plan kit) each kit layer: the layers its lines were on before (the sheets' viewports below))
+    /** (templates, As-plan kit) a line of the kit's kind k (its layer's name) on the template's layer of that name, BYLAYER: its layer and options (its colour
+        and line type the layer's, keep: its own colour kept; its weight the layer's unless the layer's is Default, -3: its own kept); no such layer: as given */
+    const kitLine = (k, layer, o2, keep) => { const L = KIT && KIT.layers[k]; if (!L) return [layer, o2]; const x = { ...(o2 || {}) }; if (!keep) { delete x.color; delete x.tc; } delete x.lt; if (L.lw !== -3) delete x.lwt; (KMOV.get(L.name) || KMOV.set(L.name, new Set()).get(L.name)).add(layer); return [L.name, x]; };
+    /** (templates, As-plan kit) the texts no element of the plan holds (the sheets' tables, their names): a kit text style's options over o2 (its style, width
+        factor, slant), and its height in paper units (u: paper units a mm; an annotative style's mm, else as given) or metres (pk: printed mm a metre), 0: none */
+    const kitT = (k, o2) => { const K = KIT && KIT.text[k]; return K ? { ...o2, style: K.style, ...(Math.abs(K.wf - 1) > 1e-9 ? { wf: K.wf } : {}), ...(K.obl ? { obl: K.obl } : {}) } : o2; };
+    const kitH = (k, u, pk) => { const K = KIT && KIT.text[k]; return K && K.h > 0 ? (K.annot ? (pk ? K.h / pk : K.h * u) : K.h) : 0; };
+    const ldr = (layer, pts) => { const [kl, ko] = kitLine('PLAN LEADER', layer, { color: 8 }); return [kl, pts, ko]; }; // ((templates, As-plan kit) a thin line to what a label names: [layer, its points, its options])
+    const kitLw = (r) => !!(KIT && Object.values(KIT.layers).some((L) => L.name === get(r, 8) && L.lw !== -3)); // (a line BYLAYER on a kit layer with a weight: no other weight on it)
     if (!S.layouts.some((L) => L.name === 'GEO')) throw new Error('This is not the G-eSAA drawing template: it has no GEO sheet');
     if (!/@@\w+@@/.test(seedText)) throw new Error('This drawing template has no @@ fields: load the prepared seed (G-eSAA_seed…dxf), not the original template');
     const cell0 = job.cell || 440, viewH0 = job.viewH || cell0, pts = job.pts || [], spans = job.spans || [], runs = job.runs || [];
@@ -2328,6 +2446,7 @@
        printed on the A3 PDF (h mm; 0: Auto, a tenth of the sheet as before) and colour (0: by layer). Standard draws them as before unless set. */
     const GS = job.gridStyle || {}, GPOS = { tr: [1, 1, 3], tl: [-1, 1, 1], br: [1, -1, 9], bl: [-1, -1, 7] }, gPos = GPOS[GS.pos] ? GS.pos : 'tr', gCol = +GS.color > 0 ? +GS.color : job.labels === 'tidy' ? TC0 + 0xc8c8c8 : null; // (beta 6.0: Tidy's Auto: light grey, ACI 9 for older CAD; Standard: the template's layer colour)
     const ghS = +GS.h > 0 ? Math.min(cell * 0.2, +GS.h / ((printK || 0.62) * NU)) : gh, gSet = gPos !== 'tr' || +GS.h > 0 || gCol != null;
+    const shH = Math.min(cell * 0.2, kitH('PLAN SHEET NAME', 1, (printK || 0.62) * NU)); // ((templates, As-plan kit) the kit's height for the sheets' names (0: none), at most a fifth of the cell, as the Grid style's)
     const gridM0 = o.model.length; // ((beta 7.9, Drawing preview) the grid's lines and names, report.grid.ents: the Drawing draws the plan's sheets itself)
     for (let i = I0; i <= I1; i++) for (let j = J0; j <= J1; j++) {
       if (!gridAll && ![-1, 0, 1].some((di) => [-1, 0, 1].some((dj) => used.has(key(i + di, j + dj))))) continue;
@@ -2335,12 +2454,13 @@
       o.lwpoly(lay('GRIDS'), [[x0, y0], [x0 + cell, y0], [x0 + cell, y0 + cell], [x0, y0 + cell]], { closed: true, color: 6 });
       if ((job.labels === 'tidy' && used.has(key(i, j))) || gSet) { // beta 6.0: the sheet's name in the corner chosen (top right unless set), its size and colour as set; under the details, nothing keeps off it (see-through: drawn first, the details over it)
         const [sx, sy, att] = GPOS[gPos], mx = cell * 0.04, my = cell * 0.03;
-        o.mtext(lay('GRIDNO.', 'GRIDNO'), sx > 0 ? x0 + cell - mx : x0 + mx, sy > 0 ? y0 + cell - my : y0 + my, ghS, cellName(i, j), { att, color: gCol });
-      } else o.mtext(lay('GRIDNO.', 'GRIDNO'), x0 + cell - cell * 0.04, y0 + cell - cell * 0.03, gh, cellName(i, j), { att: 3 });
+        o.mtext(lay('GRIDNO.', 'GRIDNO'), sx > 0 ? x0 + cell - mx : x0 + mx, sy > 0 ? y0 + cell - my : y0 + my, shH || ghS, cellName(i, j), kitT('PLAN SHEET NAME', { att, color: gCol }));
+      } else o.mtext(lay('GRIDNO.', 'GRIDNO'), x0 + cell - cell * 0.04, y0 + cell - cell * 0.03, shH || gh, cellName(i, j), kitT('PLAN SHEET NAME', { att: 3 })); // ((templates, As-plan kit) the kit's sheet name style and height)
       if (kmNames.length) { // v2.42.10: for the KEYMAP sheet only (its layer frozen on the others): the cell's name large in the cell's
         // centre, yellow over a dark shadow (the small yellow name at the corner could not be read at the keymap's scale)
         const kh = cell * 0.17, sh = kh * 0.07, nm = `{\\fArial|b1|i0|c0|p34;${cellName(i, j)}}`, cx = x0 + cell / 2, cy = y0 + cell / 2;
-        o.mtext(KMLAY, cx + sh, cy - sh, kh, nm, { att: 5, style: 'arial', color: 250 }); o.mtext(KMLAY, cx, cy, kh, nm, { att: 5, style: 'arial', color: 2 });
+        const nmK = KIT && KIT.text['PLAN KEY MAP NAME'] ? kitCodes(d, KIT.text['PLAN KEY MAP NAME'], nm) : nm; // ((templates, As-plan kit) the key map's names in the kit's style and font (bold kept), at the key map's size)
+        o.mtext(KMLAY, cx + sh, cy - sh, kh, nmK, kitT('PLAN KEY MAP NAME', { att: 5, style: 'arial', color: 250 })); o.mtext(KMLAY, cx, cy, kh, nmK, kitT('PLAN KEY MAP NAME', { att: 5, style: 'arial', color: 2 }));
       }
     }
     const gridEnts = o.model.slice(gridM0).map((r) => get(r, 5));
@@ -2355,11 +2475,12 @@
     const rbox = [gox + Math.min(...cells.map((c) => c.i)) * cell - RM, goy + Math.min(...cells.map((c) => c.j)) * cell - RM, gox + (Math.max(...cells.map((c) => c.i)) + 1) * cell + RM, goy + (Math.max(...cells.map((c) => c.j)) + 1) * cell + RM];
     const R = layoutRoads(job.roads || [], rbox, keepAt);
     const rdW = LKW('road') != null ? { lwt: LKW('road') } : {}; // ((beta 7.15, Template look) the client's road weight)
-    R.edges.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l.pts, { closed: l.closed, ...rdW }));
-    R.paths.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l, { color: 8, ...rdW }));
-    R.bridges.forEach((l) => o.lwpoly(lay('BRIDGE', 'ROAD PAVEMENT'), l, { color: 5, ...rdW }));
+    const rdK = (layer, o2) => kitLine('PLAN ROAD', layer, o2, true); // ((templates, As-plan kit) the roads on the kit's road layer: its colour for the edges, its weight)
+    R.edges.forEach((l) => { const [k, x] = rdK(lay('ROAD PAVEMENT'), { closed: l.closed, ...rdW }); o.lwpoly(k, l.pts, x); });
+    R.paths.forEach((l) => { const [k, x] = rdK(lay('ROAD PAVEMENT'), { color: 8, ...rdW }); o.lwpoly(k, l, x); });
+    R.bridges.forEach((l) => { const [k, x] = rdK(lay('BRIDGE', 'ROAD PAVEMENT'), { color: 5, ...rdW }); o.lwpoly(k, l, x); });
     const nRoads = R.roads.length;
-    if (nRoads) kmBox.forEach((b) => o.text(lay('BASEMAP'), b[0] + 5, b[1] - 12, 4, `ROADS: (c) OPENSTREETMAP CONTRIBUTORS (ODbL)${job.roadsNote ? ` · ${String(job.roadsNote).toUpperCase()}` : ''}`, { style: 'arial' }));
+    if (nRoads) kmBox.forEach((b) => o.text(lay('BASEMAP'), b[0] + 5, b[1] - 12, 4, `ROADS: (c) OPENSTREETMAP CONTRIBUTORS (ODbL)${job.roadsNote ? ` · ${String(job.roadsNote).toUpperCase()}` : ''}`, kitT('PLAN VICINITY MAP', { style: 'arial' }))); // ((templates, As-plan kit) in the kit's map style)
 
     /* the route: poles beside their road, the cable on the road side of the poles, every label where it does not overlap */
     const spots = new Spots(), byId = new Map(pts.map((p) => [String(p.id), p])), nb = new Map();
@@ -2665,9 +2786,10 @@
       return { P, pieces: pieces.filter((l) => l.length > 1) };
     };
     const cabLwL = (cable, existing, cores) => { const w = LKW(existing ? 'cableExisting' : 'cable'); return w != null ? w : cabLw(cable, existing, cores); }; // ((beta 7.15, Template look) the client's cable weights, else as before)
-    const cabStyle = (cable, existing, cores) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0, lwt: cabLwL(cable, existing, cores) }; };
+    const cabStyle = (cable, existing, cores) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0, lwt: cabLwL(cable, existing, cores), ex: !!existing }; };
+    const cabKit = (aerial, ex) => `PLAN CABLE ${aerial ? 'AE' : 'UG'}${ex ? ' EXISTING' : ''}`; // ((templates, As-plan kit) a cable's kit layer)
     const CABR = []; // ((beta 7.12, Drawing edit) the cable's lines as drawn: each span's cable an element of its own (cableline, DT))
-    const drawCable = (line0, cs, bent) => { const line = bent ? line0 : bendLine(line0); CABR.push(o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt != null ? cs.lwt : CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true })); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
+    const drawCable = (line0, cs, bent) => { const line = bent ? line0 : bendLine(line0); const [kl, ko] = kitLine(cabKit(cs.st.aerial, cs.ex), lay(cs.st.layer, 'Proposed foc aerial'), { lwt: cs.lwt != null ? cs.lwt : CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true }); CABR.push(o.lwpoly(kl, line, ko)); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
     for (const ch of chains) {
       const r = piecesOf(ch); if (!r) continue;
       // v2.32: aerial cable as a broken line (DASHED at linetype scale 7, 9 when existing, as the template's own sample drawing),
@@ -2766,7 +2888,7 @@
       more.forEach((cab, i) => { // v2.42.20: a fiber in its lane (moreOff, beside the first fiber's line), an existing cable blue
         const st = CABLE_STYLE[cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.moreOff ? s.moreOff[i] : i + 1), ex = !!(s.moreEx && s.moreEx[i]);
         const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1: following the road too)
-        CABR.push(o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLwL(cab, ex), color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true })); spots.line(line, 1.0);
+        { const [kl, ko] = kitLine(cabKit(st.aerial, ex), lay(st.layer, 'Proposed foc aerial'), { lwt: cabLwL(cab, ex), color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true }); CABR.push(o.lwpoly(kl, line, ko)); } spots.line(line, 1.0); // ((templates, As-plan kit) on its kit layer)
       });
     }
     // v2.42.20: an existing cable put on the plan (a fiber marked existing) where no new cable runs: blue, dashed, in its lane
@@ -2777,7 +2899,7 @@
       if (dist2(a, b) <= r0 + r1 + 1) continue;
       const st = CABLE_STYLE[s.cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.off || 0);
       const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1)
-      if (!FIB.length) { CABR.push(o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLwL(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true })); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
+      if (!FIB.length) { const [kl, ko] = kitLine(cabKit(st.aerial, true), lay(st.layer, 'Proposed foc aerial'), { lwt: cabLwL(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); CABR.push(o.lwpoly(kl, line, ko)); spots.line(line, 1.0); } // ((templates, As-plan kit) on its kit layer) // (v2.42.23: with fibers, drawn as a fiber above)
       if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
     }
     const rOf = (p) => (p.el === 'Pole' ? p.rp : inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : p.el === 'Site' ? 8 : 4); // (a point's reach round its centre as drawn)
@@ -3062,7 +3184,7 @@
         let bn = 'X-BTS';
         if (isNew && copyBlock(d, S, 'X-BTS', 'G-ESAA P-BTS', () => true)) {
           bn = 'G-ESAA P-BTS';
-          if (!S.redBts) { S.redBts = true; for (const e of S.blocks.get(bn).ents) { if (typ(e) === 'ATTDEF') continue; const k = e.findIndex((q) => q[0] === 62); if (k >= 0) e[k][1] = I(1); else e.splice(e.findIndex((q) => q[0] === 8) + 1, 0, [62, I(1)]); } }
+          if (!S.redBts && !PBTS0) { S.redBts = true; for (const e of S.blocks.get(bn).ents) { if (typ(e) === 'ATTDEF') continue; const k = e.findIndex((q) => q[0] === 62); if (k >= 0) e[k][1] = I(1); else e.splice(e.findIndex((q) => q[0] === 8) + 1, 0, [62, I(1)]); } }
         }
         { const W0 = tw(p); spots.add(Spots.box(W0.ax, W0.ay + 24 * W0.k, 26 * W0.k, 50 * W0.k, 0)); // the tower's place now; the tower and its name after the span lengths
           const G0 = siteGrp(p, W0); siteRoom.set(p, spots.add(Spots.box((G0.box[0] + G0.box[2]) / 2, (G0.box[1] + G0.box[3]) / 2, G0.box[2] - G0.box[0], G0.box[3] - G0.box[1], 0), 'label:site')); // (beta 7.3: the room under it for its name and lat / long, kept free of the labels placed before it)
@@ -3089,14 +3211,14 @@
         const J = JNW[p.el], at = p.A || [p.E, p.N], sz = 3 * kG, P = (p.att || []).map((id) => byId.get(String(id))).filter((q) => q && (q.A || q.dp));
         if (!S.layers.has('MESSENGER')) addLayer(d, S, 'MESSENGER', 1);
         if (!S.layers.has(J.b)) addLayer(d, S, J.b, 1);
-        if (!S.blocks.has(J.b)) defineBlock(d, S, J.b, p.el === 'Pull-off' ? [{ pts: [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]], closed: true, w: 0.14 }] : [{ pts: Array.from({ length: 32 }, (_, k) => [0.5 * Math.cos(k * Math.PI / 16), 0.5 * Math.sin(k * Math.PI / 16)]), closed: true, w: 0.14 }]);
+        if (!S.blocks.has(J.b)) defineBlock(d, S, J.b, JN_POLYS[J.b]); // ((templates, As-plan kit) JN_POLYS: the starting kit makes them too)
         /* beta 7.1 (the owner: "the extended messenger portion without the FOC must point the end to the pole same as the guying"): an arm
            with no FOC on it runs straight to the pole's symbol where the plan draws it (p.dp: beside the road, as moved), ending on the
            symbol's edge toward it, as a guy starts there; before, every arm ended at the pole's cable point (p.A, in the road on the
            cable's line, 3–4 m from the symbol), so the arm with no cable ran along the road and stopped short of the pole. An arm with
            the FOC on it still meets the cable at the pole (p.A). */
         const arms = P.map((q) => { const foc = jnSpans.has(K2(p.id, q.id)), e = foc ? q.A || q.dp : add2(q.dp, unit(q.dp, at), q.rp || 0), ln = [at, e];
-          owning(`msg:${p.id}:${q.id}`, 'messenger', p, { at: [(at[0] + e[0]) / 2, (at[1] + e[1]) / 2], to: String(q.id) }, () => o.lwpoly('MESSENGER', ln, { color: 1, lt: 'Continuous', lwt: 18 })); spots.line(ln, 0.6); // ((beta 7.12, Drawing edit) each arm an element: msg:<its pull-off>:<the pole>)
+          owning(`msg:${p.id}:${q.id}`, 'messenger', p, { at: [(at[0] + e[0]) / 2, (at[1] + e[1]) / 2], to: String(q.id) }, () => { const [kl, ko] = kitLine('PLAN MESSENGER', 'MESSENGER', { color: 1, lt: 'Continuous', lwt: 18 }); return o.lwpoly(kl, ln, ko); }); spots.line(ln, 0.6); // ((beta 7.12, Drawing edit) each arm an element: msg:<its pull-off>:<the pole>)
           return { id: String(q.id), foc, dp: q.dp.map((v) => +v.toFixed(3)), rp: +(q.rp || 0).toFixed(3), A: (q.A || q.dp).map((v) => +v.toFixed(3)), end: e.map((v) => +v.toFixed(3)) }; });
         owning(`pole:${p.id}`, 'pole', p, null, () => o.insert(J.b, J.b, at[0], at[1], { scale: sz, color: 1 })); const sb = spots.add(Spots.box(at[0], at[1], sz * 1.2, sz * 1.2, 0));
         jnDone.push({ p, at, sz, P, J, sb, arms });
@@ -3137,7 +3259,7 @@
       if (LB) llAt.set(it.p, { at: llT(c.q, c.th), att: 2, dir: rr ? ux : null, own: IO }); // ((beta 7.16, Fixes) written in step 11; its place taken with the ID's)
       if (c.far > 3 && job.crowd && job.crowd.leader !== false) { // (a thin line back to its block)
         const b = LB ? boxBoth(c.boxes[0], c.boxes[1]) : c.boxes[0], m = LB ? [b.cx, b.cy] : c.q, d0 = [m[0] - it.at[0], m[1] - it.at[1]], dl = Math.hypot(d0[0], d0[1]) || 1, u = [d0[0] / dl, d0[1] / dl], ext = Math.abs(u[0] * b.ux + u[1] * b.uy) * b.hw + Math.abs(u[0] * b.vx + u[1] * b.vy) * b.hh; // ((beta 7.16, Fixes) with its lat / long: to the block's edge)
-        const a = add2(it.at, u, (it.hl || it.hh) + 0.3), e = add2(m, u, -(ext + 0.3)); if (dist2(a, e) > 0.8) { idLeadOf.set(idR, owning(IO[0], IO[1], IO[2], IO[3], () => o.lwpoly(lay('MISC'), [a, e], { color: 8 }))); spots.line([a, e], 0.3); }
+        const a = add2(it.at, u, (it.hl || it.hh) + 0.3), e = add2(m, u, -(ext + 0.3)); if (dist2(a, e) > 0.8) { idLeadOf.set(idR, owning(IO[0], IO[1], IO[2], IO[3], () => o.lwpoly(...ldr(lay('MISC'), [a, e])))); spots.line([a, e], 0.3); }
       }
     }
     };
@@ -3432,7 +3554,7 @@
       if (!tidy) c.place.forEach(([t, v, q, hq]) => { const lk = look.get(t) || {}, isCl = clIn && v && (t === 'POLE_CLAMP' || t === 'B' || (t === '' && v === stackSz && v !== p.ownerName)), own = isOwn([t, v]), prop = p.sym.r === POLE_SYM.prop.r, sc = prop ? 0 : own ? +PST.ownColor || +PST.idColor || 0 : isCl ? 0 : +PST.idColor || 0; // (beta 4.3: the ID lines and the owner's name in the style's colour; none set, or a proposed pole: the template's)
         o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], hq, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: isCl && CS.color ? +CS.color : sc ? sc : lk.color != null ? +lk.color : null }); }); // (v2.42.21: the clamp types in the style's colour)
       if (!tidy) o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)], color: +PST.llColor || null });
-      if (!tidy && pinL && c.lead) o.lwpoly(lay(p.sym.layer), c.lead, { color: 8 }); // ((beta 7.10, Drawing labels) placed by hand away from its pole: a thin line to it)
+      if (!tidy && pinL && c.lead) o.lwpoly(...ldr(lay(p.sym.layer), c.lead)); // ((beta 7.10, Drawing labels) placed by hand away from its pole: a thin line to it)
       if (!tidy) MV.push({ id: `lbl:${p.id}`, kind: 'details', p, box: frameBox(c.boxes, c.rr), how: pinL ? 'by hand' : 'auto', handles: hsOf(kL), parts: c.boxes, line: pinL && c.lead ? c.lead : null }); // (beta 7.10, Drawing labels)
       p.ov = c.ov; p._rr = c.rr;
       if (tidy) { // beta 4.7: Tidy: one level label: line 1 tag · type; under it, smaller (one size for all), the attachments, the owner and the lat/long, each in the Standard label's colour and on its layer
@@ -3482,7 +3604,7 @@
       }
       if (best && (!p.closureOld || BUB(p))) { // beta 6.7: a proposed one: its pentagon (and its line to the pole) here, its red label and arrow after everything else ((beta 7.11, Drawing tools) an existing one with a bubble callout too: its blue pentagon)
         const at = best.c; owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => (p.closureOld ? o.lwpoly(lay('P-JOINT'), [...Array(5)].map((_, i) => { const a5 = (90 + i * 72) * Math.PI / 180; return [at[0] + Rc * Math.cos(a5), at[1] + Rc * Math.sin(a5)]; }), { closed: true, color: 5, lwt: 35 }) : o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: '', JOINT: '' } }))); spots.add(sym(at)); cloLbl.push({ at, R: Rc * 0.9, cid, p, ...(p.closureOld ? { old: true } : {}) });
-        if (best.lead) { LEAD.add(owning(`clo:${p.id}`, 'closure', p, null, () => o.lwpoly(lay('P-JOINT'), best.lead, { color: 8 }))); spots.line(best.lead, 0.5); } nCloOff++;
+        if (best.lead) { LEAD.add(owning(`clo:${p.id}`, 'closure', p, null, () => o.lwpoly(...ldr(lay('P-JOINT'), best.lead)))); spots.line(best.lead, 0.5); } nCloOff++;
         { const u = unit(p.A, at), a = pastPole(p, u), e = add2(at, u, -(Rc + 0.4)); if (dist2(p.A, e) > dist2(p.A, a)) p.cloAt = [a, e]; }
       } else if (best) {
         const at = best.c;
@@ -3493,7 +3615,7 @@
           if (p.closureOld) { const P5 = [...Array(5)].map((_, i) => { const a5 = (90 + i * 72) * Math.PI / 180; return [at[0] + Rc * Math.cos(a5), at[1] + Rc * Math.sin(a5)]; }); owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.lwpoly(lay('P-JOINT'), P5, { closed: true, color: 5, lwt: 35 })); owning(`clolbl:${p.id}`, 'closurelabel', p, null, () => o.text(lay('P-JOINT'), best.lx, best.ys[0], best.th, cid, { ha: 0, va: 2, style: 'arial', color: 5 })); }
           else { owning(`clo:${p.id}`, 'closure', p, { status: { now: p.closureOld ? 'existing' : 'proposed', field: 'closureOld' } }, () => o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: { v: 'PROPOSED', x: best.lx, y: best.ys[0], h: best.th, ha: 0, va: 2 }, JOINT: { v: cid, x: best.lx, y: best.ys[1], h: best.th, ha: 0, va: 2 } } })); retag(`clo:${p.id}`, `clolbl:${p.id}`, 'closurelabel', p, visAtt); }
         }
-        if (best.lead) { LEAD.add(owning(`clo:${p.id}`, 'closure', p, null, () => o.lwpoly(lay('P-JOINT'), best.lead, { color: 8 }))); spots.line(best.lead, 0.5); }
+        if (best.lead) { LEAD.add(owning(`clo:${p.id}`, 'closure', p, null, () => o.lwpoly(...ldr(lay('P-JOINT'), best.lead)))); spots.line(best.lead, 0.5); }
         if (!TIDY) spots.add(best.keep, 'label'); nCloOff++; // (the room kept for its loop: free for the loop, below)
         { const u = unit(p.A, at), a = pastPole(p, u), e = add2(at, u, -(Rc + 0.4)); if (dist2(p.A, e) > dist2(p.A, a)) p.cloAt = [a, e]; } // (its loop between the pole and it, see loopAt)
       }
@@ -3821,7 +3943,7 @@
         const { p, h, hs, W, W1, Hb, Y } = T, kB = o.model.length; if (sml) smaller.push(T.l1); // ((beta 7.10, Drawing labels) kB: its block's records from here, its photo's apart)
         if (nf && !T.pin) { T7.notFree++; (T7.ids || (T7.ids = [])).push(Y ? Y.lines.join(' ') : String(p.poleId || p.id)); } if (bad && !T.pin) toCheck.push(T.l1); // ((beta 7.10, Drawing labels) one placed by hand: where it was put, not listed)
         if (best.clr != null && best.clr < 1) T7.closer++;
-        if (best.lead) { o.lwpoly(Y ? Y.layer : T.layer, best.lead, { color: 8 }); T7.leaders++; if (!LEAD_OK && !T.pin) withLine.push(T.l1); } // ((beta 7.10, Drawing labels) one placed by hand: not listed)
+        if (best.lead) { o.lwpoly(...ldr(Y ? Y.layer : T.layer, best.lead)); T7.leaders++; if (!LEAD_OK && !T.pin) withLine.push(T.l1); } // ((beta 7.10, Drawing labels) one placed by hand: not listed)
         if (!Y && best.rx > 0 && !T.pin) overRoad.push(T.l1); // (beta 4.8: over a road: listed)
         if (!Y && T.photo && best.phOwn) { tidyCard.delete(p); phOwnL.push(T.l1); } else if (!Y && T.photo && best.pb && best.phS) phSmall.push(T.l1); // (beta 6.4: on its own near the pole, with the photos; a quarter smaller)
         if (!Y && T.photo && best.pb) { if (best.phFar) phAway.push(T.l1); else if (best.phPole) { T7.photosByPole = (T7.photosByPole || 0) + 1; if (best.lead) (T7.photoStays || (T7.photoStays = [])).push(String(p.poleId || p.id)); } } // (beta 6.0: photoStays: a block out with its line, its photo by the pole)
@@ -4096,7 +4218,7 @@
         const col = pinColor(p0) != null ? pinColor(p0) : (p0.status === 'Proposed' || p0.status === 'New') ? 1 : 5, AG = arrowOf.get(p0);
         if (AG) { const ac = job.towerArrowColor === 0 ? col : Number.isInteger(job.towerArrowColor) && job.towerArrowColor > 0 && (job.towerArrowColor < 256 || job.towerArrowColor >= TC0) ? job.towerArrowColor : 7; // beta 3.8: the curved arrow, filled (7: white in CAD, black on the PDF)
           AG.quads.forEach((q) => o.solid(lay('X-BTS'), q, { color: ac })); o.solid(lay('X-BTS'), AG.head, { color: ac }); (rep.towerArrows = rep.towerArrows || []).push({ id: String(p0.id), color: ac, pieces: AG.quads.length + 1, from: AG.from.map((v) => +v.toFixed(2)) }); }
-        else o.lwpoly(lay('X-BTS'), towerLead(p0, W0), { color: 8 });
+        else o.lwpoly(...ldr(lay('X-BTS'), towerLead(p0, W0)));
         o.circle(lay('X-BTS'), p0.E, p0.N, 0.9, { color: col });
       });
       o.model.slice(kTL).forEach((r) => LEAD.add(r)); // ((beta 7.11, Drawing tools) its line or arrow to its point: stays at the point)
@@ -4396,7 +4518,7 @@
     { const P1 = photoPl.out.filter((x) => x.ph); rep.photos = { mm: +PHMM.toFixed(1), inLabels: TIDY ? tidyCard.size : 0, onTheirOwn: P1.length, withLine: P1.filter((x) => x.lead).length, shrunk: photoPl.shrunk.length, smallestMm: photoPl.shrunk.length ? +(PHMM * Math.min(...photoPl.shrunk.map((x) => x.k))).toFixed(1) : null, coveringLeast: photoPl.shrunk.filter((x) => x.over).length, leftOut: nNoRoom }; } // beta 6.7: every photo at its size: where they went
     for (const { p, ph, w, h, q, u, lead, how, nLead } of photoPl.out) {
       const k0 = o.model.length; // ((beta 7.10, Drawing labels) its records from here: report.movable)
-      if (ph && havePhotos && lead) o.lwpoly(lay(photoLayer), lead, { color: 8 }); // v2.42.26: a photo further out: a thin line to its pole
+      if (ph && havePhotos && lead) o.lwpoly(...ldr(lay(photoLayer), lead)); // v2.42.26: a photo further out: a thin line to its pole
       if (ph && havePhotos) {
         getImgs().image(o, lay(photoLayer), ph.file, ph.px, ph.py, q[0] - w / 2, q[1] - h / 2, w, h);
         o.lwpoly(lay(photoLayer), [[q[0] - w / 2, q[1] - h / 2], [q[0] + w / 2, q[1] - h / 2], [q[0] + w / 2, q[1] + h / 2], [q[0] - w / 2, q[1] + h / 2]], { closed: true, color: 8 }); // its frame
@@ -4662,7 +4784,7 @@
         if (area) o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: VS.circleW * vk, color: col });
         if (area && lbl) { const lh = Math.max(8, Math.min(40, +VS.lh || 18)) * vk, lw = lbl.length * lh * 0.74, ly = c[1] + rad + 8 * vk + lh * 0.9; // the label on a dark box, framed
           o.lwpoly(VLAY, [[c[0] - lw / 2 - lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly + lh * 0.9], [c[0] - lw / 2 - lh * 0.6, ly + lh * 0.9]], { closed: true, w: 2 * vk, color: 2 });
-          o.mtext(VLAY, c[0], ly, lh, mtextEsc(lbl), { att: 5, style: 'arial', color: 2, mask: 250 }); }
+          o.mtext(VLAY, c[0], ly, lh, mtextEsc(lbl), kitT('PLAN VICINITY MAP', { att: 5, style: 'arial', color: 2, mask: 250 })); } // ((templates, As-plan kit) the vicinity map's texts in the kit's map style)
         if (!lk && area) rep.vicinityMark = { r: rad, label: lbl };
         rep.vicinities.push({ sheet: vicNames[lk], area: vic.slice(), dx: VDX, points: lpts.length, circle: [c[0] - VDX, c[1], rad], picture: img ? img.file : null }); }
       if (!img) { // no picture: the names of the roads written large
@@ -4671,15 +4793,16 @@
           if (!(r.hw > 0) || !r.name || done.has(r.name)) continue; let best = null;
           for (const piece of clipLine(r.pts, vb)) for (let k = 1; k < piece.length; k++) { const L = dist2(piece[k - 1], piece[k]); if (L > 80 * vk && (!best || L > best.L)) best = { L, a: piece[k - 1], b: piece[k] }; }
           if (!best) continue; done.add(r.name); if (done.size > 25) break;
-          o.text(VLAY, (best.a[0] + best.b[0]) / 2 + VDX, (best.a[1] + best.b[1]) / 2, 8 * vk, r.name.toUpperCase(), { rot: readable(deg(unit(best.a, best.b))), ha: 1, va: 2, style: 'arial', color: 8 });
+          o.text(VLAY, (best.a[0] + best.b[0]) / 2 + VDX, (best.a[1] + best.b[1]) / 2, 8 * vk, r.name.toUpperCase(), kitT('PLAN VICINITY MAP', { rot: readable(deg(unit(best.a, best.b))), ha: 1, va: 2, style: 'arial', color: 8 }));
         }
-      } else o.mtext(VLAY, vb[0] + VDX + 8 * vk, vb[1] + 14 * vk, 6 * vk, mtextEsc(String(img.credit || '© OpenStreetMap contributors').toUpperCase()), { att: 7, style: 'arial', color: 7, mask: 255 }); // v2.36: on a white box (readable on a satellite picture)
+      } else o.mtext(VLAY, vb[0] + VDX + 8 * vk, vb[1] + 14 * vk, 6 * vk, mtextEsc(String(img.credit || '© OpenStreetMap contributors').toUpperCase()), kitT('PLAN VICINITY MAP', { att: 7, style: 'arial', color: 7, mask: 255 })); // v2.36: on a white box (readable on a satellite picture)
     });
     const NOTES = notesOf(job); // ((beta 7.12, Drawing edit) the user's notes, drawn at the end (DT); their layer made now, so that the vicinity maps leave it off as the plan's own)
     if (NOTES.length) { addLayer(d, S, NOTE_LAYER, 7); (o.used || (o.used = new Set())).add(NOTE_LAYER); }
     const layerH = (n) => (S.layers.has(n) ? get(S.layers.get(n), 5) : null);
     const vicOnly = [layerH(VLAY), layerH(VMAP)].filter(Boolean);
     const keepInVic = new Set([VLAY, VMAP]);
+    if (KIT) for (const L of Object.values(KIT.layers)) (o.used || (o.used = new Set())).add(L.name); // ((templates, As-plan kit) the kit's layers are the plan's: off on the vicinity maps, as the layers they stand for)
     const offInVic = [...(o.used || [])].filter((n) => !keepInVic.has(n)).map(layerH).filter(Boolean);
     for (const L of S.layouts) {
       const vp = bigVp(L); if (!vp) continue;
@@ -4740,7 +4863,7 @@
       const thinTo = (E, tgt, gap) => {
         const B = E.box, near = (q) => nearBox(B, q), tp = Array.isArray(tgt[0]) ? (() => { const [a, b] = tgt, c = [B.cx, B.cy], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-9, t = Math.max(0, Math.min(1, ((c[0] - a[0]) * dx + (c[1] - a[1]) * dy) / L2)); return [a[0] + t * dx, a[1] + t * dy]; })() : tgt;
         const e = near(tp); if (dist2(e, tp) <= gap) return;
-        const u = unit(tp, e), prev = o.own; o.own = null; const r = o.lwpoly(lay(E.kind === 'span' ? 'Distance Data' : 'PROPOSED LOOP'), [add2(tp, u, 0.3), add2(e, u, -0.3)], { color: 8 }); o.own = prev; LEAD.add(r); E.recs.push(r);
+        const u = unit(tp, e), prev = o.own; o.own = null; const r = o.lwpoly(...ldr(lay(E.kind === 'span' ? 'Distance Data' : 'PROPOSED LOOP'), [add2(tp, u, 0.3), add2(e, u, -0.3)])); o.own = prev; LEAD.add(r); E.recs.push(r);
       };
       /* (beta 7.12, Drawing edit) the user's own notes (job.notes; the owner: "let the user also add a text or photo no related with the capture on plans as
          needed"): a text (an MTEXT on the layer G-ESAA NOTES, its middle at `at`, as high as the pole details by default, times h) or a photo (written as the
@@ -4942,9 +5065,10 @@
          line or arrow from it to what it names. With none of them the plan is as before, byte for byte. */
       const STK = job.styleKind && typeof job.styleKind === 'object' ? job.styleKind : null, STI = job.style && typeof job.style === 'object' ? job.style : null, LDS = job.leaders && typeof job.leaders === 'object' ? job.leaders : null;
       const LKS = LOOK && Math.abs(LOOK.scale - 1) > 1e-9 ? LOOK.scale : null; // ((beta 7.15, Template look) the client's text size: every item's texts that much larger or smaller, as its own h (times it), after placement)
-      const stOf = (id, kind) => { const a = STK && STK[kind] && typeof STK[kind] === 'object' ? STK[kind] : null, b = STI && STI[id] && typeof STI[id] === 'object' ? STI[id] : null; if (!a && !b) return LKS ? { h: LKS, scale: null, bold: null, italic: null, color: null, lead: null, callout: null, lw: null } : null; const o3 = { ...(a || {}), ...(b || {}) }, f = (v, lo, hi) => (v != null && v !== '' && Number.isFinite(+v) && +v > 0 ? Math.max(lo, Math.min(hi, +v)) : null);
+      const KF = new Map(), KREC = new Map(); // ((templates, As-plan kit) each kit text kind's size: its texts that much larger or smaller (set below, before the sizes are applied), over the look's; KREC: each text given a kit style, its kit style)
+      const stOf = (id, kind) => { const a = STK && STK[kind] && typeof STK[kind] === 'object' ? STK[kind] : null, b = STI && STI[id] && typeof STI[id] === 'object' ? STI[id] : null, kf = KF.size ? KF.get(KIT_OF_KIND.get(kind)) || null : null; if (!a && !b) return kf || LKS ? { h: kf || LKS, scale: null, bold: null, italic: null, color: null, lead: null, callout: null, lw: null } : null; const o3 = { ...(a || {}), ...(b || {}) }, f = (v, lo, hi) => (v != null && v !== '' && Number.isFinite(+v) && +v > 0 ? Math.max(lo, Math.min(hi, +v)) : null);
         const st = { h: f(o3.h, 0.2, 5), scale: f(o3.scale, 0.2, 5), bold: typeof o3.bold === 'boolean' ? o3.bold : null, italic: typeof o3.italic === 'boolean' ? o3.italic : null, color: Number.isInteger(+o3.color) && +o3.color >= 1 && +o3.color <= 255 ? +o3.color : null, lead: typeof o3.lead === 'boolean' ? o3.lead : null, callout: o3.callout === 'bubble' || o3.callout === 'arrow' ? o3.callout : null, lw: f(o3.lw, 1, 211) /* ((beta 7.12) a line's weight, 1/100 mm) */ };
-        if (LKS) st.h = (st.h || 1) * LKS;
+        if (kf) st.h = (st.h || 1) * kf; else if (LKS) st.h = (st.h || 1) * LKS;
         return Object.values(st).some((v) => v != null) ? st : null; };
       const recOfH = new Map(o.model.map((r) => [r[1][1], r])), TXTK = new Set(['span', 'loop', 'road', 'sitename', 'sitedetails', 'closurelabel', 'details', 'number', 'cable', 'note']); // ((beta 7.12, Drawing edit) a text note grows from its middle as a label)
       const isTxtR = (r) => typ(r) === 'TEXT' || typ(r) === 'MTEXT' || (typ(r) === 'ATTRIB' && !(parseInt(get(r, 70, '0'), 10) & 1));
@@ -4954,6 +5078,13 @@
       const boldSt = (nm) => /^G-ESAA (BOLD|ARIAL BI?)$/.test(nm || '') || !!(LOOK && (lookBI(d, nm) || {}).b), italSt = (nm) => /^G-ESAA ARIAL B?I$/.test(nm || '') || !!(LOOK && (lookBI(d, nm) || {}).i); // ((beta 7.15, Template look) and the look's)
       /** the item's texts bold / italic as asked (null: as they are) */
       const fontOn = (recs, b, i, fnt) => { if (b == null && i == null) return; for (const r of recs) { if (!isTxtR(r) || (fnt && typ(r) !== 'MTEXT')) continue; // ((beta 7.14, Text format) fnt: a font of the user's, a TEXT's style made with it, bold and italic, below)
+        const KR = !fnt && KREC.get(r); if (KR) { // ((templates, As-plan kit) a text in a kit style: bold / italic in the kit's font (its bold style's; an SHX font without one: as it is))
+          if (typ(r) === 'MTEXT') { const T = mtTokens(mtOf(r)), isF = (q) => q.k === 'c' && /^\\[fF]/.test(q.s); let ch = false;
+            for (const q of T) { if (!isF(q)) continue; const bi = kitBI(d, KR, q.s), c = kitCode(KR, b == null ? bi.b : b, i == null ? bi.i : i); if (c != null && c !== q.s) { q.s = c; ch = true; } }
+            let t = T.map((q) => q.s).join(''); if (!T.some(isF)) { const c = kitCode(KR, !!b, !!i); if (c && (b || i)) { t = `{${c}${t}}`; ch = true; } } if (ch) setMt(r, t); continue; }
+          const k = r.findIndex((q, j) => j > 0 && q[0] === 7), cur = k > 0 ? String(r[k][1]) : '', sr = cur ? styleRec(d, cur) : null, f0 = sr ? styleFont(sr) : { bold: false, italic: false };
+          const cb = !!(KR.boldF && cur.toUpperCase() === KR.boldF.style.toUpperCase()) || f0.bold, nb = b == null ? cb : b, ni = i == null ? f0.italic : i; // (in its bold style: bold)
+          if (k > 0 && (nb !== cb || ni !== f0.italic)) r[k][1] = kitStyle(d, KR, nb, ni); continue; }
         if (typ(r) === 'MTEXT' && LOOK && LOOK.style) { const T = mtTokens(mtOf(r)), isF = (q) => q.k === 'c' && /^\\[fF]/.test(q.s), L0 = lookBI(d, get(r, 7)) || { b: false, i: false }; let ch = false; // ((beta 7.15, Template look) the look's font codes: a part's bold / italic as asked)
           for (const q of T) { if (!isF(q)) continue; const bi = codeBI(d, q.s), c = lookCode(d, b == null ? bi.b : b, i == null ? bi.i : i); if (c != null && c !== q.s) { q.s = c; ch = true; } }
           let t = T.map((q) => q.s).join(''); if (!T.some(isF)) { const c = lookCode(d, b == null ? L0.b : b, i == null ? L0.i : i); if (c) { t = `{${c}${t}}`; ch = true; } } if (ch) setMt(r, t); continue; }
@@ -5122,6 +5253,27 @@
         const lines = []; for (const r of RS) { if (isMt(r)) continue; lines.push({ r, sh: SH.get(r) || [] }); for (const p of pieces.get(r) || []) lines.push(p); }
         return { gone: new Set(), add, lines, mv, text0: wrapped ? text0 : null, B0, B1: boxU(allM), fr, wv, deg: A * 180 / Math.PI };
       };
+      /* (templates, As-plan kit) the kit's text styles: each element's texts (TEXT, MTEXT; an attribute keeps its block's style, the symbol's) in the style of
+         its kind (PLAN_KIT.text; a lat / long in PLAN LAT LONG's): its font (an MTEXT's font codes too, each part's bold and italic kept; a bold or italic
+         TEXT: a bold / italic style of its font when the style is not), its width factor and oblique angle (a TEXT's); its height (Principle 2): KF, the
+         factor that makes the kind's largest text that high (printed mm on the GEO sheets for an annotative style), its other texts in proportion (a note
+         keeps its own size). Before the user's own formats and sizes (they go on top). A template without them: nothing here. */
+      if (KIT && Object.keys(KIT.text).length) {
+        const KTX = KIT.text, latL = lay('LATLONG'), pk = (printK || 0.62) * NU, ref = new Map(), done = new Set(), stF = (nm) => { const r0 = styleRec(d, nm); return r0 ? styleFont(r0) : { bold: false, italic: false }; };
+        const onRec = (kind, r) => {
+          if (!r || done.has(r) || (typ(r) !== 'TEXT' && typ(r) !== 'MTEXT')) return; done.add(r); /* (an attribute: its block's style, the symbol's) */ const tk = KTX['PLAN LAT LONG'] && get(r, 8) === latL ? 'PLAN LAT LONG' : KIT_OF_KIND.get(kind), K = tk ? KTX[tk] : null; if (!K) return;
+          if (tk !== 'PLAN LAT LONG' && tk !== 'PLAN NOTE') ref.set(tk, Math.max(ref.get(tk) || 0, num(r, 40, 0))); KREC.set(r, K);
+          const k7 = r.findIndex((q, i) => i > 0 && q[0] === 7), cur = k7 > 0 ? String(r[k7][1]) : 'Standard';
+          let nm = K.style; if (typ(r) === 'MTEXT') { const t0 = mtOf(r), t1 = kitCodes(d, K, t0); if (t1 !== t0) setMt(r, t1); } else { const f = stF(cur); nm = kitStyle(d, K, boldSt(cur) || f.bold, italSt(cur) || f.italic); }
+          if (k7 > 0) r[k7][1] = nm; else { const k1 = r.findIndex((q, i) => i > 0 && q[0] === 1); r.splice(k1 > 0 ? k1 + 1 : r.length, 0, [7, nm]); }
+          if (typ(r) === 'TEXT' && (Math.abs(K.wf - 1) > 1e-9 || K.obl)) { const at = r.findIndex((q, i) => i > 0 && q[0] === 7); // (before its style, as AutoCAD writes them)
+            if (Math.abs(K.wf - 1) > 1e-9) { const w0 = num(r, 41, 1); if (!setFirst(r, 41, F(w0 * K.wf))) r.splice(at, 0, [41, F(w0 * K.wf)]); }
+            if (K.obl) { const a7 = r.findIndex((q, i) => i > 0 && q[0] === 7); if (!setFirst(r, 51, F(K.obl))) r.splice(a7, 0, [51, F(K.obl)]); } }
+        };
+        for (const E of EL) for (const r of E.recs) onRec(E.kind, r);
+        for (const m of MV) for (const h of m.handles) onRec(m.kind, recOfH.get(h));
+        for (const [tk, K] of Object.entries(KTX)) { if (tk === 'PLAN LAT LONG' || tk === 'PLAN NOTE') continue; const H = K.h > 0 ? (K.annot ? K.h / pk : K.h) : 0, R0 = ref.get(tk) || 0; if (H > 0 && R0 > 0 && Math.abs(H / R0 - 1) > 1e-9) KF.set(tk, H / R0); }
+      }
       for (const m of MV) {
         if (m.kind === 'photo' || !m.hadText) continue; const fm = fmtOf(m.id, m.kind); if (!fm) continue; FMTS.set(m.id, fm); if (!fmtLays(fm)) continue;
         const recs = m.handles.map((h) => recOfH.get(h)).filter(Boolean), st = stOf(m.id, m.kind), B0 = { ...m.box, a: m.box.a || 0 }, b0 = tBox(tBody(recs, ld7), B0.a);
@@ -5157,7 +5309,7 @@
         E.box = boxOf(E); if (E.kind === 'closurelabel' && E.at && !E.bub) cloArrow(E); // (a closure's arrow from its label as laid out now)
       }
       for (const m of MV) {
-        const st0 = stOf(m.id, m.kind), st = st0 && m.block && LKS && st0.h ? { ...st0, h: st0.h / LKS } : st0; if (!st) continue; // ((beta 7.15, Template look) a Tidy block's number: the look's size with its block, below, not twice)
+        const kf0 = (KF.size && KF.get(KIT_OF_KIND.get(m.kind))) || LKS, st0 = stOf(m.id, m.kind), st = st0 && m.block && kf0 && st0.h ? { ...st0, h: st0.h / kf0 } : st0; if (!st) continue; // ((templates, As-plan kit) the kit's number size the same way) // ((beta 7.15, Template look) a Tidy block's number: the look's size with its block, below, not twice)
         const recs = m.handles.map((h) => recOfH.get(h)).filter(Boolean);
         if (st.h && m.kind !== 'photo' && Math.abs(st.h - 1) > 1e-9) { const c0 = [m.box.cx, m.box.cy]; scaleRecs(recs, ld7, c0, st.h, st.h); m.box = { ...m.box, w: m.box.w * st.h, h: m.box.h * st.h }; m.styled = true;
           for (const w of m.kind === 'details' ? m.with || [] : []) { const n2 = MV.find((x) => x.id === w && x.kind === 'number'); if (!n2) continue; scaleRecs(n2.handles.map((h) => recOfH.get(h)).filter(Boolean), ld7, c0, st.h, st.h); n2.box = { ...n2.box, cx: c0[0] + (n2.box.cx - c0[0]) * st.h, cy: c0[1] + (n2.box.cy - c0[1]) * st.h, w: n2.box.w * st.h, h: n2.box.h * st.h }; } } // (a Tidy block's number in it, as large)
@@ -5236,7 +5388,7 @@
       /* (beta 7.12, Drawing edit) a note's thin line to its point (job.notes[].lead), now that it is where it goes: from the edge of its box to the point */
       for (const E of EL) {
         const L = E.nt && E.nt.lead; if (!L) continue; const e = nearBox(E.box, L); if (dist2(e, L) <= 0.5) continue;
-        const u = unit(L, e), prev = o.own; o.own = null; const r = o.lwpoly(lay(NOTE_LAYER), [L, add2(e, u, -0.3)], { color: 8 }); o.own = prev; LEAD.add(r); E.recs.push(r); E.lead = true;
+        const u = unit(L, e), prev = o.own; o.own = null; const r = o.lwpoly(...ldr(lay(NOTE_LAYER), [L, add2(e, u, -0.3)])); o.own = prev; LEAD.add(r); E.recs.push(r); E.lead = true;
       }
       /* beta 7.10's items turned by hand (pins' rot) where their pin has no place (at) for 7.10's own (their details and cable labels take rot there), and
          photos and numbers: about their middle; their lines to their point stay (an open line, an arrow's head) */
@@ -5272,7 +5424,7 @@
          NAP, a closure, a loop's symbol, a guying, a grounding, an arm, a messenger arm, an HDD); leader, the thin lines from a label, a number, a photo or a
          note to what it names (open lines: not an arrow's head, a bubble's circle or its pointer). A class the look does not give: as before. */
       if (LOOK && (LKW('pole') != null || LKW('symbol') != null || LKW('leader') != null)) {
-        const lwOn = (r, w) => { if (w == null || !r) return; if (!setFirst(r, 370, I(w))) { const l8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(l8 > 0 ? l8 + 1 : r.length, 0, [370, I(w)]); } };
+        const lwOn = (r, w) => { if (w == null || !r || kitLw(r)) return; /* ((templates, As-plan kit) a line on a kit layer with a weight: the layer's) */ if (!setFirst(r, 370, I(w))) { const l8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(l8 > 0 ? l8 + 1 : r.length, 0, [370, I(w)]); } };
         const isLine = (r) => ['LWPOLYLINE', 'LINE', 'CIRCLE', 'ARC', 'INSERT', 'POLYLINE', 'ELLIPSE', 'SPLINE'].includes(typ(r)), isOpen = (r) => typ(r) === 'LINE' || (typ(r) === 'LWPOLYLINE' && !(parseInt(get(r, 70, '0'), 10) & 1));
         const SYMW = new Set(['site', 'nap', 'closure', 'loopsym', 'guy', 'ground', 'arm', 'messenger']), wl = LKW('leader');
         for (const E of EL) { const w = E.kind === 'pole' ? LKW('pole') : SYMW.has(E.kind) ? LKW('symbol') : null; for (const r of E.recs) { if (LEAD.has(r)) { if (wl != null && isOpen(r)) lwOn(r, wl); } else if (w != null && isLine(r)) lwOn(r, w); } }
@@ -5782,14 +5934,14 @@
       const bad = check.filter((c) => !c.ok); if (bad.length || lost.length) rep.notes.push(`BOQ tables of the GEO sheets: ${bad.length ? `${bad.map((c) => `${c.row} (sheets ${c.sum}, PMI ${c.pmi})`).join(', ')} do not add up to the PMI` : ''}${bad.length && lost.length ? '; ' : ''}${lost.length ? `not on any GEO sheet: ${lost.slice(0, 8).join(', ')}` : ''}`);
       // the table in each GEO sheet's right-hand box
       S = structure(d); const BL = 'G-ESAA BOQ GRID'; addLayer(d, S, BL, 7); S = structure(d);
-      const stl = S.styles.has('Standard') ? 'Standard' : null; let nTab = 0;
+      const stl = S.styles.has('Standard') ? 'Standard' : null, tbO = (o2) => kitT('PLAN TABLE', o2); let nTab = 0; // ((templates, As-plan kit) tbO: its texts in the kit's table style)
       names.forEach((nm, k) => {
         const L = S.layouts.find((x) => x.name === nm), RB = L && rightBox(L); if (!RB) return; // (beta 6.5: its right-hand box, see rightBoxOf)
         const { R0, uMm } = RB, W = R0[2] - R0[0], H = R0[3] - R0[1];
         const rows = PMI_ROWS.map(([lb, k2]) => [lb, k2 ? (cellsTxt.get(nm)[k2] != null ? cellsTxt.get(nm)[k2] : '') : '']), title = `BILL OF QUANTITIES · GRID ${cellName(geoCells[k].i, geoCells[k].j)}`;
         const BOQ_K = 2 / 3, LEG_K = 2 / 3; /* beta 6.7 (the owner: "can you make the table covering the 2/3 of the box? so that there are room for other details"; "make it smaller. 2/3 of its size now") */
         const LEGN = Array.isArray(job.rtaLegend) && job.rtaLegend.length && job.rtaLegendAt === 'boq' ? Math.min(12, job.rtaLegend.length) + 1.5 : 0; // (beta 6.5: room kept under the table for the RTA/JPA legend: its rows and a gap)
-        let rh = Math.min(7 * uMm, H * BOQ_K / (rows.length + 2), H / (rows.length + 2 + LEGN * LEG_K)), th = Math.min(2.5 * uMm, rh * 0.5); const pad = 1.5 * uMm; // (beta 6.7: the table at most 2/3 of the box's height, the rest free)
+        let rh = Math.min(7 * uMm, H * BOQ_K / (rows.length + 2), H / (rows.length + 2 + LEGN * LEG_K)), th = kitH('PLAN TABLE', uMm) ? Math.min(kitH('PLAN TABLE', uMm), rh * 0.8) : Math.min(2.5 * uMm, rh * 0.5); const pad = 1.5 * uMm; // (beta 6.7: the table at most 2/3 of the box's height, the rest free) ((templates, As-plan kit) the kit's height, as the row allows)
         const need = (h2) => Math.max(...rows.map(([lb]) => arialW(lb, h2))) * 1.08 + Math.max(arialW('QUANTITY', h2), ...rows.map(([, v]) => arialW(v, h2))) * 1.08 + 4 * pad;
         if (need(th) > W) th *= W / need(th);
         if (!(W > 30 * uMm && H > (rows.length + 2) * 2.4 * uMm && th >= 1.2 * uMm)) { rep.notes.push(`BOQ table not drawn on ${nm}: its right-hand box has no room`); return; }
@@ -5799,9 +5951,9 @@
         po.lwpoly(BL, [[x0, yB], [x1, yB], [x1, top], [x0, top]], { closed: true }); boqBot.set(nm, yB);
         for (let i = 1; i < nR; i++) po.lwpoly(BL, [[x0, top - i * rh], [x1, top - i * rh]], {});
         po.lwpoly(BL, [[xd, top - rh], [xd, yB]], {});
-        po.text(BL, (x0 + x1) / 2, top - rh / 2, tH, title, { ha: 1, va: 2, style: stl });
-        po.text(BL, x0 + pad, top - 1.5 * rh, th, 'DESCRIPTION', { ha: 0, va: 2, style: stl }); po.text(BL, x1 - pad, top - 1.5 * rh, th, 'QUANTITY', { ha: 2, va: 2, style: stl });
-        rows.forEach(([lb, v], i) => { const y = top - (i + 2.5) * rh; po.text(BL, x0 + pad, y, th, lb, { ha: 0, va: 2, style: stl }); if (v !== '') po.text(BL, x1 - pad, y, th, v, { ha: 2, va: 2, style: stl }); });
+        po.text(BL, (x0 + x1) / 2, top - rh / 2, tH, title, tbO({ ha: 1, va: 2, style: stl }));
+        po.text(BL, x0 + pad, top - 1.5 * rh, th, 'DESCRIPTION', tbO({ ha: 0, va: 2, style: stl })); po.text(BL, x1 - pad, top - 1.5 * rh, th, 'QUANTITY', tbO({ ha: 2, va: 2, style: stl }));
+        rows.forEach(([lb, v], i) => { const y = top - (i + 2.5) * rh; po.text(BL, x0 + pad, y, th, lb, tbO({ ha: 0, va: 2, style: stl })); if (v !== '') po.text(BL, x1 - pad, y, th, v, tbO({ ha: 2, va: 2, style: stl })); });
         nTab++;
       });
       rep.boqGrid.tables = nTab;
@@ -5815,18 +5967,19 @@
       geoNames(N).forEach((nm) => {
         const L = S.layouts.find((x) => x.name === nm), RB = L && rightBox(L); if (!RB) return;
         const { R0, uMm } = RB, top = boqBot.has(nm) ? boqBot.get(nm) - Math.min(3 * uMm, 0.4 * (boqBot.get(nm) - R0[1]) / (cats.length + 1.5)) : R0[3], W = R0[2] - R0[0], room = top - R0[1], pad = 1.5 * uMm * LEGK;
-        let rh = Math.min(7 * uMm * LEGK, room / (cats.length + 1)), th = Math.min(2.5 * uMm * LEGK, rh * 0.5); // (beta 6.7: 2/3 of its size before)
+        let rh = Math.min(7 * uMm * LEGK, room / (cats.length + 1)), th = kitH('PLAN TABLE', uMm) ? Math.min(kitH('PLAN TABLE', uMm), rh * 0.8) : Math.min(2.5 * uMm * LEGK, rh * 0.5); // (beta 6.7: 2/3 of its size before) ((templates, As-plan kit) the kit's height, as the row allows)
         const need = (h2) => Math.max(arialW(title, h2 * 1.1), ...cats.map((x) => arialW(x.text, h2) + 1.6 * h2 * 2)) * 1.08 + 3 * pad;
         if (need(th) > W) th *= W / need(th);
         if (!(room > (cats.length + 1) * 2.4 * uMm * LEGK && th >= 1.2 * uMm * LEGK)) { rep.notes.push(`RTA/JPA legend not drawn on ${nm}: its right-hand box has no room left`); return; }
         const po = paperOut(d, S, L, Out); if (!po) return;
         const x0 = R0[0], w = Math.min(W, need(th)), x1 = x0 + w, nR = cats.length + 1, yB = top - nR * rh, rr = Math.min(rh * 0.36, th * 0.95), so = th * 0.08;
         po.lwpoly(LG, [[x0, yB], [x1, yB], [x1, top], [x0, top]], { closed: true }); po.lwpoly(LG, [[x0, top - rh], [x1, top - rh]], {});
-        po.text(LG, (x0 + x1) / 2, top - rh / 2, th * 1.1, title, { ha: 1, va: 2, style: stl });
+        const lgO = (o2) => kitT('PLAN TABLE', o2); // ((templates, As-plan kit) the kit's table style)
+        po.text(LG, (x0 + x1) / 2, top - rh / 2, th * 1.1, title, lgO({ ha: 1, va: 2, style: stl }));
         cats.forEach((x, i) => { const y = top - (i + 1.5) * rh, cx = x0 + pad + rr, col = +x.color > 0 ? +x.color : null;
-          if (col != null && litCol(col)) { po.circle(LG, cx + so, y - so, rr, { color: 250 }); po.text(LG, cx + so, y - so, th, '1', { ha: 1, va: 2, style: stl, color: 250 }); }
-          po.circle(LG, cx, y, rr, { color: col }); po.text(LG, cx, y, th, '1', { ha: 1, va: 2, style: stl, color: col });
-          po.text(LG, cx + rr + pad, y, th, x.text, { ha: 0, va: 2, style: stl }); });
+          if (col != null && litCol(col)) { po.circle(LG, cx + so, y - so, rr, { color: 250 }); po.text(LG, cx + so, y - so, th, '1', lgO({ ha: 1, va: 2, style: stl, color: 250 })); }
+          po.circle(LG, cx, y, rr, { color: col }); po.text(LG, cx, y, th, '1', lgO({ ha: 1, va: 2, style: stl, color: col }));
+          po.text(LG, cx + rr + pad, y, th, x.text, lgO({ ha: 0, va: 2, style: stl })); });
         nLeg++;
       });
       rep.rtaLegend = { sheets: nLeg, rows: cats.map((x) => `${x.text} (${x.n || 0})`) };
@@ -5847,7 +6000,7 @@
       for (const L of cands) { if (done) break;
         const vp = bigVp(L) || layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').slice(1).sort((a2, b2) => num(b2, 40, 0) * num(b2, 41, 0) - num(a2, 40, 0) * num(a2, 41, 0))[0]; tried.push(L.name);
         if (!vp || !(num(vp, 45, 0) > 0)) continue;
-        const w0 = wn(vp), mPerMm = num(vp, 45, 0) / Math.max(1e-9, num(vp, 41, 1)) * ((rightBox(L) || {}).uMm || 1), rh = 4 * mPerMm, th = 2.5 * 2 / 3 * mPerMm, pad = 1 * mPerMm; // (beta 6.7: 2/3 of 6 mm rows, 2.5 mm text)
+        const w0 = wn(vp), mPerMm = num(vp, 45, 0) / Math.max(1e-9, num(vp, 41, 1)) * ((rightBox(L) || {}).uMm || 1), rh = 4 * mPerMm, th = kitH('PLAN LEGEND', mPerMm) ? Math.min(kitH('PLAN LEGEND', mPerMm), rh * 0.8) : 2.5 * 2 / 3 * mPerMm, pad = 1 * mPerMm; // (beta 6.7: 2/3 of 6 mm rows, 2.5 mm text) ((templates, As-plan kit) the kit's legend height, as the row allows)
         const W = Math.max(arialW(title, th * 1.1), ...cats.map((x) => arialW(x.text, th) + 3.2 * th)) * 1.08 + 3 * pad, H = (cats.length + 1) * rh, mg = 3 * mPerMm;
         const occ = occAll.filter((b) => !(b[2] < w0[0] || b[0] > w0[2] || b[3] < w0[1] || b[1] > w0[3]));
         const free = (x0, y0) => !occ.some((b) => !(b[2] < x0 - mg || b[0] > x0 + W + mg || b[3] < y0 - mg || b[1] > y0 + H + mg));
@@ -5858,10 +6011,11 @@
       }
       if (done) { const { at: [x0, y0], W, H, rh, th, pad } = done, x1 = x0 + W, top = y0 + H, rr = Math.min(rh * 0.36, th * 0.95), so = th * 0.08, m0 = o.model.length; // (model space: written out here, the plan's own already is)
         o.lwpoly(LG, [[x0, y0], [x1, y0], [x1, top], [x0, top]], { closed: true }); o.lwpoly(LG, [[x0, top - rh], [x1, top - rh]], {});
-        o.text(LG, (x0 + x1) / 2, top - rh / 2, th * 1.1, title, { ha: 1, va: 2, style: 'arial' });
+        const lgO = (o2) => kitT('PLAN LEGEND', o2); // ((templates, As-plan kit) the kit's legend style)
+        o.text(LG, (x0 + x1) / 2, top - rh / 2, th * 1.1, title, lgO({ ha: 1, va: 2, style: 'arial' }));
         cats.forEach((x, i) => { const y = top - (i + 1.5) * rh, cx = x0 + pad + rr, col = +x.color > 0 ? +x.color : null;
-          if (col != null && litCol(col)) { o.circle(LG, cx + so, y - so, rr, { color: 250 }); o.text(LG, cx + so, y - so, th, '1', { ha: 1, va: 2, style: 'arial', color: 250 }); }
-          o.circle(LG, cx, y, rr, { color: col }); o.text(LG, cx, y, th, '1', { ha: 1, va: 2, style: 'arial', color: col }); o.text(LG, cx + rr + pad, y, th, x.text, { ha: 0, va: 2, style: 'arial' }); });
+          if (col != null && litCol(col)) { o.circle(LG, cx + so, y - so, rr, { color: 250 }); o.text(LG, cx + so, y - so, th, '1', lgO({ ha: 1, va: 2, style: 'arial', color: 250 })); }
+          o.circle(LG, cx, y, rr, { color: col }); o.text(LG, cx, y, th, '1', lgO({ ha: 1, va: 2, style: 'arial', color: col })); o.text(LG, cx + rr + pad, y, th, x.text, lgO({ ha: 0, va: 2, style: 'arial' })); });
         d.sec('ENTITIES').recs.push(...o.model.slice(m0));
         const hL = layerH(LG); if (hL) for (const L of S.layouts) for (const v of layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').slice(1)) if (v !== VP) vpFreeze(v, [hL]); } // (on that sheet only)
       if (!done) rep.notes.push(`RTA/JPA legend not drawn: ${tried.length ? `no free room for it on the ${tried.join(' or the ')} sheet` : 'the template has no LEGENDS or KEYMAP sheet'} (Plan style › Pole numbers › Owner colour key on the plan: Under each sheet's BOQ table instead)`); // (beta 6.8, UX step 6: the README note names Plan style's row; nothing drawn changes)
@@ -5883,6 +6037,11 @@
           for (const [from, to] of moved) { const hf = lh(from), ht = lh(to); if (hf && ht && fz.has(hf) && !fz.has(ht) && !add.includes(ht)) add.push(ht); } vpFreeze(vp, add); }
         rep.lookLayers = Object.fromEntries(moved); }
     }
+    /* (templates, As-plan kit) a sheet's viewport that froze every layer a kit layer took lines from (a key map that leaves the leaders off) freezes that kit
+       layer too, so each sheet shows what it showed before */
+    if (KMOV.size) { const LH = new Map(d.sec('TABLES').recs.filter((r) => typ(r) === 'LAYER').map((r) => [String(get(r, 2, '')), get(r, 5)]));
+      for (const sec of ['ENTITIES', 'BLOCKS']) for (const vp of d.sec(sec).recs) { if (typ(vp) !== 'VIEWPORT') continue; const fz = new Set([...all(vp, 331), ...all(vp, 341)]), add = [];
+        for (const [kn, froms] of KMOV) { const ht = LH.get(kn); if (!ht || fz.has(ht) || add.includes(ht)) continue; const hs = [...froms].map((n) => LH.get(n)); if (hs.length && hs.every((h) => h && fz.has(h))) add.push(ht); } vpFreeze(vp, add); } }
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };
     S = structure(d); centerCache.clear();
@@ -6129,5 +6288,167 @@
       body: [X0, nbot, X1, top].map((v) => +v.toFixed(4)), frame: [X0, nfb, X1, ft].map((v) => +v.toFixed(4)), grown: +(-dy).toFixed(4), column: +XC.toFixed(4), views };
     return { recs, w0 };
   }
-  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, wrapLine, textWidth: arialW, APP_FONTS: APP_FONTS.map((f) => ({ name: f.name, file: f.file, kind: f.kind, from: f.from, ...(f.family ? { family: f.family } : {}) })), version: '2.42.17' }; // ((beta 7.14, Text format) wrapLine, textWidth: the plan's own wrap and measure; APP_FONTS: the app's fonts)
+  /* ---------------- (templates, As-plan kit) a template's kit, and its starting kit (stage10 B2; B3: the admin downloads it, edits it in AutoCAD and
+     loads it back). The app's own blocks (G-ESAA …) are the template's when it has one of that name (defineBlock, copyBlock and fillBlocks keep it), so the
+     starting kit carries them too, for the drafter to restyle. ---------------- */
+  /** (templates, As-plan kit) a sheet taken out of the drawing (a template's STYLE KEY: the drafter's, not the plan's). The drawing's active sheet (its block
+      *Paper_Space, its entities in ENTITIES: AutoCAD saves the tab last open so) cannot go as the others do: the first other sheet in tab order is made the
+      active one first (its entities moved to ENTITIES under *Paper_Space, its own block taken out). The drawing's only sheet stays. → its structure after */
+  function dropSheet(d, S, L) {
+    const brec = S.br.get(L.brh); if (!brec) return S;
+    if (get(brec, 2) !== '*Paper_Space') { removeLayout(d, S, L); return structure(d); }
+    const X = S.layouts.filter((x) => x !== L && S.br.get(x.brh) && /^\*Paper_Space\d+$/.test(get(S.br.get(x.brh), 2))).sort((a, b) => num(a.rec, 71, 0) - num(b.rec, 71, 0))[0];
+    if (!X) return S;
+    const pH = get(brec, 5), xbr = S.br.get(X.brh), xH = get(xbr, 5), xn = get(xbr, 2);
+    removeHandles(d, new Set(layoutEnts(d, S, L).map(handleOf).filter(Boolean))); // (the sheet's own entities, and what they own)
+    const xb = structure(d).blocks.get(xn), mv = xb ? xb.ents.slice() : [], mvS = new Set(mv), E = d.sec('ENTITIES').recs;
+    d.sec('BLOCKS').recs = d.sec('BLOCKS').recs.filter((r) => !mvS.has(r));
+    for (const r of mv) { // (X's entities: paper space's own now)
+      let g = 0; for (let i = 1; i < r.length; i++) { const [c, v] = r[i]; if (c === 102) { g = String(v).startsWith('{') ? 1 : 0; continue; } if (c === 330 && !g) { if (v === xH) r[i][1] = pH; break; } }
+      if (!r.some((p, i) => i > 0 && p[0] === 67)) { const k = r.findIndex((p, i) => i > 0 && p[0] === 100 && p[1] === 'AcDbEntity'); if (k > 0) r.splice(k + 1, 0, [67, I(1)]); }
+      E.push(r);
+    }
+    setFirst(brec, 340, get(X.rec, 5)); { const ks = X.rec.map((p, i) => (p[0] === 330 ? i : -1)).filter((i) => i > 0); if (ks.length) X.rec[ks[ks.length - 1]][1] = pH; }
+    removeHandles(d, new Set([get(L.rec, 5), xH])); // (the sheet's layout; X's old block record, its BLOCK and ENDBLK)
+    const tb = d.sec('TABLES').recs.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'BLOCK_RECORD'); if (tb) setFirst(tb, 70, I(Math.max(0, parseInt(get(tb, 70, '1'), 10) - 1)));
+    d.index(); return structure(d);
+  }
+  /** (templates, As-plan kit) the style today's texts of a kit text kind are written in on this template (PLAN_KIT.text's source; the look's when it has
+      one, as the Out writers do); null: the app's Arial (an MTEXT's font codes) */
+  const kitSrc = (S, src, LOOK) => { if (LOOK && LOOK.style) return LOOK.style; const has = (n) => (S.styles.has(n) ? n : null); return src === 'arial' ? has('arial') || has('Standard') : src === 'latlong' ? has('样式 1') || has('Standard') : src === 'standard' ? has('Standard') : null; };
+  /** (templates, As-plan kit) a kit layer's starting look on this template: { color, lt, lw }: today's (an aerial cable's line type the template's DASHED or
+      AERCA, else its cable layer's; the roads' their layer's), or what a client's finished plan taught for its kind (LOOK.kinds[learn]: its colour, line
+      type when the template has it, weight) */
+  function kitToday(d, S, nm, LOOK) {
+    const k = PLAN_KIT.layers.find((x) => x[0] === nm), lay = (n, f) => (S.layers.has(n) ? n : f || '0'), Lr = (n) => S.layers.get(n) || null; let [, color, lt, lw] = k;
+    if (/^PLAN CABLE AE/.test(nm)) { const r = Lr(lay('PROPOSED FOC AERIAL 6 CORE', 'Proposed foc aerial')); lt = ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) || (r && get(r, 6)) || 'Continuous'; }
+    if (nm === 'PLAN ROAD') { const r = Lr(lay('ROAD PAVEMENT')); if (r) { color = Math.abs(parseInt(get(r, 62, '7'), 10) || 7); lt = String(get(r, 6, 'Continuous')); lw = parseInt(get(r, 370, '-3'), 10); if (!Number.isFinite(lw)) lw = -3; } }
+    const q = LOOK && LOOK.kinds && k[5] ? LOOK.kinds[k[5]] : null;
+    if (q && typeof q === 'object') { const c = parseInt(q.color, 10), w = +q.lw; if (c >= 1 && c <= 255) color = c; if (typeof q.lt === 'string' && S.ltypes.has(q.lt)) lt = q.lt; if (q.lw != null && q.lw !== '' && Number.isFinite(w) && w >= 0 && w <= 211) lw = LW_SNAP.reduce((a, b) => (Math.abs(b - w) < Math.abs(a - w) ? b : a), 0); }
+    return { color, lt: S.ltypes.has(lt) ? lt : 'Continuous', lw };
+  }
+  /** (templates, As-plan kit) a kit text style's starting look: { src: the style whose font it takes, h: its height (printed mm, annotative; 0 the app's) }:
+      today's (kitSrc, 0), or what a client's finished plan taught for its kind (LOOK.kinds[learn]: its style when the template has it, its printed mm) */
+  const kitStart = (d, S, LOOK, src, learn) => { const q = LOOK && LOOK.kinds && learn ? LOOK.kinds[learn] : null, sr = q && typeof q.style === 'string' ? styleRec(d, q.style) : null, mm = q ? +q.mm : 0;
+    return { src: sr ? String(get(sr, 2)) : kitSrc(S, src, LOOK), h: Number.isFinite(mm) && mm > 0 && mm < 50 ? mm : 0 }; };
+  /** (templates, As-plan kit) the APPID a name of xdata needs (AcadAnnotative), added once; false: the drawing has no APPID table */
+  function appidAdd(d, name) {
+    const T = d.sec('TABLES').recs; if (T.some((r) => typ(r) === 'APPID' && String(get(r, 2, '')).toUpperCase() === name.toUpperCase())) return true;
+    const tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'APPID'); if (!tb) return false;
+    const last = T.reduce((k, x, i) => (typ(x) === 'APPID' ? i : k), T.indexOf(tb)); T.splice(last + 1, 0, [[0, 'APPID'], [5, d.newHandle()], [330, get(tb, 5)], [100, 'AcDbSymbolTableRecord'], [100, 'AcDbRegAppTableRecord'], [2, name], [70, I(0)]]);
+    setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1)); d.index(); return true;
+  }
+  /** (templates, As-plan kit) a kit text style added: the font of style src (its file, big font and TrueType family / flags; null: Arial), height h (0: the
+      app's own sizes), width factor 1, not slanted; annotative (ann), so a height the drafter gives is the printed height in mm */
+  function kitStyleAdd(d, S, name, src, ann, h) {
+    const T = d.sec('TABLES').recs, tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'STYLE'), s0 = src ? styleRec(d, src) : null; if (!tb) return null;
+    const r = [[0, 'STYLE'], [5, d.newHandle()], [330, get(tb, 5)], [100, 'AcDbSymbolTableRecord'], [100, 'AcDbTextStyleTableRecord'], [2, name], [70, I(0)], [40, F(h || 0)], [41, '1.0'], [50, '0.0'], [71, I(0)], [42, '2.5'], [3, s0 ? String(get(s0, 3, '')) : 'arial.ttf'], [4, s0 ? String(get(s0, 4, '')) : '']];
+    const ka = s0 ? s0.findIndex((p) => p[0] === 1001 && String(p[1]).trim() === 'ACAD') : -1;
+    if (ka > 0) { r.push([1001, 'ACAD']); for (let i = ka + 1; i < s0.length && s0[i][0] !== 1001; i++) r.push([s0[i][0], s0[i][1]]); } else if (!s0) r.push([1001, 'ACAD'], [1000, 'Arial'], [1071, I(34)]);
+    if (ann) r.push([1001, 'AcadAnnotative'], [1000, 'AnnotativeData'], [1002, '{'], [1070, I(1)], [1070, I(1)], [1002, '}']);
+    const last = T.reduce((k, x, i) => (typ(x) === 'STYLE' ? i : k), T.indexOf(tb)); T.splice(last + 1, 0, r);
+    setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1)); d.index(); S.styles.add(name); return name;
+  }
+  /** (templates, As-plan kit) a line of text cut at its spaces into lines of at most n letters */
+  const wrapN = (s, n) => { const out = []; let ln = ''; for (const w of String(s).split(' ')) { if (ln && ln.length + w.length + 1 > n) { out.push(ln); ln = w; } else ln = ln ? `${ln} ${w}` : w; } if (ln) out.push(ln); return out; };
+  const KEY_SAMPLE = { 'PLAN POLE DETAILS': 'CC-9001 · 7.5M', 'PLAN POLE NUMBER': '12', 'PLAN LAT LONG': '7.106531 125.600214', 'PLAN ID': 'NAP-01', 'PLAN SPAN LENGTH': '36m', 'PLAN CABLE LABEL': 'PROP. 12C FOC', 'PLAN LOOP': '20m LOOP', 'PLAN CLOSURE': 'PROPOSED CLOSURE', 'PLAN SITE': 'DEMOSITE', 'PLAN ATTACHMENT': 'SG · HG', 'PLAN STREET': 'DEMO STREET', 'PLAN LANDMARK': 'DEMO SCHOOL', 'PLAN NOTE': 'A NOTE', 'PLAN TABLE': 'QUANTITY 12', 'PLAN LEGEND': 'DEMO RTA', 'PLAN SHEET NAME': 'A-1', 'PLAN KEY MAP NAME': 'B-2', 'PLAN VICINITY MAP': 'DEMO ROAD' }; // (made up)
+  /** (templates, As-plan kit) the STYLE KEY sheet (as the CEF template's): a copy of the GEO sheet's paper (its own viewport kept, nothing else of it), the
+      last tab, on layer PLAN STYLE KEY: each kit text style by name with a sample in it, its font and height and what it writes; each kit layer with a line
+      on it (BYLAYER) and what it draws; each symbol's block with a sample insert and what it is; how the app uses them. → the structure after */
+  function keySheet(d, S, name) {
+    const G = S.layouts.find((L) => L.name === 'GEO'); if (!G) return S;
+    const bx = []; for (const r of layoutEnts(d, S, G)) { const t = typ(r); if (t === 'VIEWPORT') continue; // (where the GEO sheet draws: its frame and title block)
+      if (t === 'INSERT') { const b = S.blocks.get(get(r, 2)); if (!b) continue; const ix = num(r, 10, 0), iy = num(r, 20, 0), sx = num(r, 41, 1) || 1, sy = num(r, 42, sx) || 1, b0 = num(b.begin, 10, 0), b1 = num(b.begin, 20, 0);
+        for (const e of b.ents) { const q = entBoxP(e); if (q) bx.push([ix + (q[0] - b0) * sx, iy + (q[1] - b1) * sy, ix + (q[2] - b0) * sx, iy + (q[3] - b1) * sy].map(Number)); } }
+      else { const q = entBoxP(r); if (q) bx.push(q); } }
+    let pg = bx.length ? [Math.min(...bx.map((q) => Math.min(q[0], q[2]))), Math.min(...bx.map((q) => Math.min(q[1], q[3]))), Math.max(...bx.map((q) => Math.max(q[0], q[2]))), Math.max(...bx.map((q) => Math.max(q[1], q[3])))] : null;
+    if (!pg || !(pg[2] - pg[0] > 0) || !(pg[3] - pg[1] > 0) || !pg.every(Number.isFinite)) { const l = [num(G.rec, 10, 0), num(G.rec, 20, 0), num(G.rec, 11, 420), num(G.rec, 21, 297)]; pg = l[2] > l[0] && l[3] > l[1] ? l : [0, 0, 420, 297]; }
+    const pw = pg[2] - pg[0], ph = pg[3] - pg[1], uMm = Math.max(pw, ph) / Math.max(num(G.rec, 44, 420), num(G.rec, 45, 297), 1) || 1, u = Math.min(pw / 410, ph / 287) || uMm, ox = pg[0] + (pw - 410 * u) / 2, oy = pg[1] + (ph - 287 * u) / 2;
+    const P = (x, y) => [ox + x * u, oy + y * u];
+    cloneLayout(d, S, G, 'STYLE KEY'); S = structure(d); let L = S.layouts.find((x) => x.name === 'STYLE KEY');
+    const ents = layoutEnts(d, S, L), vps = ents.filter((e) => typ(e) === 'VIEWPORT'), vp1 = vps.find((e) => parseInt(get(e, 69, '0'), 10) === 1) || vps[0] || null;
+    removeHandles(d, new Set(ents.filter((e) => e !== vp1).map(handleOf).filter(Boolean))); S = structure(d); L = S.layouts.find((x) => x.name === 'STYLE KEY');
+    setIn(L.rec, 'AcDbLayout', 71, I(Math.max(0, ...S.layouts.filter((x) => x !== L).map((x) => num(x.rec, 71, 0))) + 1)); // (the last tab)
+    if (vp1) setIn(L.rec, 'AcDbLayout', 331, get(vp1, 5)); else { const k = L.rec.findIndex((p) => p[0] === 331); if (k > 0) L.rec.splice(k, 1); }
+    if (vp1 && !S.layers.has(String(get(vp1, 8, '0')))) setFirst(vp1, 8, '0'); // (its paper's viewport on layer 0 when its own is not in the drawing)
+    if (!(num(L.rec, 140, 0) - num(L.rec, 48, 0) > 1 && num(L.rec, 141, 0) - num(L.rec, 49, 0) > 1)) [[48, pg[0]], [49, pg[1]], [140, pg[2]], [141, pg[3]]].forEach(([c, v]) => setIn(L.rec, 'AcDbPlotSettings', c, F(v))); // (its plot window the GEO sheet's paper, for the app's PDF printer)
+    const KL = 'PLAN STYLE KEY'; addLayer(d, S, KL, 7); S = structure(d); L = S.layouts.find((x) => x.name === 'STYLE KEY');
+    const po = paperOut(d, S, L, Out), K = kitRead(d), lts0 = parseFloat((d.headerVar('$LTSCALE') || [0, '1'])[1]) || 1;
+    const tx = (s, x, y, h, o2) => po.text(KL, ...P(x, y), h * u, s, { style: 'Standard', ...(o2 || {}) }), hl = (x0, x1, y) => po.lwpoly(KL, [P(x0, y), P(x1, y)], {});
+    po.lwpoly(KL, [P(2, 2), P(408, 2), P(408, 285), P(2, 285)], { closed: true });
+    tx(`G-eSAA AS-PLAN TEMPLATE${name ? ` (${name})` : ''} - STYLE KEY`, 8, 274, 5); // (name: the template's, when given)
+    ['The app draws each kind of text, line and symbol of the as-plan in the text style, layer or block of its name below. Edit them in AutoCAD as your',
+      'standard and keep their names; one deleted: the app draws that kind as before. The app leaves this sheet out of the plans.'].forEach((s, i) => tx(s, 8, 267 - i * 3.6, 1.9));
+    let y = 255; tx('TEXT STYLES', 8, y, 2.8); y -= 3;
+    [['NAME', 8], ['SAMPLE', 60], ['FONT', 102], ['HEIGHT', 128], ['WHAT IT WRITES', 148]].forEach(([s, x]) => tx(s, x, y - 3.4, 1.5)); y -= 5; hl(8, 204, y);
+    for (const [nm, , what] of PLAN_KIT.text) {
+      const k = K.text[nm]; tx(nm, 8, y - 4.2, 1.6);
+      if (k) { const hs = k.annot && k.h > 0 ? Math.min(k.h, 4.5) : 2.5; po.text(KL, ...P(60, y - 5.2), hs * u, KEY_SAMPLE[nm] || 'AaBb 123', { style: k.style, ...(Math.abs(k.wf - 1) > 1e-9 ? { wf: k.wf } : {}), ...(k.obl ? { obl: k.obl } : {}) });
+        tx(String(k.font.file || '-'), 102, y - 4.2, 1.4); if (k.boldF) tx(`bold: ${k.boldF.file}`, 102, y - 6.2, 1.1); tx(k.h > 0 ? (k.annot ? `${+k.h.toFixed(2)} mm` : `${+k.h.toFixed(3)} m`) : '0 (the app\'s)', 128, y - 4.2, 1.4); }
+      wrapN(what, 56).slice(0, 3).forEach((s, i) => tx(s, 148, y - 2.5 - i * 2.0, 1.25)); y -= 7.2; hl(8, 204, y);
+    }
+    y -= 4; ['Height: an annotative style\'s is the printed height in mm on the GEO sheets (its Paper Text Height); else metres on the plan (a table\'s: the',
+      'paper\'s units); 0: the app\'s own sizes. Each kind keeps its texts\' proportions (its largest that high). A font: bold and italic parts stay so (TrueType).',
+      'Lines: on the layer of their kind, BYLAYER (its colour, line type, weight; a Default weight: each cable its size\'s). Symbols: the blocks by name;',
+      'the app makes its own (G-ESAA ...) only where the template has none of that name.'].forEach((s, i) => tx(s, 8, y - i * 2.6, 1.3));
+    y = 255; tx('LAYERS', 214, y, 2.8); y -= 3;
+    [['NAME', 214], ['SAMPLE', 262], ['WHAT IT DRAWS', 288]].forEach(([s, x]) => tx(s, x, y - 3.4, 1.5)); y -= 5; hl(214, 402, y);
+    for (const [nm, , , , what] of PLAN_KIT.layers) {
+      const Ly = K.layers[nm]; tx(Ly ? Ly.name : nm, 214, y - 3.6, 1.5);
+      if (Ly) { const r = po.lwpoly(Ly.name, [P(262, y - 3.1), P(284, y - 3.1)], {}), lr = d.sec('TABLES').recs.find((q) => typ(q) === 'LTYPE' && String(get(q, 2, '')).toUpperCase() === String(Ly.lt).toUpperCase()), pl = lr ? Math.abs(num(lr, 40, 0)) : 0;
+        if (r && pl > 0) { const k8 = r.findIndex((q, i) => i > 0 && q[0] === 8); r.splice(k8 + 1, 0, [48, F(22 * u / 5 / pl / lts0)]); } } // (its dashes seen: five on the line)
+      wrapN(what, 62).slice(0, 2).forEach((s, i) => tx(s, 288, y - 2.4 - i * 2.0, 1.25)); y -= 6.2; hl(214, 402, y);
+    }
+    y -= 8; tx('SYMBOLS (BLOCKS)', 214, y, 2.8); y -= 3;
+    PLAN_KIT.sym.forEach(([nm, what], i) => {
+      const x0 = 214 + (i % 3) * 63, y0 = y - Math.floor(i / 3) * 10.4, has = S.blocks.has(nm);
+      if (has) { const bb = blockBoxA(S, nm, 0) || blockBox(S, nm, 0), sz = bb ? Math.max(bb[2] - bb[0], bb[3] - bb[1]) : 0; po.insert(KL, nm, ...P(x0 + 4.5, y0 - 5.2), { scale: 8 * u / (sz > 1e-9 ? sz : 1), center: !!bb }); }
+      else tx('-', x0 + 3.5, y0 - 5.8, 1.6);
+      tx(nm, x0 + 10, y0 - 3.3, 1.35); wrapN(has ? what : `${what} (not in this template)`, 40).slice(0, 2).forEach((s, j) => tx(s, x0 + 10, y0 - 5.5 - j * 1.9, 1.1));
+    });
+    return structure(d);
+  }
+  /** (templates, As-plan kit) GeDxfTpl.withKit(seedText[, { key, name }]) → DXF text: the template with every kit entry it lacks added with today's look (each
+      PLAN_KIT text style: the font today's texts of its kind take, height 0, width factor 1, annotative; each kit layer: today's colour, line type and
+      weight; a kind a client's finished plan taught (G-ESAA_LOOK.kinds): as taught; the app's own blocks: G-ESAA EXISTING GT POLE, PULL-OFF, CROSS-OVER,
+      ODC, TELCO ARM and its R, P-BTS when it has an X-BTS), and a STYLE KEY sheet (the last tab; made again when it has one; key: false, none; name: the
+      template's, in its title). Nothing else changes: a plan drawn on it looks as on the template (its lines BYLAYER on the kit's layers). Run again:
+      nothing added twice. Throws as build does for a drawing that is not a prepared seed. */
+  function withKit(seedText, o) {
+    o = o || {}; centerCache.clear();
+    const d = new Doc(String(seedText)); let S = structure(d);
+    if (!S.layouts.some((L) => L.name === 'GEO')) throw new Error('This is not the G-eSAA drawing template: it has no GEO sheet');
+    if (!/@@\w+@@/.test(seedText)) throw new Error('This drawing template has no @@ fields: load the prepared seed (G-eSAA_seed…dxf), not the original template');
+    const LOOK = seedText.indexOf('G-ESAA_LOOK') >= 0 ? lookOf(d, S) : null; if (LOOK) d.look = LOOK; // (the app's blocks made as a plan on it makes them: their texts in the look's style)
+    fillBlocks(d, S, [{ name: GT_DISC, icon: GT_DISC_ICON }]); S = structure(d);
+    for (const [nm, polys] of Object.entries(JN_POLYS)) defineBlock(d, S, nm, polys);
+    { const B = odcIso(); defineBlock(d, S, ODC_BLOCK, B.polys, B.texts); }
+    if (!S.blocks.has(TA_BLOCK) || !S.blocks.has(`${TA_BLOCK} R`)) { const bs = LOOK && LOOK.style ? 'G-ESAA BOLD' : addBoldStyle(d, S, 'G-ESAA BOLD'); [false, true].forEach((f) => { const B = telcoArmTop(f, bs); defineBlock(d, S, TA_BLOCK + (f ? ' R' : ''), B.polys, B.texts, B.solids); }); }
+    if (S.blocks.has('X-BTS') && !S.blocks.has('G-ESAA P-BTS') && copyBlock(d, S, 'X-BTS', 'G-ESAA P-BTS', () => true)) { S = structure(d); // (red, as the plan makes it)
+      for (const e of S.blocks.get('G-ESAA P-BTS').ents) { if (typ(e) === 'ATTDEF') continue; const k = e.findIndex((q) => q[0] === 62); if (k >= 0) e[k][1] = I(1); else e.splice(e.findIndex((q) => q[0] === 8) + 1, 0, [62, I(1)]); } }
+    delete d.look; S = structure(d);
+    const ann = appidAdd(d, 'AcadAnnotative');
+    for (const [nm, src, , , learn] of PLAN_KIT.text) if (!styleRec(d, nm)) { const st = kitStart(d, S, LOOK, src, learn); kitStyleAdd(d, S, nm, st.src, ann, ann ? st.h : 0); if (LOOK && LOOK.style && LOOK.bold && !styleRec(d, `${nm} B`)) kitStyleAdd(d, S, `${nm} B`, LOOK.bold, ann, ann ? st.h : 0); } // (a look's bold style: each its bold one, '<style> B')
+    const LU = new Set([...S.layers.keys()].map((n) => String(n).toUpperCase()));
+    for (const [nm] of PLAN_KIT.layers) { if (LU.has(nm.toUpperCase())) continue; const t = kitToday(d, S, nm, LOOK); addLayer(d, S, nm, t.color); const r = S.layers.get(nm); setFirst(r, 6, t.lt);
+      if (!setFirst(r, 370, I(t.lw))) { const k6 = r.findIndex((p, i) => i > 0 && p[0] === 6); r.splice(k6 > 0 ? k6 + 1 : r.length, 0, [370, I(t.lw)]); } }
+    S = structure(d); const old = S.layouts.find((L) => L.name === 'STYLE KEY'); if (old) S = dropSheet(d, S, old);
+    if (o.key !== false) S = keySheet(d, S, String(o.name || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60));
+    return d.text();
+  }
+  /** (templates, As-plan kit) GeDxfTpl.kitOf(seedText) → what a template has of the kit: { text: [{ name, has, font (its file), bold (its bold style's font file,
+      '<style> B'; null: none), h, annotative, wf, obl, what }],
+      layers: [{ name, has, color, lt, lw (1/100 mm; -3 Default), what }], sym: [{ name, has, what }] } (an entry it lacks: has false, today's look) */
+  function kitOf(seedText) {
+    const d = new Doc(String(seedText)), S = structure(d), K = kitRead(d), LOOK = String(seedText).indexOf('G-ESAA_LOOK') >= 0 ? lookOf(d, S) : null, r4 = (v) => +(+v).toFixed(4);
+    return {
+      text: PLAN_KIT.text.map(([nm, src, what, , learn]) => { const k = K.text[nm]; if (k) return { name: k.style, has: true, font: k.font.file, bold: k.boldF ? k.boldF.file : null, h: r4(k.h), annotative: k.annot, wf: r4(k.wf), obl: r4(k.obl), what };
+        const st = kitStart(d, S, LOOK, src, learn), r = st.src ? styleRec(d, st.src) : null, rb = LOOK && LOOK.style && LOOK.bold ? styleRec(d, LOOK.bold) : null;
+        return { name: nm, has: false, font: r ? styleFont(r).file : 'arial.ttf', bold: rb ? styleFont(rb).file : null, h: r4(st.h), annotative: false, wf: 1, obl: 0, what }; }),
+      layers: PLAN_KIT.layers.map(([nm, , , , what]) => { const L = K.layers[nm]; if (L) return { name: L.name, has: true, color: L.color, lt: L.lt, lw: L.lw, what }; const t = kitToday(d, S, nm, LOOK); return { name: nm, has: false, color: t.color, lt: t.lt, lw: t.lw, what }; }),
+      sym: PLAN_KIT.sym.map(([nm, what]) => ({ name: nm, has: S.blocks.has(nm), what })),
+    };
+  }
+  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, wrapLine, textWidth: arialW, APP_FONTS: APP_FONTS.map((f) => ({ name: f.name, file: f.file, kind: f.kind, from: f.from, ...(f.family ? { family: f.family } : {}) })), version: '2.42.17',
+    withKit, kitOf, PLAN_KIT: { text: PLAN_KIT.text.map(([name, , what, , learn]) => ({ name, what, learn })), layers: PLAN_KIT.layers.map(([name, color, lt, lw, what, learn]) => ({ name, color, lt, lw, what, learn: learn || null })), sym: PLAN_KIT.sym.map(([name, what]) => ({ name, what })) } }; // ((templates, As-plan kit) a template's kit, its starting kit, the kit's names) // ((beta 7.14, Text format) wrapLine, textWidth: the plan's own wrap and measure; APP_FONTS: the app's fonts)
 }));
