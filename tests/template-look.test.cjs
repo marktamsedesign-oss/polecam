@@ -5,8 +5,8 @@
      weights, a text size, its sheet): every text the plan writes in its style (TEXT, attributes, MTEXT font codes, notes; bold ones in its bold style),
      an item's own font (beta 7.14) still its own; the plan's items' texts × its size; line weights by class (cables, poles, symbols, leaders, roads);
      the plan's entities on the client's layers (the vicinity map's and the key map's own kept); the SCALE text from the real viewport; the PDF made.
-   - The synthesizer's made-up clients (tests/fixtures/client-{a,b,c}-made-up.dxf made into seeds by dxfsynth.js): the same on them. Skipped, saying
-     so, where dxfsynth.js is not there (the builder's branch alone).
+   - The synthesizer's made-up clients (tests/fixtures/client-{a,b,c}-made-up.dxf made into seeds by vendor/synth/dxfsynth.js): the same on them. Skipped,
+     saying so, where it is not there (the builder's branch alone).
    - Byte for byte: no look (the made-up templates), or one that does not read, or one naming nothing the seed has: the DXF as beta 7.14 made it
      (its SHA-256).
    Every name, number and place is made up. */
@@ -21,7 +21,8 @@ const root = path.resolve(__dirname, '..');
 const FX = path.join(__dirname, 'fixtures');
 const SEED_BL = fs.readFileSync(path.join(FX, 'plan-seed-made-up-blocks.dxf'), 'utf8');
 const T = require(path.join(root, 'dxftpl.js')), PDF = require(path.join(root, 'dxfpdf.js'));
-const SYNTH = path.join(root, 'dxfsynth.js'), HAS_SYNTH = fs.existsSync(SYNTH) && ['a', 'b', 'c'].every((c) => fs.existsSync(path.join(FX, `client-${c}-made-up.dxf`)));
+const SYNTH = path.join(root, 'vendor', 'synth', 'dxfsynth.js'), // beta 7.15 moved it to vendor/synth/
+      HAS_SYNTH = fs.existsSync(SYNTH) && ['a', 'b', 'c'].every((c) => fs.existsSync(path.join(FX, `client-${c}-made-up.dxf`)));
 
 /** 12 made-up poles 36 m apart along a made-up street that turns a corner at s6 (an L), each with a photo and a number (as drawing-snap.test.cjs's). */
 function madeUpJob(over) {
