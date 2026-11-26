@@ -242,7 +242,7 @@ def client_c(path):
 def client_d(path):
     doc = new_doc(6)  # metres
     doc.styles.add('D-LABELS', font='arialn.ttf')
-    doc.styles.add('D-SMALL', font='romans.shx')
+    doc.styles.add('D-SMALL', font='romans.shx', dxfattribs={'width': 0.8})  # (ROMANS narrowed, as drafters often have it: the kit takes its width factor)
     doc.styles.add('D-TITLE', font='arialbd.ttf')
     L = doc.layers
     for name, color, lw, lt in (('D-POLES', 3, 35, None), ('D-POLE-ID', 2, 18, None), ('D-POLE-NO', 1, 25, None), ('D-LATLONG', 8, 13, None),

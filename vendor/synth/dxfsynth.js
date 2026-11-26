@@ -1239,7 +1239,7 @@
     const notes = [], made = new Date().toISOString();
     const plan = map.finished ? makeFromPlan(rd.text, map, dg, notes, made) : makePlan(rd.text, map, dg, notes, made);
     const cef = map.cef ? makeCef(rd.text, map, dg, notes, made) : null;
-    return { plan: plan.text, cef: cef ? cef.text : null, look: plan.look, cefLook: cef ? cef.look : null, notes };
+    return { plan: plan.text, cef: cef ? cef.text : null, look: plan.look, cefLook: cef ? cef.look : null, notes, ...(plan.kit ? { kit: plan.kit } : {}) };
   }
   const lookBase = (map, dg, made) => {
     const lw = {}; for (const k of LW_KEYS) { const v = map.look && map.look.lw ? +map.look.lw[k] : NaN; if (Number.isFinite(v) && v >= 0 && v <= 211) lw[k] = LWS.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a), 0); }
@@ -1383,7 +1383,28 @@
     putLook(d, look);
     setHdr(d, '$INSUNITS', 70, I(6)); setHdr(d, '$MEASUREMENT', 70, I(1));
     T.clean(d);
-    return { text: d.text(), look };
+    // 7. what was learned under the kit's names (B2's PLAN_KIT): each kind's text style, layer and the symbols' blocks (named above), the STYLE KEY sheet
+    const kf = kitFill(d.text(), look.kinds || {}, look.name, notes);
+    return { text: kf.text, look, kit: kf.kit };
+  }
+  /** (templates, Digester) The as-plan style kit (B2: GeDxfTpl.withKit, PLAN_KIT) of a finished plan's template, as their plan taught it: withKit adds each
+      kit entry, those of a kind taught from the look's kinds (G-ESAA_LOOK.kinds: a text style the client's style's font at its printed height in mm,
+      annotative; a layer the kind's colour, line type and weight), the others as the template's look; here each taught style also takes the client's
+      style's width factor and slant (withKit starts every style upright at width 1), its bold one ('<style> B') too. A kind with no kit entry (the
+      poles' layer, the grid's lines, the number circles' colour…) stays the 7.15 look's. → { text, kit: { kit entry: the kind it was taught by } | null } */
+  function kitFill(text, kinds, name, notes) {
+    const T = TPL();
+    if (typeof T.withKit !== 'function' || !T.PLAN_KIT) { notes.push('The style kit is not in this version of the app: the template keeps its look (one font, one text size)'); return { text, kit: null }; }
+    let out; try { out = T.withKit(text, { name }); } catch (e) { notes.push(`The style kit could not be added: ${e.message}`); return { text, kit: null }; }
+    const d = new T.Doc(out), TB = d.sec('TABLES').recs, st = (n) => TB.find((r) => typ(r) === 'STYLE' && String(get(r, 2, '')).toUpperCase() === String(n).toUpperCase()), kit = {};
+    for (const e of T.PLAN_KIT.text) {
+      const q = e.learn && kinds[e.learn]; if (!q || !(+q.mm > 0 || q.style)) continue; kit[e.name] = e.learn;
+      const src = q.style ? st(q.style) : null; if (!src) continue; const wf = num(src, 41, 1), ob = num(src, 50, 0);
+      for (const nm of [e.name, `${e.name} B`]) { const r = st(nm); if (!r) continue; if (wf > 0 && Math.abs(wf - 1) > 1e-6) setFirst(r, 41, F(wf)); if (Math.abs(ob) > 1e-6) setFirst(r, 50, F(ob)); }
+    }
+    for (const e of T.PLAN_KIT.layers) if (e.learn && kinds[e.learn]) kit[e.name] = e.learn;
+    const n = Object.keys(kit).length; if (n) notes.push(`Style kit: ${n} entries as their plan draws them (${Object.entries(kit).map(([k, v]) => `${k} ← ${(KINDS.find((x) => x.k === v) || { label: v }).label.toLowerCase()}`).join(', ')}); a STYLE KEY sheet shows the kit`);
+    return { text: d.text(), kit };
   }
   function makeCef(text, map, dg, notes, made) {
     const T = TPL(), { d } = load(text); let S = T.structure(d), name = map.cef;
@@ -1465,12 +1486,15 @@
     return { paper: sh.paper, unit: sh.units, mm: sh.mm, frame: sh.frame, vp: v ? v.box.map((q) => +q.toFixed(4)) : null, vpHandle: v ? v.handle : null, tokens, look: lookOf(text) };
   }
   /** Made-up values for every token (the check's plan, and the tests): DEMO names, nothing real. */
-  function madeUpValues(look) {
+  function madeUpValues(look, o) {
     const v = { PROJECT_TYPE: 'DEMO FIBER PROJECT', LINK: 'DEMO FIBER PROJECT', LOCATION: 'DEMO CITY', SITE_NAME: 'DEMOSITE MIN9001', SITE_ID: 'PLA-9001', SERIAL: 'SN-9001', PROJECT_CODE: 'DEMO-CODE-01', DWG_NO: 'DWG-9001', ISSUE_NO: '0', REV: '0',
       PREPARED_BY: 'DEMO DRAFTER', DRAWN_BY: 'DEMO DRAFTER', CHECKED_BY: 'DEMO CHECKER', APPROVED_BY: 'DEMO APPROVER', CLIENT: 'DEMO CLIENT', COMPANY_NAME: 'DEMO CONTRACTOR', SHEET_TITLE: { KEYMAP: 'KEY MAP', '*': 'ROUTE PLAN' }, PLAN_KIND: 'AFI PLAN',
       COORDINATES: '7%%d06\'00.00"N 125%%d36\'00.00"E', EXPORTED_BY: 'Exported by DEMO USER · G-eSAA', TITLE_CABLE: 'PROPOSED 12C FIG-8 FOC', NETWORK: '' };
-    if (look && look.sheet && look.sheet.cell) v.SCALE = { '*': '1 : 1,100 METERS', KEYMAP: '', 'VICINITY MAP': '' };
-    // ((templates, Digester) the tables a finished plan's template fills: its PMI and ROW figures, made up)
+    if (look && look.sheet && look.sheet.cell) v.SCALE = { '*': '1 : 1,100 METERS', KEYMAP: '' };
+    // ((templates, Digester) o.tables: a template made from a finished plan: its vicinity map's scale the builder's, the PMI and ROW figures its
+    // tables take, made up; the 7.15 made-up plan otherwise, as before: the builder's own tests pin plans drawn with it)
+    if (!(o && o.tables)) return v;
+    if (v.SCALE) v.SCALE['VICINITY MAP'] = '';
     Object.assign(v, { PMI_TOTAL_CABLE_LENGTH: '463.0m', PMI_AERIAL_CABLE_LENGTH: '463.0m', PMI_UG_CABLE_LENGTH: '0.0m', PMI_PROPOSED_POLE: '10', PMI_EXISTING_GT_POLE: '2', PMI_RTA_CONVERGE: '0',
       PMI_RTA_LOCAL_COOP: '0', PMI_RTA_OTHER_PLDT: '0', PMI_FIBER_TERMINATION: '0', PMI_HYBRID_CLOSURE: '2', ROW_MUNICIPALITY_1: 'DEMO MADE-UP CITY', ROW_MUNICIPALITY_2: '', ROW_BARANGAY_1: 'DEMO BRGY NORTH',
       ROW_BARANGAY_2: 'DEMO BRGY SOUTH', ROW_BARANGAY_3: '', ROW_BARANGAY_4: '', ROW_BARANGAY_5: '', ROW_BARANGAY_6: '', ROW_BARANGAY_7: '', ROW_MUNICIPALITIES: '1', ROW_BARANGAYS: '2' });
@@ -1478,7 +1502,7 @@
   }
   /** A made-up plan (12 poles along a made-up street near Davao, a tower, a closure and its loop, guys, a grounding, a NAP, arms, an existing pole, an
       ODC, an OLT): the check's plan, drawn on the seed by dxftpl.js as the app would draw a real one. */
-  function madeUpJob(look) {
+  function madeUpJob(look, o) {
     const E0 = 787300, N0 = 786100, P = []; for (let i = 0; i < 12; i++) P.push(i < 6 ? [E0 + i * 36, N0] : [E0 + 5 * 36, N0 + (i - 5) * 36]);
     const pts = P.map(([E, N], i) => ({ id: `s${i + 1}`, poleId: `CC-${9001 + i}`, el: 'Pole', status: 'Proposed', mat: 'CC', tag: `CC-${9001 + i}`, label1: `PROP.POLE CC-${9001 + i}`, clamp: '8-10', E, N, lat: 7.1 + (N - N0) / 110574, lon: 125.6 + (E - E0) / 110400 }));
     const set = (id, o) => Object.assign(pts.find((p) => p.id === id), o);
@@ -1491,7 +1515,7 @@
     const cell = look && look.sheet && look.sheet.cell ? look.sheet.cell : 440;
     return { pts: all2, spans, runs: [{ cable: 'F12', label: 'PROPOSED 12C FIGURE 8 FOC', pts: [[site.E, site.N], ...P] }],
       roads: [{ cls: 'minor', hw: 'residential', name: 'DEMO STREET', pts: [[E0 - 80, N0 - 7], [E0 + 5 * 36 + 7, N0 - 7], [E0 + 5 * 36 + 7, N0 + 8 * 36]] }],
-      photos: {}, marks: pts.map((p) => p.id), seqOf: Object.fromEntries(pts.map((p, i) => [p.id, i + 1])), markMode: 'num', markNum: true, cabLabels: true, cabPer: 3, cell, viewH: cell, values: madeUpValues(look), date: new Date('2026-11-20T08:00:00Z') };
+      photos: {}, marks: pts.map((p) => p.id), seqOf: Object.fromEntries(pts.map((p, i) => [p.id, i + 1])), markMode: 'num', markNum: true, cabLabels: true, cabPer: 3, cell, viewH: cell, values: madeUpValues(look, o), date: new Date('2026-11-20T08:00:00Z') };
   }
   /** What make() made, checked: the app takes the seed, the builder draws a made-up plan on it, every field is placed and filled, the structure is
       sound, the CEF seed has its sheet, tokens and drawing area. → { ok, problems: [plain words], notes, tokens, built: { text, report } } */
@@ -1503,10 +1527,11 @@
     const want = new Set(); for (const [id, c] of Object.entries((map && map.fields) || {})) if (c && c !== '-' && FIELD.has(c)) want.add(tokenOf(c, 'plan'));
     const missing = [...want].filter((t) => !tokens.includes(t)); if (missing.length) add(`Fields not placed on the plan sheet: ${missing.join(', ')}.`);
     let built = null;
-    try { built = T.build(plan, madeUpJob(look)); } catch (e) { add(`The plan could not be drawn on this template: ${e.message}`); }
+    const tables = /@@(PMI|ROW)_\w+@@/.test(plan) || /\nVICINITY MAP\r?\n/.test(plan); // ((templates, Digester) a finished plan's template: its tables' figures made up too)
+    try { built = T.build(plan, madeUpJob(look, { tables })); } catch (e) { add(`The plan could not be drawn on this template: ${e.message}`); }
     if (built) {
       const left = (built.text.match(/@@\w+@@/g) || []); if (left.length) add(`Fields left unfilled in the made-up plan: ${[...new Set(left)].join(', ')}.`);
-      const V = madeUpValues(look), filled = tokens.filter((t) => typeof V[t] === 'string' && V[t] && built.text.includes(V[t]));
+      const V = madeUpValues(look, { tables }), filled = tokens.filter((t) => typeof V[t] === 'string' && V[t] && built.text.includes(V[t]));
       notes.push(`Made-up plan: ${built.report.sheets.length} GEO sheet(s), fields filled: ${filled.length ? filled.join(', ') : 'none'}`);
       let sp = structCheck(built.text);
       // ((templates, Round trip) o.softLayers: a template loaded back from AutoCAD may lack a layer the plan writes on (AutoCAD adds it when it opens the plan): said, not a problem)

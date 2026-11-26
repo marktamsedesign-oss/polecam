@@ -14607,14 +14607,19 @@
     // what was learned of each kind (the look of sections 3 and 4 is set from it)
     const K = P.kinds || {}, kb = $('tplKinds'); kb.innerHTML = '';
     const fontOf = (st) => { const x = dg.styles.find((y) => y.name === st); return x ? x.font || x.face || '' : ''; };
+    // (each kind: the kit entries it fills (GeDxfTpl.PLAN_KIT's text styles and layers taught by it; the poles' and symbols' blocks under the plan's names), else the template's look)
+    const PK = window.GeDxfTpl && window.GeDxfTpl.PLAN_KIT, wf = (st) => { const x = dg.styles.find((y) => y.name === st); return x && x.wf && Math.abs(x.wf - 1) > 1e-6 ? x.wf : null; };
+    const into = (k, o) => [...(PK ? [...PK.text, ...PK.layers].filter((e) => e.learn === k).map((e) => e.name) : []),
+      ...((k === 'pole' || k === 'symbol') && o.blocks ? Object.entries(map.symbols || {}).filter(([, b]) => b && o.blocks.some((q) => q.name === b)).map(([sy]) => sy) : [])];
     G.KINDS.forEach((x) => {
-      const o = K[x.k]; if (!o) return; const d = document.createElement('div'); d.innerHTML = '<b></b><small></small>'; d.querySelector('b').textContent = x.label;
+      const o = K[x.k]; if (!o) return; const d = document.createElement('div'); d.innerHTML = '<b></b><small></small><small class="kit"></small>'; d.querySelector('b').textContent = x.label;
+      const ks = into(x.k, o); d.querySelector('.kit').textContent = ks.length ? `→ ${ks.join(', ')}` : '→ no kit entry: the template\'s look';
       const lw = o.lw != null && o.lw >= 0 ? `${(o.lw / 100).toFixed(2)} mm thick` : '';
-      d.querySelector('small').textContent = [o.n ? `${o.n} on their plan` : '', `layer ${o.layer}`, o.style ? `${o.style}${fontOf(o.style) ? ` (${fontOf(o.style)})` : ''}` : '', o.h != null ? `${o.h} m high${o.mm ? `, ${o.mm} mm printed` : ''}${o.k ? `, ×${o.k} the app's` : ''}` : '',
+      d.querySelector('small').textContent = [o.n ? `${o.n} on their plan` : '', `layer ${o.layer}`, o.style ? `${o.style}${fontOf(o.style) ? ` (${fontOf(o.style)}${wf(o.style) ? `, width ${wf(o.style)}` : ''})` : ''}` : '', o.h != null ? `${o.h} m high${o.mm ? `, ${o.mm} mm printed` : ''}${o.k ? `, ×${o.k} the app's` : ''}` : '',
         o.blocks ? `blocks ${o.blocks.map((b) => `${b.name}${b.n ? ` ×${b.n}` : ''}`).join(', ')}` : o.block ? `block ${o.block}` : '', o.lt && !/^continuous$/i.test(o.lt) ? o.lt.toLowerCase() : '', lw, `colour ${o.color}`].filter(Boolean).join(' · ');
       kb.appendChild(d);
     });
-    $('tplKindsSum').textContent = kb.children.length ? `How their plan draws each kind of thing${P.planScale ? ` (its plan sheets at 1:${P.planScale.toLocaleString('en-US')})` : ''}. The font, text size, line weights, layers and symbols below are set from it, and the template keeps it for each kind.` : 'Nothing of their plan\'s drawing was read.';
+    $('tplKindsSum').textContent = kb.children.length ? `How their plan draws each kind of thing${P.planScale ? ` (its plan sheets at 1:${P.planScale.toLocaleString('en-US')})` : ''}, and the entry of the template's style kit it fills (→): its text style (their font, printed height, width), layer (colour, line type, weight) or block. A kind with no kit entry takes the font, text size, line weights and layers below.` : 'Nothing of their plan\'s drawing was read.';
     // the tables the app fills (a box unticked: the client's figures kept as they are)
     const tb = $('tplTables'); tb.innerHTML = ''; const T0 = tprTab0(P);
     for (const [k, t] of [['pmi', P.pmi], ['row', P.row]]) {

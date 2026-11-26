@@ -133,6 +133,9 @@ test('a computer: a client\'s finished plan learned (its sheets\' roles, the loo
     assert.ok(ui.kinds.some((k) => /^Pole IDs and details .*layer D-POLE-ID · D-LABELS \(arialn\.ttf\) · 2\.2 m high, 1\.83 mm printed/.test(k)), ui.kinds.join(' | '));
     assert.ok(ui.kinds.some((k) => /^Cables \(existing\) .*layer D-FOC-EXISTING .*dashed · 0\.35 mm thick/.test(k)), ui.kinds.join(' | '));
     assert.ok(ui.kinds.some((k) => /^Poles .*blocks DEMO-POLE-NEW ×11, DEMO-POLE-EXIST ×3/.test(k)), ui.kinds.join(' | '));
+    // (the style kit: the entry each kind fills)
+    for (const re of [/^Pole IDs and details .*→ PLAN POLE DETAILS, PLAN ID$/, /^Span lengths .*D-SMALL \(romans\.shx, width 0\.8\).*→ PLAN SPAN LENGTH$/, /^Cables \(proposed\) .*→ PLAN CABLE AE$/,
+      /^Poles .*→ P-POLE, existing telecom pole$/, /^Closures, loops, boxes .*→ P-Joint, loopp$/, /^Circles round the pole numbers .*→ no kit entry: the template's look$/]) assert.ok(ui.kinds.some((k) => re.test(k)), `${re}: ${ui.kinds.join(' | ')}`);
     assert.deepEqual(ui.tables, [['pmi', true], ['row', true]]); assert.equal(ui.tabs, true);
     assert.deepEqual(ui.fields.map((f) => f[1]), ['project', 'location', 'client', 'date'], JSON.stringify(ui.fields));
     assert.ok(ui.fields.some(([t]) => /PREPARED FOR “DEMO CLIENT D TELECOM” · the same as a title block's/.test(t)), JSON.stringify(ui.fields));
@@ -141,6 +144,7 @@ test('a computer: a client\'s finished plan learned (its sheets\' roles, the loo
     await page.waitForFunction(() => !document.getElementById('tprCheck').hidden, null, { timeout: 120000 }); await page.waitForTimeout(400);
     const res = await page.evaluate(() => document.getElementById('tplCheckRes').innerText);
     assert.match(res, /no problem found/); assert.match(res, /Sheets left out: PLAN-2/); assert.match(res, /vicinity map's picture removed/); assert.match(res, /Tables: 16 value/); assert.match(res, /No CEF sheet in their plan/);
+    assert.match(res, /Style kit: 13 entries as their plan draws them \(PLAN POLE DETAILS ← pole ids and details, /);
     assert.ok(await inkOf(page, 'tplCheckPic') > 1000, 'the made-up plan\'s picture');
     if (process.env.SHOTS) await page.screenshot({ path: path.join(process.env.SHOTS, 'client-plan-template-review.png'), fullPage: false });
     await page.evaluate(() => document.getElementById('tplSave').click());
@@ -156,6 +160,8 @@ test('a computer: a client\'s finished plan learned (its sheets\' roles, the loo
     assert.ok(!out.text.includes('DEMO_VICINITY.jpg'), 'their vicinity map\'s picture gone (the app makes its own)');
     assert.equal(out.values.PMI_PROPOSED_POLE, '8'); assert.ok(out.text.includes('FIBER OPTIC CABLE AS-PLAN'), 'the cover\'s title kept');
     const look = G.lookOf(out.text); assert.equal(look.kinds.poleId.layer, 'D-POLE-ID'); assert.equal(look.from.finished, true); assert.equal(look.from.scale, 1200);
+    const kit = Object.fromEntries(T.kitOf(out.text).text.map((e) => [e.name, e])); // (the plan's own text styles: the kit as their plan taught it)
+    assert.deepEqual([kit['PLAN POLE DETAILS'].font, kit['PLAN POLE DETAILS'].h, kit['PLAN SPAN LENGTH'].font, kit['PLAN SPAN LENGTH'].wf, kit['PLAN SPAN LENGTH'].h], ['arialn.ttf', 1.83, 'romans.shx', 0.8, 1.5]);
     assert.deepEqual(G.structCheck(out.text), [], 'its structure');
     // unticked: a template with a sample drawing (the three sheets' choices back)
     await planStyle(page);

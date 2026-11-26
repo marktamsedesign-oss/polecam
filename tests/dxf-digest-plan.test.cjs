@@ -13,7 +13,10 @@
      vicinity picture and its image link gone, the PMI and ROW values as fields, the cover's fields, the square viewports, the look with its kinds; a
      made-up plan drawn on it (check) with every field filled, the ROW table redrawn for its places; the user's corrections followed (a sheet left
      out or kept as it is, a table kept as the client's);
-   - (templates, Round trip): a template's tag (G-ESAA_TEMPLATE) written, read, replaced, kept by tidy(); a loaded-back template's missing layers a note.
+   - (templates, Round trip): a template's tag (G-ESAA_TEMPLATE) written, read, replaced, kept by tidy(); a loaded-back template's missing layers a note;
+   - the style kit (B2's PLAN_KIT, GeDxfTpl.withKit): the template carries what was learned under the kit's names (each taught text style: the client's
+     font, printed height, width factor, annotative; each taught layer: colour, line type, weight; the symbols' blocks under the plan's names; the
+     others as the template's look), and the plan the builder draws on it shows, kind by kind, the client's fonts, printed heights and weights.
    Every name, number and drawing is made up. */
 'use strict';
 const { test } = require('node:test');
@@ -75,7 +78,7 @@ test('the 7.15 templates (a sample drawing, or none) are not finished plans: mad
   // client a's sample drawing taken as a finished plan when the user says so: its roles, its kinds
   const src = fs.readFileSync(path.join(FX, 'client-a-made-up.dxf'), 'utf8'), dg = G.digest(src, 'client-a.dxf'), p = G.proposal(dg, { finished: true });
   assert.equal(p.finished, true); assert.deepEqual(p.roles, { PLAN: 'plan', LEGEND: 'legend' }); assert.equal(p.look.kinds.poleId.layer, 'TEXT');
-  const m = G.make(src, p, dg), I = info(m.plan); assert.deepEqual(I.layouts, ['LEGENDS', 'KEYMAP', 'GEO']); assert.equal(G.check(m, p).ok, true);
+  const m = G.make(src, p, dg), I = info(m.plan); assert.deepEqual(I.layouts, ['LEGENDS', 'KEYMAP', 'GEO', 'STYLE KEY']); assert.equal(G.check(m, p).ok, true);
   assert.equal(G.proposal(DG, { finished: false }).finished, false, 'client d as a template: the 7.15 choices');
 });
 
@@ -99,13 +102,14 @@ test('proposal: roles, fields, the poles\' blocks, the look learned, model space
 test('make: their plan without the plan itself, its sheets as the app makes them, the tables and the cover\'s fields; a made-up plan drawn on it', () => {
   const m = made(), I = info(m.plan);
   assert.equal(m.cef, null, 'the CEF on the company\'s CEF template');
-  assert.deepEqual(I.layouts, ['TITLE', 'LEGENDS', 'VICINITY MAP', 'ROW AREA COVERAGE', 'KEYMAP', 'GEO', 'PMI']);
+  assert.deepEqual(I.layouts, ['TITLE', 'LEGENDS', 'VICINITY MAP', 'ROW AREA COVERAGE', 'KEYMAP', 'GEO', 'PMI', 'STYLE KEY'], 'the builder\'s sheets, then the style kit\'s key');
   assert.ok(G.seedOk(m.plan)); assert.deepEqual(G.structCheck(m.plan), []);
   assert.ok(m.notes.some((t) => /^Sheets left out: PLAN-2/.test(t)) && m.notes.some((t) => /vicinity map's picture removed \(1 picture\(s\), 1 image file link/.test(t)) && m.notes.some((t) => /^Tables: 16 value/.test(t)), m.notes.join(' | '));
   // model space: the route gone (no pole of it, no lat / long, no cable), the picture and its link gone, the legend and the tables kept
   const model = I.S.E.filter((r) => get(r, 330) === I.S.modelH && String(get(r, 67) || '0').trim() !== '1');
   assert.ok(!model.some((r) => typ(r) === 'IMAGE') && !I.d.sec('OBJECTS').recs.some((r) => typ(r) === 'IMAGEDEF') && !m.plan.includes('DEMO_VICINITY.jpg'));
-  assert.ok(!m.plan.includes('CC-9001') && !m.plan.includes('7.100000') && !model.some((r) => get(r, 8) === 'D-FOC-EXISTING' || get(r, 8) === 'D-LATLONG'), 'none of their route');
+  const modelTexts = model.filter((r) => /^(TEXT|MTEXT)$/.test(typ(r))).map((r) => r.filter((q, i) => i > 0 && (q[0] === 1 || q[0] === 3)).map((q) => q[1]).join(''));
+  assert.ok(!modelTexts.some((t) => /CC-90\d\d|7\.10\d{4}/.test(t)) && !model.some((r) => get(r, 8) === 'D-FOC-EXISTING' || get(r, 8) === 'D-LATLONG'), 'none of their route (the STYLE KEY\'s own samples aside)');
   assert.equal(model.filter((r) => typ(r) === 'INSERT').length, 3, 'the legend\'s three samples');
   const all = m.plan;
   for (const t of ['@@PMI_TOTAL_CABLE_LENGTH@@', '@@PMI_PROPOSED_POLE@@', '@@PMI_HYBRID_CLOSURE@@', '@@ROW_MUNICIPALITY_1@@', '@@ROW_BARANGAY_6@@', 'TOTAL - @@ROW_MUNICIPALITIES@@', 'TOTAL - @@ROW_BARANGAYS@@', 'PREPARED FOR @@CLIENT@@']) assert.ok(all.includes(t), t);
@@ -130,7 +134,7 @@ test('make: the user\'s corrections (a sheet left out, one kept as it is, a tabl
   map.roles = { ...map.roles, LEGEND: 'other', ROW: 'out' };
   for (const q of P.pmi.rows) map.tables[q.handle] = '-';
   const m = G.make(SRC, map, DG), I = info(m.plan);
-  assert.deepEqual(I.layouts, ['TITLE', 'VICINITY MAP', 'KEYMAP', 'GEO', 'PMI', 'LEGEND (CLIENT)'], 'the legend kept as it is, after the app\'s sheets (renamed: the builder reads a LEGEND sheet as its own); ROW left out');
+  assert.deepEqual(I.layouts, ['TITLE', 'VICINITY MAP', 'KEYMAP', 'GEO', 'PMI', 'LEGEND (CLIENT)', 'STYLE KEY'], 'the legend kept as it is, after the app\'s sheets (renamed: the builder reads a LEGEND sheet as its own); ROW left out');
   assert.ok(m.plan.includes('552.0m') && !m.plan.includes('@@PMI_TOTAL_CABLE_LENGTH@@'), 'the PMI as the client\'s');
   assert.ok(m.notes.some((t) => /^Sheets left out: PLAN-2, ROW/.test(t)), m.notes.join(' | '));
   assert.equal(G.check(m, map).ok, true);
@@ -152,4 +156,44 @@ test('(templates, Round trip) the template\'s tag: written, read, replaced, kept
   const sq = G.tidy(fs.readFileSync(path.join(FX, 'plan-seed-made-up-square.dxf'), 'utf8')).text;
   const strict = G.check({ plan: sq, look: null, cef: null }, {}), soft = G.check({ plan: sq, look: null, cef: null }, {}, { softLayers: true });
   assert.equal(strict.ok, false); assert.equal(soft.ok, true); assert.ok(soft.notes.some((n) => /^The plan writes on layers the template does not have \(.*GRIDNO/.test(n)), soft.notes.join(' | '));
+});
+
+test('the style kit: what was learned under the kit\'s names; the plan drawn on it has their fonts, printed heights and weights, kind by kind', () => {
+  const m = made(), K = T.kitOf(m.plan), tx = Object.fromEntries(K.text.map((e) => [e.name, e])), ly = Object.fromEntries(K.layers.map((e) => [e.name, e]));
+  const D = Object.fromEntries(DG.styles.map((x) => [x.name, x])), kinds = P.kinds;
+  // each taught text style: the client's font of that kind, its printed height (mm, annotative), its width factor; the others the template's look (height 0)
+  const want = { 'PLAN POLE DETAILS': 'poleId', 'PLAN ID': 'poleId', 'PLAN POLE NUMBER': 'poleNo', 'PLAN LAT LONG': 'latLong', 'PLAN SPAN LENGTH': 'spanLen', 'PLAN CABLE LABEL': 'cableLabel', 'PLAN LOOP': 'loopText',
+    'PLAN CLOSURE': 'closureLabel', 'PLAN STREET': 'streetName', 'PLAN SHEET NAME': 'gridLabel' };
+  for (const [nm, k] of Object.entries(want)) {
+    const e = tx[nm], q = kinds[k], src = D[q.style];
+    assert.deepEqual([e.has, e.font, e.h, e.annotative, e.wf], [true, src.font, q.mm, true, src.wf], `${nm}: as their ${k}`);
+  }
+  assert.equal(D['D-SMALL'].wf, 0.8, 'their small style narrowed'); assert.equal(tx['PLAN SPAN LENGTH'].wf, 0.8);
+  for (const nm of ['PLAN SITE', 'PLAN ATTACHMENT', 'PLAN NOTE', 'PLAN TABLE']) assert.deepEqual([tx[nm].has, tx[nm].h, tx[nm].font], [true, 0, 'arialn.ttf'], `${nm}: not taught, the template's look (its font, the app's size × its scale)`);
+  assert.deepEqual(m.kit, { ...want, 'PLAN CABLE AE': 'cable', 'PLAN CABLE AE EXISTING': 'cableExisting', 'PLAN ROAD': 'road' });
+  // each taught layer: their cable's, existing cable's and road's colour, line type and weight
+  for (const [nm, k] of [['PLAN CABLE AE', 'cable'], ['PLAN CABLE AE EXISTING', 'cableExisting'], ['PLAN ROAD', 'road']]) assert.deepEqual([ly[nm].has, ly[nm].color, ly[nm].lt, ly[nm].lw], [true, kinds[k].color, kinds[k].lt, kinds[k].lw], nm);
+  assert.deepEqual([ly['PLAN CABLE AE'].lt, ly['PLAN CABLE AE EXISTING'].lt], ['Continuous', 'DASHED'], 'their proposed cable solid, their existing one dashed');
+  // the symbols: their blocks under the plan's names
+  const S0 = info(m.plan).S; for (const b of ['P-POLE', 'existing telecom pole', 'P-Joint', 'loopp']) assert.ok(S0.blocks.has(b), b);
+  // the plan drawn on it (the check's made-up plan): each kind in its kit style, at their printed height on the GEO sheet (250 mm showing 275 m)
+  const B = T.build(m.plan, G.madeUpJob(m.look, { tables: true })), d = new T.Doc(B.text), S = T.structure(d), byH = new Map();
+  for (const sec of ['ENTITIES', 'BLOCKS']) for (const r of d.sec(sec).recs) { const h = get(r, 5); if (h) byH.set(h, r); }
+  const recsOf = (k) => (B.report.movable || []).filter((x) => x.kind === k).flatMap((x) => x.handles.map((h) => byH.get(h)).filter(Boolean));
+  const style = (n) => d.sec('TABLES').recs.find((r) => typ(r) === 'STYLE' && String(get(r, 2)).toUpperCase() === String(n).toUpperCase());
+  const mmPerM = 250 / 275;
+  for (const [k, nm, q] of [['details', 'PLAN POLE DETAILS', kinds.poleId], ['number', 'PLAN POLE NUMBER', kinds.poleNo], ['span', 'PLAN SPAN LENGTH', kinds.spanLen], ['cablename', 'PLAN CABLE LABEL', kinds.cableLabel],
+    ['loop', 'PLAN LOOP', kinds.loopText], ['closurelabel', 'PLAN CLOSURE', kinds.closureLabel], ['road', 'PLAN STREET', kinds.streetName]]) {
+    const tx0 = recsOf(k).filter((r) => /^(TEXT|MTEXT)$/.test(typ(r)) && String(get(r, 7)).toUpperCase() === nm); assert.ok(tx0.length, `${k}: texts in ${nm}`);
+    const top = Math.max(...tx0.map((r) => +get(r, 40))), st = style(nm);
+    assert.ok(Math.abs(top * mmPerM - q.mm) < 0.01, `${k}: printed ${(top * mmPerM).toFixed(3)} mm, theirs ${q.mm} mm`);
+    assert.equal(get(st, 3), D[q.style].font, `${k}: their font`); assert.equal(+get(st, 41), D[q.style].wf, `${k}: their width factor`);
+  }
+  const ll = recsOf('details').filter((r) => String(get(r, 7)).toUpperCase() === 'PLAN LAT LONG'); assert.ok(ll.length && get(style('PLAN LAT LONG'), 3) === 'romans.shx', 'lat / long: their font');
+  const cab = S.E.filter((r) => get(r, 330) === S.modelH && get(r, 8) === 'PLAN CABLE AE');
+  assert.ok(cab.length && cab.every((r) => get(r, 62) == null && get(r, 370) == null), 'the cables on PLAN CABLE AE, BYLAYER');
+  const L = d.sec('TABLES').recs.find((r) => typ(r) === 'LAYER' && get(r, 2) === 'PLAN CABLE AE'); assert.deepEqual([+get(L, 62), get(L, 6), +get(L, 370)], [1, 'Continuous', 50], 'drawn as their D-FOC-PROPOSED: red, solid, 0.50 mm');
+  assert.ok(!info(B.text).layouts.includes('STYLE KEY'), 'the STYLE KEY left out of the plan');
+  // a kind with no kit entry: the template's look (the 7.15 text scale for a site's name: the app's 3 m × 0.9)
+  const site = recsOf('sitename').filter((r) => String(get(r, 7)).toUpperCase() === 'PLAN SITE'); assert.ok(site.length && Math.abs(Math.max(...site.map((r) => +get(r, 40))) - 2.7) < 1e-6);
 });
