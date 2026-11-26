@@ -464,9 +464,16 @@ details.plmore > summary small{color:var(--muted);font-size:calc(12.5px * var(--
 .tprres{border-left:4px solid var(--ok,#2e7d32);padding:6px 10px;margin:6px 0}
 .tprres.bad{border-left-color:#d32f2f}
 .tprres li{margin:2px 0}
+/* (templates, Digester) a finished plan: what was learned of each kind; (templates, Round trip) the admin's download / load back */
+.tprkinds{display:grid;grid-template-columns:1fr;gap:0}
+.tprkinds > div{padding:5px 0;border-top:1px solid var(--line2);font-size:calc(13px * var(--fs));overflow-wrap:anywhere}
+.tprkinds > div:first-child{border-top:0}
+.tprkinds small{display:block;color:var(--muted);font-size:calc(12px * var(--fs))}
+#tplRound{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+#tplRound[hidden]{display:none}
 .tprsplit{display:flex;flex-direction:column}
 .tprsplit > .tprpicw{order:-1} /* (a phone: the sheet's picture first, its fields numbered, then the choices) */
-@media (min-width:760px){ .tprgrid{grid-template-columns:1fr 1fr} .tprsplit{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:start} .tprsplit > .tprpicw{order:0;position:sticky;top:0} }
+@media (min-width:760px){ .tprgrid{grid-template-columns:1fr 1fr} .tprkinds{grid-template-columns:1fr 1fr;column-gap:16px} .tprkinds > div:nth-child(2){border-top:0} .tprsplit{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:start} .tprsplit > .tprpicw{order:0;position:sticky;top:0} }
 /* beta 6.7 (UX step 5): Find a setting (Plan style); the ? of each Export row and Plan style section; a setting found in the Tutorial */
 .plfind{margin:2px 0 6px}
 .plfindbox{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 6px 0 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
@@ -2300,10 +2307,13 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
            accomodate plan creation from different clients using its template": each project's template (the company's, or a client's added here) -->
       <details class="stgrp stsec plcard" id="stTpl" data-find="Template" data-tut="clienttpl"><summary><span class="plci" aria-hidden="true"><svg><use href="#i-tpl"/></svg></span><span class="t"><b>Template</b><small class="secsum"></small></span></summary><div class="secbody">
         <div class="strow" id="tplRow" data-find="Template for this project"><label class="lbl" for="tplSel">Template for this project</label><select id="tplSel"></select>
-          <small class="sthint" id="tplSelSum"></small></div>
+          <small class="sthint" id="tplSelSum"></small>
+          <!-- (templates, Round trip) admin: the template this project uses, downloaded to edit in AutoCAD and loaded back -->
+          <div class="row" id="tplRound" hidden><button type="button" class="btn small" id="tplDown">Download this template</button><button type="button" class="btn small" id="tplBack">Load it back…</button></div><input type="file" id="tplBackFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
+          <small class="sthint" id="tplRoundSum" hidden></small></div>
         <div class="strow" id="tplListRow" data-find="Client templates"><span class="lbl">Client templates</span><div class="tpllist" id="tplList"></div>
           <div class="row"><button type="button" class="btn small" id="tplAdd">Add a client's template…</button></div><input type="file" id="tplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
-          <small class="sthint">A client's own AutoCAD template (DXF), read on this phone: nothing is uploaded. Its sheet, title block, fonts, text sizes and line weights make that client's as-plan and CEF plan. Kept on this phone: not shared with your team in this beta.</small></div>
+          <small class="sthint">A client's own AutoCAD template (DXF), or a finished plan of theirs (the app learns its sheets, title block and look from it), read on this phone: nothing is uploaded. Its sheet, title block, fonts, text sizes and line weights make that client's as-plan and CEF plan. Kept on this phone: not shared with your team in this beta.</small></div>
       </div></details>
       <details class="stgrp stsec plcard" id="stNum" data-scene="street" data-find="Pole numbers" data-tut="planstyle"><summary><span class="plci" aria-hidden="true"><svg><use href="#i-hash"/></svg></span><span class="t"><b>Pole numbers</b><small class="secsum"></small></span></summary><div class="secbody">
         <div class="strow plb" id="psNum" data-find="Pole numbers in this project"><span class="lbl">Pole numbers in this project</span>
@@ -2492,8 +2502,12 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
       <div class="tprrow"><label for="tplClient">The client's name (for a CLIENT field)</label><input type="text" id="tplClient" maxlength="60" autocomplete="off"></div></div>
     <div class="tprsplit">
       <div>
-        <div class="tprsec" id="tprSheets"><h3>1. Sheets</h3><p class="hint">The plan is drawn on the plan sheet (one sheet for each part of the route, at 1:1100), the key map on its own sheet or a copy of the plan sheet; the CEF plan on the CEF sheet.</p>
-          <div class="tprgrid"><div class="tprrow"><label for="tplPlan">Plan sheet</label><select id="tplPlan"></select></div>
+        <div class="tprsec" id="tprSheets"><h3>1. Sheets</h3>
+          <!-- (templates, Digester) a client's finished plan: each sheet's role, the plan itself removed -->
+          <div id="tplFinRow" hidden><label class="check"><input type="checkbox" id="tplFin"><span>A finished plan of theirs: learn from it (its plan removed; its sheets, tables and look kept)</span></label><p class="hint" id="tplFinSum"></p></div>
+          <p class="hint" id="tplSheetHint">The plan is drawn on the plan sheet (one sheet for each part of the route, at 1:1100), the key map on its own sheet or a copy of the plan sheet; the CEF plan on the CEF sheet.</p>
+          <div class="tprgrid" id="tplRoles" hidden></div>
+          <div class="tprgrid" id="tplSheetSel"><div class="tprrow"><label for="tplPlan">Plan sheet</label><select id="tplPlan"></select></div>
             <div class="tprrow"><label for="tplKey">Key map sheet</label><select id="tplKey"></select></div>
             <div class="tprrow"><label for="tplCef">CEF sheet</label><select id="tplCef"></select></div></div>
           <div id="tplKeep"></div></div>
@@ -2505,11 +2519,13 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
     <div class="tprsec" id="tprSyms"><h3>3. Symbols</h3><p class="hint">The client's own block for each of the plan's symbols, or the app's own plain one. They are drawn at the size the plan uses.</p><div class="tprgrid" id="tplSyms"></div>
       <details><summary>More symbols (guys, arms, hosts)</summary><div class="tprgrid" id="tplSymsMore"></div></details></div>
     <div class="tprsec" id="tprLook"><h3>4. Look</h3><p class="hint">The plan's texts in the client's font and size, its lines as thick as the client's.</p>
+      <div id="tplKindsBox" hidden><h3 style="margin-top:6px">Learned from their plan</h3><p class="hint" id="tplKindsSum"></p><div class="tprkinds" id="tplKinds"></div></div>
       <div class="tprgrid"><div class="tprrow"><label for="tplFont">Font of the plan's texts</label><select id="tplFont"></select></div>
         <div class="tprrow"><label for="tplBold">Bold font</label><select id="tplBold"></select></div>
         <div class="tprrow"><label for="tplScale">Text size <output id="tplScaleO"></output></label><input type="range" id="tplScale" min="0.6" max="1.6" step="0.05"><small id="tplScaleSum"></small></div></div>
       <h3 style="margin-top:10px">Line weights</h3><div class="tprgrid" id="tplLw"></div>
       <h3 style="margin-top:10px">Layers</h3><p class="hint">The client's layer for each kind of thing the plan draws (or the plan's own layers, made to look like the client's).</p><div class="tprgrid" id="tplLayers"></div></div>
+    <div class="tprsec" id="tprTables" hidden><h3>Tables the app fills</h3><p class="hint">Their values become the app's figures for each project; the rows and lines stay as the client drew them.</p><div id="tplTables"></div></div>
     <div class="tprsec" id="tprModel"><h3>5. The template's model space</h3><p class="hint">Its sample drawing is removed; tables or legends shown on a sheet can stay.</p><div id="tplModel"></div></div>
     <div class="tprsec" id="tprCheck" hidden><h3>Check: a made-up plan on this template</h3><div id="tplCheckRes"></div><canvas class="tprpic" id="tplCheckPic" width="900" height="636" role="img" aria-label="A made-up plan drawn on the client's sheet"></canvas></div>
   </div>

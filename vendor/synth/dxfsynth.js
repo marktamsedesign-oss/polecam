@@ -457,9 +457,9 @@
     ['PMI_MAXCELL_INNER_DUCT', /^MAXCELL( INNER DUCT)?$/, 'empty'], ['PMI_MANHOLE', /^(PROPOSED )?MAN ?HOLES?$/, 'empty'], ['PMI_SERVICE_BOX', /^(PROPOSED )?SERVICE BOX(ES)?$/, 'empty'],
   ];
   /** A sheet's role in the client's template (the review's choice per sheet) and the builder's name for it (makePlan). */
-  const ROLES = [['cover', 'Cover page', 'TITLE'], ['toc', 'Contents', 'TOC'], ['legend', 'Legend', 'LEGENDS'], ['vicinity', 'Vicinity map (its picture: the app\'s)', 'VICINITY MAP'],
-    ['row', 'ROW table', 'ROW AREA COVERAGE'], ['keymap', 'Key map', 'KEYMAP'], ['plan', 'Plan sheet (the app adds one per part of the route)', 'GEO'], ['pmi', 'PMI table', 'PMI'],
-    ['cef', 'CEF sheet (its own CEF template)', ''], ['other', 'Other sheet (kept as it is)', ''], ['out', 'Left out', '']];
+  const ROLES = [['cover', 'Cover page', 'TITLE'], ['toc', 'Contents', 'TOC'], ['legend', 'Legend', 'LEGENDS'], ['vicinity', 'Vicinity map', 'VICINITY MAP'],
+    ['row', 'ROW table', 'ROW AREA COVERAGE'], ['keymap', 'Key map', 'KEYMAP'], ['plan', 'Plan sheet', 'GEO'], ['pmi', 'PMI table', 'PMI'],
+    ['cef', 'CEF sheet (their CEF template)', ''], ['other', 'Other: kept as it is', ''], ['out', 'Left out', '']];
   const ROLE = new Map(ROLES.map(([k, label, name]) => [k, { k, label, name }]));
   /** The look most of a kind's samples share: { layer, style, h (metres), color, lw, lt, block, n }. */
   function lookMode(samples) {
@@ -1191,25 +1191,41 @@
     return { main, bold };
   }
   /** The look as the XRECORD 'G-ESAA_LOOK' in the root dictionary: its JSON in group 1 strings of at most 250 characters. */
-  function putLook(d, look) {
-    const O = d.sec('OBJECTS').recs, root = O.find((r) => typ(r) === 'DICTIONARY'); if (!root) throw new Error('This DXF has no root dictionary');
+  function putLook(d, look) { putJson(d, 'G-ESAA_LOOK', look); }
+  /** A JSON value as an XRECORD of the root dictionary under key (replacing the one there): the look, (templates, Round trip) the template's tag. */
+  function putJson(d, key, val) {
+    const root = d.sec('OBJECTS').recs.find((r) => typ(r) === 'DICTIONARY'); if (!root) throw new Error('This DXF has no root dictionary');
     const rh = handleOf(root);
-    for (let i = 1; i < root.length - 1; i++) if (root[i][0] === 3 && root[i][1] === 'G-ESAA_LOOK') { const h = root[i + 1][1]; removeHandles(d, new Set([h])); break; }
-    const js = Array.from(JSON.stringify(look)), chunks = []; for (let i = 0; i < js.length; i += 250) chunks.push(js.slice(i, i + 250).join(''));
+    for (let i = 1; i < root.length - 1; i++) if (root[i][0] === 3 && root[i][1] === key) { const h = root[i + 1][1]; removeHandles(d, new Set([h])); break; }
+    const js = Array.from(JSON.stringify(val)), chunks = []; for (let i = 0; i < js.length; i += 250) chunks.push(js.slice(i, i + 250).join(''));
     const h = d.newHandle(), x = [[0, 'XRECORD'], [5, h], [102, '{ACAD_REACTORS'], [330, rh], [102, '}'], [330, rh], [100, 'AcDbXrecord'], [280, I(1)], ...chunks.map((c) => [1, c])];
-    const r2 = O.find((r) => typ(r) === 'DICTIONARY'); r2.push([3, 'G-ESAA_LOOK'], [350, h]);
+    const O = d.sec('OBJECTS').recs, r2 = O.find((r) => typ(r) === 'DICTIONARY'); r2.push([3, key], [350, h]); // (the section's records read again: a removal makes a new list)
     O.splice(O.indexOf(r2) + 1, 0, x); d.index();
   }
-  /** The look a seed carries (its 'G-ESAA_LOOK'), or null. */
-  function lookOf(text) {
-    if (typeof text !== 'string' || text.indexOf('G-ESAA_LOOK') < 0) return null;
+  /** The JSON value a DXF keeps under key in its root dictionary, or null. */
+  function jsonOf(text, key) {
+    if (typeof text !== 'string' || text.indexOf(key) < 0) return null;
     try {
       const d = new (TPL().Doc)(text), O = d.sec('OBJECTS').recs, root = O.find((r) => typ(r) === 'DICTIONARY'); if (!root) return null;
-      let h = null; for (let i = 1; i < root.length - 1; i++) if (root[i][0] === 3 && root[i][1] === 'G-ESAA_LOOK') h = root[i + 1][1];
+      let h = null; for (let i = 1; i < root.length - 1; i++) if (root[i][0] === 3 && root[i][1] === key) h = root[i + 1][1];
       const x = h && d.byHandle.get(h); if (!x) return null;
       return JSON.parse(all(x, 1).join(''));
     } catch (e) { return null; }
   }
+  /** The look a seed carries (its 'G-ESAA_LOOK'), or null. */
+  function lookOf(text) { return jsonOf(text, 'G-ESAA_LOOK'); }
+  /* (templates, Round trip) A template downloaded to be edited in AutoCAD carries where it came from (the XRECORD 'G-ESAA_TEMPLATE': { v: 1, kind:
+     'company' | 'client', id (a client template's), name, at }), so that loading it back knows which template it replaces. AutoCAD keeps a root
+     dictionary's XRECORDs when it saves the DXF. */
+  function tagTemplate(text, info) {
+    const T = TPL(), d = new T.Doc(text), o = info || {};
+    putJson(d, 'G-ESAA_TEMPLATE', { v: 1, kind: o.kind === 'client' ? 'client' : 'company', id: o.kind === 'client' ? String(o.id || '') : '', name: String(o.name || '').slice(0, 80), at: o.at || new Date().toISOString() });
+    return d.text();
+  }
+  /** (templates, Round trip) A template loaded back from AutoCAD tidied as a client's DXF is (dxftpl's clean, an insert's attributes owned by it, a
+      layer an entity names added): → { text, log } */
+  function tidy(text) { const { d, log } = load(text); return { text: d.text(), log }; }
+  function templateTag(text) { const t = jsonOf(text, 'G-ESAA_TEMPLATE'); return t && typeof t === 'object' && !Array.isArray(t) && (t.kind === 'company' || t.kind === 'client') ? t : null; }
 
   /* ---------------- make ---------------- */
   const sheetByName = (d, n) => TPL().structure(d).layouts.find((L) => L.name === n) || null;
@@ -1340,6 +1356,7 @@
     const vp = squareVp(d, shP.main, shP.mm, true);
     for (const x of [kmName, vicName]) if (x) { const sh = sheetNow(d, x[0]); if (sh && sh.main) squareVp(d, sh.main, sh.mm, false); else notes.push(`The sheet ${x[0]} has no viewport: the app's ${x[1] === 'KEYMAP' ? 'key map' : 'vicinity map'} cannot be shown on it`); }
     if (shP.vps.length > 1) notes.push(`The plan sheet's other viewport(s) (${shP.vps.length - 1}) show model space where the client's route was: now empty (change them in AutoCAD if needed)`);
+    { const S0 = T.structure(d), L0 = S0.layouts.find((x) => x.name === planName); if (L0 && sheetEnts(d, S0, L0).some((r) => /^(TEXT|MTEXT)$/.test(typ(r)) && /BILL OF QUANTIT|\bB\.?O\.?Q\b/i.test(plainText(r)))) notes.push(`The plan sheet ${planName} has a BOQ table of its own (their project's figures): the app adds its own on each GEO sheet; take theirs off in AutoCAD (Download this template, Load it back)`); }
     // 5. the sheets: the others removed; each kept one renamed (through a name of its own first: two sheets may swap names); the cover the active one
     S = T.structure(d);
     const keepSet = new Set(kept), act = S.layouts.find((L) => L.name !== 'Model' && isActive(S, L));
@@ -1479,7 +1496,7 @@
   }
   /** What make() made, checked: the app takes the seed, the builder draws a made-up plan on it, every field is placed and filled, the structure is
       sound, the CEF seed has its sheet, tokens and drawing area. → { ok, problems: [plain words], notes, tokens, built: { text, report } } */
-  function check(made, map) {
+  function check(made, map, o) {
     const T = TPL(), problems = [], notes = [], add = (s) => problems.push(s);
     const plan = made.plan, look = made.look;
     if (!seedOk(plan)) add('The plan template is not one the app takes (no GEO sheet or no fields).');
@@ -1492,7 +1509,10 @@
       const left = (built.text.match(/@@\w+@@/g) || []); if (left.length) add(`Fields left unfilled in the made-up plan: ${[...new Set(left)].join(', ')}.`);
       const V = madeUpValues(look), filled = tokens.filter((t) => typeof V[t] === 'string' && V[t] && built.text.includes(V[t]));
       notes.push(`Made-up plan: ${built.report.sheets.length} GEO sheet(s), fields filled: ${filled.length ? filled.join(', ') : 'none'}`);
-      const sp = structCheck(built.text).filter(([k]) => k !== 'owner missing' || true); if (sp.length) add(`The made-up plan's DXF has ${sp.length} structure problem(s): ${sp.slice(0, 3).map((x) => x.join(' ')).join('; ')}.`);
+      let sp = structCheck(built.text);
+      // ((templates, Round trip) o.softLayers: a template loaded back from AutoCAD may lack a layer the plan writes on (AutoCAD adds it when it opens the plan): said, not a problem)
+      if (o && o.softLayers) { const lm = sp.filter(([k]) => k === 'layer missing'); if (lm.length) notes.push(`The plan writes on layers the template does not have (${[...new Set(lm.map((x) => String(x[1]).split(' ').pop()))].slice(0, 6).join(', ')}): AutoCAD adds them when it opens the plan.`); sp = sp.filter(([k]) => k !== 'layer missing'); }
+      if (sp.length) add(`The made-up plan's DXF has ${sp.length} structure problem(s): ${sp.slice(0, 3).map((x) => x.join(' ')).join('; ')}.`);
       const S = T.structure(new T.Doc(built.text)), on0 = S.E.filter((r) => owner(r) === S.modelH && !paperFlag(r) && String(get(r, 8, '0')) === '0' && !/^(ATTRIB|SEQEND|VERTEX)$/.test(typ(r))).length;
       if (on0 > 3) notes.push(`${on0} things of the made-up plan on layer 0`);
     }
@@ -1585,6 +1605,7 @@
     return b;
   }
 
-  return { read, digest, proposal, make, check, structCheck, seedOk, lookOf, cefSheet, madeUpJob, madeUpValues, paint, sheetWindow, tokenOf,
+  return { read, digest, proposal, make, check, structCheck, seedOk, lookOf, cefSheet, madeUpJob, madeUpValues, paint, sheetWindow, tokenOf, tagTemplate, templateTag, tidy,
+    KINDS: KINDS.map((x) => ({ k: x.k, label: x.label, text: !!x.text, appH: x.appH || null })), ROLES: ROLES.map(([k, label, name]) => ({ k, label, name })),
     FIELDS, SYMBOLS: SYMBOLS.map((s) => ({ name: s.name, label: s.label, more: !!s.more, attrs: s.attrs || [], size: s.size })), LAYER_CLASSES: LAYER_CLASSES.map((c) => ({ k: c.k, label: c.label, lw: c.lw || '', layers: c.layers.slice() })), LW_KEYS, version: '7.15' };
 }));
