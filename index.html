@@ -840,6 +840,19 @@ body.kb .sheet{bottom:var(--kb,0px)}
 #svColors{display:flex;gap:8px;align-items:center;flex-wrap:wrap}#svColors .sw{width:30px;height:30px;border-radius:50%;border:3px solid var(--surface);background:var(--c);box-shadow:0 0 0 1px var(--line);padding:0}#svColors .sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ink)}#svColors .sw.auto{background:conic-gradient(#e03131 0 50%,#1c3f94 0);color:#fff;font:700 12px/1 system-ui,sans-serif}
 #boxModes .tsep{flex:1}#boxColors{display:flex;gap:6px}#boxColors .sw{width:30px;height:30px;border-radius:50%;border:3px solid var(--surface);background:var(--c);box-shadow:0 0 0 1px var(--line);padding:0}#boxColors .sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ink)}
 .boqsel{width:100%;min-height:42px}
+/* (beta 7.16, Permissions) a locked feature: shown (not hidden), faded, with a 🔒 and what to do; the user's features (Settings); the admin's
+   list of users: a card each, a chip per feature (green: allowed; struck through: blocked) that wraps on a phone */
+.permlock{opacity:.55}.xtile.permlock{opacity:.7;border-style:dashed}.xtile.permlock small{color:var(--ink);font-weight:600}
+.xcard.permlock>button:not(.head){opacity:.5}.xcard>.permline{margin:6px 0 0;font-weight:700;color:var(--ink)}
+.drwmode #drawModeEdit.permlock::after,.btn.permlock::after{content:"🔒";font-size:.8em;margin-left:4px}
+.tmtool.permlock,.ppi.permlock,#drawEdit.permlock{position:relative}.tmtool.permlock::after,.ppi.permlock::after,#drawEdit.permlock::after{content:"🔒";position:absolute;right:-3px;bottom:-3px;font-size:11px;line-height:1}
+.permme{margin:6px 2px 0}
+.permlist{display:flex;flex-direction:column;gap:8px}
+.permu{border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg)}.permu.off{opacity:.65}
+.permh{display:flex;align-items:center;gap:8px}.permh b{font-size:calc(14px * var(--fs));overflow-wrap:anywhere;min-width:0}.permh small{color:var(--muted);flex:1;font-size:calc(12px * var(--fs))}
+.permx{margin-left:auto;flex:none;width:36px;height:36px;border:1px solid var(--line);border-radius:999px;background:var(--chip);color:var(--ink);font-size:18px;line-height:1}
+.permf{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.permf .chip{min-height:36px}
+.permf .chip[aria-pressed=true]{background:var(--ok);border-color:var(--ok);color:#fff}.permf .chip[aria-pressed=false]{color:var(--muted);text-decoration:line-through}
 .admusers{display:flex;flex-direction:column;gap:4px}.admusers div{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--bg)}.admusers b{font-size:calc(14px * var(--fs))}.admusers span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
 #admin .group.shut>:not(h3){display:none!important}#admin .group>h3.afold{cursor:pointer;display:flex;align-items:center;gap:8px}#admin .group>h3.afold::after{content:'▾';margin-left:auto;color:var(--muted)}#admin .group.shut>h3.afold::after{content:'▸'}
 .xmulti{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 12px;display:flex;flex-direction:column;gap:4px}.xmulti>.lbl{font-size:calc(12px * var(--fs));font-weight:700;color:var(--muted);letter-spacing:.04em}
@@ -2640,6 +2653,7 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
       <button class="rowbtn" id="goTeam" type="button" hidden><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b>Team</b><span id="teamSub">Coordinator or field partner, and your teams</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
     <p class="hint" id="creditMe" hidden></p>
+    <p class="hint permme" id="permMe" hidden></p><!-- (beta 7.16, Permissions) what this user may do, when the admin limits it -->
     <div class="row"><button class="btn sm primary" id="inviteBtn" type="button" hidden>Invite a coworker (QR)</button><button class="btn sm primary" id="apprShowBtn" type="button" hidden>On-site approval QR</button><button class="btn sm" id="moveBtn" type="button">Move to another phone…</button><button class="btn sm" id="resetUser" type="button">Reset user…</button></div>
     <div class="sectionh">Field work</div>
     <div class="rows">
@@ -3255,6 +3269,19 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
         <label class="field" id="admUsersBox">ADMIN USERS: one per line, the email then the job (PAT/FAT inspector, As-Plan approver, Audit approver, As-Built approver). Blank = anyone of the admin company with the PIN. Or list them in the online sheet's Admin users tab<textarea id="admUsers" style="min-height:64px" placeholder="name@globe.com.ph PAT/FAT inspector" autocapitalize="off" spellcheck="false"></textarea></label>
         <div class="row"><button class="btn" id="admChangePin" type="button">Change the admin PIN</button></div>
         <p class="hint help">Give the admin PIN only to staff of the admin company. Change it when someone leaves: phones that take the new list version need the new PIN.</p>
+      </div>
+      <!-- (beta 7.16, Permissions) the owner: "Per user, the admin allows or blocks features: e.g. which exports, the CEF plan, Drawing editing, client
+           templates, team admin. allow also to be edit or update via the googlesheet. By default, they are only allow to do the survey and kmz export
+           (includes project share and team mailbox)": a card per user (by email), a chip per feature (green: allowed), saved with the list and
+           written to the online sheet's User permissions tab -->
+      <div class="group" id="admPermBox">
+        <h3>User permissions</h3>
+        <p class="hint" style="margin:0">What each user may do, by their email. <b>Survey</b> (records, map, photos, backup) is always allowed; a user not listed has <b>KMZ export</b> (with project share and the team mailbox) and nothing else. Admin users have everything. The online sheet's <b>User permissions</b> tab holds the same (one row per email, Yes / No per feature): edit it there or here.</p>
+        <label class="check"><input type="checkbox" id="admPermOn"><span>Limit what users may do (off: every user has every feature, as before)</span></label>
+        <div class="row" style="flex-wrap:nowrap"><input type="email" id="admPermEmail" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Email of a user" aria-label="Email of a user to add" style="flex:1;min-width:0"><button class="btn" id="admPermAdd" type="button">Add</button></div>
+        <input type="search" id="admPermQ" placeholder="Search users (email or company)" autocomplete="off" aria-label="Search the users" hidden>
+        <div id="admPermList" class="permlist" role="list" aria-label="Users and what they may do"></div>
+        <p class="hint" id="admPermInfo" style="margin:0"></p>
       </div>
       <div class="group" id="admInvBox">
         <h3>Invite a company's users (company keys)</h3>

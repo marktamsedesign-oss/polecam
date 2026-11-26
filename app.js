@@ -148,6 +148,35 @@
     return { ...POL_DEF, ...p, form: { ...(p.form || {}) }, defects: p.defects || DEF_CHECK, inspTypes: p.inspTypes || POL_DEF.inspTypes };
   }
   const formText = () => window.PoleForms.formText(pol().form);
+  /* (beta 7.16, Permissions) the features the admin allows or blocks per user (the owner: "Per user, the admin allows or blocks features:
+     e.g. which exports, the CEF plan, Drawing editing, client templates, team admin ... By default, they are only allow to do the survey
+     and kmz export (includes project share and team mailbox)"): k (the key, as the list and the online sheet's tab keep it), n (its name
+     on the screens and the sheet's column), d (what it covers), on (what a user not listed has), c (its letter in the list: capital =
+     allowed, small = blocked). Survey is always allowed. The rest of it: "what each user may do", after the online sheet's code. */
+  const PERM_F = [
+    { k: 'survey', n: 'Survey', d: 'records, the map, photos, backup and restore', on: true, always: true },
+    { k: 'kmz', n: 'KMZ export', d: 'the Google Earth map (KMZ, also handed on to the cleanup and the FAT), project share, the team mailbox', on: true, c: 'K' },
+    { k: 'plan', n: 'Plan drawing', d: 'the plan for AutoCAD (DXF), its PDF, the One PDF, the splicing details', on: false, c: 'P' },
+    { k: 'exp', n: 'Other exports', d: 'material list (BOQ), photo ZIP, photo report, route and spans, pole list (RTA), completion report, deficiency lists, punchlist, progress of the fixes, photos for training', on: false, c: 'X' },
+    { k: 'cef', n: 'CEF plan', d: 'the CEF plan: its editor and its files', on: false, c: 'C' },
+    { k: 'edit', n: 'Drawing editing', d: 'Edit on the Drawing (and Edit route there); View stays', on: false, c: 'E' },
+    { k: 'tpl', n: 'Client templates', d: 'a client\u2019s own plan template', on: false, c: 'T' },
+    { k: 'admin', n: 'Team admin', d: 'invite coworkers; the company list\u2019s Administration (with the admin PIN)', on: false, c: 'A' }];
+  const PERM_SET = PERM_F.filter((f) => !f.always); // (the features the admin sets)
+  /** A user's entry in the list ("PxK|DEMO CONTRACTOR": Plan drawing allowed, Other exports blocked, KMZ export allowed; their company):
+      { f: { plan: true, exp: false, kmz: true }, c }. Anything else: nothing set. */
+  function permDecode(v) {
+    const m = /^([A-Za-z]{0,7})(?:\|(.{0,100}))?$/.exec(String(v == null ? '' : v)), f = {};
+    if (m) for (const ch of m[1]) { const x = PERM_SET.find((y) => y.c === ch.toUpperCase()); if (x) f[x.k] = ch === x.c; }
+    return { f, c: m && m[2] ? m[2] : '' };
+  }
+  /** The list's entry of a user: only what differs from a user not listed, then their company. '' when nothing differs. */
+  function permEncode(f, c) { const s = PERM_SET.filter((x) => typeof f[x.k] === 'boolean' && f[x.k] !== x.on).map((x) => (f[x.k] ? x.c : x.c.toLowerCase())).join(''); return s ? `${s}${c ? `|${String(c).slice(0, 100)}` : ''}` : ''; }
+  /** The list's permissions are well formed (else they are not used; the list itself is kept). */
+  function permValid(p) {
+    if (!p || typeof p !== 'object' || (p.on != null && typeof p.on !== 'boolean') || (p.at != null && !(typeof p.at === 'string' && p.at.length <= 40))) return false;
+    return p.u == null || (typeof p.u === 'object' && !Array.isArray(p.u) && Object.keys(p.u).length <= 500 && Object.entries(p.u).every(([e, v]) => e.length <= 120 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) && typeof v === 'string' && /^[KPXCETAkpxceta]{0,7}(\|[^|]{0,100})?$/.test(v)));
+  }
   /** Staff of the admin company add deficiencies and verify; everyone else (contractors) can only rectify. */
   /** Company names compared without case, punctuation or Inc./Corp./Co./Ltd. endings (the same rule as the sheet script). */
   function normCo(v) { return String(v || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\b(inc|incorporated|corp|corporation|co|company|ltd|limited|opc|llc)\b/g, ' ').replace(/\s+/g, ''); }
@@ -2995,7 +3024,8 @@
   }
   /** Undo (dir 1: Redo): the last step of this project's Drawing taken back (made again), its other side kept for Redo (Undo). */
   async function drwUndo(dir) {
-    if (!drw) return; const proj = drw.project, A = dir === 1 ? drwRedoStack : drwUndoStack, B = dir === 1 ? drwUndoStack : drwRedoStack;
+    if (!drw || !permGate('edit', dir === 1 ? 'redo' : 'undo')) return; // (beta 7.16, Permissions) Undo and Redo change the plan: Drawing editing
+    const proj = drw.project, A = dir === 1 ? drwRedoStack : drwUndoStack, B = dir === 1 ? drwUndoStack : drwRedoStack;
     let j = A.length - 1; while (j >= 0 && A[j].project !== proj) j--; if (j < 0) return;
     const U = A.splice(j, 1)[0]; B.push(await drwStepNow(proj, U)); if (B.length > 60) B.shift();
     LOG.info(dir === 1 ? 'draw.redo' : 'draw.undo', { what: U.what, left: A.filter((u) => u.project === proj).length });
@@ -3745,6 +3775,7 @@
   /** View or Edit (why: what asked for it, for the log). Leaving Edit: the selection dropped, adding stopped, the trays, the menu and the list put away. */
   function drwModeSet(mode, why) {
     if (!drw) return; const m = mode === 'edit' ? 'edit' : 'view';
+    if (m === 'edit' && drw.mode !== 'edit' && !permGate('edit', why || 'button')) { drwIcoRender(); return; } // (beta 7.16, Permissions) Edit (the switch, E, the right-click menu's Edit this, a test's hook)
     if (drw.mode === m) { if (m === 'edit' && drw.add) drwAddEnd(); drwIcoRender(); return; } // (Edit pressed again while adding a text or a photo: back to selecting, as Select did)
     drw.mode = m; LOG.info('draw.mode', { mode: m, why: why || 'button' });
     if (m === 'view') { drwCtxClose(); drwIcoPop(null); drwChgOpen(false); if (drw.add) drwAddEnd(); drw.mvDrag = null; drw.hDrag = null; drw.phDrag = null; drwSelClear(); drw.tbMore = false; drw.tapC = null; drw.tapLast = null; }
@@ -7064,6 +7095,7 @@
   function drwEdById(id) { if (!drw) return null; if (!drw.byId) drw.byId = new Map(drw.items.map((it) => [String(it.p.id), it])); return drw.byId.get(String(id)) || null; }
   function drwEditSet(on) {
     if (!!on === drwEd) return;
+    if (on && !permGate('edit', 'route')) return; // (beta 7.16, Permissions) ✎ Edit route on the Drawing is Drawing editing (the map's Route is the survey's)
     if (!on) { if (drwEdWas) { drwEdEnd(); routeRefresh(); } else setRouteMode(false); return; } // (Route on the map before: it stays on, back on the map)
     if (!drw || !drawOn()) return;
     { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // (an accepted task, as the map's route button)
@@ -11715,6 +11747,7 @@
       b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${TOOL_ICON[kind]}"/></svg>`;
       const sr = document.createElement('span'); sr.className = 'sr'; sr.textContent = label; b.appendChild(sr); b.setAttribute('aria-label', `${label} ${name}`); // v2.43 beta 2.1: icons; the name stays for screen readers
       b.addEventListener('click', (e) => { e.stopPropagation(); guard(() => fn(name), `${label} failed`); });
+      if (kind === 'share' || kind === 'send') permMark(b, 'kmz'); // (beta 7.16, Permissions) project share and the team mailbox: KMZ export (🔒 when locked)
       row.appendChild(b); return b;
     };
     if (tmHooks.tools) tmHooks.tools(name, mk); // v2.43 beta 2: Send, through the team mailbox
@@ -11737,6 +11770,7 @@
   /** Share one project: the project file (records and photos, for a colleague of your company); a PAT or cleanup can also go as
       its locked KMZ for the next stage. */
   async function shareProject(name) {
+    if (!permGate('kmz', 'share')) return; // (beta 7.16, Permissions) project share goes with KMZ export
     const m = pmeta(name), st = m.mode === 'acceptance' ? m.stage || 'PAT' : '';
     let how = 'file';
     if ((st === 'PAT' || st === 'Cleanup') && !m.noDefects && !m.sample) {
@@ -12607,7 +12641,7 @@
   /** Picks these tiles (keys; a solo tile goes alone). o: open, its choices open (one row: Change ›, as a row opened before); scroll,
       smooth: the row brought into view; focus: on its title; keep: not remembered (S.xSel, per survey, acceptance or CEF plan). */
   function xPickSet(keys, o) {
-    o = o || {}; const T = xTileList(), have = new Set(T.map((t) => t.k));
+    o = o || {}; const T = xTileList(), have = new Set(T.map((t) => t.k).filter((k) => permOk(xPermOf(k)))); // (beta 7.16, Permissions) a locked tile is never picked
     let K = [...new Set(keys || [])].filter((k) => have.has(k));
     const solo = K.filter((k) => T.find((t) => t.k === k).solo); if (solo.length && K.length > 1) K = [solo[solo.length - 1]];
     K = T.map((t) => t.k).filter((k) => K.includes(k));
@@ -12636,9 +12670,10 @@
   }
   /** The quick picks, the tiles (More exports folded, opened when a tile of it is picked) and the Everything tile. */
   function xTilesRender() {
-    const T = xTileList(), H = new Set(T.map((t) => t.k)), e = (x) => C.xmlEsc(String(x == null ? '' : x)), sel = new Set(xSel), same = (K) => K.length === xSel.length && K.every((k) => sel.has(k));
-    const main = T.filter((t) => t.main), more = T.filter((t) => !t.main), every = main.filter((t) => !t.solo).map((t) => t.k);
-    const tile = (t) => `<button type="button" class="xtile" data-xt="${e(t.k)}" aria-pressed="${sel.has(t.k)}"><span class="fi" aria-hidden="true">${e(t.ic)}</span><b>${e(t.n)}</b><small>${e(t.d)}</small></button>`;
+    const T = xTileList(), H = new Set(T.map((t) => t.k).filter((k) => permOk(xPermOf(k)))), e = (x) => C.xmlEsc(String(x == null ? '' : x)), sel = new Set(xSel), same = (K) => K.length === xSel.length && K.every((k) => sel.has(k));
+    const main = T.filter((t) => t.main), more = T.filter((t) => !t.main), every = main.filter((t) => !t.solo && H.has(t.k)).map((t) => t.k);
+    // (beta 7.16, Permissions) a locked tile: shown, with 🔒 and what to do; a tap says it (the click gate); not in Everything nor the quick picks
+    const tile = (t) => { const pk = xPermOf(t.k), lk = !H.has(t.k); return `<button type="button" class="xtile${lk ? ' permlock' : ''}" data-xt="${e(t.k)}"${lk ? ` data-perm="${pk}" aria-disabled="true" title="${e(permAsk(pk))}"` : ''} aria-pressed="${sel.has(t.k)}"><span class="fi" aria-hidden="true">${e(t.ic)}</span><b>${e(t.n)}</b><small>${e(lk ? `🔒 ${permAsk(pk)}` : t.d)}</small></button>`; };
     $('xTiles').innerHTML = main.map(tile).join('') + (every.length > 1 ? `<button type="button" class="xtile" data-xt="*all" aria-pressed="${same(every)}"><span class="fi" aria-hidden="true">ZIP</span><b>Everything</b><small>All of these in one ZIP</small></button>` : '');
     $('xTiles2').innerHTML = more.map(tile).join(''); $('xMoreT').hidden = !more.length;
     $('xMoreTSum').textContent = more.map((t) => t.n).join(', ');
@@ -12726,6 +12761,7 @@
   }
   function showExport(pick, opts) {
     opts = opts || {};
+    permRows(); // (beta 7.16, Permissions) a locked feature's rows: 🔒 and what to do
     renderDxfTpl(); // v2.30
     try { renderDxfNeed(); } catch (e) { LOG.warn('plan.need', errInfo(e)); } // v2.43 beta 2.1
     const cards = exportCards(), acc = isAcc(), keys = cards.map(xKey), next = xNextKey(), last = (S.xLast || {})[xMode()];
@@ -12735,9 +12771,11 @@
       : 'what the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and span lengths.';
     // (beta 7.8, Export picks): a row asked for (Export plan, the next step's button, Show me…): its tile alone, its choices open; else the project's
     // next step when it is an export, else the tiles picked last, else the first tile
+    if (pick && keys.includes(pick) && !permOk(xPermOf(pick))) { permSay(xPermOf(pick), `export:${pick}`); pick = null; } // (beta 7.16, Permissions)
     if (pick && keys.includes(pick)) { xRemember(pick); xOpen(pick, { focus: !opts.noFocus }); return; }
     const T = xTileList(), kept = ((S.xSel || {})[xMode()] || []).filter((k) => T.some((t) => t.k === k));
-    const want = next && keys.includes(next) ? [xTileOf(next)] : kept.length ? kept : last && keys.includes(last) ? [xTileOf(last)] : T.length ? [T[0].k] : [];
+    const want0 = next && keys.includes(next) ? [xTileOf(next)] : kept.length ? kept : last && keys.includes(last) ? [xTileOf(last)] : T.length ? [T[0].k] : [];
+    const free = (k) => permOk(xPermOf(k)), T1 = T.find((t) => free(t.k)), want = want0.filter(free).length ? want0.filter(free) : T1 ? [T1.k] : []; // ((beta 7.16, Permissions) a locked tile: the first one allowed instead)
     xPickSet(want, { keep: true });
     requestAnimationFrame(() => { const b = $('export').querySelector('.body'); if (b && !$('export').hidden) b.scrollTop = 0; });
   }
@@ -12768,6 +12806,8 @@
     if (xSel.length === 1) { const b = $(xSel[0]); if (b) b.click(); return; } // ((beta 7.8, Export picks): one file: its row's own button)
     const ids = xSel.length > 1 ? xSel.slice() : [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value); // ((beta 7.8, Export picks): the tiles picked)
     if (ids.length < 2) { toast('Pick two or more (one file: its own button)', 4000); return; }
+    { const lk = ids.map(xPermOf).find((k) => !permOk(k)); if (lk) { permSay(lk, 'several'); xPickSet(xSel.filter((k) => permOk(xPermOf(k)))); return; } } // (beta 7.16, Permissions) nothing made half
+    const permDone = permFreeze(); // (beta 7.16, Permissions) a sync meanwhile does not stop it half-made
     xCollect = []; const failed = [];
     try {
       for (const id of ids) {
@@ -12781,7 +12821,7 @@
       offerResult(new Blob(C.makeZipParts(parts), { type: 'application/zip' }), `${fileBase()}_exports_${stamp8()}.zip`);
       LOG.info('export.multi', { files: files.length, failed: failed.length });
       if (failed.length) toast(`In the ZIP: ${files.length} file${files.length === 1 ? '' : 's'}. Not made: ${failed.join(', ')} (see the message above)`, 7000);
-    } else toast(`No file was made${failed.length ? `: ${failed.join(', ')}` : ''}`, 6000); }
+    } else toast(`No file was made${failed.length ? `: ${failed.join(', ')}` : ''}`, 6000); permDone(); }
   });
   /* ================= Poles on no cable, at Export =================
      Export (any way in: the bar, Export the plan, Projects → Export DXF…, the next-step button, the tutorial) first looks at the survey
@@ -12993,7 +13033,7 @@
     $('bkName').textContent = `${fileBase()}_BACKUP.zip`; $('bkMbx').hidden = !(mbxOn() && !acc && !pmeta().sample); // beta 6.7 (UX step 3): the backup's name; the team mailbox
     $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; syncExpUi(); syncPhDocUi(); // (beta 3.5: All / Main)
     { const o = S.prOpt || {}; if (o.per) $('prPer').value = o.per; if (o.num) $('prNum').value = o.num; if (o.by) $('prBy').value = o.by; if (o.loc) $('prLoc').value = o.loc; } // beta 3.5
-    const pl = pl0 && !acc && !cef; // v2.42.28: Export plan (from the Drawing): the Plan drawing row, the others under Other exports ›
+    const pl = pl0 && !acc && !cef && permOk('plan'); // v2.42.28: Export plan (from the Drawing): the Plan drawing row, the others under Other exports › ((beta 7.16, Permissions) not when it is locked)
     $('export').classList.toggle('plan', pl); $('export').classList.remove('planall'); $('export').classList.toggle('side', pl && deskOn() && stack.includes('drawing')); if ($('export').classList.contains('side')) document.body.classList.add('drwside');
     showExport(exportPick); exportPick = null; renderCredit(); creditNote = ''; // v2.42.6 (v2.42.7: a new export, no old note)
     $('xOther').hidden = !pl || exportCards().length < 2;
@@ -13981,7 +14021,7 @@
   let planExport = false;
   /** An open screen brought back to the top (the ones above it closed): true when it was open. */
   function toSheet(id) { if (!stack.includes(id)) return false; if (stack[stack.length - 1] !== id) closeSheet().then(() => toSheet(id)); return true; }
-  function openPlanExport() { if (toSheet('export')) return; if (drwEd && deskOn()) drwEditSet(false); exportPick = 'doDxf'; planExport = true; $('exportBtn').click(); } // (beta 6.7, UX step 3; critic: on a computer the docked panel would cover ✎'s route bar: ✎ ends first)
+  function openPlanExport() { if (!permGate('plan', 'drawing')) return; if (toSheet('export')) return; if (drwEd && deskOn()) drwEditSet(false); exportPick = 'doDxf'; planExport = true; $('exportBtn').click(); } // (beta 6.7, UX step 3; critic: on a computer the docked panel would cover ✎'s route bar: ✎ ends first)
   $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
   $('dxfTplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; busy('Reading the plan template…'); try { await storeSeed(await f.text(), f.name, 'file'); } finally { busy(false); } }, 'Template not loaded'));
   /** v2.31: the admin's template, fetched and kept: the Android app through Android (Google Drive allows it); the website tries the
@@ -14748,7 +14788,9 @@
     }
     // beta 4.1 (MarkT): also the CEF plans of the project, each in its own folder of the ZIP, when ticked on the DXF card
     const cefFiles = [];
-    if ((S.exp.dxfCef !== false || one) && cefHooks.planFiles && cefHooks.plansN && cefHooks.plansN(S.project)) {
+    const cefLock = !permOk('cef') && !!(cefHooks.plansN && cefHooks.plansN(S.project)); // (beta 7.16, Permissions) the CEF plans need CEF plan allowed: left out, and said
+    if (cefLock && (S.exp.dxfCef !== false || one)) toast(`The CEF plans are left out: ${permAsk('cef')}`, 5000);
+    if (!cefLock && (S.exp.dxfCef !== false || one) && cefHooks.planFiles && cefHooks.plansN && cefHooks.plansN(S.project)) {
       try { busy('The CEF plans…'); (await cefHooks.planFiles(S.project, one ? (n) => /_CEF\.pdf$/i.test(n) : null)).forEach((f) => cefFiles.push(f)); LOG.info('export.plancef', { files: cefFiles.length, one }); } // (the One PDF: each plan's PDF only)
       catch (e) { LOG.warn('export.plancef', errInfo(e)); cefFiles.length = 0; toast(one ? 'The CEF plans could not be made: the One PDF has the other plans only' : 'The CEF plans could not be added: the plan is in the ZIP', 5000); }
     }
@@ -16755,14 +16797,14 @@
       }
     }
     const regions = chosenChips('pfRegions').filter((x) => REGIONS.includes(x)), terrs = chosenChips('pfTerrs').filter((x) => TERRS.includes(x));
-    const coChanged = !S.user || S.user.company !== company || String(myRegions()) !== String(regions) || String(myTerrs()) !== String(terrs);
+    const coChanged = !S.user || S.user.company !== company || String(myRegions()) !== String(regions) || String(myTerrs()) !== String(terrs) || S.user.email !== email.toLowerCase(); // ((beta 7.16, Permissions) another email: its own permissions, from the sheet)
     S.user = { name, mobile, email: email.toLowerCase(), company, ...(idno ? { idno } : {}), ...(regions.length ? { regions } : {}), ...(terrs.length ? { terrs } : {}) }; moveFill = null;
     if (S.listKe && !staffPhone()) S.listKe = null; // v2.42.5: only the admin company's phones keep the encrypted admin key
     persist();
     if (S.inviteCode && !keyMode()) await redeemInvite(true); // v2.41: the company's key comes from the online sheet
     if (coChanged) cloudSync(true).then(() => { if (!$('newProj').hidden) renderSites(); }); // the sheet sends each company its own sites
     const first = profileFirst; profileFirst = false; await closeSheet();
-    renderWho(); toast(regions.length && terrs.length ? `Saved: ${byLine()}` : `Saved: ${byLine()}. No ${regions.length ? 'territory' : terrs.length ? 'region' : 'region or territory'} ticked: no site from the online sheet is listed for you.`, regions.length && terrs.length ? 2500 : 6000); // v2.27
+    renderWho(); permAfter(); toast(regions.length && terrs.length ? `Saved: ${byLine()}` : `Saved: ${byLine()}. No ${regions.length ? 'territory' : terrs.length ? 'region' : 'region or territory'} ticked: no site from the online sheet is listed for you.`, regions.length && terrs.length ? 2500 : 6000); // v2.27
     if (sharedWaiting) { const f = sharedWaiting; sharedWaiting = null; openSharedFile(f); return; } // v2.19: a shared file waited for the details
     if (first && !S.project) askNewProject();
   });
@@ -16797,6 +16839,7 @@
     $('whoSub').textContent = u ? `${u.company} · ${u.mobile} · ${u.email}${isInspector() && pol().owner ? ' · inspector' : ''}${area ? ` · ${area}` : ''}` : 'Name, mobile, email and company';
     $('inviteBtn').hidden = !keyMode() && !(S.team && u && u.company);
     try { renderCredit(); } catch (e) { /* before the list is read at start */ } // v2.42.7: the credits under Your details
+    try { renderPermMe(); } catch (e) { /* before the list is read at start */ } // (beta 7.16, Permissions) Your features
     $('apprShowBtn').hidden = !canShowAppr(); // v2.28
   }
   /** v2.24: Administration → Invite a company's users: the admin pastes one company's key from the CompanyKeys tab of the
@@ -17201,7 +17244,7 @@
       $('pfErr').textContent = msg; $('pfErr').hidden = false; toast(msg, 6500);
     }
     refreshTypes();
-    renderTeamInfo();
+    renderTeamInfo(); permAfter(); // ((beta 7.16, Permissions) a new list version: what this user may do, shown anew)
     if (!$('profile').hidden) renderCoSelect($('pfCompany').value || (S.user && S.user.company) || '');
     if (!keyMode() && S.user && S.user.company && teamCos().length && !teamCos().includes(S.user.company)) {
       toast(`“${S.user.company}” is not on the new company list. Choose your company again.`, 5000);
@@ -17808,7 +17851,10 @@
       ...(j.coopsSame ? { coopsSame: s100(j.coopsSame, 40) } : {}), ...(j.sv ? { sv: s100(j.sv, 20) } : {}), scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
       ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}), // v2.32: the plan template's id
       ...(typeof j.siteRequired === 'boolean' ? { siteRequired: j.siteRequired } : {}), // v2.42.18: the sheet's Settings → Site required
-      ...(typeof j.teamOn === 'boolean' ? { teamOn: j.teamOn } : {}) }; // v2.43 beta 3.2 (QA-17): Team for this company (sheet → CompanyKeys → Team)
+      ...(typeof j.teamOn === 'boolean' ? { teamOn: j.teamOn } : {}), // v2.43 beta 3.2 (QA-17): Team for this company (sheet → CompanyKeys → Team)
+      ...(j.perm && typeof j.perm === 'object' && typeof j.perm.on === 'boolean' ? { perm: { on: j.perm.on, row: permRowClean(j.perm.row), ...(j.perm.at ? { at: s100(j.perm.at, 30) } : {}) } } : {}), // (beta 7.16, Permissions) this user's row of User permissions (sheet v2.43.5)
+      ...(Array.isArray(j.perms) ? { perms: j.perms.filter((r) => r && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(r.e || '')) && String(r.e).length <= 120).slice(0, 2000) // (beta 7.16, Permissions) the whole tab, to the admin phone
+        .map((r) => ({ e: String(r.e).trim().toLowerCase(), c: s100(r.c), f: permRowClean(r.f) || {}, at: s100(r.at, 30), n: s100(r.n, 120) })) } : {}) };
   }
   let cloudBusy = null, cloudErr = '';
   /** v2.42.18: "a new Survey or PAT must use a site of the online sheet": the sheet's Settings → Site required (Yes / No), which every
@@ -17831,6 +17877,7 @@
       if (S.companyKey) u.searchParams.set('ckey', S.companyKey);
       if (isAdmin() && S.onlineAdminKey) u.searchParams.set('akey', S.onlineAdminKey);
       if (S.user && S.user.email) u.searchParams.set('email', S.user.email); // v2.42.6: the user's credits (the sheet's Credits tab)
+      u.searchParams.set('pv', '1'); // (beta 7.16, Permissions) this G-eSAA knows User permissions: the sheet (v2.43.5) sends this user's row (the admin phone: the whole tab)
       if (S.adminMe && S.adminMe.tok && S.adminMe.src === src.url) { u.searchParams.set('aem', S.adminMe.e); u.searchParams.set('atok', S.adminMe.tok); } // v2.42.18: the verified admin user: its row only
       if (S.cloud && S.cloud.src === src.url && S.cloud.coopsH && S.cloud.coops) u.searchParams.set('ch', S.cloud.coopsH); // beta 3.8: the coops list this phone has (sent again only when it changed)
       u.searchParams.set('area', '1'); // v2.27: with no region or territory ticked, the sheet (v2.27 script) sends no site
@@ -17866,7 +17913,9 @@
         const prevC = S.cloud && S.cloud.src === src.url ? S.cloud : null; // beta 3.8: the sheet sends the coops only when they changed
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = '';
         if (S.cloud.coopsSame && prevC && prevC.coops && prevC.coopsH === S.cloud.coopsSame) { S.cloud.coops = prevC.coops; S.cloud.coopsH = prevC.coopsH; }
-        delete S.cloud.coopsSame; folderLinks(); persist(); setTimeout(() => { try { packPopSoon(); } catch (e) { /* after start */ } }, 0);
+        delete S.cloud.coopsSame; permNote(src.url, S.cloud.perm); folderLinks(); persist(); setTimeout(() => { try { packPopSoon(); } catch (e) { /* after start */ } }, 0); // ((beta 7.16, Permissions) permNote: this user's row, kept)
+        if (S.permPend && S.permPend.url === src.url && isAdmin() && S.onlineAdminKey) pushPermsToSheet(src.url, S.permPend, true).catch(() => {}); // (beta 7.16, Permissions) not written at the save: again
+        permAfter(); // (beta 7.16, Permissions) what this user may do, shown anew when it changed
         if (tmHooks.switched && (tmHooks.on ? tmHooks.on() : false) !== teamWas) { try { tmHooks.switched(); } catch (e) { LOG.warn('team.switch', errInfo(e)); } } // v2.43 beta 3.2 (QA-17)
         if (S.adminMe && S.adminMe.src === src.url && j.adminMe && typeof j.adminMe === 'object') { // v2.42.18: the verified admin user's row (its jobs), or its row deleted
           if (j.adminMe.gone || j.adminMe.bad) { if (!S.adminMe.gone) LOG.info('admin.email.gone', { bad: !!j.adminMe.bad }); S.adminMe = { ...S.adminMe, gone: true }; }
@@ -17929,6 +17978,206 @@
     if (S.cloud && Date.now() - Date.parse(S.cloud.at) < 60 * 60000) return;
     cloudSync(true).then(() => renderSyncBtn());
   }, 60000);
+
+  /* ================= (beta 7.16, Permissions) what each user may do =================
+     The owner: "functionality limit per user": "Per user, the admin allows or blocks features: e.g. which exports, the CEF plan, Drawing
+     editing, client templates, team admin. allow also to be edit or update via the googlesheet. By default, they are only allow to do the
+     survey and kmz export (includes project share and team mailbox)". The features: PERM_F (by pol()). Survey is always allowed; a user
+     not listed has KMZ export too, and nothing else.
+     Where a user's permissions come from (by the email in Your details):
+       - the online sheet of this list (script v2.45.18: its tab "User permissions" and Settings → User permissions), as this phone last read
+         it (S.permSheet, kept for use without signal). The sheet wins: what the admin types in the tab reaches the phones at their next sync;
+       - else the signed company list (S.team.perms: what Administration → User permissions saved; it travels with every list version, by
+         the online sheet or the join link, as the policies do). A phone with neither: as before.
+     Nobody is limited on a phone with no company list (a solo phone keeps every feature it had), on the admin phone and for the admin
+     company's admin users (isAdmin; the admin company with adminUserOk), nor anywhere until the admin turns permissions on (Administration
+     → User permissions → Limit what users may do, or the sheet's Settings → User permissions = Yes): an update locks nobody out by itself.
+     A locked feature is shown with a 🔒 and "Ask your admin to allow <feature>" (not hidden), and its action is refused by every way in: a
+     tap, a key, the tutorial's Show me, a click() of the app or of a test (the click gate below), and the functions themselves (the Drawing's
+     Edit, Undo and Redo, Edit route; the CEF plan's editor and files; the splicing details; the shares and the team mailbox). An export under
+     way is never left half-made: what was allowed when it started holds until it ends (permHold). Client templates (not in this version
+     yet): permOk('tpl') is the switch their screens and seedText() use when they come. */
+  let permHold = null; // (an export under way: the features as they were when it started)
+  const permMe = () => String((S.user && S.user.email) || '').trim().toLowerCase();
+  /** The admin phone, and the admin company's admin users (the admin PIN, or verified by the online sheet's Admin users tab): everything. */
+  function permAdmin() { return isAdmin() || (!!pol().owner && isAdminCo() && adminUserOk()); }
+  /** The online sheet's answer kept on this phone, when it is from this list's sheet and for this user's email. */
+  function permSheetNow() { const P = S.permSheet, u = S.team && S.team.src && S.team.src.url; return P && u && P.src === u && P.e === permMe() ? P : null; }
+  /** The list's permissions, when well formed (else not used: the list itself is kept as it is). */
+  function listPerms() { const p = S.team && S.team.perms; return permValid(p) ? p : null; }
+  /** Where this user's permissions come from now: { on, why (solo, admin, sheet, list, none), row: what is set for them ({ plan: true, … }) }. */
+  function permState() {
+    if (!S.team) return { on: false, why: 'solo', row: null };
+    try { if (permAdmin()) return { on: false, why: 'admin', row: null }; } catch (e) { return { on: false, why: 'start', row: null }; } // (while the app starts: nothing to export yet)
+    const sh = permSheetNow(); if (sh) return { on: !!sh.on, why: 'sheet', row: sh.row || null, at: sh.at || '' };
+    const L = listPerms();
+    if (L) { const d = permDecode(L.u ? L.u[permMe()] : ''), co = normCo((S.user && S.user.company) || S.keyCompany || ''); return { on: !!L.on, why: 'list', row: d.c && co && normCo(d.c) !== co ? null : d.f }; } // (an entry of another company's user: not theirs)
+    return { on: false, why: 'none', row: null };
+  }
+  /** Whether this user may use the feature k now. */
+  function permOk(k) {
+    const f = PERM_F.find((x) => x.k === k); if (!f || f.always) return true;
+    if (permHold && typeof permHold[k] === 'boolean') return permHold[k];
+    const st = permState(); if (!st.on) return true;
+    return st.row && typeof st.row[k] === 'boolean' ? st.row[k] : !!f.on;
+  }
+  const permName = (k) => (PERM_F.find((x) => x.k === k) || { n: k }).n;
+  const permAsk = (k) => `Ask your admin to allow ${permName(k)}`;
+  /** Said when a locked feature is asked for (how: what asked, for the log). */
+  function permSay(k, how) { toast(permAsk(k), 4500); LOG.info('perm.refused', { k, how: String(how || '').slice(0, 40), why: permState().why }); }
+  /** true when the user may use k; else said, and false. */
+  function permGate(k, how) { if (permOk(k)) return true; permSay(k, how); return false; }
+  /** An export starts: what is allowed now holds until done() (several at once: the first keeps it). */
+  function permFreeze() { if (permHold) return () => {}; const snap = {}; PERM_F.forEach((f) => { snap[f.k] = permOk(f.k); }); permHold = snap; return () => { if (permHold === snap) permHold = null; }; }
+  /** The buttons of a feature, by id: the export rows' own buttons (also the tiles and Several at once, which press them), the shares,
+      the Drawing's Edit and Export plan, Invite a coworker. */
+  const PERM_IDS = { doKmz: 'kmz', doAccKmz: 'kmz', xShare: 'kmz', sendPat: 'kmz', bulkShareBtn: 'kmz', bsGo: 'kmz', bkShare: 'kmz', bkMany: 'kmz', bkMbx: 'kmz', ppShareMany: 'kmz',
+    doDxf: 'plan', xOnePdf: 'plan', drawDxf: 'plan', doCef: 'cef',
+    doBoq: 'exp', doPhotos: 'exp', doCsv: 'exp', doRouteXlsx: 'exp', doPhotoReport: 'exp', doCompletion: 'exp', doDataset: 'exp', doPdf: 'exp', doXlsx: 'exp', doRectPdf: 'exp', doAccCsv: 'exp',
+    drawModeEdit: 'edit', drawEdit: 'edit', inviteBtn: 'admin', teamShare: 'admin' };
+  const PERM_SEL = Object.keys(PERM_IDS).map((id) => `#${id}`).concat('[data-perm]').join(',');
+  const xPermOf = (k) => PERM_IDS[k] || 'survey'; // (an export tile's key is its row's button)
+  // A tap or a click() on a locked feature's button: refused before its own handler, and said. An export's own button, allowed: the features
+  // stay as they are until its work ends (its guard: lastGuard), so that a sync meanwhile never stops it half-made.
+  document.addEventListener('click', (e) => {
+    const t = e.target && e.target.closest ? e.target.closest(PERM_SEL) : null; if (!t) return;
+    const k = t.dataset.perm || PERM_IDS[t.id]; if (!k) return;
+    if (!permOk(k)) { e.preventDefault(); e.stopImmediatePropagation(); permSay(k, t.id || t.dataset.xt || t.dataset.tool || 'tap'); return; }
+    if (t.id && PERM_IDS[t.id] && /^(do|x)[A-Z]/.test(t.id) && !permHold) { const done = permFreeze(); lastGuard = null; setTimeout(() => { const p = lastGuard; if (p && p.finally) p.finally(done); else done(); }, 0); }
+  }, true);
+  const permTitles = new WeakMap();
+  /** A feature's button shown locked (🔒, faded, its title says what to do) or as it was. */
+  function permMark(el, k) {
+    if (!el) return; const lk = !permOk(k), was = el.classList.contains('permlock');
+    el.dataset.perm = k;
+    if (lk === was) { if (lk) el.title = permAsk(k); return; }
+    el.classList.toggle('permlock', lk);
+    if (lk) { permTitles.set(el, el.getAttribute('title')); el.title = permAsk(k); el.setAttribute('aria-disabled', 'true'); }
+    else { const t0 = permTitles.get(el); if (t0 == null) el.removeAttribute('title'); else el.title = t0; el.removeAttribute('aria-disabled'); }
+  }
+  /** Settings → Account: what this user may do (when permissions apply to them). */
+  function renderPermMe() {
+    const el = $('permMe'); if (!el) return; const st = permState(); el.hidden = !st.on; if (!st.on) return;
+    const no = PERM_F.filter((f) => !permOk(f.k)).map((f) => f.n);
+    el.textContent = `Your features: ${PERM_F.filter((f) => permOk(f.k)).map((f) => f.n).join(', ')}.${no.length ? ` 🔒 ${no.join(', ')}: ask your admin.` : ''}`;
+  }
+  /** The export rows of a locked feature: 🔒 and what to do, under their name (a row is shown only when picked: its tile is locked). */
+  function permRows() {
+    document.querySelectorAll('#export .xcard').forEach((c) => {
+      const k = xPermOf(xKey(c)), lk = !permOk(k); c.classList.toggle('permlock', lk);
+      let p = c.querySelector(':scope > .permline'); if (lk && !p) { p = document.createElement('p'); p.className = 'permline'; c.querySelector(':scope > .head').after(p); }
+      if (p) { p.hidden = !lk; if (lk) p.textContent = `🔒 ${permAsk(k)}`; }
+    });
+  }
+  /** After a change of permissions (a sync, a new list version, Your details, the admin's save): the locks shown anew; the Drawing back to
+      View when Edit is no longer allowed (not while a text is being typed there: at the next change). */
+  function permUi() {
+    try {
+      Object.entries(PERM_IDS).forEach(([id, k]) => permMark($(id), k));
+      renderPermMe(); permRows();
+      if (!$('export').hidden) xTilesRender();
+      if (!permOk('edit')) { if (drw && drw.mode === 'edit' && $('drawTxtBox').hidden) drwModeSet('view', 'perm'); if (drwEd) drwEditSet(false); }
+      try { if (!$('projects').hidden) renderProjects(); } catch (e) { /* not open */ }
+    } catch (e) { LOG.warn('perm.ui', errInfo(e)); }
+  }
+  let permSig = '';
+  /** Called where permissions may change: the locks shown anew only when what this user may do changed. */
+  function permAfter(force) { const s = PERM_F.map((f) => (permOk(f.k) ? 1 : 0)).join('') + permState().why; if (!force && s === permSig) return; permSig = s; permUi(); }
+  /** The sheet's answer of a read (cleanCloud's perm; none: a script older than v2.45.18): kept on this phone for its user's email. */
+  function permNote(url, p) {
+    const was = JSON.stringify(S.permSheet || null);
+    S.permSheet = p && typeof p.on === 'boolean' && permMe() ? { src: url, e: permMe(), at: new Date().toISOString(), on: p.on, row: p.row || null, ...(p.at ? { rowAt: p.at } : {}) } : null;
+    if (JSON.stringify({ ...(S.permSheet || {}), at: '' }) !== JSON.stringify({ ...(JSON.parse(was) || {}), at: '' })) LOG.info('perm.sheet', { on: S.permSheet ? S.permSheet.on : null, row: S.permSheet && S.permSheet.row ? Object.keys(S.permSheet.row).length : 0 });
+  }
+  setTimeout(() => permAfter(true), 0); // (the locks shown once the app has started: the list and the sheet's row kept are read then)
+  /** A row as the sheet sends it ({ kmz: true, plan: false, … }): the known features with a yes or no; null when none. */
+  function permRowClean(r) { if (!r || typeof r !== 'object') return null; const o = {}; PERM_SET.forEach((x) => { if (typeof r[x.k] === 'boolean') o[x.k] = r[x.k]; }); return o; }
+
+  /* ---- Administration → User permissions (the admin phone): a card per user, a chip per feature (dark green: allowed), Add, search.
+     Saved with the list (Save and share the list); with the online sheet's Admin key on this phone, the users changed here are written to
+     its User permissions tab too, and the switch to its Settings (S.permPend: sent again at the next sync when the sheet did not answer). */
+  const permFull = (f) => Object.fromEntries(PERM_SET.map((x) => [x.k, f && typeof f[x.k] === 'boolean' ? f[x.k] : x.on]));
+  /** The editor's draft: the list's users, the sheet's tab over them (the sheet wins; a user only in the list is written to the sheet at the
+      next save), the switch as the sheet (or else the list) has it. */
+  function permDraft() {
+    const L = listPerms(), C = S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url ? S.cloud : null, rows = C && Array.isArray(C.perms) ? C.perms : null;
+    const users = new Map(), chg = new Set();
+    if (L && L.u) Object.entries(L.u).forEach(([e, v]) => { const d = permDecode(v); users.set(e, { c: d.c, f: permFull(d.f) }); });
+    if (rows) {
+      const seen = new Set(rows.map((r) => r.e)); [...users.keys()].forEach((e) => { if (!seen.has(e)) chg.add(e); });
+      rows.forEach((r) => users.set(r.e, { c: r.c || (users.get(r.e) || {}).c || '', f: permFull(r.f), n: r.n || '', at: r.at || '' }));
+    }
+    const son = C && C.perm && typeof C.perm.on === 'boolean' ? C.perm.on : null, on = son != null ? son : !!(L && L.on);
+    return { on, on0: on, sheetOn: son, sheet: !!rows, users, chg, q: '', more: 0, touched: false };
+  }
+  function renderAdmPerm() {
+    const D = admDraft && admDraft.perm, box = $('admPermList'); if (!D || !box) return;
+    const e = (x) => C.xmlEsc(String(x == null ? '' : x)), q = D.q.trim().toLowerCase(), all = [...D.users.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const L = q ? all.filter(([m, u]) => `${m} ${u.c || ''}`.toLowerCase().includes(q)) : all, show = L.slice(0, 40 + D.more);
+    $('admPermOn').checked = !!D.on; $('admPermQ').hidden = all.length < 8;
+    box.innerHTML = show.map(([m, u]) => `<div class="permu${D.on ? '' : ' off'}" role="listitem" data-e="${e(m)}"><div class="permh"><b>${e(m)}</b><small>${e([u.c, D.chg.has(m) ? 'changed here' : ''].filter(Boolean).join(' · '))}</small>`
+      + `<button type="button" class="permx" data-pa="del" aria-label="${e(`Remove ${m}: back to what a user not listed has`)}" title="Remove: back to what a user not listed has">×</button></div>`
+      + `<div class="permf" role="group" aria-label="${e(`What ${m} may do`)}">${PERM_SET.map((x) => `<button type="button" class="chip small" data-pf="${x.k}" aria-pressed="${!!u.f[x.k]}" title="${e(`${x.n}: ${x.d}`)}">${e(x.n)}</button>`).join('')}</div></div>`).join('')
+      + (L.length > show.length ? `<button type="button" class="btn sm" data-pa="more">Show ${Math.min(40, L.length - show.length)} more of ${L.length - show.length}</button>` : '')
+      + (!all.length ? '<p class="hint" style="margin:0">No user listed yet: every user has what a user not listed has. Add one by their email (as in their Your details).</p>' : q && !L.length ? '<p class="hint" style="margin:0">No user matches the search.</p>' : '');
+    const n = D.chg.size, viaSheet = !!(S.team && S.team.src && S.onlineAdminKey);
+    $('admPermInfo').textContent = `${D.on ? 'On: users follow what is set here.' : 'Off: every user has every feature, as before.'} ${all.length} user${all.length === 1 ? '' : 's'} listed${D.sheet ? ' (with the online sheet’s User permissions tab)' : ''}.${n ? ` ${n} changed here: saved with the list${viaSheet ? ' and written to the online sheet' : ''} when you save.` : ''}`;
+  }
+  $('admPermList').addEventListener('click', (ev) => {
+    const D = admDraft && admDraft.perm; if (!D) return; const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.pa === 'more') { D.more += 40; renderAdmPerm(); return; }
+    const card = b.closest('[data-e]'), m = card && card.dataset.e, u = m && D.users.get(m); if (!u) return;
+    if (b.dataset.pa === 'del') { D.users.delete(m); D.chg.add(m); D.touched = true; renderAdmPerm(); return; }
+    const k = b.dataset.pf; if (!k) return;
+    u.f[k] = !u.f[k]; D.chg.add(m); D.touched = true; b.setAttribute('aria-pressed', String(u.f[k])); renderAdmPerm();
+    const nb = $('admPermList').querySelector(`[data-e="${CSS.escape(m)}"] [data-pf="${k}"]`); if (nb) nb.focus({ preventScroll: true });
+  });
+  $('admPermOn').addEventListener('change', () => { const D = admDraft && admDraft.perm; if (!D) return; D.on = $('admPermOn').checked; D.touched = true; renderAdmPerm(); });
+  $('admPermQ').addEventListener('input', () => { const D = admDraft && admDraft.perm; if (!D) return; D.q = $('admPermQ').value; D.more = 0; renderAdmPerm(); });
+  $('admPermAdd').addEventListener('click', () => {
+    const D = admDraft && admDraft.perm; if (!D) return; const m = $('admPermEmail').value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(m) || m.length > 120) { toast('Type the user’s email, as in their Your details', 3500); $('admPermEmail').focus(); return; }
+    if (!D.users.has(m)) { D.users.set(m, { c: '', f: permFull({}) }); D.chg.add(m); D.touched = true; }
+    $('admPermEmail').value = ''; D.q = ''; $('admPermQ').value = ''; renderAdmPerm();
+    const card = $('admPermList').querySelector(`[data-e="${CSS.escape(m)}"]`); if (card) { card.scrollIntoView({ block: 'nearest' }); const c0 = card.querySelector('[data-pf]'); if (c0) c0.focus({ preventScroll: true }); }
+  });
+  $('admPermEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('admPermAdd').click(); } });
+  /** What the list carries (the users whose features differ from a user not listed; 500 at most), or null: never used (the list as before). */
+  function permForList() {
+    const D = admDraft && admDraft.perm; if (!D) return listPerms();
+    const u = {}; let n = 0, over = 0;
+    [...D.users.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).forEach(([m, x]) => { const v = permEncode(x.f, x.c); if (!v) return; if (n >= 500) { over++; return; } u[m] = v; n++; });
+    if (over) toast(`${over} user${over === 1 ? '' : 's'} with features set did not fit in the list (500 at most): the online sheet keeps them; phones without it give them what a user not listed has.`, 8000);
+    if (!D.on && !n && !listPerms()) return null;
+    return { on: !!D.on, at: new Date().toISOString(), u };
+  }
+  /** What the online sheet is sent after the save: the users changed here (their features; those removed: gone), the switch. */
+  function permPayload() {
+    const D = admDraft && admDraft.perm; if (!D) return null;
+    const P0 = S.permPend && S.team && S.team.src && S.permPend.url === S.team.src.url ? S.permPend : null, users = new Map(), gone = new Set();
+    if (P0) { (P0.users || []).forEach((x) => users.set(x.e, x)); (P0.gone || []).forEach((x) => gone.add(x)); }
+    D.chg.forEach((m) => { const x = D.users.get(m); if (x) { users.set(m, { e: m, c: x.c || '', f: { ...x.f } }); gone.delete(m); } else { users.delete(m); gone.add(m); } });
+    if (!users.size && !gone.size && D.sheetOn === D.on && !(P0 && typeof P0.on === 'boolean')) return null;
+    return { users: [...users.values()], gone: [...gone], on: !!D.on };
+  }
+  /** The admin phone writes the users changed here to the online sheet's User permissions tab (script v2.45.18), and its switch. Not
+      answered: kept (S.permPend) and sent again at the next sync. */
+  async function pushPermsToSheet(url, pay, quiet) {
+    if (!url || !S.onlineAdminKey || !pay) return false;
+    try {
+      const U = pay.users || [], G = pay.gone || [];
+      for (let i = 0; i === 0 || i < Math.max(U.length, G.length); i += 400) {
+        const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setPerms', users: U.slice(i, i + 400), gone: G.slice(i, i + 400), on: pay.on, by: permMe() }) });
+        if (!j || !j.ok) throw new Error(j && j.error === 'action' ? 'its script is older than v2.45.18 (update it to keep them in its User permissions tab)' : (j && j.error) || 'no answer');
+      }
+      S.permPend = null; persist(); LOG.info('sheet.perms', { n: U.length, gone: G.length, on: pay.on });
+      return true;
+    } catch (e) {
+      S.permPend = { url, ...pay }; persist(); LOG.warn('sheet.perms.fail', errInfo(e));
+      if (!quiet) toast(`User permissions not written to the online sheet: ${e.message || e}. Phones get them with this list version; they are sent again at the next sync.`, 8000);
+      return false;
+    }
+  }
 
   /* ---- New project form: site from the online sheet (or a typed name), category / purpose limited to the vendor's part
      of the site, vendor and location from the site, and for PAT / cleanup / FAT the form details printed on the list ---- */
@@ -18043,7 +18292,7 @@
     if (cat.value && cat.selectedOptions[0] && cat.selectedOptions[0].disabled) cat.value = '';
     const list = cat.value ? CAT_PURPOSES[cat.value].filter((p) => allowed.includes(p)) : [], keep = pur.value;
     pur.innerHTML = !list.length ? '<option value="">Choose the task category first</option>' : list.length > 1 ? '<option value="" disabled>Choose…</option>' : '';
-    list.forEach((p) => pur.add(new Option(PURPOSE_LABEL[p], p)));
+    list.forEach((p) => pur.add(new Option(`${PURPOSE_LABEL[p]}${p === 'CEF-plan' && !permOk('cef') ? ' 🔒' : ''}`, p))); // ((beta 7.16, Permissions) a CEF-Plan needs CEF plan allowed)
     pur.value = list.includes(keep) ? keep : list.length === 1 ? list[0] : ''; pur.disabled = !list.length;
     npMark();
     const role = siteRole(npSite);
@@ -18173,6 +18422,7 @@
     npTried = true; const miss = npMark();
     if (miss.length) { $(miss[0][1]).focus(); return; }
     if (!purpose || !ROLE_PURPOSES[siteRole(npSite)].includes(purpose)) { toast('That is not your part of this site'); return; }
+    if (k === 'survey' && purpose === 'CEF-plan' && !permGate('cef', 'new project')) return; // (beta 7.16, Permissions)
     if (k === 'Cleanup' && !f) { toast('Choose the PAT KMZ'); return; }
     if (siteReq() && (k === 'survey' || k === 'PAT') && S.team && S.team.src && !npSite) { toast('Your admin requires a site from the online sheet for a new Survey or PAT: choose it under Site (online sheet)', 6000); $('npSitesBtn').focus(); return; } // v2.41
     if (name && !fromFile && allProjects().includes(name)) { toast('A project with that name already exists'); return; }
@@ -18350,6 +18600,7 @@
   /* ---- a PAT from another phone, for its FAT ---- */
   /** The handover file: the acceptance KMZ with the PoleCam data inside (PAT → defect cleanup → FAT). */
   async function sharePackage() {
+    if (!permGate('kmz', 'handon')) return; // (beta 7.16, Permissions) the locked KMZ handed on: KMZ export
     if (!needPoints()) return;
     if (taskCat() === 'PAT' && !pmeta().completedAt) { // v2.42.5: an incomplete PAT is not shared (items added after it was shared never reached the cleanup)
       if (!(await ask('Complete the PAT first', 'The contractor starts the defect cleanup only from a completed PAT, so that it has every item. Complete and lock the PAT now, then share it?', [{ label: 'Cancel', value: false }, { label: 'Complete and share', value: true, primary: true }]))) return;
@@ -18598,6 +18849,10 @@
     $('setDefItems').value = (polDraft.defects[cats[0]] || []).join('\n');
     $('setMaxSpan').value = polDraft.maxSpan; $('setAngle').value = polDraft.angleDeg; $('setAutoGap').value = polDraft.autoGap; $('setMloopLen').value = polDraft.mloopLen || 15; $('admQuality').value = polDraft.quality === 'normal' ? 'normal' : 'strict';
     $('admChangePin').hidden = create || admDraft.newKey;
+    admDraft.perm = permDraft(); $('admPermEmail').value = ''; $('admPermQ').value = ''; renderAdmPerm(); // (beta 7.16, Permissions) User permissions
+    if (!create && S.team && S.team.src && S.onlineAdminKey && navigator.onLine) { // (the sheet's tab as it is now, unless the admin already changed something here)
+      const d0 = admDraft; cloudSync(true).then(() => { if (admDraft === d0 && admDraft.perm && !admDraft.perm.touched && !$('admin').hidden) { admDraft.perm = permDraft(); renderAdmPerm(); } }).catch(() => {});
+    }
     $('admMain').hidden = false; renderAdmDraft();
   }
   /** Reads the policy fields back into the draft (called on Save). */
@@ -18705,6 +18960,7 @@
       if (c === 'rand') { const old = P.kmzPass; P.kmzPass = suggestKmzPass(P.owner); $('admKmzPass').value = P.kmzPass; if (P.kmzOld) { P.kmzOld = P.kmzOld.filter((x) => x !== old); if (!P.kmzOld.length) delete P.kmzOld; } }
     }
     if (!P.owner) { const ok = await ask('No admin company', 'Without an admin company every user can change this list and verify deficiencies. Save anyway?'); if (!ok) return; }
+    const PM = permForList(), permPay = permPayload(); // (beta 7.16, Permissions) what the list carries; what the online sheet is sent
     admDraft.src = url ? { url, key: rkey } : null;
     S.onlineAdminKey = $('admWriteKey').value.trim();
     busy('Signing the list…');
@@ -18723,7 +18979,8 @@
       if (!pin) throw new Error('Admin PIN missing — close and open Manage again');
       const keyEnc = await encPriv(listKey.priv, pin);
       const body = JSON.stringify({ t: 'polecam-team', v: 3, id: admDraft.id, name: admDraft.name, rev: admDraft.rev + 1, at: new Date().toISOString(),
-        admins: admDraft.admins, key: listKey.pub, keyEnc: KE_APART, ...(prevKey ? { prevKey } : {}), co: admDraft.co, /* v2.42.5: not in the list (keepListKe below) */ ...(admDraft.src ? { src: admDraft.src } : {}), pol: P });
+        admins: admDraft.admins, key: listKey.pub, keyEnc: KE_APART, ...(prevKey ? { prevKey } : {}), co: admDraft.co, /* v2.42.5: not in the list (keepListKe below) */ ...(admDraft.src ? { src: admDraft.src } : {}), pol: P,
+        ...(PM ? { perms: PM } : {}) }); // (beta 7.16, Permissions) User permissions (older G-eSAA keep them and do not use them)
       if (!validTeam(JSON.parse(body))) throw new Error('This list cannot be saved: check the name, companies (up to 100 characters each), the form wording and the online sheet fields');
       S.adminKey = signer; const sig = await signText(body); // sign with the key the other phones trust…
       S.adminKey = listKey; // …then keep the key the new version carries
@@ -18735,9 +18992,9 @@
     const viaSheet = !!(S.team.src && S.onlineAdminKey);
     if (S.team.src && S.onlineAdminKey && navigator.onLine) { // v2.15: the list reaches the sheet first, so the QR code can be the short one
       busy('Sending the list to the online sheet…');
-      try { await pushPacksToSheet(S.team.src.url, P.packs || []); await pushListToSheet(S.team.src.url); } finally { busy(false); }
+      try { await pushPacksToSheet(S.team.src.url, P.packs || []); await pushPermsToSheet(S.team.src.url, permPay); await pushListToSheet(S.team.src.url); } finally { busy(false); } // ((beta 7.16, Permissions) the users changed: before the list)
       cloudSync(true);
-    } else if (S.team.src) { pushPacksToSheet(S.team.src.url, P.packs || []).then(() => pushListToSheet(S.team.src.url)).finally(() => cloudSync(true)); }
+    } else if (S.team.src) { pushPacksToSheet(S.team.src.url, P.packs || []).then(() => (S.onlineAdminKey && permPay ? (S.permPend = { url: S.team.src.url, ...permPay }, persist()) : null)).then(() => pushListToSheet(S.team.src.url)).finally(() => cloudSync(true)); } // ((beta 7.16, Permissions) offline: sent at the next sync)
     if (viaSheet) { // v2.28: the online sheet carries the list: no join QR code after Save; invites are made per company
       const go = await ask(`Version ${S.team.rev} saved`, `Phones that joined get it from the online sheet by themselves.${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}\n\nTo add users, make an invite for their company: Settings → company list → Invite a vendor (admin staff: Invite admin staff)${pol().owner ? ', or Administration → Invite a company\u2019s users (company keys)' : ''}.`,
         [{ label: 'OK', value: false }, { label: 'Make an invite', value: true, primary: true }]);
@@ -20259,6 +20516,7 @@
       .sort((a, b) => (a.email === T.by ? -1 : b.email === T.by ? 1 : 0) || (mine.has(b.email) - mine.has(a.email)));
   }
   function openMbxSend(name, mode) {
+    if (!permGate('kmz', 'mailbox')) return; // (beta 7.16, Permissions) the team mailbox goes with KMZ export
     const T = tmTeam(name) || {};
     mbxSend = { name, mode: mode || mbxModeOf(name), to: new Set(), what: '' };
     const s = mbxSend;
@@ -20482,6 +20740,7 @@
       changes since his last send, with his fix answers. Returns { n, said: [...], err }. */
   async function mbxAutoSend() {
     if (!mbxOn() || navigator.onLine === false || tmRole() !== 'Field Partner' || mbxNoAuto) return null;
+    if (!permOk('kmz')) { LOG.info('perm.refused', { k: 'kmz', how: 'mailbox.auto' }); return null; } // (beta 7.16, Permissions) nothing sent by itself at Sync (Send says why)
     const res = { n: 0, said: [], err: '' };
     for (const name of allProjects()) {
       const T = tmTeam(name);
@@ -20907,6 +21166,7 @@
   $('npCat').addEventListener('change', npAssignRender);
   async function npAssignSend(name) {
     if (!npAssign.size) return;
+    if (!permOk('kmz')) { npAssign.clear(); toast(`“${name}” created, not sent: ${permAsk('kmz')} (the team mailbox).`, 7000); LOG.info('perm.refused', { k: 'kmz', how: 'assign' }); return; } // (beta 7.16, Permissions)
     const to = [...npAssign]; npAssign.clear();
     if (navigator.onLine === false) { toast(`“${name}” created. No internet: send it from the project (Send) when you have signal.`, 7000); return; }
     try { const r = await mbxSendTask(name, to, ''); mbxSaidSent(r, name); }
@@ -20965,7 +21225,7 @@
     if (!mbxOn() || isAcc(name) || pmeta(name).sample) return [];
     const out = [], T = tmTeam(name), mode = mbxModeOf(name);
     fxIconsOf(name).forEach((x) => { const b = ppIcon(x.kind, x.label, `${x.label} · ${name}`); fxIconDeco(b, x); b.addEventListener('click', (e) => { e.stopPropagation(); guard(() => x.go(), `${x.label} failed`); }); out.push(b); });
-    if (!(T && T.role === 'fp' && T.accepted && !T.reopen)) { const b = ppIcon('send', 'Send', mode === 'fp' ? `Send ${name} to your coordinator` : `Send ${name} to your field partners`); b.addEventListener('click', (e) => { e.stopPropagation(); openMbxSend(name, mode); }); out.push(b); }
+    if (!(T && T.role === 'fp' && T.accepted && !T.reopen)) { const b = ppIcon('send', 'Send', mode === 'fp' ? `Send ${name} to your coordinator` : `Send ${name} to your field partners`); b.addEventListener('click', (e) => { e.stopPropagation(); openMbxSend(name, mode); }); permMark(b, 'kmz'); out.push(b); } // ((beta 7.16, Permissions) 🔒 when KMZ export is locked)
     return out;
   };
   /** Projects opened at the Team mailbox (what waits there), from the pane's icon. */
@@ -22334,6 +22594,7 @@
 
   /** Opens the CEF plan of a project. o.pin: the site pin of an As-Plan project; o.id: that plan; o.tab: the editor's tab to start on. */
   async function cefOpen(name, o) {
+    if (!permGate('cef', 'open')) return false; // (beta 7.16, Permissions) every way to the CEF plan's editor (Export, the project's steps, the site's record, the Drawing, a hook)
     const nm = name || S.project, opt = o || {};
     if (!nm || !allProjects().includes(nm) || isAcc(nm)) return false;
     if (!profileOk()) { toast('Enter your details first (Settings → You)'); return false; }
@@ -22498,6 +22759,7 @@
   }
   /** Save or send an export of the editor: the app's own save and share. CEF exports use no credits. */
   async function cefDeliver(name, data, kind) {
+    if (!permGate('cef', 'deliver')) return; // (beta 7.16, Permissions) the editor's own exports
     const c = cefNow, type = /\.pdf$/i.test(name) ? 'application/pdf' : /\.dxf$/i.test(name) ? 'application/dxf' : 'application/zip'; // (beta 4.2: Export → DXF gives the sheets' DXF alone)
     const blob = new Blob([data instanceof Blob || (data && typeof data.arrayBuffer === 'function') ? await data.arrayBuffer() : data], { type });
     if (c) noteExport('cef', c.name);
@@ -22746,6 +23008,7 @@
   }
   /** Opens the splicing details of a project (an As-Plan or As-Built with cables). o.focus: the record to show first (a site or a closure). */
   async function spliceOpen(name, o) {
+    if (!permGate('plan', 'splice')) return false; // (beta 7.16, Permissions) the splicing details are sheets of the plan: Plan drawing
     const nm = name || S.project, opt = o || {};
     if (!nm || !allProjects().includes(nm) || isAcc(nm) || !BOQ_PURPOSES.includes(svPurpose(nm))) return false;
     if (!profileOk()) { toast('Enter your details first (Settings → You)'); return false; }
@@ -23207,6 +23470,11 @@
      each row: the element, its name, what was done, Show offered, Put back or Remove offered; Put all back offered) */
   window.__polecam.drwMode = (mode) => { if (mode && drw) drwModeSet(mode, 'test'); const R = (el) => { if (!el || !(el.offsetWidth || el.offsetHeight)) return null; const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
     return { on: drwModeOn(), mode: drw ? drw.mode : null, pressed: { view: $('drawModeView').getAttribute('aria-pressed'), edit: $('drawModeEdit').getAttribute('aria-pressed') }, said: $('drawModeSay').hidden ? null : $('drawModeSay').textContent, saidVisit: !!(drw && drw.modeSaid), frame: $('drawWrap').classList.contains('editing'), view: R($('drawModeView')), edit: R($('drawModeEdit')) }; };
+  /* (beta 7.16, Permissions) for tests: where this user's permissions come from, what each feature says, the sheet's row kept, the list's,
+     what waits to be written to the sheet, an export under way; the admin's editor (its switch, users and what was changed there). */
+  window.__polecam.perm = () => ({ state: permState(), ok: Object.fromEntries(PERM_F.map((f) => [f.k, permOk(f.k)])), sheet: S.permSheet ? JSON.parse(JSON.stringify(S.permSheet)) : null,
+    list: listPerms() ? JSON.parse(JSON.stringify(listPerms())) : null, pend: S.permPend ? JSON.parse(JSON.stringify(S.permPend)) : null, hold: !!permHold, admin: (() => { try { return permAdmin(); } catch (e) { return null; } })() });
+  window.__polecam.permDraft = () => { const D = admDraft && admDraft.perm; return D ? { on: D.on, sheet: D.sheet, sheetOn: D.sheetOn, users: Object.fromEntries([...D.users.entries()].map(([e, u]) => [e, { ...u, f: { ...u.f } }])), chg: [...D.chg] } : null; };
   window.__polecam.drwChg = () => { const ch = $('drawChg'), B = $('drawChgBox'), b = ch.getBoundingClientRect(), C = drw ? drwChgCount(drw.project) : null;
     return { shown: !ch.hidden && !!(ch.offsetWidth || ch.offsetHeight), moved: C ? C.moved : null, all: C ? C.all : null, n: $('drawChgN').textContent, text: ch.textContent.trim(), label: ch.getAttribute('aria-label'), rect: ch.hidden ? null : { x: b.left + b.width / 2, y: b.top + b.height / 2, left: b.left, right: b.right, top: b.top, bottom: b.bottom }, none: ch.classList.contains('none'),
       rows: C ? C.rows.map((r) => ({ id: r.id, kind: r.kind, name: drwChgName(r), what: drwChgWhat(r), moved: r.moved, did: [...r.did], rec: [...r.rec] })) : [], open: !B.hidden,

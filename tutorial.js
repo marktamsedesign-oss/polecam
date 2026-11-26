@@ -491,6 +491,13 @@
         { t: '**Move to another phone…**: one QR code or link with your company list and your details. Move projects and photos with **Share** on each project card (or Export → Backup of the project).', go: 'settings', hl: '#moveBtn' },
         { t: '**Reset user…** removes your name, company and key from this phone; projects and photos stay.', go: 'settings', hl: '#resetUser' },
       ] },
+    // (beta 7.16, Permissions) what each user may do: the admin allows or blocks features; a locked one says "Ask your admin to allow …"
+    { id: 'perms', aud: 'user', cat: 'Settings', title: 'What you may do: the features your admin allows', kw: 'permission permissions allowed allow locked lock feature features blocked block access rights limit limited',
+      steps: [
+        { t: 'Your admin may allow or block features for each user. **Survey** (records, map, photos, backup) is always allowed; **KMZ export** (the Google Earth map, project share and the team mailbox) too, unless your admin blocks it; **Plan drawing**, **Other exports**, **CEF plan**, **Drawing editing**, **Client templates** and **Team admin** when your admin allows them.', go: 'settings', hl: '#permMe', when: 'It shows once your admin limits what users may do.' },
+        { t: 'A locked feature shows a 🔒 and **Ask your admin to allow** its name, for example *Ask your admin to allow Plan drawing*: its tile in Export, **Edit** on the Drawing (View stays), Invite a coworker. A tap on it says what to ask for.' },
+        { t: 'Settings → Account → **Your features** says what you may use now. A change by your admin reaches this phone at its next sync (Sync, or opening the app) and stays for use without signal. A phone that has not joined a company list keeps every feature.', go: 'settings', hl: '#permMe', when: 'It shows once your admin limits what users may do.' },
+      ] },
     { id: 'sync', aud: 'user', cat: 'Settings', title: 'The online sheet (sites and progress)', kw: 'online sheet google sync sites progress dates offline hourly manual',
       steps: [
         { t: 'Your sites come from the online Google Sheet, and the completion dates go back to it.' },
@@ -601,6 +608,14 @@
         { t: '**To remove a company:** delete its row in the sheet\'s Company List tab, tap **Refresh from the sheet**, then Save and share the list.', go: 'admin', hl: '#admCoRefresh', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**To remove an admin user:** delete their row in the sheet\'s Admin users tab: a phone verified by the emailed code loses the admin company at its next refresh. For a user who is also in the list: Refresh from the sheet, then Save. The admin who saves always stays an admin. With no admin users at all, anyone of the admin company with the PIN is an admin. Someone who knew the PIN: also **Change the admin PIN**.', go: 'admin', hl: '#admUsersSheet, #admUsers', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**To change the admin company:** choose another one, then Save. Leaving it empty is not recommended: every user could then change the list and verify deficiencies (Save asks first).', go: 'admin', hl: '#admOwner', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+      ] },
+    // (beta 7.16, Permissions) the admin allows or blocks features per user, in Administration and in the online sheet's User permissions tab
+    { id: 'adm-perms', aud: 'admin', cat: 'Administration', title: 'User permissions: what each user may do', kw: 'user permissions permission allow block feature features per user limit access rights default lock locked',
+      steps: [
+        { t: '**User permissions**: tick **Limit what users may do**, then **Add** each user by their email (as in their Your details). Each user has a chip for each feature: green = allowed. A user not listed has **Survey** and **KMZ export** (with project share and the team mailbox) only. Admin users always have everything.', go: 'admin', hl: '#admPermBox', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: 'The features: **KMZ export** (Google Earth map, project share, team mailbox), **Plan drawing** (the plan for AutoCAD, its PDF, the One PDF, the splicing details), **Other exports** (material list, photo ZIP and photo report, route and spans, pole list, completion report, deficiency lists, punchlist), **CEF plan**, **Drawing editing** (Edit on the Drawing; View stays), **Client templates**, **Team admin** (Invite a coworker; Administration).' },
+        { t: '**Save and share the list**: the permissions go with it. With the online sheet\'s Admin key on this phone they are also written to the sheet\'s **User permissions** tab (sheet script v2.43.5): one row per email, Yes or No per feature, blank = what a user not listed has. Edit them there too: phones take the tab at their next sync. The sheet\'s Settings → **User permissions** = Yes is the same switch (No: every user has every feature).', go: 'admin', hl: '#admPermBox', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**To put a user back** to what a user not listed has: × on their card. **To stop limiting**: untick Limit what users may do and save (or No in the sheet).' },
       ] },
     { id: 'adm-invite', aud: 'admin', cat: 'Administration', title: 'Invite a company\'s users (company keys)', kw: 'invite company key makecompanykeys first user qr link contractor join cancel remove revoke vendor admin staff',
       steps: [
