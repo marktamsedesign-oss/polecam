@@ -2627,24 +2627,33 @@
    *  which takes pins first, has the item whole), poleAt (the poles and sites moved on the plan), style and styleKind (the toolbar's: This one, All like it),
    *  leaders (Plan style › Lines to the pole: photos, pole details, numbers; sent when one is off) and cloStyle (Plan style › Closure labels: Bubble). */
   function toolJob(m, P) {
-    const o = {}, mv = (m && m.mvPin) || {}, ks = Object.keys(mv), cp = (v) => JSON.parse(JSON.stringify(v));
+    // ((beta 7.15, Fixes) the owner's export stopped on "Cannot read properties of null (reading 'id')": what is kept of the Drawing's edits reaches the plan only when
+    // it is whole (an entry left empty by an older version, a cut-off save or a point deleted since: left out), so neither the preview nor the export trips on it)
+    const o = {}, cp = (v) => JSON.parse(JSON.stringify(v)), mv = mvOk(m && m.mvPin, isObj), ks = Object.keys(mv);
     if (ks.length) o.pins = Object.fromEntries(ks.map((id) => [id, { ...(pin710(m, id) || {}), ...cp(mv[id]) }]));
-    if (m && m.poleAt && Object.keys(m.poleAt).length) o.poleAt = cp(m.poleAt);
-    if (m && m.mvStyle && Object.keys(m.mvStyle).length) o.style = cp(m.mvStyle);
-    if (m && m.mvKind && Object.keys(m.mvKind).length) o.styleKind = cp(m.mvKind);
+    const pa = mvOk(m && m.poleAt, isEN); if (Object.keys(pa).length) o.poleAt = cp(pa);
+    const st = mvOk(m && m.mvStyle, isObj); if (Object.keys(st).length) o.style = cp(st);
+    const sk = mvOk(m && m.mvKind, isObj); if (Object.keys(sk).length) o.styleKind = cp(sk);
     if (P && P.lead && (!P.lead.photo || !P.lead.details || !P.num.leader)) o.leaders = { photo: !!P.lead.photo, details: !!P.lead.details, number: !!P.num.leader };
     if (P && P.clo && P.clo.style === 'bubble') o.cloStyle = 'bubble';
-    if (m && m.mvText && Object.keys(m.mvText).length) o.text = cp(m.mvText); // ((beta 7.12, Drawing edit) the texts edited, the notes added, the draw order: only those set)
+    const tx = mvOk(m && m.mvText, Array.isArray); if (Object.keys(tx).length) o.text = Object.fromEntries(Object.entries(tx).map(([k, L]) => [k, L.map((x) => (x == null ? '' : String(x)))])); // ((beta 7.12, Drawing edit) the texts edited, the notes added, the draw order: only those set)
     const N = notesOf(m); if (N.length) o.notes = N.map(noteJob);
-    if (m && Array.isArray(m.mvOrder) && m.mvOrder.length) o.order = cp(m.mvOrder);
-    if (m && m.mvHide && Object.keys(m.mvHide).length) o.hide = Object.keys(m.mvHide); // ((beta 7.12, Drawing edit) the items deleted from the plan only)
+    const od = orderOk(m); if (od.length) o.order = cp(od);
+    const hd = Object.keys(mvOk(m && m.mvHide, (v) => !!v)); if (hd.length) o.hide = hd; // ((beta 7.12, Drawing edit) the items deleted from the plan only)
     return o;
   }
+  /* (beta 7.15, Fixes) Whole entries only, for the plan and the count of what was changed by hand: an object; a point's place [E, N]; an ordering op { id, op }. */
+  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const isEN = (v) => Array.isArray(v) && v.length >= 2 && Number.isFinite(+v[0]) && Number.isFinite(+v[1]);
+  /** M's entries (a pmeta map: mvPin, mvStyle…) whose key is a name and whose value passes ok; {} for anything else. */
+  const mvOk = (M, ok) => Object.fromEntries(Object.entries(isObj(M) ? M : {}).filter(([k, v]) => k && k !== 'undefined' && k !== 'null' && ok(v)));
+  /** The draw order kept (pmeta mvOrder), its whole ops only. */
+  const orderOk = (m) => (m && Array.isArray(m.mvOrder) ? m.mvOrder : []).filter((x) => isObj(x) && x.id != null && String(x.id) !== '' && typeof x.op === 'string');
   /** (beta 7.12, Drawing edit) A project's notes (pmeta() m): the texts and photos added on its plan. */
-  const notesOf = (m) => (m && Array.isArray(m.notes) ? m.notes.filter((n) => n && n.id && Array.isArray(n.at) && n.at.length === 2) : []);
+  const notesOf = (m) => (m && Array.isArray(m.notes) ? m.notes.filter((n) => isObj(n) && n.id && isEN(n.at)) : []); // ((beta 7.15, Fixes) a note whole: an id, a place of numbers)
   /** A note as the plan's job has it (job.notes): its photo by the file the export writes next to the DXF (NOTE_<id>.jpg; its bytes made from the photo store). */
   const noteJob = (n) => { const o = { id: String(n.id), kind: n.kind === 'photo' ? 'photo' : 'text', at: [+n.at[0], +n.at[1]] }; if (+n.rot) o.rot = +n.rot;
-    if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map(String); for (const k of ['h', 'bold', 'italic', 'color', 'align', 'wrap', 'spacing', 'font', 'underline']) if (n[k] != null) o[k] = n[k]; } // ((beta 7.14, Text editor) its format: align, wrap, spacing, font, underline)
+    if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map((x) => (x == null ? '' : String(x))); /* ((beta 7.15, Fixes) a line left empty: empty, not "null") */ for (const k of ['h', 'bold', 'italic', 'color', 'align', 'wrap', 'spacing', 'font', 'underline']) if (n[k] != null) o[k] = n[k]; } // ((beta 7.14, Text editor) its format: align, wrap, spacing, font, underline)
     else { o.photo = { file: `NOTE_${n.id}.jpg`, px: +((n.photo || {}).px) || 800, py: +((n.photo || {}).py) || 600 }; if (+n.size > 0) o.size = +n.size; }
     return o; };
   /** (beta 7.12, Drawing edit) A note's item on the plan (report.movable id note:<id>, kind note or notephoto). */
@@ -3791,25 +3800,25 @@
   const chgPid = (id) => { const s0 = String(id), i = s0.indexOf(':'); return i > 0 && CHG_PT.has(s0.slice(0, i)) ? s0.slice(i + 1).split(':')[0] : null; };
   /** What the Drawing changed in records, kept with the plan's edits (nm: the project's pmeta being kept, changed here; E: [[element id, [point ids]], …]; w: moved,
    *  status, del, text). */
-  const drwRecLog = (nm, E, w) => { if (E && E.length) { const L = { ...(nm.mvRec || {}) }; for (const [id, P] of E) { const x = L[id] || { p: [], w: [] }; L[id] = { p: [...new Set([...x.p, ...P.map(String)])], w: [...new Set([...x.w, w])] }; } nm.mvRec = L; } return nm; };
+  const drwRecLog = (nm, E, w) => { if (E && E.length) { const L = { ...mvOk(nm.mvRec, isObj) }; for (const [id, P] of E) { const x = L[id] || {}, p0 = Array.isArray(x.p) ? x.p : [], w0 = Array.isArray(x.w) ? x.w : []; L[id] = { p: [...new Set([...p0.map(String), ...P.map(String)])], w: [...new Set([...w0, w])] }; } nm.mvRec = L; } return nm; }; // ((beta 7.15, Fixes) an entry left broken: made whole)
   /** The elements changed by hand on a project's plan: rows { id, kind, did (Set of CHG_DID), rec (Set of CHG_REC: in the record), moved, note, of (All like it: the
    *  kind) }, in the plan's order (the others after, the styles for All like it last). An element of a point deleted since: not listed. */
   function drwChgRows(proj) {
-    const m = pmeta(proj), R = new Map(), alive = new Set(points.filter((p) => p.project === proj).map((p) => String(p.id))), T = m.mvTurn || {}, NT = notesOf(m), N = new Set(NT.map((n) => `note:${n.id}`));
+    const m = pmeta(proj), R = new Map(), alive = new Set(points.filter((p) => p && p.project === proj).map((p) => String(p.id))), T = mvOk(m.mvTurn, (v) => v != null), NT = notesOf(m), N = new Set(NT.map((n) => `note:${n.id}`)); // ((beta 7.15, Fixes) whole entries only (mvOk, notesOf): a leftover of an older version or of a point deleted since is not counted)
     const row = (id) => { const k = String(id); let r = R.get(k); if (!r) { r = { id: k, did: new Set(), rec: new Set() }; R.set(k, r); } return r; };
     const near = (a, b) => Array.isArray(a) && Array.isArray(b) && Math.hypot(+a[0] - +b[0], +a[1] - +b[1]) < 0.05;
-    for (const [pid, v] of Object.entries(m.phPin || {})) if (Array.isArray(v)) row(`ph:${pid}`).did.add('moved');
-    for (const [pid, v] of Object.entries(m.numPin || {})) if (Array.isArray(v)) row(`num:${pid}`).did.add('moved');
-    for (const [pid, v] of Object.entries(m.lblPin || {})) { if (!Array.isArray(v)) continue; const id = `lbl:${pid}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v))) r.did.add('moved'); if (t && v.length > 2 && v[2] != null) r.did.add('turned'); } // (turned where the plan put it: turned, not moved)
-    for (const [k, v] of Object.entries(m.cabPin || {})) { if (!v || !Array.isArray(v.at)) continue; const id = `cab:${k}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v.at))) r.did.add('moved'); if (t && v.rot != null) r.did.add('turned'); }
-    for (const [id, t] of Object.entries(m.mvPin || {})) { if (!t) continue; const r = row(id); if (Array.isArray(t.at) || t.along != null || t.tip != null) r.did.add('moved'); if (t.rot != null) r.did.add('turned'); } // (placed, slid along its cable, its arrow's tip; turned)
-    for (const pid of Object.keys(m.poleAt || {})) row(`${ptNoun(pid)}:${pid}`).did.add('moved');
-    for (const id of Object.keys(m.mvStyle || {})) row(id).did.add('style');
-    for (const id of Object.keys(m.mvText || {})) row(id).did.add('text');
-    for (const id of Object.keys(m.mvHide || {})) row(id).did.add('hide');
-    for (const o of Array.isArray(m.mvOrder) ? m.mvOrder : []) if (o && o.id) row(o.id).did.add('order');
+    for (const pid of Object.keys(mvOk(m.phPin, isEN))) row(`ph:${pid}`).did.add('moved');
+    for (const pid of Object.keys(mvOk(m.numPin, isEN))) row(`num:${pid}`).did.add('moved');
+    for (const [pid, v] of Object.entries(mvOk(m.lblPin, isEN))) { const id = `lbl:${pid}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v))) r.did.add('moved'); if (t && v.length > 2 && v[2] != null) r.did.add('turned'); } // (turned where the plan put it: turned, not moved)
+    for (const [k, v] of Object.entries(mvOk(m.cabPin, (x) => isObj(x) && isEN(x.at)))) { const id = `cab:${k}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v.at))) r.did.add('moved'); if (t && v.rot != null) r.did.add('turned'); }
+    for (const [id, t] of Object.entries(mvOk(m.mvPin, isObj))) { const r = row(id); if (Array.isArray(t.at) || t.along != null || t.tip != null) r.did.add('moved'); if (t.rot != null) r.did.add('turned'); } // (placed, slid along its cable, its arrow's tip; turned)
+    for (const pid of Object.keys(mvOk(m.poleAt, isEN))) row(`${ptNoun(pid)}:${pid}`).did.add('moved');
+    for (const id of Object.keys(mvOk(m.mvStyle, (v) => isObj(v) && Object.keys(v).length))) row(id).did.add('style');
+    for (const id of Object.keys(mvOk(m.mvText, Array.isArray))) row(id).did.add('text');
+    for (const id of Object.keys(mvOk(m.mvHide, (v) => !!v))) row(id).did.add('hide');
+    for (const o of orderOk(m)) row(o.id).did.add('order');
     for (const id of N) row(id).did.add('added');
-    for (const [id, x] of Object.entries(m.mvRec || {})) { const P = x && Array.isArray(x.p) ? x.p.map(String) : []; if (!P.some((q) => alive.has(q))) continue; const r = row(id); for (const w of (x && x.w) || []) if (CHG_REC[w]) r.rec.add(w); }
+    for (const [id, x] of Object.entries(mvOk(m.mvRec, isObj))) { const P = Array.isArray(x.p) ? x.p.map(String) : []; if (!P.some((q) => alive.has(q))) continue; const r = row(id); for (const w of Array.isArray(x.w) ? x.w : []) if (CHG_REC[w]) r.rec.add(w); }
     const out = [];
     for (const r of R.values()) {
       if (!r.did.size && !r.rec.size) continue; const note = /^note:/.test(r.id);
@@ -3818,7 +3827,7 @@
       out.push({ ...r, kind, moved: r.did.has('moved') || r.rec.has('moved'), note });
     }
     const ix = (id) => { const i = mvIx(id); return i == null ? 1e9 : i; }; out.sort((a, b) => ix(a.id) - ix(b.id));
-    for (const k of Object.keys(m.mvKind || {})) out.push({ id: `kind:${k}`, kind: k, of: k, did: new Set(['style']), rec: new Set(), moved: false, note: false });
+    for (const k of Object.keys(mvOk(m.mvKind, (v) => isObj(v) && Object.keys(v).length))) out.push({ id: `kind:${k}`, kind: k, of: k, did: new Set(['style']), rec: new Set(), moved: false, note: false });
     return out;
   }
   /** How many: moved, all (each element once), and the rows. */
@@ -14615,8 +14624,9 @@
     // beta 6.6 (the owner: "under drawing style, let the user decide, off by default"): Drawing style › Loops at boxes and ODF entrances › Written: each such loop the PMI counts, for the plan to write beside its point
     const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
     const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
-    const phPin = { ...(m.phPin || {}) }; // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres)
-    const numPin = { ...(m.numPin || {}) }, lblPin = { ...(m.lblPin || {}) }, cabPin = { ...(m.cabPin || {}) }; // ((beta 7.10, Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
+    const phPin = mvOk(m.phPin, isEN); // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres) ((beta 7.15, Fixes) whole ones only)
+    const numPin = mvOk(m.numPin, isEN), lblPin = mvOk(m.lblPin, isEN), cabPin = mvOk(m.cabPin, (v) => isObj(v) && isEN(v.at)); // ((beta 7.15, Fixes) whole ones only)
+    // ((beta 7.10, Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
     const gridKeep = pinsAny(m) ? planGridOf(m) : null; // ((beta 7.10, Plan kept) the plan edited on the Drawing keeps its grid: its sheets and their names; (beta 7.10, Drawing labels) a photo, label, number or pole's details placed by hand)
     const tools = toolJob(m, PS); // ((beta 7.11, Drawing tools) the items turned, styled, their arrow's tip, the poles moved on the Drawing, Lines to the pole, Closure labels: only those set)
     // ((beta 7.11, Drawing tools) a closure's bubble (Plan style › Closure labels: Bubble, or one closure's) says its size as its record has it: PROPOSE 72C (the largest of
