@@ -10,11 +10,12 @@
    - Administration → User permissions (a phone, 390 x 844): Limit what users may do, users added by email (a wrong one refused), a chip per feature;
      Save: the list carries them (signed, version 2), the sheet's tab gets the rows (Yes / No, Updated), its Settings → User permissions = Yes.
    - A user not listed (the default): Survey and KMZ export only: Export's tiles locked (🔒 Ask your admin to allow …), not in Everything nor the quick
-     picks; a tap and a click() of a locked row's button refused, said, nothing made; Several at once refused before it starts; the Drawing's Edit
+     picks; a tap and a click() of a locked row's button refused, said, nothing made; the Drawing's Edit
      (the switch, the E key, a test's hook), ✎ Edit route, Undo refused, View stays; the CEF plan's editor, the splicing details, Invite a coworker
      refused; KMZ export and project share allowed; Settings → Your features. The list version came from the sheet, the row too (kept).
-   - A user allowed Plan drawing (by the admin's editor): its tiles open, the plan made; an export under way keeps what was allowed when it started
-     (a sync that blocks it meanwhile: the plan still made, blocked after).
+   - A user allowed Plan drawing (by the admin's editor): its tiles open; Several at once picked, then blocked by a sync: refused before it starts
+     (nothing made half); the plan made; an export under way keeps what was allowed when it started (a sync that blocks it meanwhile: the plan
+     still made, blocked after).
    - The sheet edited by hand (a Yes typed in the tab): the phone follows at its next sync (the sheet wins); offline (the app reopened): the row kept.
    - The admin phone and the admin company's users have everything.
    No page errors, no page sideways. Uses isolated browser contexts and a local HTTP server on a free port. */
@@ -129,6 +130,15 @@ const perm = (page) => page.evaluate(() => window.__polecam.perm());
 /** What was refused (the App log's perm.refused: the feature and what asked), from the n-th on. */
 const refused = (page, n) => page.evaluate((k) => window.__polecam.LOG.all().filter((x) => x.e === 'perm.refused').slice(k || 0).map((x) => `${x.d.k}:${x.d.how}`), n || 0);
 const nRefused = async (page) => (await refused(page)).length;
+/** Export's tiles picked as want (tapped on or off as needed); the tiles picked then. */
+async function pickTiles(page, want) {
+  for (let i = 0; i < 6; i++) {
+    const now = await page.evaluate(() => [...document.querySelectorAll('#export .xtile[aria-pressed=true]')].map((b) => b.dataset.xt).filter((k) => k !== '*all'));
+    const tap = now.find((k) => !want.includes(k)) || want.find((k) => !now.includes(k)); if (!tap) return now.sort();
+    await page.click(`#export [data-xt="${tap}"]`); await page.waitForTimeout(150);
+  }
+  throw new Error('tiles not picked');
+}
 async function until(page, fn, arg, s) { for (let i = 0; i < (s || 30) * 5; i++) { if (await page.evaluate(fn, arg)) return; await page.waitForTimeout(200); } throw new Error(`not so after ${s || 30} s: ${fn}`); }
 const closeAll = async (page) => { for (let i = 0; i < 8; i++) { if (!(await page.evaluate(() => document.querySelectorAll('section.sheet:not([hidden])').length))) return; await page.goBack(); await page.waitForTimeout(400); } };
 async function answer(page, label) {
@@ -276,11 +286,6 @@ test('a user not listed (the default): Survey and KMZ export only; locked, refus
     assert.ok(said.includes('Ask your admin to allow Plan drawing') && said.includes('Ask your admin to allow Other exports'), JSON.stringify(said));
     assert.equal(await page.evaluate(() => window.__builds.length), 0, 'no plan built');
     assert.equal(await page.evaluate(() => document.getElementById('resultBox').hidden), true, 'no file made');
-    const before = (await toasts(page)).length;
-    await page.evaluate(() => { window.__polecam.S.xSel = { survey: ['doKmz', 'doBoq'] }; const m = document.getElementById('xMultiList'); });
-    await page.evaluate(() => { const cb = [...document.querySelectorAll('#xMultiList input')]; cb.forEach((c) => { c.checked = ['doKmz', 'doBoq'].includes(c.value); }); });
-    await page.evaluate(() => document.getElementById('xMultiGo').click()); await page.waitForTimeout(300);
-    assert.ok(!(await toasts(page)).slice(before).some((t) => /one ZIP/.test(t)), 'Several at once: nothing made half');
     // the rows of a locked feature, when shown: 🔒 and what to do
     assert.equal(await page.evaluate(() => { const c = document.getElementById('dxfCard'); return c.classList.contains('permlock') && c.querySelector('.permline').textContent; }), '🔒 Ask your admin to allow Plan drawing');
     // the Drawing: Edit refused (the switch, E, the hook), ✎ Edit route and Undo refused; View stays
@@ -333,7 +338,21 @@ test('a user allowed Plan drawing: the plan made; an export under way keeps what
     assert.deepEqual(p.sheet.row, { kmz: true, plan: true, exp: false, cef: false, edit: false, tpl: false, admin: true });
     const X = await exportTiles(page);
     assert.equal(X.tiles.doDxf.locked, false); assert.equal(X.tiles.xOnePdf.locked, false); assert.equal(X.tiles.doBoq.locked, true);
+    // Several at once picked (the plan and the KMZ), then the sheet blocks Plan drawing (a sync while Export is open): the ZIP is refused before it
+    // starts (nothing made half), the plan's tile locked and unpicked
+    assert.deepEqual(await pickTiles(page, ['doDxf', 'doKmz']), ['doDxf', 'doKmz']);
+    cell(JUAN.email, 'Plan drawing', 'No'); await page.evaluate(() => window.__polecam.cloudSync(true)); await page.waitForTimeout(600);
+    assert.equal(await page.evaluate(() => document.querySelector('#export [data-xt="doDxf"]').classList.contains('permlock')), true, 'the tile locked at once');
+    const r0 = await nRefused(page), b0 = await page.evaluate(() => window.__builds.length);
+    await page.evaluate(() => document.getElementById('xMultiGo').click()); await page.waitForTimeout(500);
+    assert.deepEqual(await refused(page, r0), ['plan:several']); assert.equal(await page.evaluate(() => window.__builds.length), b0, 'no plan built');
+    assert.equal(await page.evaluate(() => document.getElementById('resultBox').hidden), true, 'no ZIP');
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#export .xtile[aria-pressed=true]')].map((b) => b.dataset.xt)), ['doKmz'], 'what is allowed stays picked');
+    cell(JUAN.email, 'Plan drawing', 'Yes'); await page.evaluate(() => window.__polecam.cloudSync(true)); await page.waitForTimeout(600);
+    assert.equal((await perm(page)).ok.plan, true);
+    assert.deepEqual(await pickTiles(page, ['doDxf']), ['doDxf']); // (the plan alone again)
     // the plan made while a sync blocks Plan drawing (in the middle of the export): it is made whole; blocked after
+    const tx = (await toasts(page)).length, rx = await nRefused(page);
     await page.evaluate(() => { window.__duringBuild = () => { const S = window.__polecam.S; S.permSheet = { ...S.permSheet, row: { ...S.permSheet.row, plan: false } }; window.__midPerm = window.__polecam.perm(); }; });
     await page.evaluate(() => document.getElementById('doDxf').click());
     await until(page, () => window.__builds.length > 0 && document.getElementById('busy').hidden, null, 120);
@@ -342,7 +361,7 @@ test('a user allowed Plan drawing: the plan made; an export under way keeps what
     assert.equal(mid.hold, true, 'held while the export ran'); assert.equal(mid.ok.plan, true, 'what was allowed when it started');
     assert.ok(await page.evaluate(() => !document.getElementById('resultBox').hidden && /\.zip · /.test(document.getElementById('resultName').textContent)), 'the plan made (Your file is ready)');
     p = await perm(page); assert.equal(p.hold, false); assert.equal(p.ok.plan, false, 'blocked once the export ended');
-    assert.ok(!(await toasts(page)).some((t) => /^Ask your admin/.test(t)), 'nothing refused meanwhile');
+    assert.ok(!(await toasts(page)).slice(tx).some((t) => /^Ask your admin/.test(t)) && (await nRefused(page)) === rx, 'nothing refused meanwhile');
     // Team admin allowed: Invite a coworker not locked
     await closeAll(page); await page.evaluate(() => document.getElementById('settingsBtn').click()); await page.waitForTimeout(400);
     assert.equal(await page.evaluate(() => document.getElementById('inviteBtn').classList.contains('permlock')), false);
