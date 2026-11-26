@@ -13892,17 +13892,26 @@
     return T.settings(q, I).map((r) => ({ ...r, e: I[r.i], off: plOff(I[r.i]) })).sort((a, b) => b.score - a.score || a.off - b.off || a.i - b.i);
   }
   const PL_FIND_N = 8;
+  /* (beta 7.16, Theme) Find a setting finds the app's Theme too (it is in Settings, not in Plan style): after Plan style's rows, where it is; a tap
+     opens Settings with its row marked. */
+  const APP_FIND = [{ label: 'Theme', where: 'Settings, at the bottom', text: 'Light, Dark, Same as the phone: dark mode, light mode, night mode, dark theme, light theme, black background, appearance', row: 'setThemeRow', ctl: 'setTheme' }];
+  const appFind = (q) => { const T = window.GESAA_TUTORIAL; return T && T.settings ? T.settings(q, APP_FIND).map((r) => APP_FIND[r.i]) : []; };
+  function appFindGo(e) {
+    $('plFindQ').value = ''; plFindRender(); $('settingsBtn').click();
+    setTimeout(() => { const row = $(e.row); if (!row || $('settings').hidden) return; row.scrollIntoView({ block: 'center' }); row.classList.add('sthl'); setTimeout(() => row.classList.remove('sthl'), 9000); try { $(e.ctl).focus({ preventScroll: true }); } catch (x) { /* an old browser */ } }, 120);
+  }
   function plFindRender() {
     const inp = $('plFindQ'), box = $('plFindRes'), n = $('plFindN'), q = inp.value.trim(), T = window.GESAA_TUTORIAL, Q = q && T && T.query ? T.query(q) : null;
     box.innerHTML = '';
     if (!q) { box.hidden = true; n.textContent = ''; return; }
-    const R = Q ? plFind(q) : [];
-    n.textContent = R.length ? `${R.length} setting${R.length === 1 ? '' : 's'} found${R.length > PL_FIND_N ? `: the best ${PL_FIND_N}` : ''}. Tap one to go to it.` : `No setting called “${q}”.`;
+    const R = Q ? plFind(q) : [], A = Q ? appFind(q) : [], N = R.length + A.length; // ((beta 7.16, Theme) A: the app's own settings found)
+    n.textContent = N ? `${N} setting${N === 1 ? '' : 's'} found${R.length > PL_FIND_N ? `: the best ${PL_FIND_N + A.length}` : ''}. Tap one to go to it.` : `No setting called “${q}”.`;
     R.slice(0, PL_FIND_N).forEach((r) => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'plfr';
       const x = document.createElement('b'); tutRich(x, r.e.label, Q.mark); const w = document.createElement('small'); w.textContent = plWhere(r); if (r.off) w.className = 'off';
       b.append(x, w); b.addEventListener('click', () => plFindGo(r.e)); box.appendChild(b);
     });
+    A.forEach((e) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'plfr'; b.dataset.app = e.row; const x = document.createElement('b'); tutRich(x, e.label, Q.mark); const w = document.createElement('small'); w.textContent = e.where; b.append(x, w); b.addEventListener('click', () => appFindGo(e)); box.appendChild(b); });
     const t = document.createElement('button'); t.type = 'button'; t.className = 'linkbtn plfrtut'; t.textContent = `Search the Tutorial for “${q}” ›`;
     t.addEventListener('click', () => { $('tutQ').value = q; openTutorial(); }); box.appendChild(t);
     box.hidden = false;

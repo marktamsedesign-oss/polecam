@@ -1695,8 +1695,9 @@ body.deskpane:not(.sidenarrow) #export.side .xtiles{grid-template-columns:repeat
 body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #drawPv{left:calc(min(230px,58%) + 22px);transform:none;max-width:calc(100% - min(230px,58%) - 84px)} /* (the Drawing narrower beside the wide panel: the drawing shown beside its open legend, not under it) */
 #dxfMxHost{max-width:560px}
 #tmRole .chip.wait{border-style:dashed;opacity:.85} /* beta 3.3: Coordinator asked for */
-/* (beta 7.16, Theme) Dark: the plan's symbols in the Drawing's legend on a piece of white paper, as the plan is; the step numbers, a chosen size
-   and the bars' Done in the accent (navy is the page's own colour in Dark) */
+#settings .field.sthl{outline:2px solid #f08c00;outline-offset:3px;border-radius:8px;background:rgba(240,140,0,.09)} /* (beta 7.16, Theme) Find a setting's Theme, marked in Settings */
+/* (beta 7.16, Theme) Dark: the plan's symbols in the Drawing's legend on a piece of white paper, as the plan is; the words a search found; the step
+   numbers, a chosen size and the bars' Done in the accent (navy is the page's own colour in Dark) */
 :root[data-theme="dark"] .drwlegend svg{background:#fbfbf8;border-radius:3px}
 :root[data-theme="dark"] .plfr mark,:root[data-theme="dark"] .tutset mark,:root[data-theme="dark"] .tuttopic mark,:root[data-theme="dark"] .tutsteps mark{color:var(--mark-ink)}
 :root[data-theme="dark"] .tutsteps li::before{background:var(--accent);color:var(--accent-ink)}
