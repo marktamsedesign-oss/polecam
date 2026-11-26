@@ -12,6 +12,14 @@
      above the block, or above the item's height; before, it left at 0.4 m whatever the height, out of the side of a taller one) and runs level from
      there; it goes through the porthole by a hole of its own (the bottom row first, the one in line with where it comes from), level through the
      wall at the hole's height, and the inside (its detail too) starts there; two cables through one porthole take two holes.
+   - (6) "CEF plan requires 2 cabin interconnection with multiple portholes, ladder and conduits involve ... Riser > Conduit > Exit Conduit > Porthole >
+     Ladder > porthole > Ladder > porthole > ladder > rack > ODF": a made-up plan of two cabins, the UG fiber as tapped through the chain: up the riser,
+     along the trench, up the exit conduit, into cabin A through a hole of its porthole, along A's ladder, out through a hole of A's other porthole,
+     along the ladder between the cabins, into cabin B the same way, along B's ladder and down to the ODF in its rack; no new conduit made up, nothing to
+     check; each piece keeps the number of its leg; the inside of each cabin (its detail, the editor's) drawn from the hole it goes in by (and out by).
+     The same from fewer taps (riser pole and ODF; with the exit conduit; with the portholes), as the app lays it; an interconnection from an ODF in A
+     to one in B; without a riser (from a hand hole); one cabin as before. The laid line loses a spur that goes out and straight back to nothing, and
+     takes in the porthole it goes through the wall by.
    - Without the new choice and away from what the fixes change, every output (the DXF with its layout tabs and of the older kind, the sheets,
      the PDF, the KML, the table and its notes) byte for byte as beta 7.15 (6e2bd49) made them: SHA-256 of that engine's output on the same plans.
    Every name, number and place is made up. */
@@ -95,6 +103,10 @@ const SKETCHES = String.raw`var MK = {};
     ug(S, [[2, 1.5], [2, 7.6], [5.3, 7.6], fromRoom(A, [0, 0.6]), fromRoom(A, [0.15, 3.4]), fromRoom(A, [2.85, 3.4]), PA2, PB1, fromRoom(B, [2, 3.4]), fromRoom(B, [od.x, od.y])]);
     return fix(S);
   };
+  /* an interconnection: from the ODF in cabin A's rack, along A's ladder, out by its porthole, along the ladder between the cabins, into B, to the ODF in B's rack */
+  MK.cabin2link = () => { const S = MK.cabin2(), A = S.els.find(e => e.t === 'cabin'), B = S.els.filter(e => e.t === 'cabin')[1], IA = A.inside, rk = newEl('rack2', 2.4, 2.4); rk.id = 'kra'; IA.els.push(rk); const od = Object.assign(newEl('odf', rk.x, rk.y), { st: 'P', id: 'koa' }); IA.els.push(od);
+    const odB = B.inside.els.find(e => e.t === 'odf'); S.route.ae.pts = []; S.route.ug.pts = [fromRoom(A, [od.x, od.y]), fromRoom(B, [odB.x, odB.y])].map(p => ({ x: Math.round(p[0] * 100) / 100, y: Math.round(p[1] * 100) / 100 })); S.route.ug.legs = [{ type: 'auto' }];
+    const L = layFoc(S, S.route.ug.pts.map(p => [p.x, p.y]), 'ug'); S.route.ug.pts = L.ug.map(p => ({ x: p[0], y: p[1] })); S.route.ug.legs = L.ug.slice(1).map(() => ({ type: 'auto' })); return S; };
   /* (2) the exit conduits with their conduits only, no concrete */
   MK.namedBare = () => { const S = MK.named(); for (const e of S.els) if (e.t === 'exit') e.conc = false; return S; };
   MK.cabin1Bare = () => { const S = MK.cabin1(); S.els.find(e => e.t === 'exit').conc = false; return S; };
@@ -182,7 +194,7 @@ test('(3) an existing pole with a new riser: the riser, the U-guard and the conc
 /** the route of a plan: its pieces, upright pieces and sums, and each porthole's holes on the site (W on the wall line, O on its outer face, z above the ground) */
 const ROUTE = `(() => { const g = routeGeom(SK), r3 = (v) => Math.round(v * 1000) / 1000, P = (p) => [r3(p[0]), r3(p[1])];
   const holes = []; for (const c of SK.els) if (c.t === 'cabin') cabinPorts(c).forEach((q, k) => portHoles(c, q).forEach((h, i) => { const H = holeAt(c, q, h); holes.push({ c: c.id, k, i, W: P(H.W), O: P(H.O), z: r3(baseZ(SK, c) + H.z) }); }));
-  return { legs: g.legs.map((l) => ({ f: l.f, i: l.i, cn: l.cn || 0, type: l.type, a: P(l.a), b: P(l.b), za: r3(l.za), zb: r3(l.zb), cab: l.cab || '' })), verts: g.verts.map((v) => ({ kind: v.kind, at: P(v.at), z0: r3(v.z0), z1: r3(v.z1), cab: v.cab || '', cn: v.cn || 0 })), sum: g.sum, parts: g.parts.map((p) => p.sum), exits: g.exits.map((x) => ({ at: P(x.at), g: x.g, h: x.h })), holes, via: g.parts.map((p) => p.via || null) }; })()`;
+  return { legs: g.legs.map((l) => ({ f: l.f, i: l.i, cn: l.cn || 0, type: l.type, a: P(l.a), b: P(l.b), za: r3(l.za), zb: r3(l.zb), cab: l.cab || '' })), verts: g.verts.map((v) => ({ kind: v.kind, at: P(v.at), z0: r3(v.z0), z1: r3(v.z1), cab: v.cab || '', cn: v.cn || 0 })), sum: g.sum, parts: g.parts.map((p) => p.sum), exits: g.exits.map((x) => ({ at: P(x.at), g: x.g, h: x.h })), holes, via: g.parts.map((p) => p.via || null), notes: g.notes }; })()`;
 const near = (p, q, t = 0.006) => Math.hypot(p[0] - q[0], p[1] - q[1]) < t;
 /** the hole a cable goes through: the piece through the wall, level, from the outer face to the wall line, at a hole of the porthole */
 function through(R, cn, c) { const l = R.legs.find((q) => q.cn === cn && q.cab === c && q.type === 'open' && R.holes.some((h) => near(q.a, h.O) && near(q.b, h.W))); return l ? Object.assign({ l }, R.holes.find((h) => near(l.a, h.O) && near(l.b, h.W))) : null; }
@@ -207,6 +219,52 @@ test('(4) the UG fiber goes up inside the exit conduit and leaves it at its mout
   assert.ok(h0 && h1 && h0.i !== h1.i, `a hole each (${h0 && h0.i}, ${h1 && h1.i})`); assert.equal(h1.z, 2.22, 'the bottom row first');
   /* the sample site: the cable leaves its exit conduit at the mouth; its length as before */
   const N = run(ROUTE, mk('named')); assert.deepEqual(N.verts.filter((v) => v.kind === 'exit').map((v) => v.z1), [0.47]); assert.equal(N.sum.ugt, 31.2);
+});
+
+/** the two-cabin plan and its points: the porthole of cabin A from the exit conduit (A1), A's other one (A2), B's (B1), the ODF in B, a point on A's ladder */
+const CH = `(() => { const S = MK.cabin2(), [A, B] = S.els.filter((e) => e.t === 'cabin'), od = B.inside.els.find((e) => e.t === 'odf'), r2 = (p) => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100];
+  return { A: A.id, B: B.id, A1: r2(cabinPorts(A)[0].at), A2: r2(cabinPorts(A)[1].at), B1: r2(cabinPorts(B)[0].at), ODF: r2(fromRoom(B, [od.x, od.y])), LA: r2(fromRoom(A, [1.5, 3.4])), EX: [5.3, 7.6], POLE: [2, 1.5],
+    inA: (p) => inCabin(A, p, 0.03), inB: (p) => inCabin(B, p, 0.03) }; })()`;
+const chain = (R, P) => {      /* what the route of the chain must be: up the riser, the trench to the exit conduit, into A through a hole of A1, along A's ladder, out through a hole of A2, along the ladder between the cabins, into B through a hole of B1, along B's ladder, down to the ODF */
+  const inA = R.legs.filter((l) => l.cab === P.A), inB = R.legs.filter((l) => l.cab === P.B), site = R.legs.filter((l) => l.f === 'ug' && !l.cab);
+  assert.deepEqual(R.via.map((v) => v && [v.cab, (v.thru || []).map((w) => w.cab)]), [[P.B, [P.A]]], 'into cabin B, through cabin A');
+  assert.ok(inA.some((l) => l.type === 'ladder') && inB.some((l) => l.type === 'ladder'), 'along the ladders inside both cabins');
+  const hA1 = through(R, 0, P.A), hB1 = through(R, 0, P.B); assert.ok(hA1 && hB1, 'into A and into B through a hole');
+  const outA = R.legs.find((l) => l.cab === P.A && l.type === 'open' && R.holes.some((h) => h.c === P.A && h.k === 1 && near(l.a, h.W) && near(l.b, h.O)));
+  assert.ok(outA && outA.za === outA.zb, 'out of A through a hole of A2, level through the wall');
+  const between = site.find((l) => l.type === 'ladder'); assert.ok(between && near(between.a, outA.b) && R.holes.some((h) => h.c === P.B && near(between.b, h.O)), 'along the ladder between the cabins, from the hole of A2 to the hole of B1');
+  assert.ok(!site.some((l) => P.inA(l.a) || P.inA(l.b) || P.inB(l.a) || P.inB(l.b)), 'nothing of the site\'s pieces in a cabin');
+  assert.deepEqual(R.notes, [], 'nothing to check'); assert.equal(R.sum.ug, 9.4, 'no new conduit but the trench drawn'); assert.equal(R.sum.ladder, 1.7, 'the ladder between the cabins');
+  assert.ok(R.verts.some((v) => v.kind === 'exit' && v.z1 === 0.47) && R.verts.some((v) => v.kind === 'riser'), 'up the riser, up the exit conduit to its mouth');
+  const last = R.verts.filter((v) => v.cab === P.B).pop(); assert.ok(last && last.z0 < last.z1 && last.z0 > 1.5 && last.z0 < 2.1, 'down to the ODF at its rack units');
+};
+test('(6) the UG fiber through two cabins: Riser > Conduit > Exit Conduit > Porthole > Ladder > Porthole > Ladder > Porthole > Ladder > Rack > ODF', () => {
+  const P = run(CH, null), S = mk('cabin2'); P.inA = (p) => run(`inCabin(SK.els.find((e) => e.t === 'cabin'), ${JSON.stringify(p)}, 0.03)`, S); P.inB = (p) => run(`inCabin(SK.els.filter((e) => e.t === 'cabin')[1], ${JSON.stringify(p)}, 0.03)`, S);
+  /* as tapped, each element of the chain */
+  const R = run(ROUTE, S); chain(R, P);
+  assert.deepEqual([...new Set(R.legs.filter((l) => l.f === 'ug' && !l.cab && l.type === 'ladder').map((l) => l.i))], [6], 'the piece between the cabins keeps the number of its leg as drawn');
+  /* the inside of each cabin as its detail and the editor draw it: from the hole it goes in by; cabin A to the hole it goes out by */
+  const VA = run(`viaRoute(SK, SK.els.find((e) => e.t === 'cabin'))`, S), VB = run(`viaRoute(SK, SK.els.filter((e) => e.t === 'cabin')[1])`, S);
+  assert.ok(Math.abs(VA.startZ - 2.22) < 1e-6 && Math.abs(VA.endZ - 2.22) < 1e-6 && VA.ug.pts.length > 4, 'cabin A: in through a hole, out through another');
+  assert.ok(Math.abs(VB.startZ - 2.22) < 1e-6 && VB.endZ == null, 'cabin B: in through a hole, to the ODF');
+  const det = run(`buildSheets(SK, {}).find((q) => /DETAILS/.test(q.name)).prims.filter((p) => p.lay === 'ug').length`, S); assert.ok(det > 4, 'the details sheet draws the cable inside both cabins');
+  /* laid by the app from fewer taps, or from the inside of A: the same way */
+  for (const taps of [['POLE', 'ODF'], ['POLE', 'EX', 'ODF'], ['POLE', 'EX', 'A1', 'A2', 'B1', 'ODF']]) {
+    const L = run(`(() => { const L = layFoc(SK, ${JSON.stringify(taps.map((k) => P[k]))}, 'ug'); SK.route.ae.pts = []; SK.route.ug.pts = L.ug.map((p) => ({ x: p[0], y: p[1] })); SK.route.ug.legs = L.ug.slice(1).map(() => ({ type: 'auto' })); return SK; })()`, mk('cabin2'));
+    assert.ok(L.route.ug.pts.some((p) => P.inA([p.x, p.y])), `${taps.join(' > ')}: laid through cabin A`);
+    const R2 = run(ROUTE, L); chain(R2, P);
+  }
+  /* an interconnection, from the ODF in A's rack to the ODF in B's: out of A by its porthole, along the ladder between, into B */
+  const R3 = run(ROUTE, mk('cabin2link')); assert.deepEqual(R3.via.map((v) => v && [v.cab, (v.thru || []).map((w) => w.cab)]), [[P.B, [P.A]]]); assert.deepEqual(R3.notes, []);
+  assert.ok(R3.legs.some((l) => l.f === 'ug' && !l.cab && l.type === 'ladder') && R3.sum.ug === 0, 'only the ladder between them on the site');
+  /* without a riser: from a hand hole on the trench */
+  const hh = mk('cabin2'); const rp = hh.els.find((e) => e.t === 'rpole'); rp.t = 'hh'; Object.assign(rp, { w: 0.8, d: 0.8, h: 0.05, dp: 1.5, st: 'E' }); hh.route.ae.pts = [];
+  const R4 = run(ROUTE, hh); assert.ok(!R4.verts.some((v) => v.kind === 'riser')); assert.deepEqual(R4.via.map((v) => v && (v.thru || []).length), [1]); assert.deepEqual(R4.notes, []);
+  /* one cabin, as before: the fiber ends in it */
+  const R5 = run(ROUTE, mk('cabin1')); assert.deepEqual(R5.via.map((v) => v && [v.cab, v.thru || null]), [['k2', null]]);
+  /* the line laid: a spur out and straight back to a point on nothing is taken off; a line through a cabin's wall by its porthole takes the porthole in */
+  assert.deepEqual(run(`layFoc(SK, [[2, 1.5], [2, 9.5], [2, 7.6], [5.3, 7.6]], 'ug').ug`, S), [[2, 1.5], [2, 7.6], [5.3, 7.6]]);
+  const V2 = run(`viaItems(SK, [[4.5, 7.6], [6.2, 7.6]], 0.5)`, S); assert.ok(V2.some((p) => near(p, P.A1)), 'the porthole the line goes through');
 });
 
 test('without the new choices, and away from what the fixes change, the CEF plan\'s files are byte for byte as beta 7.15 (6e2bd49) made them', async () => {

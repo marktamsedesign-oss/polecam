@@ -714,7 +714,12 @@ function layFoc(S, pts, how) {
      Nothing drawn carries it: aerial all the way. A line drawn from the ODF outwards is read the other way round. Points closer than 12 cm are one point. */
   const d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]), P = [];
   for (const p of pts) { const e = poleAt(S, p), q = e ? [e.x, e.y] : [p[0], p[1]], l = P[P.length - 1]; if (!l || d2(l, q) > 0.12) P.push(q); else if (e || !poleAt(S, l)) P[P.length - 1] = q; }
-  const lay = U => { const out = []; for (let i = 0; i + 1 < U.length; i++) { const C = cabPath(S, U[i], U[i + 1]), F = C || (carrier(S, U[i], U[i + 1]) ? null : followRuns(S, U[i], U[i + 1])); (F || [U[i], U[i + 1]]).forEach((q, k) => { if (i > 0 && k === 0) return; const l = out[out.length - 1]; if (!l || d2(l, q) > 0.12) out.push(q); else if (out.length > 1 && !poleAt(S, l)) out[out.length - 1] = q; }); } return out.length > 1 ? out : []; };
+  const lay = U => { const out = []; for (let i = 0; i + 1 < U.length; i++) { const C = cabPath(S, U[i], U[i + 1]), F = C || (carrier(S, U[i], U[i + 1]) ? null : followRuns(S, U[i], U[i + 1])); (F || [U[i], U[i + 1]]).forEach((q, k) => { if (i > 0 && k === 0) return; const l = out[out.length - 1]; if (!l || d2(l, q) > 0.12) out.push(q); else if (out.length > 1 && !poleAt(S, l)) out[out.length - 1] = q; }); } spurs(out); return out.length > 1 ? out : []; };
+  /* (beta 7.16, CEF drawing) where the line laid goes out to a point and straight back (a rough stroke that went past the corner of the trench, or round a
+     cabin's ladder), that spur is taken off, unless its tip is an item the cable goes to: a pole, a pit, an exit conduit, a porthole, an ODF, a closure */
+  const spurs = Q => { const item = p => !!poleAt(S, p) || !!pitAt(S, p) || S.els.some(e => ['exit', 'odf', 'clo', 'dnap'].indexOf(e.t) >= 0 && d2([e.x, e.y], p) < 0.3) || !!portAt(S, p, 0.15) || !!odfInCabin(S, p, 0.3);
+    const back = k => { const u = [Q[k][0] - Q[k - 1][0], Q[k][1] - Q[k - 1][1]], v = [Q[k + 1][0] - Q[k][0], Q[k + 1][1] - Q[k][1]], lu = Math.hypot(u[0], u[1]), lv = Math.hypot(v[0], v[1]); return lu > 1e-6 && lv > 1e-6 && (u[0] * v[0] + u[1] * v[1]) / (lu * lv) < -0.995; };      /* it turns straight back along its line */
+    for (let k = 1; k + 1 < Q.length;) { if (item(Q[k])) { k++; continue; } if (d2(Q[k - 1], Q[k + 1]) < 0.15) Q.splice(k, 2); else if (back(k)) Q.splice(k, 1); else { k++; continue; } k = Math.max(1, k - 1); } return Q; };
   if (how === 'ae') return { ae: P.length > 1 ? P : [], ug: [], how: 'ae' };
   if (how === 'ug') return { ae: [], ug: lay(P), how: 'ug' };
   const atOdf = p => { const h = hostOf(S, p); return !!(h && h.t === 'cabin') || S.els.some(e => e.t === 'odf' && (d2([e.x, e.y], p) < 0.45 || (h && inPoly([e.x, e.y], elPoly(h))))); };
@@ -727,11 +732,13 @@ function layFoc(S, pts, how) {
   const ae = P.slice(0, r + 1);
   return { ae: ae.length > 1 ? ae : [], ug: lay(P.slice(r)), how: 'auto' };
 }
-/* the poles, hand holes, service boxes and exit conduits that a drawn line passes close to become points of it, in the order it passes them */
+/* the poles, hand holes, service boxes and exit conduits that a drawn line passes close to become points of it, in the order it passes them (beta 7.16, CEF drawing:
+   and the porthole of a cabin where it goes through the cabin's wall near one) */
 function viaItems(S, P, reach) {
   const out = [], T = ['rpole', 'epole', 'hh', 'sbox', 'exit'], r = reach || 0.5;
   for (let i = 0; i < P.length; i++) { out.push(P[i]); if (i + 1 >= P.length) break; const a = P[i], b = P[i + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 0.2) continue; const hit = [];
     for (const e of S.els) { if (T.indexOf(e.t) < 0) continue; const t = ((e.x - a[0]) * (b[0] - a[0]) + (e.y - a[1]) * (b[1] - a[1])) / (L * L); if (t <= 0.02 || t >= 0.98) continue; const d = Math.hypot(a[0] + (b[0] - a[0]) * t - e.x, a[1] + (b[1] - a[1]) * t - e.y); if (d < r && Math.hypot(e.x - a[0], e.y - a[1]) > 0.1 && Math.hypot(e.x - b[0], e.y - b[1]) > 0.1) hit.push({ t, p: [e.x, e.y] }); }
+    if (!S.room) for (const c of S.els) if (c.t === 'cabin' && inCabin(c, a, 0.03) !== inCabin(c, b, 0.03)) for (const q of cabinPorts(c)) { const t = ((q.at[0] - a[0]) * (b[0] - a[0]) + (q.at[1] - a[1]) * (b[1] - a[1])) / (L * L); if (t <= 0.02 || t >= 0.98) continue; if (Math.hypot(a[0] + (b[0] - a[0]) * t - q.at[0], a[1] + (b[1] - a[1]) * t - q.at[1]) < r) hit.push({ t, p: [Math.round(q.at[0] * 100) / 100, Math.round(q.at[1] * 100) / 100] }); }      /* (beta 7.16, CEF drawing) the line goes through the wall of a cabin by a porthole: that porthole is a point of it */
     hit.sort((p, q) => p.t - q.t).forEach(h => out.push(h.p)); }
   return out;
 }
@@ -814,45 +821,115 @@ function roomPath(c, a, b) {
 /* The way of the UG cable from a point outside a cabin to one inside it (points of the site): along the trench or conduit to the exit conduit nearest the
    porthole, up to the porthole, then inside along the ladder. Out of a cabin, the same way back. null when neither point is in a cabin (or they are in two). */
 function cabPath(S, a, b) {
-  const ca = cabinOf(S, a), cb = cabinOf(S, b); if (!ca && !cb) return null;
-  if (ca && cb) return ca === cb ? roomPath(ca, a, b) || [a, b] : null;
-  if (ca) { const P = cabPath(S, b, a); return P ? P.slice().reverse() : null; }
-  const c = cb, d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]), pa = portAt(S, a, 0.3), here = pa && pa.cabin === c;
-  const outWay = (p, q) => { if (d2(p, q) < 0.1) return { P: [p], c: 0 }; if (carrier(S, p, q)) return { P: [p, q], c: d2(p, q) }; const F = followRuns(S, p, q); return F ? { P: F, c: plen(F) } : { P: [p, q], c: 2.5 * d2(p, q) + 1 }; };      /* along what is drawn, or straight (and dearer) */
-  let best = null;
-  const PP = here ? [pa.port] : cabinPorts(c).length ? cabinPorts(c) : [cabPortFor(c, a)].concat(S.els.filter(x => x.t === 'exit' && !inCabin(c, [x.x, x.y], 0) && inCabin(c, [x.x, x.y], -3.5)).map(x => cabPortFor(c, [x.x, x.y])));      /* no porthole drawn: through the wall nearest to where it comes from, or to an exit conduit by the cabin */
-  for (const q of PP) {
-    const inW = roomPath(c, q.at, b) || [q.at, b], ci = plen(inW); let o = here ? { P: [a], c: 0 } : null;
-    if (!o) for (const x of S.els) { if (x.t !== 'exit' || d2([x.x, x.y], q.at) > 3.5 || inCabin(c, [x.x, x.y], 0)) continue; const w = outWay(a, [x.x, x.y]), k = { P: w.P.concat(d2([x.x, x.y], q.at) > 0.05 ? [q.at] : []), c: w.c + 1.2 * d2([x.x, x.y], q.at) }; if (!o || k.c < o.c) o = k; }      /* the exit conduit near the porthole that is easiest to reach */
-    if (!o) { const w = outWay(a, q.at); o = { P: w.P.concat(d2(w.P[w.P.length - 1], q.at) > 0.05 ? [q.at] : []), c: w.c }; }      /* no exit conduit near it: up at the wall below the porthole */
-    const P = o.P.concat(inW.slice(1)), cost = o.c + ci; if (!best || cost < best.c) best = { P, c: cost };
+  const ca = cabinOf(S, a), cb = cabinOf(S, b); if (!ca && !cb) return portPair(S, a, b);      /* (beta 7.16, CEF drawing: from one porthole of a cabin to another of it: through it) */
+  if (ca && cb && ca === cb) return roomPath(ca, a, b) || [a, b];
+  if (ca && !cb) { const P = cabPath(S, b, a); return P ? P.slice().reverse() : null; }
+  return cabChain(S, a, b);      /* (beta 7.16, CEF drawing: into a cabin from outside or from another cabin, through the cabins on the way) */
+}
+/* (beta 7.16, CEF drawing) The way of the UG cable from a to b when b is inside a cabin and a is not in that cabin (outside, or in another one): in by one of its
+   portholes, through other cabins on the way when that is the way (in by a porthole, along the ladder inside, out by another), as the owner's plan of two
+   cabins has it: Riser > Conduit > Exit Conduit > Porthole > Ladder > Porthole > Ladder > Porthole > Ladder > Rack > ODF. Before, a piece from outside to
+   a cabin went to its porthole whatever stood between, and a piece from one cabin to another went straight through the walls. The cheapest way on what is
+   drawn: outside, along the trenches, conduits and ladders (into a porthole from the ground by the exit conduit near it, as before); inside, along the
+   ladders of the sketch of the inside; a piece with nothing drawn under it costs more (2.5 times its length, and 1 m), so the way goes through a cabin only
+   where something drawn leads through it. The points given back go into each cabin it passes and out of it by the portholes (a point just inside each). */
+function cabChain(S, a, b) {
+  const d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]), ca = cabinOf(S, a), cb = cabinOf(S, b), N = [{ p: a, c: ca }, { p: b, c: cb }], ground = !ca && !portAt(S, a, 0.3);
+  for (const c of S.els) if (c.t === 'cabin') for (const q of cabinPorts(c)) N.push({ p: q.at, c, q });
+  if (!cabinPorts(cb).length) for (const q of [cabPortFor(cb, a)].concat(S.els.filter(x => x.t === 'exit' && !inCabin(cb, [x.x, x.y], 0) && inCabin(cb, [x.x, x.y], -3.5)).map(x => cabPortFor(cb, [x.x, x.y])))) N.push({ p: q.at, c: cb, q });      /* no porthole drawn: through the wall nearest to where it comes from, or to an exit conduit by the cabin (as before) */
+  const thru = (p, q) => S.els.some(c => c.t === 'cabin' && segPoly(p, q, rectAt([c.x, c.y], Math.max(0.1, c.w - 0.2), Math.max(0.1, c.d - 0.2), c.rot)));      /* straight through a cabin */
+  const outWay = (p, q) => { if (d2(p, q) < 0.1) return { P: [p], c: 0 }; if (carrier(S, p, q)) return { P: [p, q], c: d2(p, q) }; const F = followRuns(S, p, q); return F ? { P: F, c: plen(F) } : { P: [p, q], c: 2.5 * d2(p, q) + 1 + (thru(p, q) ? 1000 : 0) }; };
+  const inPt = (c, q) => fromRoom(c, [q.x - q.n[0] * 0.15, q.y - q.n[1] * 0.15]);      /* just inside a porthole */
+  const edge = (i, j) => {
+    const u = N[i], v = N[j];
+    if (u.c && v.c === u.c && (u.q || i === 0) && (v.q || j === 1) && !(u.q && v.q && u.q === v.q)) {      /* inside one cabin */
+      if (u.q && v.q) { const pu = inPt(u.c, u.q), pv = inPt(u.c, v.q), R = roomPath(u.c, pu, pv), P = [u.p].concat(R || [pu, pv], [v.p]); return { P, c: R ? plen(P) : 2.5 * plen(P) + 1 }; }      /* through it: in by one porthole, out by another */
+      const R = roomPath(u.c, u.p, v.p) || [u.p, v.p]; return { P: R, c: plen(R) };
+    }
+    if ((u.q || (i === 0 && !ca)) && (v.q || (j === 1 && !cb))) {      /* outside */
+      if (i === 0 && v.q && d2(a, v.p) < 0.3) return { P: [a], c: 0 };      /* it starts on that porthole */
+      if (i === 0 && ground && v.q) { let o = null; for (const x of S.els) { if (x.t !== 'exit' || d2([x.x, x.y], v.p) > 3.5 || inCabin(v.c, [x.x, x.y], 0)) continue; const w = outWay(a, [x.x, x.y]), k = { P: w.P.concat(d2([x.x, x.y], v.p) > 0.05 ? [v.p] : []), c: w.c + 1.2 * d2([x.x, x.y], v.p) }; if (!o || k.c < o.c) o = k; } if (o) return o; }      /* the exit conduit near the porthole that is easiest to reach */
+      const w = outWay(u.p, v.p); return { P: d2(w.P[w.P.length - 1], v.p) > 0.05 ? w.P.concat([v.p]) : w.P, c: w.c };
+    }
+    return null;
+  };
+  const D = N.map(() => 1e18), prev = N.map(() => -1), via = N.map(() => null), done = N.map(() => false); D[0] = 0;
+  for (;;) { let u = -1; for (let i = 0; i < N.length; i++) if (!done[i] && (u < 0 || D[i] < D[u])) u = i; if (u < 0 || D[u] > 1e17 || u === 1) break; done[u] = true;
+    for (let v = 1; v < N.length; v++) { if (done[v] || v === u) continue; const e = edge(u, v); if (e && D[u] + e.c < D[v] - 1e-9) { D[v] = D[u] + e.c; prev[v] = u; via[v] = e.P; } } }
+  if (prev[1] < 0) return null;
+  const path = []; for (let v = 1; v > 0; v = prev[v]) path.unshift(via[v]);
+  const out = []; for (const P of path) for (const q of P) { const l = out[out.length - 1]; if (!l || d2(l, q) > 0.02) out.push(q); }
+  return out.length > 1 ? out : null;      /* (a piece into a cabin is never left to what is drawn on the site: the trench that ends at the wall would lead it out again) */
+}
+/* (beta 7.16, CEF drawing) a piece from one porthole of a cabin to another of the same cabin goes through it, along its ladder, with a point just inside each */
+function portPair(S, a, b) {
+  const pa = portAt(S, a, 0.3), pb = portAt(S, b, 0.3); if (!pa || !pb || pa.cabin !== pb.cabin || (pa.port.x === pb.port.x && pa.port.y === pb.port.y)) return null;
+  const c = pa.cabin, ip = q => fromRoom(c, [q.x - q.n[0] * 0.15, q.y - q.n[1] * 0.15]), u = ip(pa.port), v = ip(pb.port);
+  return [a].concat(roomPath(c, u, v) || [u, v], [b]);
+}
+/* Where the UG fiber U (points of the site) goes into a cabin (2.45.1 / beta 6.9): the first point inside it, the porthole it comes in by, the part on the site
+   (which ends on the porthole) and the part inside (in the cabin's own directions: from the outer face of the wall, through it, on along the ladder), each
+   piece with the leg of U it is part of. Until beta 7.16 the rest of U had to stay in that cabin.
+   (beta 7.16, CEF drawing) the owner: "CEF plan requires 2 cabin interconnection with multiple portholes, ladder and conduits involve. issue: the UG FOC
+   cannot be drawn to follow the plan that will snap on the usual elements used for FOC laying. in this case from Riser > Conduit > Exit Conduit > Porthole >
+   Ladder > porthole > Ladder > porthole > ladder > rack > ODF". Before, a fiber that went into a cabin had to end in it: one that went on out of it (through
+   another porthole, along the ladder between two cabins, into the next) was not taken into any cabin at all, and was drawn as new conduit buried under the
+   floor of the first. Now the fiber may go into a cabin and out again as often as it is drawn: cabPasses gives each pass through a cabin c, from the
+   first point inside it (j) to the last (last); the porthole it goes in by (qi, through the hole hi; atI: the point before is on that porthole) and, when it
+   goes on, the porthole it goes out by (qo, through the hole ho; atO: a point of U is on that porthole, the site again from there, next), the one tapped,
+   else the one nearest to where it goes. Each hole is taken in that order (in, out; pass by pass), so routeGeom and viaRoute give each cable the same. */
+function cabPasses(S, U, holes) {
+  if (!S || S.room || !U || U.length < 2) return [];
+  const n = U.length - 1, out = [], d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]), portOf = (c, p) => { const pa = p ? portAt(S, p, 0.3) : null; return pa && pa.cabin === c ? pa.port : null; };
+  const goOut = (P, e) => {      /* the porthole it goes out by, the one tapped, else the one nearest to where it goes */
+    let m = -1; for (let k = e; k > P.j; k--) if (!cabinOf(S, U[k]) && portOf(P.c, U[k])) { m = k; break; }
+    if (m > 0) Object.assign(P, { qo: portOf(P.c, U[m]), last: m - 1, next: m, atO: true });
+    else { const qo = portOf(P.c, U[e + 1]) || cabPortFor(P.c, U[e + 1]); Object.assign(P, { qo, last: e, next: e + 1, atO: false }); }
+  };
+  let i = 1; const c0 = cabinOf(S, U[0]);
+  if (c0) {      /* it starts inside a cabin (a cable from an ODF in one cabin to one in another): a pass from its start, only when it goes out of that cabin; all of it in one cabin: as before */
+    let e = 0; while (e < n && inCabin(c0, U[e + 1], -0.2)) e++; if (e === n) return [];
+    const P = { c: c0, j: 0, last: n, qi: null, atI: false, hi: null, qo: null, atO: false, next: -1 }; goOut(P, e);
+    P.ho = holeAt(c0, P.qo, pickHole(c0, P.qo, P.atO ? U[P.next + 1] || U[P.next] : U[P.next], holes)); out.push(P); i = P.next;
   }
-  return best ? best.P : null;      /* (a piece into a cabin is never left to what is drawn on the site: the trench that ends at the wall would lead it out again) */
+  for (; i <= n;) {
+    const c = cabinOf(S, U[i]); if (!c) { i++; continue; }
+    const j = i; let e = j; while (e < n && inCabin(c, U[e + 1], -0.2)) e++;
+    const qi = portOf(c, U[j - 1]) || cabPortFor(c, U[j - 1]), atI = d2(U[j - 1], qi.at) < 0.3, P = { c, j, last: n, qi, atI, qo: null, atO: false, next: -1 };
+    if (e < n) goOut(P, e);
+    P.hi = holeAt(c, qi, pickHole(c, qi, (atI && j > 1 ? U[j - 2] : null) || U[j - 1], holes));
+    if (P.qo) P.ho = holeAt(c, P.qo, pickHole(c, P.qo, P.atO ? U[P.next + 1] || U[P.next] : U[P.next], holes));
+    out.push(P); i = P.qo ? P.next : n + 1;
+  }
+  return out;
 }
-/* Where the UG fiber U (points of the site) goes into a cabin: the first point inside it (j), the porthole q it comes in by, the part on the site (Uo, which ends on
-   the porthole) and the part inside (pin, in the cabin's own directions: from the outer face of the wall, through it to the porthole, on along the ladder),
-   each piece with the leg of U it is part of (map). The rest of U must stay in that cabin; null when U does not go into one. */
-function cabVia(S, U, holes) {
-  if (!S || S.room || !U || U.length < 2) return null; let j = -1, c = null;
-  for (let i = 1; i < U.length; i++) { const e = cabinOf(S, U[i]); if (e) { j = i; c = e; break; } }
-  if (!c || cabinOf(S, U[0]) || U.slice(j).some(p => !inCabin(c, p, -0.2))) return null;
-  const pa = portAt(S, U[j - 1], 0.3), q = pa && pa.cabin === c ? pa.port : cabPortFor(c, U[j - 1]), atP = Math.hypot(U[j - 1][0] - q.at[0], U[j - 1][1] - q.at[1]) < 0.3, I = cabRoom(c);
-  const H = holeAt(c, q, pickHole(c, q, (atP && j > 1 ? U[j - 2] : null) || U[j - 1], holes)), out = H.O;      /* (beta 7.16, CEF drawing) through a hole of its own */
-  const n = U.length - 1, endIt = p => I.els.some(e => (e.t === 'odf' || e.t === 'rack') && Math.hypot(e.x - p[0], e.y - p[1]) < 0.6);
-  const pin0 = [H.o, H.w].concat(U.slice(j).map((p, k) => { const r = toRoom(c, p); return j + k === n && endIt(r) ? r : ladOn(I, r, 0.6) || r; })), map0 = [j - 1, j - 1]; for (let i = j + 1; i < U.length; i++) map0.push(i - 1);      /* a point close to a ladder is on it, as a tap there snaps onto it (one drawn before that did not snap) */
-  const pin = [pin0[0]], map = [];
-  for (let k = 0; k + 1 < pin0.length; k++) { const a = pin0[k], b = pin0[k + 1], F = k && !carrier(I, a, b) ? followRuns(I, a, b, 2.5) : null; for (const p of F ? F.slice(1) : [b]) { pin.push(p); map.push(map0[k]); } }      /* a piece that has no ladder under it takes the ladder that leads there */
-  return { c, j, q, H, out, atP, I, Uo: U.slice(0, j).concat(atP ? [] : [q.at]), pin, map };
+/* the part of U inside the cabin of pass P, in the cabin's own directions (pin): in through its hole, along the ladder (a point close to it is on it, as a tap
+   there snaps onto it; a piece with no ladder under it takes the ladder that leads there), to the end, or out through the hole it goes out by; map: the leg of
+   U each piece is part of */
+function passPin(U, P, I) {
+  const c = P.c, n = U.length - 1, endIt = p => I.els.some(e => (e.t === 'odf' || e.t === 'rack') && Math.hypot(e.x - p[0], e.y - p[1]) < 0.6);
+  const pin0 = (P.qi ? [P.hi.o, P.hi.w] : []).concat(U.slice(P.j, P.last + 1).map((p, k) => { const r = toRoom(c, p); return (P.j + k === n || P.j + k === 0) && endIt(r) ? r : ladOn(I, r, 0.6) || r; })), map0 = P.qi ? [P.j - 1, P.j - 1] : []; for (let i = P.j + 1; i <= P.last; i++) map0.push(i - 1);      /* (beta 7.16, CEF drawing: from its start inside the cabin, at the ODF) */
+  if (P.qo) { pin0.push(P.ho.w, P.ho.o); map0.push(P.last, P.last); }      /* (beta 7.16, CEF drawing) and out through its hole */
+  const pin = [pin0[0]], map = [], k1 = P.qo ? pin0.length - 2 : -1;
+  for (let k = 0; k + 1 < pin0.length; k++) { const a = pin0[k], b = pin0[k + 1], F = (k || !P.qi) && k !== k1 && !carrier(I, a, b) ? followRuns(I, a, b, 2.5) : null; for (const p of F ? F.slice(1) : [b]) { pin.push(p); map.push(map0[k]); } }
+  return { pin, map };
 }
+/* a pass as what cabInPart works on: its cabin and inside sketch, the porthole and hole it goes in by (q, H), the one it goes out by (qo, Ho), the inside part */
+function passVia(U, P) { const c = P.c, I = cabRoom(c), Q = passPin(U, P, I); return { c, j: P.j, q: P.qi, H: P.hi, qo: P.qo, Ho: P.ho || null, out: P.hi ? P.hi.O : null, atP: P.atI, I, Uo: U.slice(0, P.j).concat(P.qi && !P.atI ? [P.qi.at] : []), pin: Q.pin, map: Q.map }; }
 /* the nearest point on the line of a cable ladder of a sketch, within tol */
 function ladOn(S, p, tol) { let b = null; for (const r of S.runs || []) if (r.kind === 'ladder' && r.pts && r.pts.length > 1) { const P = ladPath(r).map(q => q.p); for (let i = 0; i + 1 < P.length; i++) { const a = P[i], c = P[i + 1], dx = c[0] - a[0], dy = c[1] - a[1], l2 = dx * dx + dy * dy || 1, t = clamp(((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2, 0, 1), q = [a[0] + dx * t, a[1] + dy * t], d = Math.hypot(p[0] - q[0], p[1] - q[1]); if (d < tol && (!b || d < b.d)) b = { d, q }; } } return b ? b.q : null; }
 /* the UG fiber of a cabin's inside that the site's UG fiber makes (a route of the inside sketch, in its own directions), for the drawings of that inside; null when none goes in */
 function viaRoute(S, el) {
-  if (!S || S.room) return null;
-  const holes = new Map(); for (const R of cables(S)) { const v = cabVia(S, (R.ug.pts || []).map(p => [p.x, p.y]), holes); if (v && v.c === el) return { ae: { pts: [], cable: R.ae.cable }, ug: { pts: v.pin.map(p => ({ x: Math.round(p[0] * 1000) / 1000, y: Math.round(p[1] * 1000) / 1000 })), legs: v.pin.slice(1).map(() => ({ type: 'auto' })), cable: R.ug.cable }, aerialH: S.route.aerialH, endRise: S.route.endRise, note: '', via: 1, startZ: v.H.z, floor: (v.I.runs || []).some(r => r.kind === 'ladder' && r.pts && r.pts.length > 1) ? 0 : 1 }; }      /* (from the outer face of the wall, as the site counts it) */
+  if (!S || S.room) return null; const holes = new Map();      /* (beta 7.16, CEF drawing) the pass through this cabin, of the first cable that goes through it: in through its hole, out through another */
+  for (const R of cables(S)) {
+    const U = (R.ug.pts || []).map(p => [p.x, p.y]), P = cabPasses(S, U, holes).find(q => q.c === el); if (!P) continue; const v = passVia(U, P);
+    const o = { ae: { pts: [], cable: R.ae.cable }, ug: { pts: v.pin.map(p => ({ x: Math.round(p[0] * 1000) / 1000, y: Math.round(p[1] * 1000) / 1000 })), legs: v.pin.slice(1).map(() => ({ type: 'auto' })), cable: R.ug.cable }, aerialH: S.route.aerialH, endRise: S.route.endRise, note: '', via: 1, startZ: v.H ? v.H.z : null, floor: (v.I.runs || []).some(r => r.kind === 'ladder' && r.pts && r.pts.length > 1) ? 0 : 1 };      /* (from the outer face of the wall, as the site counts it) */
+    if (v.Ho) o.endZ = v.Ho.z; return o;
+  }
   return null;
 }
-const viaIn = (S, el) => !S.room && cables(S).some(R => { const v = cabVia(S, (R.ug.pts || []).map(p => [p.x, p.y])); return !!v && v.c === el; });      /* the site's UG fiber goes on inside this cabin (and is counted so) */
+const viaIn = (S, el) => !S.room && cables(S).some(R => cabPasses(S, (R.ug.pts || []).map(p => [p.x, p.y])).some(P => P.c === el));      /* the site's UG fiber goes on inside this cabin (and is counted so) (beta 7.16, CEF drawing: or through it) */
+const viaHas = (v, id) => !!v && (v.cab === id || (v.thru || []).some(w => w.cab === id));      /* (beta 7.16, CEF drawing) a fiber's way into a cabin (out.via), and the cabins it went through on the way (thru) */
 /* ---------- 2.45.1 / beta 6.9: a cable ladder on the wall (r.mount 'wall'). Not set: it stands, as before (on posts outside, hung from the ceiling inside).
    It runs along a wall of the room (inside a cabin or a telco room) or of a cabin or structure (on the site), at its height (r.z) from the floor.
    beta 7.2 / 2.45.3 (the owner: "it is the same how cable ladder works or draw horizontally, it's just attached to the wall of cabin or telco room
@@ -924,7 +1001,8 @@ function routeGeom1(S, R, cno, holes) {
   const un2 = (x, y) => { const l = Math.hypot(x, y) || 1; return [x / l, y / l]; }, d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
   const onPole = p => { const e = poleAt(S, p); return e ? [e.x, e.y] : p; };            /* a point of the aerial cable that sits on a pole is at the pole itself */
   const A = ((R.ae && R.ae.pts) || []).map(p => onPole([p.x, p.y])), U0 = ((R.ug && R.ug.pts) || []).map(p => [p.x, p.y]);
-  const VIA = cabVia(S, U0, holes), U = VIA ? VIA.Uo : U0;      /* 2.45.1 / beta 6.9: a UG fiber that goes on inside a cabin: worked out here up to its porthole, and inside on the sketch of its inside (below) */
+  const PS = cabPasses(S, U0, holes); if (PS.length > 1 || (PS.length && PS[0].qo)) return routeVia(S, R, cno, holes, U0, PS);      /* (beta 7.16, CEF drawing) through a cabin and on */
+  const VIA = PS.length ? passVia(U0, PS[0]) : null, U = VIA ? VIA.Uo : U0;      /* 2.45.1 / beta 6.9: a UG fiber that goes on inside a cabin: worked out here up to its porthole, and inside on the sketch of its inside (below) */
   const aeZ = pt => { const z = groundZ(S, pt); return z > 0 ? z + 0.5 : num(R.aerialH, STD.msg); };
   /* ----- AE: pole to pole, with its loops ----- */
   if (A.length > 1) {
@@ -934,14 +1012,14 @@ function routeGeom1(S, R, cno, holes) {
   const aeEnd = A.length > 1 ? A[A.length - 1] : null, n2 = U.length - 1;
   /* ----- UG ----- */
   if (U.length > 1) {
-    const n = U.length - 1, raw = [], above = t => t === 'ladder' || t === 'liquid' || t === 'wall' || t === 'open';
+    const n = U.length - 1, raw = [], above = t => t === 'ladder' || t === 'liquid' || t === 'wall' || t === 'open', LM = i => R.legMap ? R.legMap[i] : i;      /* (beta 7.16, CEF drawing: LM, the leg of the drawn fiber a piece of the site is part of) */
     for (let i = 0; i < n; i++) {
       const a = U[i], b = U[i + 1], want = (R.ug.legs[i] || {}).type, man = want && want !== 'auto' && want !== 'aerial' && LEG[want] ? want : null;
       const c = man ? (man === 'ladder' || man === 'ug' || man === 'xug' ? carrier(S, a, b, man) : null) : carrier(S, a, b);
       let type = man, run = null, path = [a, b];
       const tyOf = r => r.kind === 'ladder' ? 'ladder' : r.kind === 'trench' ? 'ug' : r.st === 'E' ? 'xug' : 'ug'; let parts = null;
       if (c) { run = c.r; path = c.P; if (!man) type = tyOf(c.r); if (c.parts) parts = c.parts.map(k => ({ run: k.r, path: k.P, type: man || tyOf(k.r), a: k.P[0], b: k.P[k.P.length - 1] })); }      /* parts: through two runs that meet */
-      if (man === 'ladder' && !run) out.notes.push('UG leg ' + (i + 1) + ' is set to run on a cable ladder, but no ladder is drawn under it. It is drawn on the ground.');
+      if (man === 'ladder' && !run) out.notes.push('UG leg ' + (LM(i) + 1) + ' is set to run on a cable ladder, but no ladder is drawn under it. It is drawn on the ground.');
       raw.push({ i, a, b, type, run, path, man: !!man, parts });
     }
     const offPad = (l, pd) => { const Q = elPoly(pd); let k = 0; for (let j = 0; j <= 20; j++) if (!inPoly([l.a[0] + (l.b[0] - l.a[0]) * j / 20, l.a[1] + (l.b[1] - l.a[1]) * j / 20], Q)) k++; return d2(l.a, l.b) * k / 21; };      /* how much of a piece lies off a pad */
@@ -952,7 +1030,7 @@ function routeGeom1(S, R, cno, holes) {
       const pv = raw[l.i - 1], nx = raw[l.i + 1], up = (pv && pv.type && above(pv.type)) || (nx && nx.type && above(nx.type)) || (l.i === n - 1 && hostEnd);
       const px = pass === 0 && l.i === n - 1 && !(pv && pv.type && above(pv.type)) ? padX(S, l.b) : null;      /* (14 Nov 17:00) into what stands on a pad with its exit pipe built in: the cable stays in the ground and comes up in that pipe */
       if (px) nonEnum(l, 'px', px);
-      if (pass === 0) { if (up && d2(l.a, l.b) < 4 && !l.px) l.type = 'open'; } else { l.type = l.px && l.px.st !== 'P' ? 'xug' : 'ug'; if (!(l.px && offPad(l, l.px) < 0.3) && groundZ(S, [(l.a[0] + l.b[0]) / 2, (l.a[1] + l.b[1]) / 2]) < 0.01) out.notes.push('UG leg ' + (l.i + 1) + ' has no trench or conduit drawn under it. It counts as new conduit in an open trench, ' + f1(UGD) + ' m deep.'); }
+      if (pass === 0) { if (up && d2(l.a, l.b) < 4 && !l.px) l.type = 'open'; } else { l.type = l.px && l.px.st !== 'P' ? 'xug' : 'ug'; if (!(l.px && offPad(l, l.px) < 0.3) && groundZ(S, [(l.a[0] + l.b[0]) / 2, (l.a[1] + l.b[1]) / 2]) < 0.01) out.notes.push('UG leg ' + (LM(l.i) + 1) + ' has no trench or conduit drawn under it. It counts as new conduit in an open trench, ' + f1(UGD) + ' m deep.'); }
     }
     const P = [];
     for (const l0 of raw) for (const l of l0.parts ? l0.parts.map(k => Object.assign({ i: l0.i }, k)) : [l0]) {
@@ -984,7 +1062,7 @@ function routeGeom1(S, R, cno, holes) {
       return null;
     };
     for (const q of P) for (const k of ['a', 'b']) { const e = poleAt(S, q[k]); if (e && (q[k][0] !== e.x || q[k][1] !== e.y)) { q[k] = [e.x, e.y]; q.plan = d2(q.a, q.b); } }      /* a piece that ends on a pole ends at the pole itself, so the riser lies against it */
-    const T0 = R.startZ != null ? { z: R.startZ } : endT(U[0], P.length ? P[0].b : null), T1 = VIA ? { z: baseZ(S, VIA.c) + VIA.H.z, at: VIA.out, level: 1 } : endT(U[n], P.length ? P[P.length - 1].a : null);      /* (2.45.1 / beta 6.9: into a cabin, to its porthole) */
+    const T0 = R.startZ != null ? { z: R.startZ } : R.portA ? Object.assign({ level: 1 }, R.portA) : endT(U[0], P.length ? P[0].b : null), T1 = VIA ? { z: baseZ(S, VIA.c) + VIA.H.z, at: VIA.out, level: 1 } : R.portB ? Object.assign({ level: 1 }, R.portB) : R.endZ != null ? { z: R.endZ } : endT(U[n], P.length ? P[P.length - 1].a : null);      /* (beta 7.16, CEF drawing: portA, portB: a piece of the site from or to a hole of a porthole; endZ: inside a cabin, out through a hole) */      /* (2.45.1 / beta 6.9: into a cabin, to its porthole) */
     if (T0 && T0.at && P.length) { const l = P[0]; l.a = T0.at; l.plan = d2(l.a, l.b); }
     if (T1 && T1.at && P.length) { const l = P[P.length - 1]; l.b = T1.at; l.plan = d2(l.a, l.b); }
     for (let k = 0; k < P.length; k++) if (P[k].type === 'open') {          /* a piece in the open goes straight from where the one before ends to where the next begins */
@@ -993,6 +1071,7 @@ function routeGeom1(S, R, cno, holes) {
       q.zb = nx ? q.za : T1 ? T1.z : q.g + 0.05; if (R.floor && pv) q.za = q.zb = q.g + 0.05;      /* (2.45.1 / beta 6.9: a cabin with no cable ladder: down the wall from the porthole and along the floor) */      /* (19:25) in the open it runs level: where the height changes, the upright piece made below takes it straight up or down at the start of the next piece */
       if (!pv && T0 && T0.level && nx) { q.zb = nx.type === 'open' ? q.zb : nx.za < nx.g - 0.05 ? exitTop(S, q.b) : nx.za; q.za = q.zb; } if (!nx && T1 && T1.level) q.zb = q.za;      /* level to the rack, then straight down to the ODF */
     }
+    if (R.endZ != null && P.length && P[P.length - 1].type === 'open') { const q = P[P.length - 1]; q.za = q.zb = R.endZ; }      /* (beta 7.16, CEF drawing) out of a cabin: level through the wall, at the height of its hole */
     /* beta 4.2 (19:25): into an outdoor cabinet the cable goes through the entry of that cabinet (odcPort): the one the user chose, or the one the app chooses.
        Outside it runs level, or straight up or down, and never through the cabinet: over the roof, down the outside of a wall, along the foot (hop: the
        cabinet). Inside (inside: 1) a piece runs from the entry to over or under the ODF; the upright piece made next takes the cable to the ODF. */
@@ -1091,7 +1170,7 @@ function routeGeom1(S, R, cno, holes) {
       if ((l.type !== 'ug' && l.type !== 'xug' && l.type !== 'liquid') || l.px) continue;      /* (14 Nov 17:00: the pipe in a pad goes under what stands on it) */
       for (const e of S.els) { if (block.indexOf(e.t) < 0) continue; const poly = elPoly(e); if (inPoly(U[0], poly) || inPoly(U[n], poly)) continue; if (segPoly(l.a, l.b, poly)) { const nm = e.name || TYPES[e.t].s, w = W[l.i] || (W[l.i] = []); if (w.indexOf(nm) < 0) w.push(nm); } }
     }
-    for (const k in W) out.warn.push({ leg: +k, names: W[k] });
+    for (const k in W) out.warn.push({ leg: LM(+k), names: W[k] });
   }
   if (VIA) cabInPart(S, R, cno, VIA, out);      /* 2.45.1 / beta 6.9: on inside the cabin */
   if (aeEnd && !out.join) {      /* (14 Nov 17:00) the AE fiber ends on a pole with a Dummy NAP, and no UG fiber meets it there: down (or up) the pole beside the NAP and into its bottom */
@@ -1109,6 +1188,11 @@ function routeGeom1(S, R, cno, holes) {
   if (A.length > 1 && !poleAt(S, aeEnd) && !napAt(S, aeEnd)) out.notes.push('The AE fiber does not end on a pole. End it on the riser pole.');
   if (A.length > 1 && U.length > 1 && !out.join) out.notes.push('The AE and UG fibers do not meet. End the AE fiber and start the UG fiber on the same riser pole.');
   if (S.room && U.length > 1 && !S.els.some(e => e.t === 'port' && (d2([e.x, e.y], U[0]) < 0.35 || d2([e.x, e.y], U[n2]) < 0.35))) out.notes.push('The cable inside the cabin does not start at a porthole.');
+  routeSum(out, R); out.U = U0; out.A = A;
+  return out;
+}
+/* the sums of a fiber's lengths (beta 7.16, CEF drawing: on their own, for a fiber put together of its pieces on the site and in the cabins, routeVia) */
+function routeSum(out, R) {
   const s = out.sum;
   for (const l of out.legs) s[l.cab || R.via ? 'inside' : l.type] += l.cab || R.via ? l.len : r1w(l.len);      /* (R.via: the cable of a cabin's inside that the site's UG fiber makes, counted as the site counts it) */      /* (2.45.1 / beta 6.9: what is inside a cabin counts as inside it, along its path: its short pieces round the bends of a ladder are not written one by one) */      /* beta 6.6: each leg counts as the plan writes its length (0.1 m), so the written lengths add up to the totals */
   for (const q of out.drops) s.aerial += r1w(q.len);      /* (14 Nov 17:00) down the pole into a Dummy NAP: AE cable */
@@ -1116,26 +1200,55 @@ function routeGeom1(S, R, cno, holes) {
   for (const k of out.links) s.vert += Math.hypot(k.b[0] - k.a[0], k.b[1] - k.a[1]);
   for (const l of out.loops) { s.loop += r1w(l.len); s.nloop++; }
   for (const k in s) if (k !== 'nloop') s[k] = r1w(s[k]);      /* beta 6.6: no float dust (10.3 + 2.1 is 12.4) */
-  out.U = U0; out.A = A;
-  return out;
 }
 /* 2.45.1 / beta 6.9: the part of a UG fiber inside a cabin (V: cabVia), worked out on the sketch of its inside and put on the site, its pieces and upright pieces
    marked with the cabin (cab): through the wall to the porthole, along the cable ladder at its height, to the rack and into the ODF at its rack units. With no
    ladder inside: down the wall and along the floor. out.via: what the cable runs on, and what the app took as it is not drawn. */
-function cabInPart(S, R, cno, V, out) {
+function cabInPart(S, R, cno, V, out, site) {
+  site = site || out;      /* (beta 7.16, CEF drawing) site: the piece of the fiber on the site that comes to this cabin (what it runs on to get here) */
   const c = V.c, I = V.I, zf = baseZ(S, c), F = p => fromRoom(c, p), legs = (R.ug && R.ug.legs) || [];
-  const Rin = fl => ({ ae: { pts: [] }, ug: { pts: V.pin.map(p => ({ x: p[0], y: p[1] })), legs: V.map.map((k, i) => ({ type: i ? (legs[k] || {}).type || 'auto' : 'auto' })) }, aerialH: R.aerialH, endRise: R.endRise, startZ: V.H.z, floor: fl });
+  const Rin = fl => { const o = { ae: { pts: [] }, ug: { pts: V.pin.map(p => ({ x: p[0], y: p[1] })), legs: V.map.map((k, i) => ({ type: i && !(V.Ho && i === V.map.length - 1) ? (legs[k] || {}).type || 'auto' : 'auto' })) }, aerialH: R.aerialH, endRise: R.endRise, startZ: V.H ? V.H.z : null, floor: fl }; if (V.Ho) o.endZ = V.Ho.z; return o; };      /* (beta 7.16, CEF drawing: and out through a hole, endZ; through the wall the cable is in the open) */
   const has = (I.runs || []).some(r => r.kind === 'ladder' && r.pts && r.pts.length > 1), g = routeGeom1(I, Rin(has ? 0 : 1), cno), lad = g.legs.some(l => l.type === 'ladder');
   for (const l of g.legs) out.legs.push(Object.assign({}, l, { a: F(l.a), b: F(l.b), za: l.za + zf, zb: l.zb + zf, g: l.g + zf, i: V.map[l.i], cab: c.id }));
   for (const v of g.verts) { const q = Object.assign({}, v, { at: F(v.at), z0: v.z0 + zf, z1: v.z1 + zf, g: v.g + zf, u: v.u ? rot2(v.u[0], v.u[1], c.rot || 0) : null, cab: c.id }); if (v.at2) q.at2 = F(v.at2); out.verts.push(q); }
-  const used = [], assumed = [], end = V.pin[V.pin.length - 1], it = I.els.find(e => e.t === 'odf' && Math.hypot(e.x - end[0], e.y - end[1]) < 0.6), rk = it ? rackHost(I, it) : I.els.find(e => e.t === 'rack' && inPoly(end, elPoly(e))), nm = elLabel(S, c).toLowerCase();
-  if (out.risers.length) used.push('riser pipe');
-  { const k = new Set(out.legs.filter(l => !l.cab && l.run).map(l => l.run.kind)); if (k.has('trench')) used.push('trench'); else if (k.has('conduit') || k.has('encase')) used.push('conduit'); if (k.has('ladder')) used.push('cable ladder outside'); }
-  if (out.exits.some(x => x.el)) used.push('exit conduit'); else if (out.padx.length) used.push('exit pipe in the base pad'); else if (out.bare.length) assumed.push('no exit conduit is drawn: it comes out of the ground at the wall');
-  if (V.q.made) { assumed.push('no porthole is drawn: it goes through the wall'); out.notes.push('No porthole is drawn in ' + nm + '. The UG fiber goes through its wall where it comes to it. Draw the porthole in the sketch of its inside.'); } else used.push('porthole');
+  const used = [], assumed = [], end = V.pin[V.pin.length - 1], it = V.Ho ? null : I.els.find(e => e.t === 'odf' && Math.hypot(e.x - end[0], e.y - end[1]) < 0.6), rk = it ? rackHost(I, it) : V.Ho ? null : I.els.find(e => e.t === 'rack' && inPoly(end, elPoly(e))), nm = elLabel(S, c).toLowerCase();
+  if (site.risers.length) used.push('riser pipe');
+  { const k = new Set(site.legs.filter(l => !l.cab && l.run).map(l => l.run.kind)); if (k.has('trench')) used.push('trench'); else if (k.has('conduit') || k.has('encase')) used.push('conduit'); if (k.has('ladder')) used.push('cable ladder outside'); }
+  if (site.exits.some(x => x.el)) used.push('exit conduit'); else if (site.padx.length) used.push('exit pipe in the base pad'); else if (site.bare.length) assumed.push('no exit conduit is drawn: it comes out of the ground at the wall');
+  if (!V.q) { /* (beta 7.16, CEF drawing) it starts in this cabin */ } else if (V.q.made) { assumed.push('no porthole is drawn: it goes through the wall'); out.notes.push('No porthole is drawn in ' + nm + '. The UG fiber goes through its wall where it comes to it. Draw the porthole in the sketch of its inside.'); } else used.push('porthole');
   if (lad) used.push('cable ladder'); else if (!has) assumed.push('no cable ladder inside: down the wall and along the floor');
   if (it) used.push(rk ? 'ODF in the rack' : 'ODF'); else if (rk) used.push('rack');
-  out.via = { cab: c.id, name: nm, used, assumed, len: r1w(g.legs.reduce((t, l) => t + l.len, 0) + g.verts.reduce((t, v) => t + v.z1 - v.z0, 0)) };
+  if (V.Ho) { if (V.qo.made) { assumed.push('no other porthole is drawn: it goes out through the wall'); out.notes.push('The UG fiber goes on out of ' + nm + ', and no porthole is drawn there. Draw the porthole in the sketch of its inside.'); } else used.push('its other porthole'); }      /* (beta 7.16, CEF drawing) */
+  const v = { cab: c.id, name: nm, used, assumed, len: r1w(g.legs.reduce((t, l) => t + l.len, 0) + g.verts.reduce((t, v) => t + v.z1 - v.z0, 0)) }; if (V.Ho) v.out = 1;
+  out.via = v; return v;
+}
+/* (beta 7.16, CEF drawing) A UG fiber that goes through a cabin and on (PS: cabPasses): its pieces on the site (before the first cabin, between two, after the
+   last), each worked out as a fiber of its own that starts or ends at a hole of a porthole (portA, portB, at the hole's height, on the outer face of the wall),
+   and its passes through the cabins, each worked out on the sketch of that cabin's inside (cabInPart); put together in their order, each piece keeping the
+   leg of the drawn fiber it is part of (its number, the names of its lengths and the kind the user set for it). out.via: the way into the last cabin, its
+   thru: the cabins the fiber went through before. The aerial fiber and the riser go with the first piece. */
+function routeVia(S, R, cno, holes, U0, PS) {
+  const n = U0.length - 1, legs = (R.ug && R.ug.legs) || [], vias = []; let A = [];
+  const out = { legs: [], verts: [], loops: [], exits: [], bare: [], padx: [], drops: [], risers: [], links: [], warn: [], notes: [], ports: {}, join: null, sum: { aerial: 0, ug: 0, xug: 0, ladder: 0, open: 0, liquid: 0, wall: 0, vert: 0, loop: 0, nloop: 0, ae: 0, ugt: 0, total: 0, inside: 0 } };
+  for (let k = 0; k <= PS.length; k++) {
+    const pa = k ? PS[k - 1] : null, pb = PS[k] || null; if (pa && !pa.qo) break;
+    const pts = [], li = []; let site = null;
+    if (pa && !pa.atO) { pts.push(pa.qo.at); li.push(pa.last); }
+    for (let i = pa ? pa.next : 0, to = pb ? pb.j - 1 : n; i <= to; i++) { pts.push(U0[i]); li.push(i); }
+    if (pb && pb.qi && !pb.atI) pts.push(pb.qi.at);
+    if (pts.length > 1) {
+      const map = li.slice(0, pts.length - 1), Rk = { ae: k ? { pts: [], cable: (R.ae || {}).cable } : R.ae, ug: { pts: pts.map(p => ({ x: p[0], y: p[1] })), legs: map.map(i => legs[i] || { type: 'auto' }), cable: (R.ug || {}).cable }, aerialH: R.aerialH, endRise: R.endRise, note: R.note, legMap: map };
+      if (pa) Rk.portA = { z: baseZ(S, pa.c) + pa.ho.z, at: pa.ho.O }; if (pb) Rk.portB = { z: baseZ(S, pb.c) + pb.hi.z, at: pb.hi.O };
+      site = routeGeom1(S, Rk, cno, holes); if (!k) A = site.A;
+      for (const key of ['legs', 'verts', 'loops', 'exits', 'bare', 'padx', 'drops', 'risers', 'links', 'warn', 'notes']) for (const q of site[key]) { if (key === 'legs' && q.f === 'ug') q.i = map[q.i]; out[key].push(q); }
+      for (const id in site.ports) if (!out.ports[id]) out.ports[id] = site.ports[id];
+      if (site.join && !out.join) out.join = site.join;
+    }
+    if (pb) vias.push(cabInPart(S, R, cno, passVia(U0, pb), out, site || { risers: [], legs: [], exits: [], padx: [], bare: [] }));
+  }
+  if (vias.length > 1) out.via.thru = vias.slice(0, -1);
+  routeSum(out, R); out.U = U0; out.A = A;
+  return out;
 }
 /* beta 7.2 / 2.45.3: a closure stands on the pole at p: where the AE and UG fibers meet with a closure, or a closure the user put on that pole */
 function cloOnPole(S, rg, p) { const pl = poleAt(S, p); if (!pl) return false; if (rg.join && rg.join.pole === pl && !rg.join.none) return true; return S.els.some(e => e.t === 'clo' && Math.hypot(e.x - pl.x, e.y - pl.y) < 0.6); }
@@ -1154,7 +1267,7 @@ function routeGeom(S) {
   /* the same UG cable carries on inside a cabin, from the porthole to the ODF: that length goes to the cable that reaches the cabin */
   if (!S.room) for (const e of S.els) if (e.t === 'cabin' && e.inside && e.inside.route && e.inside.route.ug && e.inside.site) {      /* (2.45.1 / beta 6.9: ugm, the cable drawn inside: the site's UG cable has the allowance once) */
     const add = routeGeom(e.inside).sum.ugm, poly = elPoly(e), reach = p => p.U.some(q => inPoly(q, poly) || cabinPorts(e).some(c => d2(c.at, q) < 0.5)), k = parts.findIndex(reach);
-    if (parts.some(p => p.via && p.via.cab === e.id)) { if (add > 0.05) notes.push('Cable is also drawn in the sketch of the inside of ' + elLabel(S, e).toLowerCase() + '. The UG fiber of the site goes on through its porthole to the end, so that cable is left out of the length. Clear it there, or end the UG fiber of the site on the porthole.'); continue; }      /* 2.45.1 / beta 6.9: the site's UG fiber goes in: it is the cable inside */
+    if (parts.some(p => viaHas(p.via, e.id))) { if (add > 0.05) notes.push('Cable is also drawn in the sketch of the inside of ' + elLabel(S, e).toLowerCase() + '. The UG fiber of the site goes on through its porthole to the end, so that cable is left out of the length. Clear it there, or end the UG fiber of the site on the porthole.'); continue; }      /* 2.45.1 / beta 6.9: the site's UG fiber goes in: it is the cable inside */
     parts[k < 0 ? 0 : k].sum.inside += add;
     if (add > 0.05 && parts.some(p => p.U.some(q => inCabin(e, q, 0.15)))) notes.push('The UG fiber goes on into ' + elLabel(S, e).toLowerCase() + ' on the site sketch, and cable is also drawn in the sketch of its inside, so that length is counted twice. End the UG fiber on the porthole.');
     if (add > 0.05 && k < 0) notes.push('Cable is drawn inside ' + elLabel(S, e).toLowerCase() + ' and counts in the UG length, but the UG fiber on the site does not reach the porthole of that cabin.');
@@ -1935,7 +2048,8 @@ function strokeHelpers(S, skip, own) {
   }
   return { pts, guides };
 }
-/* o: tol (how rough the hand may be, metres), align (false keeps free angles), start (fixed first point), pts and guides to snap to */
+/* o: tol (how rough the hand may be, metres), align (false keeps free angles), start (fixed first point), pts and guides to snap to; free(p): a straight
+   run whose middle p is there stays where it is drawn (beta 7.16, CEF drawing: the FOC drawn inside a cabin, which goes onto its ladder after) */
 function tidyStroke(P, o) {
   o = o || {}; const tol = o.tol || 0.3, tolE = o.tolEnd || tol * 2, g1 = v => Math.round(v * 10) / 10;
   const near = q => { let best = null, bd = tolE; for (const a of o.pts || []) { const d = Math.hypot(a[0] - q[0], a[1] - q[1]); if (d < bd) { bd = d; best = a; } } return best; };
@@ -1950,7 +2064,7 @@ function tidyStroke(P, o) {
   }
   if (!M.length) return [[g1(P[0][0]), g1(P[0][1])]];
   for (const s of M) {                                   /* pull a straight run onto a drawn run or a point it passes */
-    if (s.c === 'F') continue; let hit = null;
+    if (s.c === 'F' || (o.free && o.free(s.c === 'H' ? [(s.lo + s.hi) / 2, s.v] : [s.v, (s.lo + s.hi) / 2]))) continue; let hit = null;
     for (const g of o.guides || []) if (g.c === s.c && Math.abs(g.v - s.v) <= tol * 1.3 && Math.min(g.b, s.hi) - Math.max(g.a, s.lo) >= 0.4 * (s.hi - s.lo) && (hit == null || Math.abs(g.v - s.v) < Math.abs(hit - s.v))) hit = g.v;
     if (hit == null) for (const a of o.pts || []) { const al = s.c === 'H' ? a[0] : a[1], v = s.c === 'H' ? a[1] : a[0]; if (Math.abs(v - s.v) <= tol && al >= s.lo - tol && al <= s.hi + tol && (hit == null || Math.abs(v - s.v) < Math.abs(hit - s.v))) hit = v; }
     s.v = hit == null ? g1(s.v) : hit;
