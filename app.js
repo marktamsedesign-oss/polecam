@@ -244,6 +244,7 @@
   if (S.stamp === false && !S.v20) S.exp.stamp = false;
   if (S.maxPx && !S.v20) S.exp.maxPx = S.maxPx;
   S.v20 = 1;
+  notesMoveAll(); // (beta 7.16, Fixes) the Drawing's notes out of the remarks' key (a project kept by beta 7.12 to 7.15)
   persist();
 
   /* ================= IndexedDB ================= */
@@ -455,6 +456,8 @@
   const tmHooks = {}; // v2.43 beta 2: the team mailbox's hooks into Projects, New project, the KMZ reference and the capture button (set further down)
   /* ---- project mode + acceptance helpers ---- */
   const pmeta = (name) => (S.meta && S.meta[name || S.project]) || { mode: 'survey' };
+  /** (beta 7.16, Fixes) A project's REMARKS / NOTES (its details: pmeta().notes), a text only: never the Drawing's notes (pmeta().drwNotes, notesMove). */
+  const remarksOf = (m) => (m && typeof m.notes === 'string' ? m.notes : '');
   const isAcc = (name) => pmeta(name).mode === 'acceptance';
   const photosOf = (r) => (r.photos ? r.photos : [{ pid: r.id, label: 'Photo' }]);
   /** Deficiencies that must be rectified (notes are informational). */
@@ -712,6 +715,7 @@
   function allPids(r) {
     const s = photosOf(r).map((p) => p.pid);
     if (r.origPid) s.push(r.origPid); // the unmarked photo of a marked survey photo (v2.15)
+    photosOf(r).forEach((p) => { if (p && p.origPid) s.push(p.origPid); }); // ((beta 7.16, Photo marks) and of each other photo marked)
     (r.defs || []).forEach((d) => { if (d.pid) s.push(d.pid); if (d.afterPid) s.push(d.afterPid); if (d.verifyPid) s.push(d.verifyPid); (d.reopened || []).forEach((q) => { if (q.pid) s.push(q.pid); (q.x || []).forEach((y) => { if (y.pid) s.push(y.pid); }); });
       ['xpids', 'xafter', 'xverify'].forEach((k) => (d[k] || []).forEach((y) => { if (y && y.pid) s.push(y.pid); })); }); // beta 3.5: the other photos of each stage
     return s;
@@ -842,13 +846,14 @@
 
   /* ================= full-size photo (v2.14): tap any photo; tap the photo to zoom; × or Back closes ================= */
   let pvUrl = '', pvOpen = false, pvReadBlob = null; // pvReadBlob: a photo shown only to read the ID on it (v2.19 ID photo)
+  let edMk = null; // (beta 7.16, Photo marks) the other photo of the record whose marks the photo view and the marking screen are for (its pid; null: the main photo)
   function showBlob(blob, caption) {
     if (!blob) return;
     if (pvUrl) URL.revokeObjectURL(pvUrl);
     pvUrl = URL.createObjectURL(blob);
     $('pvImg').src = pvUrl; $('pvCap').textContent = caption || ''; $('photoView').classList.remove('zoomed'); $('photoView').hidden = false;
     $('pvTools').hidden = true; $('pvHint').textContent = 'Tap the photo to zoom in or out · × or Back to close';
-    $('photoView').classList.remove('reading'); $('pvMark').hidden = true;
+    $('photoView').classList.remove('reading'); $('pvMark').hidden = true; edMk = null; $('pvRead').hidden = false; // ((beta 7.16, Photo marks) the main photo's, unless another photo of the record is shown for its marks: svPhotoView)
     if (!pvOpen) { pvOpen = true; history.pushState({ photo: 1 }, ''); }
   }
   function hidePhotoView() { pvReadBlob = null; $('photoView').hidden = true; $('photoView').classList.remove('zoomed', 'reading'); $('pvMark').hidden = true; $('pvImg').src = ''; if (pvUrl) { URL.revokeObjectURL(pvUrl); pvUrl = ''; } }
@@ -2162,7 +2167,7 @@
   const strHash = (s) => { let h = 2166136261, k = 5381; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h = Math.imul(h ^ c, 16777619); k = (Math.imul(k, 33) + c) | 0; } return `${s.length}:${(h >>> 0).toString(36)}:${(k >>> 0).toString(36)}`; };
   function drwPhSoon(ms) { clearTimeout(drwPhT); drwPhT = setTimeout(() => { drwPhGo(false); }, ms == null ? 300 : ms); }
   /** (beta 7.9, Drawing preview) The preview made now (force: again, even when nothing changed: Regenerate plan preview). */
-  function drwPhGo(force) { return drwPhRun(force).catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) { drw.phBusy = false; drwPlanUi(); } }); }
+  function drwPhGo(force) { return drwPhRun(force).catch((e) => { LOG.warn('draw.photos', errInfo(e)); if (drw) { drw.phBusy = false; drwPlanUi(); drwPlanFail(e); } }); } // ((beta 7.16, Fixes) the app's own preview code stopped: said, never silent)
   /** The preview being made stops (an export, Back). */
   function drwPhStop() { clearTimeout(drwPhT); drwPhGen++; drwPhForce = false; if (drw) drw.phBusy = false; phStopBuild(); }
   function phStopBuild() { phBuild = null; if (phWorkerEnd) { const f = phWorkerEnd; phWorkerEnd = null; try { phWorker.terminate(); } catch (e) { /* gone */ } phWorker = null; f(); } }
@@ -2175,7 +2180,8 @@
     const seed = await seedText(); if (!live()) return;
     if (!seed || !seedOk(seed)) { drwPlanNone(); return; } // (no template on the phone: the Drawing as before)
     if (!drw.plWant) { drw.plWant = true; drwPlanUi(); } // ((beta 7.9, Drawing preview) a plan to preview: Regenerate plan preview on the Drawing)
-    const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live() || !st) return; // (the records as an export sees them)
+    const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live()) return; // (the records as an export sees them)
+    if (!st) { drwPlanFail('the export has no plan drawing to make'); return; } // ((beta 7.16, Fixes) said, never a silent stop)
     // ((beta 7.9, Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
     const sk = `${seed.length}|${(S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once)
     const job = J.jobOf(st), sig = strHash(`${seedSigC.h}|${JSON.stringify({ ...job, date: 0 })}`), M = drwPhMem.get(proj);
@@ -2184,9 +2190,9 @@
     phStopBuild(); const me = { sig }; phBuild = me; drw.phBusy = true; drwPhForce = false; drwPlanUi(); // (another one being made stops: the newest is the one shown)
     const t0 = Date.now(), res = await planPreview(seed, job); if (phBuild !== me) return; phBuild = null;
     const rep = res && res.report;
-    if (!rep || !rep.photoAt) { if (drw && drw.project === proj) { drw.phBusy = false; drwPlanUi(); } return; } // (the plan could not be made, or by a builder that does not say where its photos went: the photos stay as they are)
-    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before)
-    if (res.perr) LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) });
+    if (!rep || !rep.photoAt) { if (drw && drw.project === proj) { drw.phBusy = false; drwPlanUi(); if (res) drwPlanFail(res.fail || 'the plan builder did not say where its photos go'); } return; } // (the plan could not be made: the photos stay as they are; (beta 7.16, Fixes) and it is said, why)
+    let plan = null; try { plan = drwPlanMake(res.plan); } catch (e) { LOG.warn('draw.plan', errInfo(e)); drwPlanFail(e, 'drawn'); } // ((beta 7.9, Drawing preview) the plan's model space, ready to draw; none: the Drawing as before ((beta 7.16, Fixes) and said))
+    if (res.perr) { LOG.warn('draw.plan.worker', { msg: String(res.perr).slice(0, 160) }); if (!plan) drwPlanFail(res.perr, 'drawn'); } // ((beta 7.16, Fixes) the plan made but not its drawing (dxfpdf.js): said, the photos placed as before)
     const ph = { at: rep.photoAt, sig, row, ms: Date.now() - t0, took: Date.now() - tA, notes: (rep.notes || []).filter((t) => /^Photos placed by hand/.test(t)), plan, grid: drwGridOf(rep), drawnAt: rep.drawnAt || null, n: ++drwPlanN, made: Date.now(),
       planAt: rep.photoAt, fileId: Object.fromEntries([...Object.entries(job.photos || {}).map(([id, x]) => [x.file, id]), ...(job.notes || []).filter((n) => n.photo && n.photo.file).map((n) => [n.photo.file, `note:${n.id}`])]), /* ((beta 7.12, Drawing edit) and each photo note's) */ lab: job.labels === 'tidy' ? 'tidy' : 'std', split: +((job.gridStyle || {}).split) || 0, // (the places the plan's pictures are drawn at; each picture's point; (beta 7.10, Plan kept) the labels and split it was made with)
       mv: Array.isArray(rep.movable) ? rep.movable : null, mvIdx: new Map((rep.movable || []).map((m, i) => [m.id, i])), // ((beta 7.10, Drawing labels) the items the Drawing may move, and each one's place in that list)
@@ -2203,15 +2209,21 @@
   function drwPhNextShow() { const N = drw && drw.phNext; if (!N || drw.mvDrag || drw.hDrag || drw.phDrag) return; drw.phNext = null; if (drw.ph && drw.ph.n > N.ph.n) return; drw.ph = N.ph; drwPlanShow(N.force); }
   /** The plan made for the preview in a worker of its own (an export never waits for it): its report and ((beta 7.9, Drawing preview) dxf-worker.js
    *  only: 'plan') its model space as the PDF prints it, { report, plan }, sent back; null when it fails. */
+  /* (beta 7.16, Fixes) The owner's video: Regenerate plan preview, "Making the plan preview…", then nothing. The plan's worker answers, crashes, or does not answer:
+     every way it fails now comes back with its reason ({ fail }), said on the Drawing (drwPlanFail); null only when it was stopped on purpose (a newer preview,
+     an export, Back). No answer in PH_WAIT ms (2 minutes: a 300-pole Tidy plan takes seconds): the worker let go, "no answer". */
+  let PH_WAIT = 120000;
   function planPreview(seed, job) {
     return new Promise((res) => {
-      let w = null; try { w = phWorker || (phWorker = new Worker('dxf-worker.js')); } catch (e) { w = null; }
-      if (!w) { res(null); return; }
-      const id = `ph-${Date.now()}-${Math.random()}`, off = () => { w.removeEventListener('message', on); w.removeEventListener('error', bad); phWorkerEnd = null; };
-      const on = (ev) => { const r = ev.data || {}; if (r.id !== id) return; off(); if (!r.ok) LOG.warn('draw.photos.plan', { msg: String(r.err || '').slice(0, 160) }); res(r.ok && r.out && r.out.report ? r.out : null); };
-      const bad = (ev) => { off(); try { w.terminate(); } catch (x) { /* gone */ } phWorker = null; LOG.warn('draw.photos.worker', { msg: String((ev && ev.message) || ev).slice(0, 160) }); res(null); };
+      let w = null, why = ''; try { w = phWorker || (phWorker = new Worker('dxf-worker.js')); } catch (e) { w = null; why = e && e.message; }
+      if (!w) { res({ fail: `the plan's worker could not start${why ? ` (${why})` : ''}` }); return; }
+      let tm = 0; const id = `ph-${Date.now()}-${Math.random()}`, off = () => { clearTimeout(tm); w.removeEventListener('message', on); w.removeEventListener('error', bad); phWorkerEnd = null; };
+      const lose = () => { try { w.terminate(); } catch (x) { /* gone */ } if (phWorker === w) phWorker = null; };
+      const on = (ev) => { const r = ev.data || {}; if (r.id !== id) return; off(); if (!r.ok) LOG.warn('draw.photos.plan', { msg: String(r.err || '').slice(0, 160) }); res(r.ok && r.out && r.out.report ? r.out : { fail: r.ok ? 'the plan came back without its report' : String(r.err || 'the plan builder stopped') }); };
+      const bad = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); off(); lose(); const msg = String((ev && ev.message) || ev || 'the worker stopped'); /* (handled: said here, not the page's error too) */ LOG.warn('draw.photos.worker', { msg: msg.slice(0, 160) }); res({ fail: msg }); };
+      tm = setTimeout(() => { off(); lose(); LOG.warn('draw.photos.worker', { msg: 'no answer', ms: PH_WAIT }); res({ fail: `no answer in ${PH_WAIT >= 60000 ? `${Math.round(PH_WAIT / 60000)} minute${PH_WAIT >= 120000 ? 's' : ''}` : `${Math.round(PH_WAIT / 1000)} s`}` }); }, PH_WAIT);
       w.addEventListener('message', on); w.addEventListener('error', bad); phWorkerEnd = () => { off(); res(null); };
-      try { w.postMessage({ id, seed, job, only: 'plan' }); } catch (e) { off(); res(null); }
+      try { w.postMessage({ id, seed, job, only: 'plan' }); } catch (e) { off(); res({ fail: `the plan could not be passed to its worker (${(e && e.message) || e})` }); }
     });
   }
   /** A photo's size as the plan export makes it (pdfJpeg: 800 px on its long side), from its stored file's header (nothing decoded); null without one. */
@@ -2262,7 +2274,7 @@
     if (sel || dr) { g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 5 * d; g.strokeRect(-w / 2, -h / 2, w, h); }
     if (!pl || dr || drwPhMoved(id)) { // ((beta 7.9, Drawing preview) over the plan: the plan draws its picture where it prints it; here only its frame, unless it moved)
       g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(-w / 2, -h / 2, w, h);
-      const th = pl && w >= 20 * d && h >= 20 * d ? drwThumb(it) : null; // (its picture, from the phone, once it is read)
+      const th = pl && w >= 20 * d && h >= 20 * d ? drwStampPic(it) || drwThumb(it) : null; // (its picture, from the phone, once it is read) ((beta 7.16, Fixes) stamped as the export stamps it)
       if (th) g.drawImage(th, -w / 2, -h / 2, w, h);
       else { const k = Math.min(w / 18, h / 14) * 0.8, s = (u) => u * k, X = -s(9), Y = -s(7); // (the picture sign, as the frames before)
         g.fillStyle = hand ? '#74c0fc' : '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill(); } }
@@ -2411,10 +2423,11 @@
     const LF = PL.lifted, lifted = (o) => o >= 0 && LF && LF.has(o); // ((beta 7.10, Drawing labels) the items moved since this plan was made: drawn last, where they are now)
     /** a picture (a pole's photo): its picture from the phone where the plan prints it (ox, oy: moved by, metres); moved since, where it is now (drwPhFrame) */
     const S0 = [sc, 0, 0, -sc, e, f], setM = (Q) => g.setTransform(Q[0], Q[1], Q[2], Q[3], Q[4], Q[5]); // ((beta 7.11, Drawing tools) A: a lifted item's matrix in the plan's metres, else none)
+    const STP = drwStampNow(); // ((beta 7.16, Fixes) the stamp the export burns into the plan's photos now)
     const pic = (im, A) => {
       const m = im.m, id = drw.ph.fileId ? drw.ph.fileId[im.name] : null, nt = id != null && /^note:/.test(id) ? noteNow(id) : null, it = id != null && !nt ? drwEdById(id) : null; // ((beta 7.12, Drawing edit) a photo note's picture: its note's)
       if (it && drwPhMoved(id)) return;
-      const big = Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d, bm = !big ? null : nt ? (nt.photo && nt.photo.pid ? drwThumbPid(nt.photo.pid) : null) : it ? drwThumb(it) : null, Mi = [m[0], m[1], -m[2], -m[3], m[2] + m[4], m[3] + m[5]];
+      const big = Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) * sc >= 20 * d, bm = !big ? null : nt ? (nt.photo && nt.photo.pid ? drwThumbPid(nt.photo.pid) : null) : it ? drwStampPic(it, STP) || drwThumb(it) : null, Mi = [m[0], m[1], -m[2], -m[3], m[2] + m[4], m[3] + m[5]]; // ((beta 7.16, Fixes) stamped as the export stamps it)
       setM(affMul(S0, A ? affMul(A, Mi) : Mi));
       if (bm) g.drawImage(bm, 0, 0, 1, 1); else { g.fillStyle = '#e9ecef'; g.fillRect(0, 0, 1, 1); } // (until it is read, or none: a grey square)
       nT++;
@@ -2531,23 +2544,78 @@
     return null;
   }
   /** The photos' pictures let go (the Drawing closed). */
-  function drwThumbsFree() { for (const x of drwThumbs.values()) if (x.bm) x.bm.close(); drwThumbs.clear(); }
+  function drwThumbsFree() { for (const x of drwThumbs.values()) if (x.bm) x.bm.close(); drwThumbs.clear(); for (const x of drwStamps.values()) if (x.bm) x.bm.close(); drwStamps.clear(); drwStampQ = []; drwStampLoc = null; } // ((beta 7.16, Fixes) and the stamped ones, their addresses (worked out again next time: a road pack added since))
+  /* (beta 7.16, Fixes) The owner: "Stamp on the plan's photos: enabled but not shown on preview." The Drawing's plan preview shows each pole's photo as the export
+     makes it for the plan: with the band the export burns into it (Export › Photos with their locations › Same stamp on the plan's photos: the geotag band with the
+     fields chosen; else Plan style › Photos › Stamp on the photos: lat, long and the address), plain when neither is on. Drawn as the export draws it (photoCanvas,
+     pdfJpeg's own drawing: 800 px on its long side, the band sized as it prints), then kept small (a bitmap 320 px across) per photo and per stamp (its settings,
+     the point's place and record, the address), so a pan or a zoom draws it at once; made one at a time, only for the photos on the screen, the plain picture
+     until it is made. The tick, the stamp's fields or Plan style's stamp changed: the photos stamped anew (another key); let go when the Drawing closes. */
+  const drwStamps = new Map(); let DRW_STAMPS = 60, drwStampQ = [], drwStampBusy = false, drwStampLoc = null, drwStampN = 0; // (60 kept at most: 320 px on their long side, about 18 MB; how many made)
+  /** The stamp the export burns into the plan's photos now: { geo: true, fields } (Same stamp on the plan's photos), { geo: false, pst, mm } (Plan style's), or null. */
+  function drwStampNow() {
+    if (geoOnPlan()) return { geo: true, fields: Array.isArray(S.exp.stampFields) ? S.exp.stampFields.slice() : null };
+    const PLS = plStyle(), pst = PLS.photo && PLS.photo.stamp ? PLS.photo.stamp : 'off'; return pst === 'off' ? null : { geo: false, pst, mm: phTidyMm(PLS.photo.size) };
+  }
+  /** The addresses of the project's points with photos for Plan style's stamp, from the road packs on the phone (as planJob gets them; quietly), worked out once for
+   *  where the points are; null while they are being worked out. */
+  function drwStampAddr() {
+    if (!drw) return null; const L = (drw.items || []).map((x) => x.p).filter((p) => p && coverPid(p) && Number.isFinite(+p.lat) && Number.isFinite(+p.lon)), sig = strHash(`${drw.project}|${L.map((p) => `${p.id}:${(+p.lat).toFixed(6)},${(+p.lon).toFixed(6)}`).join(';')}`);
+    if (drwStampLoc && drwStampLoc.sig === sig && drwStampLoc.map) return drwStampLoc.map; if (drwStampLoc && drwStampLoc.busy === sig) return null;
+    drwStampLoc = { sig: '', busy: sig, map: null };
+    poleLocations(L, true, true).catch((e) => { LOG.warn('draw.stamp.addr', errInfo(e)); return new Map(); }).then((M) => { if (drwStampLoc && drwStampLoc.busy === sig) drwStampLoc = { sig, busy: '', map: M || new Map() }; if (drw && !$('drawing').hidden) drawDrawing(); });
+    return null;
+  }
+  /** A point's photo stamped as the plan prints it (an ImageBitmap), or null: no stamp now, or not made yet (asked for: the plain picture until then). St: drwStampNow(). */
+  function drwStampPic(it, St) {
+    const q = it && it.p; if (St === undefined) St = drwStampNow(); if (!q || !St || !Number.isFinite(+q.lat) || !Number.isFinite(+q.lon)) return null;
+    const pid = coverPid(q) || q.id; let addr = '';
+    if (St.geo ? !St.fields || St.fields.includes('addr') : St.pst === 'addr') { const A = drwStampAddr(); if (!A) return null; addr = A.get(q.id) || ''; } // (the address, worked out quietly here: the geotag band's own lookup shows the busy screen)
+    const key = St.geo ? `${pid}|G|${JSON.stringify(St.fields)}|${q.updated || ''}|${q.lat},${q.lon}|${S.zone}|${addr}` : `${pid}|P|${St.pst}|${St.mm}|${(+q.lat).toFixed(6)},${(+q.lon).toFixed(6)}|${addr}`;
+    const T = drwStamps.get(key); if (T) { T.f = drwFrameN; if (T.bm) { drwStamps.delete(key); drwStamps.set(key, T); } return T.bm; } // (the latest used last: the oldest first out)
+    if (drwStamps.size >= DRW_STAMPS && ![...drwStamps.values()].some((x) => x.f < drwFrameN)) return null; // (as many on the screen as are kept: the others plain, none made and let go in turn)
+    const J0 = drwStampQ.find((J) => J.key === key); if (J0) J0.f = drwFrameN;
+    else { drwStampQ.push({ key, pid, f: drwFrameN, band: St.geo ? null : { lat: q.lat, lon: q.lon, addr, mm: St.mm }, geo: St.geo ? { p: q, fields: St.fields, addr } : null }); if (drwStampQ.length > 200) drwStampQ.shift(); }
+    if (!drwStampBusy) setTimeout(drwStampPump, 0); return null;
+  }
+  /** The stamped pictures asked for, made one at a time (the export's drawing, then small); the Drawing drawn again as each comes. */
+  async function drwStampPump() {
+    drwStampQ = drwStampQ.filter((J) => J.f >= drwFrameN - 1); // (asked for in the last frames only: one off the screen since is not made)
+    if (drwStampBusy || !drwStampQ.length || !drw || $('drawing').hidden) return; drwStampBusy = true; const J = drwStampQ.shift();
+    try {
+      let bm = null; const cv = await photoCanvas(J.pid, 800, null, null, J.band, J.geo); drwStampN++;
+      if (cv) { const k = Math.min(1, 320 / Math.max(cv.width, cv.height)); bm = await createImageBitmap(cv, { resizeWidth: Math.max(1, Math.round(cv.width * k)), resizeHeight: Math.max(1, Math.round(cv.height * k)), resizeQuality: 'high' }); cv.width = 0; cv.height = 0; }
+      while (bm && drwStamps.size >= DRW_STAMPS) { let k0 = null; for (const [k, x] of drwStamps) if (x.f < drwFrameN) { k0 = k; break; } if (k0 == null) { bm.close(); bm = null; break; } const x = drwStamps.get(k0); drwStamps.delete(k0); if (x.bm) x.bm.close(); } // (the oldest not on the screen now let go; all on it: this one not kept)
+      if (bm) drwStamps.set(J.key, { bm, f: J.f }); if (!drwThumbQ) drwThumbQ = requestAnimationFrame(() => { drwThumbQ = 0; if (drw && !$('drawing').hidden) drawDrawing(); });
+    } catch (e) { LOG.warn('draw.stamp', errInfo(e)); drwStamps.set(J.key, { bm: null, f: J.f }); } // (not made: the plain picture)
+    finally { drwStampBusy = false; if (drwStampQ.length) setTimeout(drwStampPump, 30); }
+  }
   /** No plan to preview (the Simple drawing, no template on the phone): the Drawing as before. */
   function drwPlanNone() { if (!drw) return; const had = !!drw.ph || drw.plWant; drw.ph = null; drw.phBusy = false; drw.plWant = false; drwPhForce = false; drwPlanUi(); if (had) { drwPhHint(); renderDrawLegend(); drawDrawing(); } }
   /** The preview made (or as made last time): shown. said: made again by Regenerate plan preview: said beside it, a moment. */
   function drwPlanShow(said) {
     if (!drw) return; drwMvShowPins(); if (drw.mvSel && !(drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.mvSel))) drw.mvSel = null; drw.mvSels = drwSels(); drwPhHint(); drwPlanUi(); renderDrawLegend(); drwTbRender(); drawDrawing(); // ((beta 7.10, Drawing labels) each item where its pin puts it, until the plan made with it comes) ((beta 7.11, Drawing tools) the selection still on the plan, its toolbar)
     if (drw.selWant && drw.ph && drw.ph.mvIdx && drw.ph.mvIdx.has(drw.selWant) && !drw.add && !drwSels().length) { const w = drw.selWant; drw.selWant = null; drwMvTap(w); } // ((beta 7.12, Drawing edit) a note just added: selected once the plan has it)
-    if (said && drw.ph) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
+    if (drw.plFail && drw.ph && drw.ph.plan && (drw.ph.made || 0) >= drw.plFail.at) { drw.plFail = null; const b = $('drawRegenT'); if (b.classList.contains('fail')) { b.classList.remove('fail'); b.textContent = ''; } } // ((beta 7.16, Fixes) a plan made after it: its failure said no more (the photos shown without the plan, or the one made before: still said))
+    if (said && drw.ph && !drw.plFail) { const b = $('drawRegenT'); b.textContent = `Plan preview made (${Math.max(0.1, (drw.ph.took || drw.ph.ms) / 1000).toFixed(1)} s)`; clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.textContent.startsWith('Plan preview made')) b.textContent = ''; }, 2600); }
   }
   let rkAgainOn = ''; // ((beta 7.14, Roads again) the project whose roads are being got again ('': none), roadsAgain)
+  /** (beta 7.16, Fixes) The plan preview could not be made (e: an Error or a reason; how: 'made' or 'drawn'): said plainly where Regenerate says what it does (a toast
+   *  when Regenerate is not there), kept 20 s or until the next preview, and logged (draw.plan.fail). Never a silent stop. */
+  function drwPlanFail(e, how) {
+    const err = e instanceof Error ? e : new Error(String((e && e.message) || e || 'unknown')), why = String(err.message || 'unknown').replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').slice(0, 220);
+    LOG.warn('draw.plan.fail', { ...errInfo(err), how: how || 'made' }); if (!drw) return; drw.phBusy = false; drwPhForce = false; drw.plFail = { why, at: Date.now() }; drwPlanUi();
+    const t = `The plan preview could not be ${how === 'drawn' ? 'drawn' : 'made'}: ${why}. Try Regenerate; if it fails again, export to see the reason.`, b = $('drawRegenT'), rg = $('drawRegen');
+    if (!rg || rg.hidden || $('drawing').hidden) { toast(t, 9000); return; }
+    b.textContent = t; b.classList.add('fail'); clearTimeout(drw.plSayT); drw.plSayT = setTimeout(() => { if (b.classList.contains('fail')) { b.textContent = ''; b.classList.remove('fail'); } }, 20000);
+  }
   /** The Drawing's plan tools: Regenerate plan preview (busy while it is made), Sheet grid, the photos placed by hand. */
   function drwPlanUi() {
     if (!drw) return;
     const busy = !!drw.phBusy, pl = drwPlanOn(), rg = $('drawRegen');
     rg.hidden = !drw.plWant; rg.disabled = busy; rg.setAttribute('aria-busy', String(busy)); rg.classList.toggle('busy', busy);
     { const rd = $('drawRoads'), on = !!rkAgainOn; rd.hidden = rg.hidden || !$('dxfRoads').checked; rd.disabled = on; rd.setAttribute('aria-busy', String(on)); rg.classList.toggle('withrd', !rd.hidden); } // ((beta 7.14, Roads again) Get the roads again beside it, while the plan has roads (Plan style); not while they are being got)
-    if (busy) $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = '';
+    if (busy) { $('drawRegenT').textContent = drw.ph && drw.ph.plan ? 'Making the plan preview again…' : 'Making the plan preview…'; $('drawRegenT').classList.remove('fail'); } else if (/^Making/.test($('drawRegenT').textContent)) $('drawRegenT').textContent = ''; // ((beta 7.16, Fixes) a failure said: Making… in its place)
     $('drawGridRow').hidden = !pl; $('drawGrid').checked = S.drawGrid !== false;
     drwChgRender(pl); // ((beta 7.14, Changed by hand) in Edit: how many moved and changed by hand, its list (7.9–7.13's chip "placed by hand · Back to automatic": its Put all back))
     drwIcoRender(); // ((beta 7.10, Drawing labels) Undo, while there is a change to take back; (beta 7.12, Drawing edit) in the row of the Drawing's tools)
@@ -2564,7 +2632,7 @@
    *  changed in records ((beta 7.14, Changed by hand) Put all back, and More › All automatic). */
   function drwAllBack(proj, what, log) {
     drwUndoPush(what);
-    const m = { ...pmeta(proj) }; MV_KEYS.forEach((k) => { if (k !== 'notes') delete m[k]; }); delete m.planGrid; delete m.mvTurn; /* ((beta 7.12, Drawing edit) the texts edited and the draw order too; the notes stay: the user's own) */ S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', log); // ((beta 7.10, Plan kept) and the grid kept: worked out again) ((beta 7.11, Drawing tools) and every item turned or styled, every pole moved)
+    const m = { ...pmeta(proj) }; MV_KEYS.forEach((k) => { if (k !== 'drwNotes') delete m[k]; }); delete m.planGrid; delete m.mvTurn; /* ((beta 7.12, Drawing edit) the texts edited and the draw order too; the notes stay: the user's own) */ S.meta = S.meta || {}; S.meta[proj] = m; persist(); LOG.info('draw.photo.autoAll', log); // ((beta 7.10, Plan kept) and the grid kept: worked out again) ((beta 7.11, Drawing tools) and every item turned or styled, every pole moved)
     if (drw.ph) drw.ph = { ...drw.ph, sig: '', at: Object.fromEntries(Object.entries(drw.ph.at).map(([k, a]) => [k, a.how === 'by hand' ? { ...a, how: 'auto' } : a])) }; // (where they are until the plan's places come)
     drwMvShowPins(); if (drw.selPh) drwPhTap(drw.selPh); else if (drw.mvSel && drwSels().length <= 1) drwMvTap(drw.mvSel); else if (drwSels().length) { drwSelSay(); drwTbRender(); } drwPlanUi(); drawDrawing(); drwPhSoon(0);
   }
@@ -2599,10 +2667,11 @@
   /* (beta 7.12, Drawing edit) The owner: "allow also the user to edit the text if needed. just to make everything correct before exporting"; "let the user also add a
      text or photo no related with the capture on plans as needed"; "allow order on the selected item, say, sent to back, backward, sent to front or forward". Kept
      per project beside the 7.11 tools (pmeta(), on this phone: shareMeta leaves them out): mvText { [id]: [lines] } (an item's text as edited: job.text; the record
-     stays), mvOrder [{ id, op }] (the draw order: job.order, a later To front / To back of an item drops its earlier ones), notes [{ id, kind: 'text' | 'photo', at,
+     stays), mvOrder [{ id, op }] (the draw order: job.order, a later To front / To back of an item drops its earlier ones), drwNotes [{ id, kind: 'text' | 'photo', at,
      rot, lines, h, bold, italic, color, photo: { pid (the photo store's), px, py }, size }] (the texts and photos the user adds: job.notes, each photo's bytes in the
-     photo store as the plan's photos are, NOTE_<id>.jpg in the export). Undo takes each change back; all back to automatic leaves the notes (the user's own). */
-  const TOOL_KEYS = ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'mvText', 'mvOrder', 'notes', 'mvHide'], MV_KEYS = [...PIN_KEYS, ...TOOL_KEYS]; // ((beta 7.12, Drawing edit) mvHide { [id]: true }: the items left off the plan (job.hide))
+     photo store as the plan's photos are, NOTE_<id>.jpg in the export; (beta 7.16, Fixes) kept in pmeta().notes by 7.12 to 7.15, the project's remarks' key:
+     notesMove). Undo takes each change back; all back to automatic leaves the notes (the user's own). */
+  const TOOL_KEYS = ['mvPin', 'mvStyle', 'mvKind', 'poleAt', 'mvText', 'mvOrder', 'drwNotes', 'mvHide'], MV_KEYS = [...PIN_KEYS, ...TOOL_KEYS]; // ((beta 7.12, Drawing edit) mvHide { [id]: true }: the items left off the plan (job.hide))
   /** Something placed by hand in a project (pmeta() m): a photo, a label, a number or a pole's details ((beta 7.10, Plan kept): the grid is kept while there is) ((beta 7.11, Drawing tools) or an item turned or styled, a pole moved). */
   const pinsAny = (m) => MV_KEYS.some((k) => !!(m && m[k] && Object.keys(m[k]).length));
   /** The items of the plan shown that the Drawing may move (report.movable), or none. */
@@ -2627,24 +2696,52 @@
    *  which takes pins first, has the item whole), poleAt (the poles and sites moved on the plan), style and styleKind (the toolbar's: This one, All like it),
    *  leaders (Plan style › Lines to the pole: photos, pole details, numbers; sent when one is off) and cloStyle (Plan style › Closure labels: Bubble). */
   function toolJob(m, P) {
-    const o = {}, mv = (m && m.mvPin) || {}, ks = Object.keys(mv), cp = (v) => JSON.parse(JSON.stringify(v));
+    // ((beta 7.16, Fixes) the owner's export stopped on "Cannot read properties of null (reading 'id')": what is kept of the Drawing's edits reaches the plan only when
+    // it is whole (an entry left empty by an older version, a cut-off save or a point deleted since: left out), so neither the preview nor the export trips on it)
+    const o = {}, cp = (v) => JSON.parse(JSON.stringify(v)), mv = mvOk(m && m.mvPin, isObj), ks = Object.keys(mv);
     if (ks.length) o.pins = Object.fromEntries(ks.map((id) => [id, { ...(pin710(m, id) || {}), ...cp(mv[id]) }]));
-    if (m && m.poleAt && Object.keys(m.poleAt).length) o.poleAt = cp(m.poleAt);
-    if (m && m.mvStyle && Object.keys(m.mvStyle).length) o.style = cp(m.mvStyle);
-    if (m && m.mvKind && Object.keys(m.mvKind).length) o.styleKind = cp(m.mvKind);
+    const pa = mvOk(m && m.poleAt, isEN); if (Object.keys(pa).length) o.poleAt = cp(pa);
+    const st = mvOk(m && m.mvStyle, isObj); if (Object.keys(st).length) o.style = cp(st);
+    const sk = mvOk(m && m.mvKind, isObj); if (Object.keys(sk).length) o.styleKind = cp(sk);
     if (P && P.lead && (!P.lead.photo || !P.lead.details || !P.num.leader)) o.leaders = { photo: !!P.lead.photo, details: !!P.lead.details, number: !!P.num.leader };
     if (P && P.clo && P.clo.style === 'bubble') o.cloStyle = 'bubble';
-    if (m && m.mvText && Object.keys(m.mvText).length) o.text = cp(m.mvText); // ((beta 7.12, Drawing edit) the texts edited, the notes added, the draw order: only those set)
+    const tx = mvOk(m && m.mvText, Array.isArray); if (Object.keys(tx).length) o.text = Object.fromEntries(Object.entries(tx).map(([k, L]) => [k, L.map((x) => (x == null ? '' : String(x)))])); // ((beta 7.12, Drawing edit) the texts edited, the notes added, the draw order: only those set)
     const N = notesOf(m); if (N.length) o.notes = N.map(noteJob);
-    if (m && Array.isArray(m.mvOrder) && m.mvOrder.length) o.order = cp(m.mvOrder);
-    if (m && m.mvHide && Object.keys(m.mvHide).length) o.hide = Object.keys(m.mvHide); // ((beta 7.12, Drawing edit) the items deleted from the plan only)
+    const od = orderOk(m); if (od.length) o.order = cp(od);
+    const hd = Object.keys(mvOk(m && m.mvHide, (v) => !!v)); if (hd.length) o.hide = hd; // ((beta 7.12, Drawing edit) the items deleted from the plan only)
     return o;
   }
+  /* (beta 7.16, Fixes) Whole entries only, for the plan and the count of what was changed by hand: an object; a point's place [E, N]; an ordering op { id, op }. */
+  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const isEN = (v) => Array.isArray(v) && v.length >= 2 && Number.isFinite(+v[0]) && Number.isFinite(+v[1]);
+  /** M's entries (a pmeta map: mvPin, mvStyle…) whose key is a name and whose value passes ok; {} for anything else. */
+  const mvOk = (M, ok) => Object.fromEntries(Object.entries(isObj(M) ? M : {}).filter(([k, v]) => k && k !== 'undefined' && k !== 'null' && ok(v)));
+  /** The draw order kept (pmeta mvOrder), its whole ops only. */
+  const orderOk = (m) => (m && Array.isArray(m.mvOrder) ? m.mvOrder : []).filter((x) => isObj(x) && x.id != null && String(x.id) !== '' && typeof x.op === 'string');
   /** (beta 7.12, Drawing edit) A project's notes (pmeta() m): the texts and photos added on its plan. */
-  const notesOf = (m) => (m && Array.isArray(m.notes) ? m.notes.filter((n) => n && n.id && Array.isArray(n.at) && n.at.length === 2) : []);
+  const notesOf = (m) => (m && Array.isArray(m.drwNotes) ? m.drwNotes.filter((n) => isObj(n) && n.id && isEN(n.at)) : []); // ((beta 7.16, Fixes) a note whole: an id, a place of numbers) ((beta 7.16, Fixes) drwNotes)
+  /* (beta 7.16, Fixes) The project's REMARKS / NOTES (Projects › the project's details, #curNotes: pmeta().notes, a text, since long before) and the texts and
+     photos added on the Drawing (beta 7.12 to 7.15: pmeta().notes too, a list) shared one key: a note added on the Drawing wiped the remarks; with notes, the
+     remarks box showed "[object Object]" and a remark typed there wiped every note; the remarks no longer went to the team (shareMeta left notes out). The
+     Drawing's notes are kept in pmeta().drwNotes now, pmeta().notes is the remarks only (remarksOf). A project kept by 7.12 to 7.15 with a list (or any object)
+     in notes: its notes moved to drwNotes (after those there, each id once, kept as they are), its remarks '' (gone since the first note was added: nothing on
+     the phone keeps them). For every project at start, on a project brought in (a backup, a share) and before a remark is kept; once moved, nothing to do.
+     Returns how many notes moved (-1: nothing to move). batch: the caller saves the settings. */
+  function notesMove(name, batch) {
+    const m0 = S.meta && S.meta[name], v = m0 ? m0.notes : null; if (!m0 || typeof m0 !== 'object' || v == null || typeof v === 'string') return -1;
+    const nm = { ...m0 }, ok = (n) => !!n && typeof n === 'object' && !Array.isArray(n) && n.id != null && String(n.id) !== '';
+    if (typeof v !== 'object') { nm.notes = String(v); S.meta[name] = nm; if (!batch) persist(); LOG.info('notes.move', { moved: 0, dropped: 0, kept: 0, text: true }); return 0; } // (a number, a yes / no: the remarks' text)
+    const had = Array.isArray(nm.drwNotes) ? nm.drwNotes : [], seen = new Set(had.filter(ok).map((n) => String(n.id))), out = had.slice(); let moved = 0, dropped = 0;
+    for (const n of Array.isArray(v) ? v : Object.values(v)) { if (!ok(n) || seen.has(String(n.id))) { dropped++; continue; } seen.add(String(n.id)); out.push(n); moved++; } // (an empty entry, one id twice: left out)
+    if (out.length) nm.drwNotes = out; else delete nm.drwNotes; nm.notes = '';
+    S.meta[name] = nm; if (!batch) persist(); LOG.info('notes.move', { moved, dropped, kept: had.length });
+    return moved;
+  }
+  /** (beta 7.16, Fixes) notesMove for every project on the phone (at start); how many moved. */
+  function notesMoveAll() { let n = 0; for (const k of Object.keys((S && S.meta) || {})) if (notesMove(k, true) >= 0) n++; if (n) persist(); return n; }
   /** A note as the plan's job has it (job.notes): its photo by the file the export writes next to the DXF (NOTE_<id>.jpg; its bytes made from the photo store). */
   const noteJob = (n) => { const o = { id: String(n.id), kind: n.kind === 'photo' ? 'photo' : 'text', at: [+n.at[0], +n.at[1]] }; if (+n.rot) o.rot = +n.rot;
-    if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map(String); for (const k of ['h', 'bold', 'italic', 'color', 'align', 'wrap', 'spacing', 'font', 'underline']) if (n[k] != null) o[k] = n[k]; } // ((beta 7.14, Text editor) its format: align, wrap, spacing, font, underline)
+    if (o.kind === 'text') { o.lines = (Array.isArray(n.lines) ? n.lines : []).map((x) => (x == null ? '' : String(x))); /* ((beta 7.16, Fixes) a line left empty: empty, not "null") */ for (const k of ['h', 'bold', 'italic', 'color', 'align', 'wrap', 'spacing', 'font', 'underline']) if (n[k] != null) o[k] = n[k]; } // ((beta 7.14, Text editor) its format: align, wrap, spacing, font, underline)
     else { o.photo = { file: `NOTE_${n.id}.jpg`, px: +((n.photo || {}).px) || 800, py: +((n.photo || {}).py) || 600 }; if (+n.size > 0) o.size = +n.size; }
     return o; };
   /** (beta 7.12, Drawing edit) A note's item on the plan (report.movable id note:<id>, kind note or notephoto). */
@@ -2919,7 +3016,7 @@
       if (key) { const k = q.kind === 'cable' ? q.key : q.point, rk = drwRotOf(q, nm); nm[key] = { ...(nm[key] || {}), [k]: q.kind === 'cable' ? { at: off, rot: rk != null ? rk : ang } : q.kind === 'details' ? [off[0], off[1], rk != null ? rk : ang] : off }; } // (as it was let go: where, and its angle)
       else { const t = { ...((nm.mvPin || {})[q.id] || {}), at: off }; if (canOf(q).about) delete t.at; nm.mvPin = { ...(nm.mvPin || {}), [q.id]: t }; } // ((beta 7.11) an attachment turns about its pole and stays on it: not moved on its own)
     }
-    if (NT) nm.notes = NT;
+    if (NT) nm.drwNotes = NT;
     S.meta = S.meta || {}; S.meta[proj] = nm; persist(); // (as it was let go: where, and its angle)
     if (at) drw.ph = { ...drw.ph, sig: '', at }; // (the photos where they were let go, until the plan's own places come)
     LOG.info('draw.label.pin', { kind: m.kind, n: grp.length, recs: recs.length, ...(PIN_OF[m.kind] ? { kept: Object.keys(nm[PIN_OF[m.kind]] || {}).length } : {}) });
@@ -3147,7 +3244,7 @@
     }
     if (!plan.length) return; drwUndoPush(what);
     for (const [m, dg] of plan) {
-      if (isNote(m)) { nm.notes = notesOf(nm).map((x) => (`note:${x.id}` === m.id ? (() => { const y = { ...x }; if (dg == null) delete y.rot; else y.rot = dg; return y; })() : x)); n++; continue; } // ((beta 7.12, Drawing edit) a note turned: the note itself)
+      if (isNote(m)) { nm.drwNotes = notesOf(nm).map((x) => (`note:${x.id}` === m.id ? (() => { const y = { ...x }; if (dg == null) delete y.rot; else y.rot = dg; return y; })() : x)); n++; continue; } // ((beta 7.12, Drawing edit) a note turned: the note itself)
       if (m.kind === 'details' || m.kind === 'cable') { const key = PIN_OF[m.kind], k = m.kind === 'cable' ? m.key : m.point, v = (nm[key] || {})[k];
         const at = m.kind === 'cable' ? (v && Array.isArray(v.at) ? v.at : atNow(m)) : Array.isArray(v) ? [v[0], v[1]] : atNow(m);
         nm[key] = { ...(nm[key] || {}), [k]: m.kind === 'cable' ? (dg == null ? { at } : { at, rot: dg }) : dg == null ? [at[0], at[1]] : [at[0], at[1], dg] };
@@ -3208,7 +3305,7 @@
     }
     if (!n) { drwTbRender(); return; }
     drwUndoPush(`style ${a}`); LOG.info('draw.tools.style', { a, v: v || null, n, all });
-    drwKeep({ ...m0, mvStyle: St, mvKind: Sk, ...(NT ? { notes: NT } : {}) });
+    drwKeep({ ...m0, mvStyle: St, mvKind: Sk, ...(NT ? { drwNotes: NT } : {}) });
   }
   /** (beta 7.11, Drawing tools) Existing ↔ Proposed of an item (report.movable can.status): what its record says now (the toolbar shows the change at once). */
   const ST_BOQ = { closureOld: 'cloSt', napOld: 'napSt', nap2Old: 'nap2St', cloSt: 'cloSt', napSt: 'napSt', nap2St: 'nap2St' };
@@ -3394,7 +3491,7 @@
      the toolbar's steps) and colour (the toolbar's), This one / All like it (a plan item). The text box shows the look as near as a browser can (the font's family as
      the PDF prints it, its alignment, bold, italic, underline, spacing, colour, the lines as the width breaks them). Save: one Undo step for the lines (job.text, as
      7.12) and the format: a plan item's job.style[id] (All like it: job.styleKind[kind]); a note's own fields (job.notes[i]: align, wrap, spacing, font, underline, h,
-     bold, italic, color). Kept per project as 7.12's edits are (pmeta mvStyle, mvKind, notes), out of shareMeta as they are. Automatic: the plan's own text and format
+     bold, italic, color). Kept per project as 7.12's edits are (pmeta mvStyle, mvKind, drwNotes), out of shareMeta as they are. Automatic: the plan's own text and format
      back (this one's). */
   const FMT_KEYS = ['align', 'wrap', 'spacing', 'font', 'underline', 'bold', 'italic', 'h', 'color'], SPC_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
   /** The app's fonts, as the builder adds them after the template's (until a plan says report.fonts). */
@@ -3571,7 +3668,7 @@
   function drwNoteSet(m, o, what) {
     const proj = drw.project, m0 = pmeta(proj), id = String(m.id || m).replace(/^note:/, ''); let hit = false;
     const N = notesOf(m0).map((x) => { if (String(x.id) !== id) return x; const y = { ...x }; for (const [k, v] of Object.entries(o)) { if (v == null) delete y[k]; else y[k] = v; } hit = JSON.stringify(y) !== JSON.stringify(x); return y; });
-    if (!hit) return; drwUndoPush(what); LOG.info('draw.note.set', { what, keys: Object.keys(o) }); drwKeep({ ...m0, notes: N });
+    if (!hit) return; drwUndoPush(what); LOG.info('draw.note.set', { what, keys: Object.keys(o) }); drwKeep({ ...m0, drwNotes: N });
   }
   /* (beta 7.12, Drawing edit) Notes: a text or a photo the user adds on the plan, not from a record (the owner: "let the user also add a text or photo no related with
      the capture on plans as needed"). Add text: a tap on the plan where it goes, then the editor; Add photo: the camera or the gallery (a file input: the phone's
@@ -3600,7 +3697,7 @@
   function drwNoteAdd(n0) {
     const proj = drw.project, m0 = pmeta(proj), N = notesOf(m0); let k = Date.now(); while (N.some((x) => String(x.id) === `n${k}`)) k++;
     const n = { id: `n${k}`, ...n0 }; drwUndoPush(n.kind === 'photo' ? 'photo added' : 'text added'); drw.selWant = `note:${n.id}`;
-    LOG.info('draw.note.add', { kind: n.kind, n: N.length + 1, lines: n.lines ? n.lines.length : 0 }); drwKeep({ ...m0, notes: [...N, n] });
+    LOG.info('draw.note.add', { kind: n.kind, n: N.length + 1, lines: n.lines ? n.lines.length : 0 }); drwKeep({ ...m0, drwNotes: [...N, n] });
     toast(n.kind === 'photo' ? 'Photo added to the plan: drag it to move it (↶ undoes)' : 'Text added to the plan: drag it to move it (↶ undoes)', 2600);
   }
   /** A photo picked or taken for a note: kept in the photo store (as the app keeps its photos), its size as the plan's photos are made (800 px on its long side); then a tap places it. */
@@ -3619,7 +3716,7 @@
   function drwNotesDel(L) {
     const T = L.filter(isNote); if (!T.length || !drw) return; const ids = new Set(T.map((m) => m.id)), m0 = pmeta(drw.project);
     drwUndoPush(T.length > 1 ? `${T.length} notes deleted` : 'note deleted'); LOG.info('draw.note.del', { n: T.length });
-    const nm = { ...m0, notes: notesOf(m0).filter((x) => !ids.has(`note:${x.id}`)) }; if (Array.isArray(nm.mvOrder)) nm.mvOrder = nm.mvOrder.filter((o) => !(o && ids.has(o.id)));
+    const nm = { ...m0, drwNotes: notesOf(m0).filter((x) => !ids.has(`note:${x.id}`)) }; if (Array.isArray(nm.mvOrder)) nm.mvOrder = nm.mvOrder.filter((o) => !(o && ids.has(o.id)));
     drwSelClear(); drwKeep(nm); toast(`${T.length > 1 ? `${T.length} notes` : 'Note'} deleted (↶ Undo brings ${T.length > 1 ? 'them' : 'it'} back)`, 3000);
   }
   /* (beta 7.12, Drawing edit) Delete (the owner: "double check every plan element and ensure that it can be edit, delete or update(text, colors and etc) as user requires.
@@ -3690,7 +3787,7 @@
     // the plan's own: left off, the notes
     const m0 = pmeta(proj), nm = { ...m0 }, H = { ...(nm.mvHide || {}) }; for (const x of T) if (x.d.how === 'hide' || x.hide) H[x.m.id] = true; if (Object.keys(H).length) nm.mvHide = H;
     drwRecLog(nm, T.filter((x) => x.d.how === 'field' && recs.has(x.d.point)).map((x) => [x.m.id, [x.d.point]]), 'del'); // ((beta 7.14, Changed by hand) off in its record)
-    const nid = new Set(T.filter((x) => x.d.how === 'note').map((x) => x.m.id)); if (nid.size) { nm.notes = notesOf(nm).filter((n) => !nid.has(`note:${n.id}`)); if (!nm.notes.length) delete nm.notes; }
+    const nid = new Set(T.filter((x) => x.d.how === 'note').map((x) => x.m.id)); if (nid.size) { nm.drwNotes = notesOf(nm).filter((n) => !nid.has(`note:${n.id}`)); if (!nm.drwNotes.length) delete nm.drwNotes; }
     S.meta = S.meta || {}; S.meta[proj] = nm; persist(); drwSelClear(true); $('drawInfo').hidden = true; $('drawHint').hidden = !!S.drawHintOff; // (what was selected is gone: its line too)
     // a point deleted (as its record's Delete)
     const now = new Date().toISOString();
@@ -3715,7 +3812,7 @@
     try {
       const keys = (await dbKeys('photos')).filter((k) => /^drwn/.test(String(k))); if (!keys.length) return;
       const keep = new Set(), add = (N) => { for (const n of Array.isArray(N) ? N : []) if (n && n.photo && n.photo.pid) keep.add(n.photo.pid); };
-      for (const mm of Object.values(S.meta || {})) add(mm && mm.notes); for (const u of drwUndoStack) add(u.pins && u.pins.notes); if (drw && drw.add && drw.add.pid) keep.add(drw.add.pid);
+      for (const mm of Object.values(S.meta || {})) { add(mm && mm.drwNotes); add(mm && mm.notes); } for (const u of drwUndoStack) add(u.pins && u.pins.drwNotes); // ((beta 7.16, Fixes) drwNotes; a project not moved yet (notesMove): its notes' photos kept too) if (drw && drw.add && drw.add.pid) keep.add(drw.add.pid);
       const gone = keys.filter((k) => !keep.has(k)); if (gone.length && !drwNotePrep) { await dbDelMany('photos', gone); LOG.info('draw.note.sweep', { n: gone.length }); }
     } catch (e) { LOG.warn('draw.note.sweep', errInfo(e)); }
   }
@@ -3791,25 +3888,25 @@
   const chgPid = (id) => { const s0 = String(id), i = s0.indexOf(':'); return i > 0 && CHG_PT.has(s0.slice(0, i)) ? s0.slice(i + 1).split(':')[0] : null; };
   /** What the Drawing changed in records, kept with the plan's edits (nm: the project's pmeta being kept, changed here; E: [[element id, [point ids]], …]; w: moved,
    *  status, del, text). */
-  const drwRecLog = (nm, E, w) => { if (E && E.length) { const L = { ...(nm.mvRec || {}) }; for (const [id, P] of E) { const x = L[id] || { p: [], w: [] }; L[id] = { p: [...new Set([...x.p, ...P.map(String)])], w: [...new Set([...x.w, w])] }; } nm.mvRec = L; } return nm; };
+  const drwRecLog = (nm, E, w) => { if (E && E.length) { const L = { ...mvOk(nm.mvRec, isObj) }; for (const [id, P] of E) { const x = L[id] || {}, p0 = Array.isArray(x.p) ? x.p : [], w0 = Array.isArray(x.w) ? x.w : []; L[id] = { p: [...new Set([...p0.map(String), ...P.map(String)])], w: [...new Set([...w0, w])] }; } nm.mvRec = L; } return nm; }; // ((beta 7.16, Fixes) an entry left broken: made whole)
   /** The elements changed by hand on a project's plan: rows { id, kind, did (Set of CHG_DID), rec (Set of CHG_REC: in the record), moved, note, of (All like it: the
    *  kind) }, in the plan's order (the others after, the styles for All like it last). An element of a point deleted since: not listed. */
   function drwChgRows(proj) {
-    const m = pmeta(proj), R = new Map(), alive = new Set(points.filter((p) => p.project === proj).map((p) => String(p.id))), T = m.mvTurn || {}, NT = notesOf(m), N = new Set(NT.map((n) => `note:${n.id}`));
+    const m = pmeta(proj), R = new Map(), alive = new Set(points.filter((p) => p && p.project === proj).map((p) => String(p.id))), T = mvOk(m.mvTurn, (v) => v != null), NT = notesOf(m), N = new Set(NT.map((n) => `note:${n.id}`)); // ((beta 7.16, Fixes) whole entries only (mvOk, notesOf): a leftover of an older version or of a point deleted since is not counted)
     const row = (id) => { const k = String(id); let r = R.get(k); if (!r) { r = { id: k, did: new Set(), rec: new Set() }; R.set(k, r); } return r; };
     const near = (a, b) => Array.isArray(a) && Array.isArray(b) && Math.hypot(+a[0] - +b[0], +a[1] - +b[1]) < 0.05;
-    for (const [pid, v] of Object.entries(m.phPin || {})) if (Array.isArray(v)) row(`ph:${pid}`).did.add('moved');
-    for (const [pid, v] of Object.entries(m.numPin || {})) if (Array.isArray(v)) row(`num:${pid}`).did.add('moved');
-    for (const [pid, v] of Object.entries(m.lblPin || {})) { if (!Array.isArray(v)) continue; const id = `lbl:${pid}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v))) r.did.add('moved'); if (t && v.length > 2 && v[2] != null) r.did.add('turned'); } // (turned where the plan put it: turned, not moved)
-    for (const [k, v] of Object.entries(m.cabPin || {})) { if (!v || !Array.isArray(v.at)) continue; const id = `cab:${k}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v.at))) r.did.add('moved'); if (t && v.rot != null) r.did.add('turned'); }
-    for (const [id, t] of Object.entries(m.mvPin || {})) { if (!t) continue; const r = row(id); if (Array.isArray(t.at) || t.along != null || t.tip != null) r.did.add('moved'); if (t.rot != null) r.did.add('turned'); } // (placed, slid along its cable, its arrow's tip; turned)
-    for (const pid of Object.keys(m.poleAt || {})) row(`${ptNoun(pid)}:${pid}`).did.add('moved');
-    for (const id of Object.keys(m.mvStyle || {})) row(id).did.add('style');
-    for (const id of Object.keys(m.mvText || {})) row(id).did.add('text');
-    for (const id of Object.keys(m.mvHide || {})) row(id).did.add('hide');
-    for (const o of Array.isArray(m.mvOrder) ? m.mvOrder : []) if (o && o.id) row(o.id).did.add('order');
+    for (const pid of Object.keys(mvOk(m.phPin, isEN))) row(`ph:${pid}`).did.add('moved');
+    for (const pid of Object.keys(mvOk(m.numPin, isEN))) row(`num:${pid}`).did.add('moved');
+    for (const [pid, v] of Object.entries(mvOk(m.lblPin, isEN))) { const id = `lbl:${pid}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v))) r.did.add('moved'); if (t && v.length > 2 && v[2] != null) r.did.add('turned'); } // (turned where the plan put it: turned, not moved)
+    for (const [k, v] of Object.entries(mvOk(m.cabPin, (x) => isObj(x) && isEN(x.at)))) { const id = `cab:${k}`, t = T[id], r = row(id); if (!(Array.isArray(t) && near(t, v.at))) r.did.add('moved'); if (t && v.rot != null) r.did.add('turned'); }
+    for (const [id, t] of Object.entries(mvOk(m.mvPin, isObj))) { const r = row(id); if (Array.isArray(t.at) || t.along != null || t.tip != null) r.did.add('moved'); if (t.rot != null) r.did.add('turned'); } // (placed, slid along its cable, its arrow's tip; turned)
+    for (const pid of Object.keys(mvOk(m.poleAt, isEN))) row(`${ptNoun(pid)}:${pid}`).did.add('moved');
+    for (const id of Object.keys(mvOk(m.mvStyle, (v) => isObj(v) && Object.keys(v).length))) row(id).did.add('style');
+    for (const id of Object.keys(mvOk(m.mvText, Array.isArray))) row(id).did.add('text');
+    for (const id of Object.keys(mvOk(m.mvHide, (v) => !!v))) row(id).did.add('hide');
+    for (const o of orderOk(m)) row(o.id).did.add('order');
     for (const id of N) row(id).did.add('added');
-    for (const [id, x] of Object.entries(m.mvRec || {})) { const P = x && Array.isArray(x.p) ? x.p.map(String) : []; if (!P.some((q) => alive.has(q))) continue; const r = row(id); for (const w of (x && x.w) || []) if (CHG_REC[w]) r.rec.add(w); }
+    for (const [id, x] of Object.entries(mvOk(m.mvRec, isObj))) { const P = Array.isArray(x.p) ? x.p.map(String) : []; if (!P.some((q) => alive.has(q))) continue; const r = row(id); for (const w of Array.isArray(x.w) ? x.w : []) if (CHG_REC[w]) r.rec.add(w); }
     const out = [];
     for (const r of R.values()) {
       if (!r.did.size && !r.rec.size) continue; const note = /^note:/.test(r.id);
@@ -3818,7 +3915,7 @@
       out.push({ ...r, kind, moved: r.did.has('moved') || r.rec.has('moved'), note });
     }
     const ix = (id) => { const i = mvIx(id); return i == null ? 1e9 : i; }; out.sort((a, b) => ix(a.id) - ix(b.id));
-    for (const k of Object.keys(m.mvKind || {})) out.push({ id: `kind:${k}`, kind: k, of: k, did: new Set(['style']), rec: new Set(), moved: false, note: false });
+    for (const k of Object.keys(mvOk(m.mvKind, (v) => isObj(v) && Object.keys(v).length))) out.push({ id: `kind:${k}`, kind: k, of: k, did: new Set(['style']), rec: new Set(), moved: false, note: false });
     return out;
   }
   /** How many: moved, all (each element once), and the rows. */
@@ -8878,8 +8975,8 @@
     };
     box.appendChild(cell($('edPhoto').src, 1, true, ed.mainLabel || 'Overview', (v) => { ed.mainLabel = v; }, X.length ? () => guard(() => svMakeMain(0, true), 'Not removed') : null, () => $('edPhoto').click()));
     X.forEach((p, i) => {
-      const c = cell(thumbUrl(p.pid), i + 2, false, p.label, (v) => { p.label = v; }, () => { X.splice(i, 1); if (ed.pending[p.pid]) delete ed.pending[p.pid]; else ed.removed.push(p.pid); renderSvPhotos(); scheduleDraft(); },
-        () => showPhoto(p.pid, `${$('poleId').value || ''} · ${p.label || ''}`));
+      const c = cell(thumbUrl(p.pid), i + 2, false, p.label, (v) => { p.label = v; }, () => { X.splice(i, 1); const nw = ed.pending[p.pid] && !p.marks && !(ed.phMk && ed.phMk[p.pid]); delete ed.pending[p.pid]; if (!nw) ed.removed.push(p.pid); if (p.origPid) ed.removed.push(p.origPid); if (ed.phMk) delete ed.phMk[p.pid]; renderSvPhotos(); renderBoxInfo(); scheduleDraft(); }, // ((beta 7.16, Photo marks) and its unmarked one)
+        () => guard(() => svPhotoView(p.pid), 'Photo not opened')); // ((beta 7.16, Photo marks) the owner: "multiple images cannot draw on other photos inside": each photo opens with its marks, as the main one)
       if (!lock) { const mk = document.createElement('button'); mk.type = 'button'; mk.className = 'btn sm phmk'; mk.textContent = 'Make main'; mk.addEventListener('click', () => guard(() => svMakeMain(i), 'Not changed')); c.appendChild(mk); }
       box.appendChild(c);
     });
@@ -8889,6 +8986,7 @@
   async function svMakeMain(i, drop) {
     const X = ed.photos || [], x = X[i]; if (!x) return;
     if ((ed.marks || []).length || ed.legacyBoxes || (ed.origPid && !ed.dropOrig)) { toast('The main photo has marks or red boxes: remove them first (tap the photo), then make another one main.', 5500); return; }
+    if ((x.marks || []).length || x.old) { toast(`Photo ${i + 2} has marks: remove them first (tap the photo), then make it main.`, 5500); return; } // ((beta 7.16, Photo marks) its marks stay its own)
     const getB = async (pid) => { if (ed.pending[pid]) return ed.pending[pid]; const ph = await dbGet('photos', pid).catch(() => null); return ph && (ph.clean || ph.thumb); };
     const xb = await getB(x.pid), mb = ed.newBlob || ed.srcBlob || await getB(ed.id);
     if (!xb || !mb) { toast('Photo not found on this phone'); return; }
@@ -9086,7 +9184,7 @@
       $('napId').value = onPoleRec ? o.napId || '' : ''; $('closureId').value = onPoleRec ? o.closureId || '' : ''; $('nap2Id').value = onPoleRec ? o.nap2Id || '' : '';
       ed.color = MCOL[o.color] ? o.color : ''; ed.mapPin = o.source === 'map' && !o.blob && !o.storedBlob && o.mode === 'new'; // v2.36: a pin placed on the map (photo optional)
       // beta 3.5: the other photos of the pin (the main one is the record's own); photo 2 and the photos after it from the camera
-      ed.photos = (o.photos || []).filter((x) => x && x.pid && x.pid !== ed.id).map((x) => ({ ...x })); ed.pending = {}; ed.removed = [];
+      ed.photos = (o.photos || []).filter((x) => x && x.pid && x.pid !== ed.id).map((x) => ({ ...x, ...(Array.isArray(x.marks) ? { marks: JSON.parse(JSON.stringify(x.marks)).map(normMark) } : {}) })); ed.pending = {}; ed.removed = []; ed.phMk = {}; // ((beta 7.16, Photo marks) each one's marks, its state in this edit)
       ed.mainLabel = ((o.photos || []).find((x) => x && x.pid === ed.id) || {}).label || o.mainLabel || 'Overview';
       if (o.idShot && o.ph2) { const pid = uid(); ed.photos.push({ pid, label: 'Pole tag', at: o.idAt || o.takenAt || new Date().toISOString(), by: byLine() }); ed.pending[pid] = o.idShot; prepImages(o.idShot); }
       (o.more || []).forEach((m) => { if (!m || !m.blob) return; const pid = uid(); ed.photos.push({ pid, label: m.label || 'Detail', at: m.at || new Date().toISOString(), q: qSummary(m.q), by: byLine() }); ed.pending[pid] = m.blob; });
@@ -9202,6 +9300,7 @@
       idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: (ed.dragged || ed.mapPin) && c ? { lat: c.lat, lon: c.lng } : null, color: ed.color || '', siteKind: ed.siteKind || '',
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
       noDef: !!ed.noDef, noPP: !!ed.noPP, pinKind: ed.pinKind || '', pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
+      phMk: Object.fromEntries(Object.entries(ed.phMk || {}).map(([pid, k]) => [pid, { baseNew: !!k.baseNew, dropOrig: !!k.dropOrig, hasBase: !!k.base }])), // ((beta 7.16, Photo marks) the other photos' marks in this edit)
     };
   }
   const draftSig = (st) => JSON.stringify({ ...st, q: null, pin: st.pin ? [st.pin.lat.toFixed(6), st.pin.lon.toFixed(6)] : null });
@@ -9219,6 +9318,7 @@
     const st = draftState(); st.t = Date.now(); const gen = draftGen;
     const blobs = { new: ed.newBlob, src: st.hasSrc ? ed.srcBlob : null, base: ed.base, def: st.def && st.def.photo ? defDraft.blob : null };
     Object.entries(ed.pending || {}).forEach(([pid, b]) => { blobs[`p:${pid}`] = b; });
+    Object.entries(ed.phMk || {}).forEach(([pid, k]) => { if (k.base) blobs[`pb:${pid}`] = k.base; }); // ((beta 7.16, Photo marks) each marked photo's unmarked one)
     if (st.def && defDraft) (defDraft.more || []).forEach((m, i) => { blobs[`dm:${i}`] = m.blob; }); // beta 3.5
     draftChain = draftChain.then(async () => {
       try {
@@ -9283,6 +9383,7 @@
     const get = async (k) => { const r = await dbGet('photos', `draft~${k}`).catch(() => null); return (r && r.clean) || null; };
     const nb = st.hasNew ? await get('new') : null, sb = st.hasSrc ? await get('src') : null, base = st.hasBase ? await get('base') : null, db = st.def && st.def.photo ? await get('def') : null;
     const pend = {}; for (const pid of st.pend || []) { const b = await get(`p:${pid}`); if (b) pend[pid] = b; }
+    const phMk = {}; for (const [pid, k] of Object.entries(st.phMk || {})) phMk[pid] = { base: k.hasBase ? await get(`pb:${pid}`) : null, baseNew: !!k.baseNew, dropOrig: !!k.dropOrig }; // ((beta 7.16, Photo marks) read before the record opens again (its draft's files go then))
     if (S.project !== st.project) { S.project = st.project; persist(); renderPoles(); fitProject(); }
     if (st.shot) { // the page reloaded during the ID scan: the photo goes on as if the scan was skipped (checked again first)
       if (!nb) throw new Error('the photo was not kept');
@@ -9304,6 +9405,7 @@
       mloop: st.mloop, nap: st.nap, nap2: !!st.nap2, color: st.color != null ? st.color : ed.color, closure: st.closure, odf: st.odf || ed.odf, /* v2.42.4: + nap2, color (an edit's draft lost them) */ boq: st.boq || ed.boq || {}, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid,
       ...(st.siteKind ? { siteKind: st.siteKind } : {}) });
     if (!st.acc) {
+      ed.phMk = phMk; // ((beta 7.16, Photo marks) the other photos' marks in that edit)
       if (nb) { ed.newBlob = nb; prepImages(nb); showEdPhoto(nb); }
       if (sb) ed.srcBlob = sb; else if (nb && st.mode === 'new') ed.srcBlob = nb;
       ed.base = base; ed.baseNew = st.baseNew;
@@ -9395,7 +9497,9 @@
   function renderBoxInfo() {
     if (!ed || ed.acc) { $('boxInfo').hidden = true; $('edZoom').classList.remove('pp'); return; }
     const n = (ed.marks || []).length, legacy = ed.legacyBoxes || 0, pp = proposedPole(), hasPole = (ed.marks || []).some((m) => m.k === 'pole') || ed.legacyPole;
-    const txt = n ? `▭ ${n} mark${n === 1 ? '' : 's'} on the photo · tap the photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of the photo)` : ''}`
+    const ex = (ed.photos || []).map((x, i) => [i + 2, (x.marks || []).length]).filter(([, c]) => c); // ((beta 7.16, Photo marks) the other photos' marks: which photo has how many)
+    const txt = ex.length ? `▭ ${[...(n ? [[1, n]] : []), ...ex].map(([k, c], j) => `${j ? 'photo' : 'Photo'} ${k}: ${c} mark${c === 1 ? '' : 's'}`).join(' · ')} · tap a photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of photo 1)` : ''}`
+      : n ? `▭ ${n} mark${n === 1 ? '' : 's'} on the photo · tap the photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of the photo)` : ''}`
       : legacy ? `▭ ${legacy} mark${legacy === 1 ? '' : 's'} on the photo` : pp && !hasPole ? '⊥ Tap the photo to place the model pole where the new pole goes'
       : ed.newBlob || ed.srcBlob ? '✎ Tap the photo to add a model, a box or text' : ''; // (beta 6.7)
     $('boxInfo').textContent = txt; $('boxInfo').hidden = !txt;
@@ -9448,12 +9552,34 @@
     if ((ed.marks || []).length) { ed.legacyBoxes = (ed.legacyBoxes || 0) + ed.marks.length; ed.marks = []; } // the original is missing: the marks stay in the photo
     return ed.newBlob || ed.srcBlob;
   }
-  /** Opens the marking screen in place of the full-size photo (the same Back step closes it). */
+  /** (beta 7.16, Photo marks) The unmarked photo another photo of the record (x, of ed.photos) is marked on: kept from this edit, or stored with it (x.origPid),
+   *  else the photo itself; its marks' state of this edit in ed.phMk[pid] (base, baseNew: not stored yet, dropOrig: its marks taken off), as markBase does for
+   *  the main photo. */
+  async function markBaseOf(x) {
+    const k = ed.phMk[x.pid] || (ed.phMk[x.pid] = { base: null, baseNew: false, dropOrig: false });
+    if (k.base) return k.base;
+    if (x.origPid && !k.dropOrig) { const ph = await dbGet('photos', x.origPid).catch(() => null); if (ph && ph.clean) { k.base = ph.clean; return k.base; } }
+    if ((x.marks || []).length) { x.old = (x.old || 0) + x.marks.length; delete x.marks; } // the original is missing: the marks stay in the photo
+    if (ed.pending[x.pid]) return ed.pending[x.pid];
+    const ph = await dbGet('photos', x.pid).catch(() => null); return (ph && ph.clean) || null;
+  }
+  /** (beta 7.16, Photo marks) Another photo of the record full size, with the marks tools as the main photo has (✎ Box · FOC · Text, ⊥ Model): its own marks. */
+  async function svPhotoView(pid) {
+    const x = ed && (ed.photos || []).find((y) => y.pid === pid); if (!x) return;
+    let b = ed.pending[pid]; if (!b) { const ph = await dbGet('photos', pid).catch(() => null); b = ph && (ph.clean || ph.thumb); }
+    if (!b) { toast('Photo not found on this phone'); return; }
+    showBlob(b, `${$('poleId').value || ''} · ${x.label || ''}`); if (ed.acc) return;
+    edMk = pid; $('pvTools').hidden = false; $('pvRead').hidden = true; const n = (x.marks || []).length;
+    $('pvBox').textContent = n ? '✎ Edit the marks' : '✎ Box · FOC · Text';
+    $('pvHint').textContent = n ? 'Tap a tool, then tap a mark to move, resize or delete it · tap the photo to zoom' : 'Tap the photo to zoom in or out · × or Back to close';
+  }
+  /** Opens the marking screen in place of the full-size photo (the same Back step closes it). ((beta 7.16, Photo marks) for the photo the view shows: edMk) */
   async function openBoxer(mode) {
     if (!ed || ed.acc) return;
-    const src = await markBase(); if (!src) { toast('No photo to mark'); return; }
+    const X = edMk ? (ed.photos || []).find((y) => y.pid === edMk) : null; if (edMk && !X) return;
+    const src = X ? await markBaseOf(X) : await markBase(); if (!src) { toast('No photo to mark'); return; }
     const im = await loadImage(src, STORE_MAX_PX), { w, h } = dims(im);
-    boxer = { im, w, h, base: src, marks: (ed.marks || []).map(normMark).map((m) => withC(m, m.k === 'foc' ? { k: 'foc', pts: (m.pts || []).map(([x, y]) => [x * w, y * h]) } : m.k === 'text' ? { k: 'text', x: m.x * w, y: m.y * h, t: m.t || '', s: m.s || 1 }
+    boxer = { pid: X ? X.pid : null, im, w, h, base: src, marks: ((X ? X.marks : ed.marks) || []).map(normMark).map((m) => withC(m, m.k === 'foc' ? { k: 'foc', pts: (m.pts || []).map(([x, y]) => [x * w, y * h]) } : m.k === 'text' ? { k: 'text', x: m.x * w, y: m.y * h, t: m.t || '', s: m.s || 1 }
       : isStand(m) ? { k: m.k, x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: isModel(m) ? m.k : 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null, mode: 'box', color: MCOL[S.markColor] ? S.markColor : 'red' };
     if (pvOpen) { pvOpen = false; hidePhotoView(); const el = $('boxer'); el.hidden = false; el.style.zIndex = 1000 + stack.length; stack.push('boxer'); history.replaceState({ sheet: 'boxer' }, ''); LOG.info('open', 'boxer'); }
     else openSheet('boxer');
@@ -9783,7 +9909,8 @@
   window.addEventListener('resize', () => { if (boxer && !$('boxer').hidden) { sizeBoxer(); drawBoxer(); } });
   $('boxDone').addEventListener('click', () => guard(async () => {
     const b = boxer; if (!b || !ed) return;
-    const before = JSON.stringify(ed.marks || []);
+    const X = b.pid ? (ed.photos || []).find((y) => y.pid === b.pid) : null; if (b.pid && !X) { await closeSheet(); return; } // ((beta 7.16, Photo marks) another photo's)
+    const before = JSON.stringify((X ? X.marks : ed.marks) || []);
     const marks = b.marks.map((m) => withC(m, m.k === 'foc' ? { k: 'foc', pts: m.pts.map(([x, y]) => [+(x / b.w).toFixed(4), +(y / b.h).toFixed(4)]) }
       : m.k === 'text' ? { k: 'text', x: +((m._x != null ? m._x : m.x) / b.w).toFixed(5), y: +((m._y != null ? m._y : m.y) / b.h).toFixed(5), t: m.t, ...(m.s && m.s !== 1 ? { s: m.s } : {}) }
         : isStand(m) ? { k: m.k, x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: m.k, x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
@@ -9796,10 +9923,21 @@
       drawMarks(g, b.marks, 1, boxLine(b.w, b.h), Math.max(b.w, b.h));
       blob = await toBlob(cv, 0.92);
     }
+    if (X) { // ((beta 7.16, Photo marks) another photo of the record: as the main one, its unmarked photo kept with it (stored at Save), the marked one in its place
+      const k = ed.phMk[X.pid] || (ed.phMk[X.pid] = { base: null, baseNew: false, dropOrig: false }), kept = !!(X.origPid && !k.dropOrig);
+      if (marks.length && !k.base) { k.base = b.base; k.baseNew = !kept; }
+      if (!marks.length && kept) k.dropOrig = true; else if (marks.length && k.dropOrig && X.origPid && !k.baseNew) k.dropOrig = false; // (marks again in the same edit: its unmarked copy, still stored, kept after all)
+      if (marks.length) X.marks = marks; else delete X.marks; ed.pending[X.pid] = blob; prepImages(blob);
+      LOG.info('photo.marks', { n: marks.length, photo: (ed.photos || []).indexOf(X) + 2, models: marks.filter((m) => (isModel(m) && m.k !== 'pole') || DRAWN.has(m.k)).map((m) => m.k) });
+      busy(false); await closeSheet(); renderSvPhotos(); renderBoxInfo(); scheduleDraft();
+      const at = (ed.photos || []).indexOf(X) + 2;
+      toast(marks.length ? `${marks.length} mark${marks.length === 1 ? '' : 's'} on photo ${at}${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}` : `Marks removed from photo ${at}${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}`, 3000);
+      return;
+    }
     if (ed.mode === 'edit' && !ed.newBlob) ed.keepQ = true; // the stored photo, only marked: its camera check stays
     const stored = !!(ed.origPid && !ed.dropOrig);
     if (marks.length && !ed.base) { ed.base = b.base; ed.baseNew = !stored; } // the unmarked photo is kept with the record
-    if (!marks.length && stored) ed.dropOrig = true;
+    if (!marks.length && stored) ed.dropOrig = true; else if (marks.length && ed.dropOrig && ed.origPid && !ed.baseNew) ed.dropOrig = false; // ((beta 7.16, Photo marks) marks taken off, then drawn again in the same edit: the unmarked photo, still stored, kept (it was let go at Save))
     ed.marks = marks; ed.newBlob = blob; prepImages(blob); showEdPhoto(blob);
     const poles = marks.filter((m) => m.k === 'pole').length;
     LOG.info('photo.marks', { n: marks.length, poles, models: marks.filter((m) => (isModel(m) && m.k !== 'pole') || DRAWN.has(m.k)).map((m) => m.k) });
@@ -10943,7 +11081,7 @@
         siteKind: ed.element === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT' : 'Tower') : '', // v2.37
       });
       if (!rec.color) delete rec.color; if (!rec.siteKind) delete rec.siteKind; if (rec.gpsAge == null) delete rec.gpsAge; if (rec.gpsRef == null) delete rec.gpsRef;
-      const photos = [];
+      const photos = [], dropO = []; // ((beta 7.16, Photo marks) dropO: the unmarked photos no longer kept (their photo's marks taken off))
       if (ed.newBlob) {
         busy('Preparing photo…');
         const tp = Date.now(); photos.push({ id: ed.id, ...await storedImages(ed.newBlob) });
@@ -10952,7 +11090,15 @@
       { // beta 3.5: the other photos of the pin, each under its own id; the record lists them after its main photo
         const X = (ed.photos || []).filter((x) => x && x.pid);
         for (const x of X) if (ed.pending[x.pid]) { busy('Preparing photos…'); photos.push({ id: x.pid, ...await storedImages(ed.pending[x.pid]) }); }
-        if (X.length) rec.photos = [{ pid: ed.id, label: ed.mainLabel || 'Overview', at: rec.takenAt || now }].concat(X.map((x) => ({ pid: x.pid, label: x.label || 'Detail', at: x.at || now, ...(x.q ? { q: x.q } : {}), ...(x.by ? { by: x.by } : {}) })));
+        const oFin = new Map(); // ((beta 7.16, Photo marks) a marked photo: its unmarked one kept with it (as the main photo's, v2.15), so its marks can be changed later
+        for (const x of X) {
+          const k = (ed.phMk || {})[x.pid] || {}, n = (x.marks || []).length;
+          if (n && k.base && k.baseNew) { busy('Preparing photos…'); photos.push({ id: origPidOf(x.pid), ...await storedImages(k.base) }); oFin.set(x.pid, origPidOf(x.pid)); }
+          else if (n && x.origPid && !k.dropOrig) oFin.set(x.pid, x.origPid);
+          else if (x.origPid) dropO.push(x.origPid);
+        }
+        if (X.length) rec.photos = [{ pid: ed.id, label: ed.mainLabel || 'Overview', at: rec.takenAt || now }].concat(X.map((x) => ({ pid: x.pid, label: x.label || 'Detail', at: x.at || now, ...(x.q ? { q: x.q } : {}), ...(x.by ? { by: x.by } : {}),
+          ...((x.marks || []).length ? { marks: x.marks.map((m) => ({ ...m })) } : {}), ...(oFin.get(x.pid) ? { origPid: oFin.get(x.pid) } : {}), ...(x.old ? { old: x.old } : {}) }))); // ((beta 7.16, Photo marks) its marks, its unmarked photo, the marks part of it)
         else delete rec.photos;
       }
       // v2.15: the unmarked photo is kept with marked photos, so their marks can be edited later
@@ -10969,6 +11115,7 @@
       if ((rec.element || 'Pole') === 'Pole') noteOwnUse(p && p.boq, rec.boq, rec.id); // v2.43.0: the owner lists in this user's order
       if (p && p.origPid && !rec.origPid) deletePhotosIfUnused([p.origPid], new Set()).catch(() => {}); // marks removed or a new photo
       if ((ed.removed || []).length) deletePhotosIfUnused(ed.removed.slice(), new Set()).catch(() => {}); // beta 3.5: the photos removed from the pin
+      if (dropO.length) deletePhotosIfUnused(dropO, new Set()).catch(() => {}); // ((beta 7.16, Photo marks) the marks taken off a photo: its unmarked copy goes)
       if (ed.mode === 'new' && !isNpt(poleId) && !genId && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
       if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type) && !['Proposed', 'New'].includes(ed.status)) S.lastType = ed.type; // v2.27: not the Globe type of a proposed / new pole
       if (rec.status && !(ed.pinKind && !ed.stTouched)) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status }; // ((beta 7.9, Add Pin): not the status a pin placed by hand started with: the camera's own stays)
@@ -11588,7 +11735,7 @@
     if (cefHooks.projects) cefHooks.projects(); // v2.44: the CEF plan of the open project, or of each of its site pins
     $('renameProject').value = S.project;
     $('purposeRow').hidden = acc || m.purpose === 'CEF-plan'; $('curPurpose').value = m.purpose || 'As-plan'; renderRefInfo();
-    $('curNotes').value = m.notes || '';
+    $('curNotes').value = remarksOf(m); // ((beta 7.16, Fixes) the remarks, a text: never the Drawing's notes)
     { const sh = m.shares, up = (m.updates || []).slice(-4).reverse(), L = []; // v2.42.18: Share: the last one from this phone, the updates received
       if (sh && sh.n && !acc) L.push(`Shared by you: update ${sh.n}${sh.full ? ' (the whole project)' : ''} · ${fmtTime(sh.at)}`);
       up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}${x.cef ? `, ${x.cef}` : ''}${x.spl ? `, ${x.spl}` : ''}`));
@@ -11782,7 +11929,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.notes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.drwNotes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ if (typeof m.notes !== 'string') delete m.notes; /* ((beta 7.16, Fixes) the remarks go to the team again (a text only), as before beta 7.12 */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -11880,7 +12027,7 @@
   function openProjects() { renderProjects(); openSheet('projects'); cloudSync(false); if (tmHooks.openProjects) tmHooks.openProjects(); }
   $('projectBtn').addEventListener('click', openProjects);
   /* v2.21: many projects on one phone: a search (name, category, site, vendor, task ID, notes) */
-  const projWords = (name) => { const m = pmeta(name); return [name, STAGE_LABEL[projKind(name)], PURPOSE_LABEL[m.purpose] || '', m.site, m.contractor, m.taskId, m.notes, m.fromPat].filter(Boolean).join(' ').toLowerCase(); };
+  const projWords = (name) => { const m = pmeta(name); return [name, STAGE_LABEL[projKind(name)], PURPOSE_LABEL[m.purpose] || '', m.site, m.contractor, m.taskId, remarksOf(m), m.fromPat].filter(Boolean).join(' ').toLowerCase(); };
   const projMatch = (name, q) => { const w = projWords(name); return String(q || '').toLowerCase().split(/\s+/).filter(Boolean).every((t) => w.includes(t)); };
   $('projSearch').addEventListener('input', renderTaskList);
 
@@ -12018,7 +12165,7 @@
     if (here) await dupAtMerge(pj, o.written); // beta 3.3 (QA-06)
   }
   [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
-    $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); });
+    $(id).addEventListener('change', () => { if (key === 'notes') notesMove(S.project, true); const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); }); // ((beta 7.16, Fixes) the remarks: the Drawing's notes (drwNotes) as they are)
   });
   $('startFat').addEventListener('click', () => guard(async () => {
     const f = fatOf(S.project); if (f) { openTask(f); return; }
@@ -12158,7 +12305,7 @@
       if (!jpeg) { missing++; continue; }
       const q = p.at ? p.q : r.q, el = elemOf(r);
       (el === 'Pole' ? poles : other).push({ jpeg, head: el === 'Pole' ? `${r.poleId || 'No ID'}${r.status === 'Proposed' || r.status === 'New' ? ` · ${svStatusLabel(r.status)}` : ''}${p.label && !['Overview', 'Photo'].includes(p.label) ? ` · ${p.label}` : ''}` : `${r.poleId || 'No ID'} · ${svDesc(r)}`,
-        lines: [`${shortTime(p.at || r.takenAt || r.created)}${r.boxes ? ' · red box' : ''}`], warn: q && q.flags && q.flags.length ? `Camera warning when taken: ${q.flags.join(', ')}` : '' });
+        lines: [`${shortTime(p.at || r.takenAt || r.created)}${(p.pid === r.id ? r.boxes : (p.marks || []).length + (p.old || 0)) ? ' · red box' : ''}`], /* ((beta 7.16, Photo marks) each photo's own marks) */ warn: q && q.flags && q.flags.length ? `Camera warning when taken: ${q.flags.join(', ')}` : '' });
     }
     busy(false);
     const sections = [];
@@ -14615,8 +14762,9 @@
     // beta 6.6 (the owner: "under drawing style, let the user decide, off by default"): Drawing style › Loops at boxes and ODF entrances › Written: each such loop the PMI counts, for the plan to write beside its point
     const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
     const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
-    const phPin = { ...(m.phPin || {}) }; // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres)
-    const numPin = { ...(m.numPin || {}) }, lblPin = { ...(m.lblPin || {}) }, cabPin = { ...(m.cabPin || {}) }; // ((beta 7.10, Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
+    const phPin = mvOk(m.phPin, isEN); // (beta 7.8, Drawing photos) the photos placed by hand on the Drawing: each one's centre from its point as drawn (E, N metres) ((beta 7.16, Fixes) whole ones only)
+    const numPin = mvOk(m.numPin, isEN), lblPin = mvOk(m.lblPin, isEN), cabPin = mvOk(m.cabPin, (v) => isObj(v) && isEN(v.at)); // ((beta 7.16, Fixes) whole ones only)
+    // ((beta 7.10, Drawing labels) the numbers, pole details and cable labels placed by hand: see GeDxfTpl.build)
     const gridKeep = pinsAny(m) ? planGridOf(m) : null; // ((beta 7.10, Plan kept) the plan edited on the Drawing keeps its grid: its sheets and their names; (beta 7.10, Drawing labels) a photo, label, number or pole's details placed by hand)
     const tools = toolJob(m, PS); // ((beta 7.11, Drawing tools) the items turned, styled, their arrow's tip, the poles moved on the Drawing, Lines to the pole, Closure labels: only those set)
     // ((beta 7.11, Drawing tools) a closure's bubble (Plan style › Closure labels: Bubble, or one closure's) says its size as its record has it: PROPOSE 72C (the largest of
@@ -14852,13 +15000,13 @@
 
   /* ---- beta 3.5: the Photo report (RTA-like) ---- */
   /** Where each pole is, in words: the nearest named road (within 60 m) of the road pack, its barangay and city / municipality. */
-  async function poleLocations(list, keepBusy) { // (beta 6.4: keepBusy: the busy screen of the export stays)
+  async function poleLocations(list, keepBusy, quiet) { // (beta 6.4: keepBusy: the busy screen of the export stays) ((beta 7.16, Fixes) quiet: no busy screen at all, for the Drawing's preview)
     const out = new Map(); if (!list.length) return out;
     const la = list.map((p) => p.lat), lo = list.map((p) => p.lon), pad = 0.002, bb = [Math.min(...la) - pad, Math.min(...lo) - pad, Math.max(...la) + pad, Math.max(...lo) + pad];
     let A = null, R = null;
     try { A = await adminFromRoadPacks(list.map((p) => ({ lat: p.lat, lon: p.lon }))); } catch (e) { LOG.warn('report.admin', errInfo(e)); }
-    try { R = await roadsFromRoadPacks(bb); } catch (e) { LOG.warn('report.roads', errInfo(e)); }
-    if (!keepBusy) busy(false);
+    try { R = await roadsFromRoadPacks(bb, undefined, !!quiet); } catch (e) { LOG.warn('report.roads', errInfo(e)); }
+    if (!keepBusy && !quiet) busy(false);
     const roads = ((R && R.roads) || []).filter((r) => r.name);
     const dSeg = (p, a, b) => { const k = Math.cos(p.lat * Math.PI / 180) * 111320, ax = (a[1] - p.lon) * k, ay = (a[0] - p.lat) * 110540, bx = (b[1] - p.lon) * k, by = (b[0] - p.lat) * 110540, dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
       const t = L2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2)) : 0; return Math.hypot(ax + t * dx, ay + t * dy); };
@@ -15233,7 +15381,7 @@
       if (r.kind !== 'acceptance') { // a photo with a red box is not a clean training photo
         const L = (x) => (!x || x === 'Overview' || x === 'Photo' ? elemOf(r) : x === 'Detail' ? null : x);
         if (!r.boxes) add(r.id, L(r.photos && r.photos[0] ? r.photos[0].label : ''), r, 'survey photo');
-        if (r.photos && phDoc('ai', r.project) === 'all') r.photos.slice(1).forEach((p) => add(p.pid, L(p.label), r, `${p.label || 'other'} photo`)); // beta 3.5
+        if (r.photos && phDoc('ai', r.project) === 'all') r.photos.slice(1).filter((p) => !((p.marks || []).length || p.old)).forEach((p) => add(p.pid, L(p.label), r, `${p.label || 'other'} photo`)); // beta 3.5 ((beta 7.16, Photo marks) a marked one is not a clean photo either)
         continue;
       }
       photosOf(r).forEach((p) => add(p.pid, p.label === 'Overview' ? elemOf(r) : p.label === 'Detail' ? null : p.label, r, `${p.label} photo`));
@@ -15303,7 +15451,7 @@
     const pre = prefix || '', pts = points.filter((p) => p.project === name).sort((a, b) => (a.created < b.created ? -1 : 1));
     if (!isAcc(name)) projKey(name); // v2.42.6: the credits' project key travels with it
     const files = [{ name: `${pre}points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: new Date().toISOString(), by: byLine(), exportedBy: exporterInfo(), points: pts }, null, 1) }];
-    const pids = [...new Set(pts.flatMap(allPids).concat(cefHooks.pids ? cefHooks.pids(name) : []))]; // (v2.44: + the photos of its CEF plans)
+    const pids = [...new Set(pts.flatMap(allPids).concat(cefHooks.pids ? cefHooks.pids(name) : [], notesOf(pmeta(name)).map((n) => n.photo && n.photo.pid).filter(Boolean)))]; // (v2.44: + the photos of its CEF plans) ((beta 7.16, Fixes) + the photos added on its Drawing: drwNotes)
     for (let i = 0; i < pids.length; i++) {
       busy(`Packing photos ${i + 1} / ${pids.length}`, i / pids.length);
       const ph = await dbGet('photos', pids[i]);
@@ -15432,7 +15580,7 @@
     if (proj) { // v2.42.4: the project's details first (a restore cut short left records with none: a PAT showed as an open survey)
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
-      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, chg, ...mm } = meta.meta; S.meta[proj] = mm; o.fresh = true; } // (beta 3.3: fresh: its spans and cables from before beta 3.3 are the sender's) // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
+      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, chg, ...mm } = meta.meta; S.meta[proj] = mm; o.fresh = true; notesMove(proj, true); } // (beta 3.3: fresh: its spans and cables from before beta 3.3 are the sender's) // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
       persist();
     }
     let n = 0, kept = 0, routeNew = false, goneHere = 0;
@@ -15451,6 +15599,10 @@
       await dbPut('points', p);
       const i = points.findIndex((x) => x.id === p.id); if (i >= 0) points[i] = p; else points.push(p);
       (o.written || (o.written = [])).push(p.id); // (beta 3.3: for the same pole twice)
+    }
+    if (proj && o.fresh) for (const nt of notesOf(pmeta(proj))) { // ((beta 7.16, Fixes) a project brought in whole (a backup): the photos added on its Drawing, from the file when it has them)
+      const pid = nt.photo && nt.photo.pid; if (!pid) continue; const clean = await z.get(`${pre}photos/${pid}.jpg`), thumb = await z.get(`${pre}thumbs/${pid}.jpg`);
+      if (clean || thumb) await dbPut('photos', { id: pid, clean: clean && new Blob([clean], { type: 'image/jpeg' }), thumb: thumb && new Blob([thumb], { type: 'image/jpeg' }) });
     }
     if (proj) {
       if (meta.meta && S.meta[proj] !== meta.meta) {
@@ -15749,6 +15901,11 @@
 
   /** Smaller JPEG for the PDF so a report with hundreds of photos stays shareable. */
   async function pdfJpeg(pid, maxPx, stampLines, stampColor, quality, band, geo) { // (beta 6.4: band: the plan photo's stamp, planStamp; beta 7.6 / 2.45.8: geo { p, fields }: the geotag band instead, geoStamp)
+    const cv = await photoCanvas(pid, maxPx, stampLines, stampColor, band, geo); if (!cv) return null; // ((beta 7.16, Fixes) drawn by photoCanvas: the Drawing's preview draws the plan's photos the same way)
+    return new Uint8Array(await (await toBlob(cv, quality || 0.72)).arrayBuffer());
+  }
+  /** (beta 7.16, Fixes) A photo drawn as pdfJpeg makes it (maxPx on its long side, its stamps burned in), as a canvas; null without its picture. */
+  async function photoCanvas(pid, maxPx, stampLines, stampColor, band, geo) {
     const ph = await dbGet('photos', pid).catch(() => null);
     if (!ph || !ph.clean) return null;
     const im = await loadImage(ph.clean), { w, h } = dims(im), sc = Math.min(1, maxPx / Math.max(w, h));
@@ -15762,8 +15919,8 @@
       stampLines.forEach((t, i) => { g.font = `${i ? '' : '700 '}${fs}px sans-serif`; g.fillText(t, pad * 1.5, cv.height - bandH + pad + i * lh, cv.width - pad * 3); });
     }
     if (band) planStamp(g, cv.width, cv.height, band);
-    if (geo) await geoStamp(g, cv.width, cv.height, geo.p, null, null, { fields: geo.fields });
-    return new Uint8Array(await (await toBlob(cv, quality || 0.72)).arrayBuffer());
+    if (geo) await geoStamp(g, cv.width, cv.height, geo.p, null, null, { fields: geo.fields, ...(geo.addr != null ? { addr: geo.addr } : {}) }); // ((beta 7.16, Fixes) the Drawing's preview: its address given (found quietly); the export: looked up here as before)
+    return cv;
   }
   /** beta 6.4: the caption band of a photo on the plan (Drawing style › Photos on the plan › Stamp on the photos): lat, long (6 decimals)
       on one line, the address under it (two lines at most, shortened with … past that), white on a dark band at the foot of the
@@ -16392,6 +16549,7 @@
     ['stampFields', 'stampFields2'].forEach((id) => $(id).querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(S.exp.stampFields.includes(c.dataset.v)))));
     ['setStampPlan', 'setStampPlan2'].forEach((id) => { const el = $(id), sub = $(`${id}Sub`); if (!el) return; el.disabled = !S.exp.stamp; if (sub) sub.textContent = S.exp.stamp ? `The plan\u2019s photos get this caption band (the fields ${id === 'setStampPlan' ? 'under More options' : 'above'}) instead of lat, long and address` : 'Only with Stamp on the photo files'; }); // beta 7.6 / 2.45.8: greyed with the stamp off (geoOnPlan)
     [['setZone', 'zone'], ['setSym', 'sym'], ['setTxt', 'txt']].forEach(([a, key]) => { const el = $(a); if (el) el.value = String(S[key]); }); // (beta 6.7, UX step 4; critic: S.zone, S.sym, S.txt: Plan style › Plan file only, their Settings copies setZone2, setSym2, setTxt2 gone)
+    if (drw && drw.view && !$('drawing').hidden) drawDrawing(); // ((beta 7.16, Fixes) the stamp on the plan's photos changed: the Drawing's photos as the export makes them now)
   }
   Object.entries(expIds).forEach(([key, ids]) => ids.forEach(([id, kind]) => {
     const el = $(id); if (!el) return;
@@ -23223,6 +23381,12 @@
       for (let q = IT[4 * k + 2]; q < IT[4 * k + 2] + IT[4 * k + 3]; q++) { const f = SB[3 * q], c = SB[3 * q + 1], L = []; for (let j = 0; j < c; j++) L.push([Pp[2 * (f + j)] + o[0], Pp[2 * (f + j) + 1] + o[1]]); out.lines.push(L); } }
     return out; };
   window.__polecam.drwMvItem = (id) => { const m = drw && mvById(id); if (!m) return null; const i = mvIx(id), PL = drw.ph.plan, L = PL && PL.lifted ? PL.lifted.get(i) : null; return JSON.parse(JSON.stringify({ ...m, handles: m.handles.length, canNow: canOf(m), lifted: L ? { off: L.off, xf: L.xf } : null, boxNow: drwMvBox(m, i) })); };
+  window.__polecam.drwStamp = () => ({ now: drwStampNow(), made: [...drwStamps.entries()].map(([k, x]) => ({ key: k, ok: !!x.bm, w: x.bm ? x.bm.width : 0, h: x.bm ? x.bm.height : 0 })), queue: drwStampQ.length, busy: drwStampBusy, n: drwStampN, addr: drwStampLoc && drwStampLoc.map ? Object.fromEntries(drwStampLoc.map) : null });
+  window.__polecam.drwStampCap = (n) => { if (n > 0) DRW_STAMPS = +n; return DRW_STAMPS; }; // ((beta 7.16, Fixes) tests: how many stamped photos are kept) // ((beta 7.16, Fixes) tests: the stamped photos of the preview)
+  window.__polecam.edPhMarks = () => (ed ? { main: (ed.marks || []).length, photos: (ed.photos || []).map((x) => ({ pid: x.pid, label: x.label, n: (x.marks || []).length, origPid: x.origPid || '', old: x.old || 0, base: !!(ed.phMk && ed.phMk[x.pid] && ed.phMk[x.pid].base), baseNew: !!(ed.phMk && ed.phMk[x.pid] && ed.phMk[x.pid].baseNew) })), info: $('boxInfo').hidden ? '' : $('boxInfo').textContent } : null); // ((beta 7.16, Photo marks) tests: each photo's marks in the record open)
+  window.__polecam.allPidsOf = (id) => { const r = points.find((p) => String(p.id) === String(id)); return r ? allPids(r) : null; }; // ((beta 7.16, Photo marks) tests: the photos a backup and a team share carry)
+  window.__polecam.backupNames = async (n) => { try { return (await zipReader(await projectZip(n || S.project))).names; } finally { busy(false); } }; // ((beta 7.16, Photo marks) tests: the files of a project's backup)
+  window.__polecam.drwPreviewWait = (ms) => { if (ms > 0) PH_WAIT = +ms; return PH_WAIT; }; // ((beta 7.16, Fixes) tests: how long the preview's worker is waited for)
   window.__polecam.drwJobTools = () => (drw && drw.ph ? JSON.parse(JSON.stringify(drw.ph.tools || null)) : null);
   window.__polecam.drwCands = (x, y, mouse) => (drw ? drwCands({ clientX: x, clientY: y, pointerType: mouse ? 'mouse' : 'touch' }).map((c) => ({ ...c })) : null); // ((beta 7.11, Drawing tools) tests: what a tap there goes through)
   window.__polecam.shareMeta = (n) => JSON.parse(JSON.stringify(shareMeta(n || S.project))); // ((beta 7.11, Drawing tools) tests: what a project shares with the team)
