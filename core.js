@@ -809,12 +809,12 @@
     const by = {}; points.forEach((p) => { by[p.id] = p; });
     const nb = {}; points.forEach((p) => { nb[p.id] = []; });
     const spans = [];
-    for (const [ia, ib, cab, more] of links || []) { // v2.29: a link may carry its cable type (CABLES key); v2.42.18: and more runs
+    for (const [ia, ib, cab, more, al] of links || []) { // v2.29: a link may carry its cable type (CABLES key); v2.42.18: and more runs
       const a = by[ia], b = by[ib];
       if (!a || !b || ia === ib) continue;
       const len = distM(a, b), cable = CABLES[cab] ? cab : '';
       const runs = [cable, ...(Array.isArray(more) ? more : []).map((k) => (CABLES[k] ? k : ''))]; // run 1 first (its hardware and loops)
-      spans.push({ ia, ib, a, b, from: a.poleId, to: b.poleId, len, long: len > o.maxSpan, cable, runs });
+      spans.push({ ia, ib, a, b, from: a.poleId, to: b.poleId, len, long: len > o.maxSpan, cable, runs, ...(al && typeof al === 'object' ? { al } : {}) }); // ((beta 7.16, Span allowance) al: its own span length allowance, { p } % or { m } metres)
       nb[ia].push(b); nb[ib].push(a);
     }
     const poles = {}; const cnt = { long: 0, angle: 0, terminal: 0, junction: 0, inline: 0, off: 0 };
