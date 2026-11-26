@@ -9,6 +9,9 @@
    - the export's "Cannot read properties of null (reading 'id')": a project whose kept Drawing edits hold leftovers (a null note, a note without a place, an order
      op for an item that is gone, a turn and a style for a point deleted since, null pins) previews, counts what was changed by hand and exports, the plan's job
      holding none of them.
+   - (beta 7.16, Fixes) the project's REMARKS / NOTES (pmeta().notes, a text) and the Drawing's own texts and photos (beta 7.12 to 7.15: the same key) kept apart:
+     the Drawing's in pmeta().drwNotes, each kept when the other changes (Undo, Put all back), the remarks shared with the team again, never "[object Object]";
+     a project kept by 7.12 to 7.15 moved at start (after the notes there, each id once), an old backup restored moved too, with its notes' photos.
    Run: node --test tests/drawing-fixes.spec.cjs (or python3 tests/run_all.py --only drawing-fixes). A made-up As-Plan project and the made-up template with the
    plan's blocks; a stand-in for the plan's worker (dxf-worker.js) where it must fail. Every name, number and place is made up. */
 'use strict';
@@ -17,9 +20,10 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fsp = require('node:fs/promises');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
-const { editOn, chgOf } = require('./drawing-edit.cjs');
+const { editOn, chgOf, putAllBack } = require('./drawing-edit.cjs');
 
 const root = path.resolve(__dirname, '..');
 const SEED = fs.readFileSync(path.join(__dirname, 'fixtures', 'plan-seed-made-up-blocks.dxf'), 'utf8'); // (the made-up template with the plan's blocks)
@@ -118,6 +122,105 @@ async function photoBand(page) {
 }
 async function untilStamped(page, n) { for (let i = 0; i < 120; i++) { const s = await stampOf(page); if (!s.busy && !s.queue && s.made.filter((x) => x.ok).length >= (n || 1)) { await page.waitForTimeout(250); return s; } await page.waitForTimeout(250); } throw new Error(`not stamped: ${JSON.stringify(await stampOf(page))}`); }
 
+/** (beta 7.16, Fixes) The project's kept details as the phone keeps them (localStorage), and a made-up JPEG file (for the Drawing's Photo). */
+const metaOf = (page, n) => page.evaluate((x) => (JSON.parse(localStorage.getItem('polecam.settings')).meta || {})[x] || null, n || NAME);
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gesaa-fixes-'));
+async function jpegFile(page, name) {
+  const b64 = await page.evaluate(async () => { const c = document.createElement('canvas'); c.width = 640; c.height = 480; const g = c.getContext('2d'); g.fillStyle = '#ffd43b'; g.fillRect(0, 0, 640, 480); g.fillStyle = '#1c7ed6'; g.fillRect(60, 60, 300, 200);
+    const b = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9)), a = new Uint8Array(await b.arrayBuffer()); let s = ''; for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s); });
+  const f = path.join(TMP, name || `demo-${Date.now()}.jpg`); fs.writeFileSync(f, Buffer.from(b64, 'base64')); return f;
+}
+/** The remarks box of the project's details (Projects): what it shows. */
+async function remarksBox(page) { await closeAll(page); await page.evaluate(() => document.getElementById('projectBtn').click()); await page.waitForTimeout(400); const v = await page.evaluate(() => document.getElementById('curNotes').value); await closeAll(page); return v; }
+/** A remark typed in the project's details, as a person does (its change). */
+async function remarkType(page, text) { await closeAll(page); await page.evaluate(() => document.getElementById('projectBtn').click()); await page.waitForTimeout(400); if (!(await page.evaluate(() => document.getElementById('curMore').open))) await page.click('#curMore > summary'); await page.fill('#curNotes', text); await page.evaluate(() => document.getElementById('curNotes').dispatchEvent(new Event('change'))); await closeAll(page); }
+/** A text added on the Drawing (Edit on), where (lat, long) is. */
+async function addText(page, la, lo, text) {
+  await page.click('#drawIcons [data-a="addtext"]'); await page.waitForTimeout(150); const P = await page.evaluate(([a, b]) => window.__polecam.drwLL(a, b), [la, lo]);
+  await page.mouse.click(P[0], P[1]); await page.waitForTimeout(500);
+  if (!(await page.evaluate(() => window.__polecam.drwTxt().open))) { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fixes-debug-addtext.png') }); throw new Error(`no text editor: ${JSON.stringify(await page.evaluate(() => ({ ico: window.__polecam.drwIco(), P: null })))} at ${P}`); }
+  await page.fill('#drawTxtArea', text); await page.click('#drawTxtYes'); await page.waitForTimeout(400);
+}
+/** A photo added on the Drawing (Edit on): the gallery's file, then a tap where (lat, long) is. */
+async function addPhoto(page, la, lo, file) {
+  await page.click('#drawIcons [data-a="addphoto"]'); await page.waitForTimeout(150); await page.setInputFiles('#drawNotePick', file);
+  for (let i = 0; i < 40 && (await page.evaluate(() => window.__polecam.drwIco().adding)) !== 'photo'; i++) await page.waitForTimeout(150);
+  const P = await page.evaluate(([a, b]) => window.__polecam.drwLL(a, b), [la, lo]); await page.mouse.click(P[0], P[1]); await page.waitForTimeout(500);
+}
+/** Export › Plan drawing (the builder on the page: each job kept in window.__jobs). */
+async function exportJobs(page) {
+  await page.evaluate(async () => { if (!window.GeDxfTpl) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'dxftpl.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); const T = window.GeDxfTpl; if (!T.__fx) { T.__fx = true; const real = T.build; T.__w = true; T.build = function (seed, job) { window.__jobs.push(JSON.parse(JSON.stringify({ notes: job.notes || null }))); return real.call(this, seed, job); }; } });
+  await closeAll(page); await page.evaluate(() => { window.__jobs = []; document.getElementById('exportBtn').click(); }); await page.waitForTimeout(900);
+  await page.evaluate(() => { document.getElementById('resultBox').hidden = true; document.getElementById('doDxf').click(); });
+  let res = null; for (let i = 0; i < 320; i++) { await page.waitForTimeout(250); const st = await page.evaluate(() => ({ ask: !document.getElementById('askBox').hidden, res: !document.getElementById('resultBox').hidden }));
+    if (st.ask) { await page.evaluate(() => { const B = [...document.querySelectorAll('#askBox .row button')]; (B.find((b) => /Export (without|as it is)|Export as they are/i.test(b.textContent)) || document.querySelector('#askBox .row button.primary') || B.pop()).click(); }); continue; }
+    if (st.res) { res = true; break; } }
+  assert.ok(res, 'the export finished'); assert.deepEqual(await page.evaluate(() => window.__polecam.LOG.all().filter((x) => x.e === 'task.fail').map((x) => x.d)), [], 'no export error');
+  const J = await page.evaluate(() => window.__jobs); assert.equal(J.length, 1, 'one plan made'); await closeAll(page); return J[0];
+}
+const PT = (k) => [LA0 + 0.0011, LO0 + k * DD]; // (places north of the route, clear of its items)
+
+test('(beta 7.16) the project\'s remarks and the Drawing\'s own texts and photos kept apart: each kept when the other changes; Undo and Put all back leave the remarks; shareMeta sends the remarks, not the notes; the export draws the notes', async () => {
+  const { ctx, page, errors } = await open({ meta: { notes: 'DEMO REMARK ONE' } }), jpg = await jpegFile(page);
+  let M = await metaOf(page); assert.equal(M.notes, 'DEMO REMARK ONE', 'the remarks as kept'); assert.ok(!('drwNotes' in M)); assert.equal(await remarksBox(page), 'DEMO REMARK ONE', 'the remarks box');
+  assert.equal(await page.evaluate(() => window.__polecam.LOG.all().filter((x) => x.e === 'notes.move').length), 0, 'nothing to move (a text)');
+  // a text and a photo added on the Drawing: the remarks as they were
+  await drawing(page, 0.4); await shown(page); await editOn(page);
+  await addText(page, ...PT(0.8), 'DEMO DRAWING TEXT'); M = await metaOf(page); assert.equal(M.notes, 'DEMO REMARK ONE', 'a text added: the remarks stay'); assert.deepEqual(M.drwNotes.map((n) => [n.kind, n.lines]), [['text', ['DEMO DRAWING TEXT']]]);
+  await addPhoto(page, ...PT(2.6), jpg); M = await metaOf(page); assert.equal(M.notes, 'DEMO REMARK ONE', 'a photo added: the remarks stay'); assert.deepEqual(M.drwNotes.map((n) => n.kind), ['text', 'photo']);
+  const N2 = M.drwNotes; assert.ok(await page.evaluate((id) => window.__polecam.cef.has(id), N2[1].photo.pid), 'its photo kept');
+  // the remarks changed: the Drawing's notes as they were; the box shows the text
+  await remarkType(page, 'DEMO REMARK TWO'); M = await metaOf(page); assert.equal(M.notes, 'DEMO REMARK TWO'); assert.deepEqual(M.drwNotes, N2, 'a remark typed: the notes stay');
+  assert.equal(await remarksBox(page), 'DEMO REMARK TWO');
+  await page.evaluate((n) => { const S0 = window.__polecam.S; S0.meta[n] = { ...S0.meta[n], mvStyle: { 'lbl:s3': { h: 1.5 } } }; window.__polecam.persist(); }, NAME); // (a pole's details sized by hand before: something for Put all back)
+  // Undo (the photo) and Redo, Put all back: never the remarks
+  await drawing(page, 0.4); await shown(page); await editOn(page);
+  await page.click('#drawUndo'); await page.waitForTimeout(300); M = await metaOf(page); assert.deepEqual(M.drwNotes.map((n) => n.kind), ['text'], 'Undo: the photo taken back'); assert.equal(M.notes, 'DEMO REMARK TWO', 'Undo: the remarks as typed since');
+  await page.click('#drawRedo'); await page.waitForTimeout(300); M = await metaOf(page); assert.deepEqual(M.drwNotes, N2, 'Redo'); assert.equal(M.notes, 'DEMO REMARK TWO');
+  const t = await putAllBack(page, true); assert.match(t, /^Put all back/); M = await metaOf(page); assert.ok(!M.mvStyle, 'Put all back: the size by hand gone'); assert.deepEqual(M.drwNotes, N2, 'Put all back: the notes stay (the user\'s own)'); assert.equal(M.notes, 'DEMO REMARK TWO', 'Put all back: the remarks stay');
+  // shared with the team: the remarks, not the Drawing's notes
+  const sh = await page.evaluate(() => window.__polecam.shareMeta()); assert.equal(sh.notes, 'DEMO REMARK TWO', 'shareMeta: the remarks'); assert.ok(!('drwNotes' in sh), 'shareMeta: no Drawing notes');
+  // the export: the notes drawn (the text, the photo's NOTE_<id>.jpg)
+  const J = await exportJobs(page); assert.deepEqual((J.notes || []).map((n) => [n.id, n.kind]), N2.map((n) => [n.id, n.kind]), 'job.notes: the Drawing\'s'); assert.equal((await metaOf(page)).notes, 'DEMO REMARK TWO', 'the export: the remarks as they are');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('(beta 7.16) a project kept by beta 7.12 to 7.15 (its Drawing notes in the remarks\' key): moved at start, after those there, each id once; the remarks box empty, never "[object Object]"; drawn, exported; Undo after the move; nothing to move after a reload; an old backup restored: moved, its notes\' photos back', async () => {
+  const T1 = { id: 'n1', kind: 'text', at: [787346.12, 786246.5], lines: ['DEMO OLD NOTE'] }, P2 = { id: 'n2', kind: 'photo', at: [787417.75, 786246.9], photo: { pid: 'drwnDEMO2', px: 640, py: 480 }, size: 14 }, T3 = { id: 'n3', kind: 'text', at: [787381.93, 786246.7], lines: ['DEMO NOTE THERE'] };
+  const { ctx, page, errors } = await open({ meta: { notes: [T1, null, P2, { ...T3, lines: ['A COPY'] }], drwNotes: [T3] } });
+  let M = await metaOf(page); assert.strictEqual(M.notes, '', 'the remarks\' key: a text again (the remarks were lost when the first note was added)'); assert.deepEqual(M.drwNotes, [T3, T1, P2], 'moved after the one there; n3 once (the one there kept), the empty entry left out');
+  const L1 = await page.evaluate(() => window.__polecam.LOG.all().filter((x) => x.e === 'notes.move').map((x) => x.d)); assert.deepEqual(L1, [{ moved: 2, dropped: 2, kept: 1 }], 'logged');
+  const box = await remarksBox(page); assert.equal(box, '', 'the remarks box: empty'); assert.ok(!/object/i.test(box));
+  await page.evaluate(async () => { const c = document.createElement('canvas'); c.width = 640; c.height = 480; const g = c.getContext('2d'); g.fillStyle = '#74c0fc'; g.fillRect(0, 0, 640, 480); const b = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9)); await window.__polecam.cef.keep('drwnDEMO2', b); }); // (the photo note's picture, as the phone kept it)
+  // drawn on the plan; Undo after the move takes back only what was done since
+  await drawing(page, 0.4); await shown(page, (x) => !!x); for (let i = 0; i < 60; i++) { const T = await page.evaluate(() => window.__polecam.drwJobTools()); if (T && T.notes && T.notes.length === 3) break; await page.waitForTimeout(250); }
+  assert.deepEqual((await page.evaluate(() => window.__polecam.drwJobTools())).notes.map((n) => n.id), ['n3', 'n1', 'n2'], 'the plan has the three');
+  await editOn(page); await addText(page, LA0 + 0.0006, LO0 - 1.6 * DD, 'DEMO NEW TEXT'); // (clear of the plan's items and of the chip) M = await metaOf(page); assert.equal(M.drwNotes.length, 4); assert.strictEqual(M.notes, '');
+  await page.click('#drawUndo'); await page.waitForTimeout(300); M = await metaOf(page); assert.deepEqual(M.drwNotes, [T3, T1, P2], 'Undo: the three moved, as they were'); assert.strictEqual(M.notes, '', 'Undo: the remarks as they are');
+  await page.waitForTimeout(4500); assert.ok(await page.evaluate(() => window.__polecam.cef.has('drwnDEMO2')), 'the photo note\'s picture kept (the sweep of photos no note keeps)');
+  const J = await exportJobs(page); assert.deepEqual(J.notes.map((n) => n.id), ['n3', 'n1', 'n2'], 'the export: the three (NOTE_n2.jpg)');
+  // a reload: nothing to move
+  const t0 = Date.now(); await page.reload(); await page.waitForFunction(() => !!window.__polecam && window.__polecam.points.length > 0, null, { timeout: 60000 }); await page.waitForTimeout(800);
+  assert.deepEqual(await page.evaluate((t) => window.__polecam.LOG.all().filter((x) => x.e === 'notes.move' && x.t >= t).length, t0), 0, 'nothing to move'); M = await metaOf(page); assert.deepEqual(M.drwNotes, [T3, T1, P2]); assert.strictEqual(M.notes, '');
+  // an old backup (beta 7.12 to 7.15) of another project restored: its notes moved, their photo back
+  const zipB64 = await page.evaluate(async ([T, P]) => {
+    const c = document.createElement('canvas'); c.width = 640; c.height = 480; const g = c.getContext('2d'); g.fillStyle = '#b2f2bb'; g.fillRect(0, 0, 640, 480); const jb = new Uint8Array(await (await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9))).arrayBuffer());
+    const pts = [{ id: 'r1', project: 'DEMO OLD BACKUP', element: 'Pole', poleId: 'CC-9101', poleType: 'Concrete', status: 'Proposed', lat: 7.1050, lon: 125.6020, accuracy: 4, created: '2026-10-01T08:00:00.000Z', updated: '2026-10-01T08:00:00.000Z', takenAt: '2026-10-01T08:00:00.000Z', by: 'Juan Dela Cruz', boq: {} }];
+    const meta = { app: 'PoleCam', version: 2, project: 'DEMO OLD BACKUP', meta: { mode: 'survey', purpose: 'As-plan', contractor: 'DEMO CONTRACTOR', notes: [T, { ...P, photo: { ...P.photo, pid: 'drwnOLD9' } }] }, exported: '2026-10-01T09:00:00.000Z', points: pts };
+    const z = window.PoleCore.makeZip([{ name: 'points.json', data: new TextEncoder().encode(JSON.stringify(meta)) }, { name: 'photos/drwnOLD9.jpg', data: jb }]);
+    let s = ''; for (let i = 0; i < z.length; i += 0x8000) s += String.fromCharCode.apply(null, z.subarray(i, i + 0x8000)); return btoa(s); }, [T1, P2]);
+  const zf = path.join(TMP, 'DEMO_OLD_BACKUP.zip'); fs.writeFileSync(zf, Buffer.from(zipB64, 'base64'));
+  await closeAll(page); await page.setInputFiles('#restoreInput', zf);
+  let R = null; for (let i = 0; i < 80; i++) { await page.waitForTimeout(250); R = await metaOf(page, 'DEMO OLD BACKUP'); if (R && R.drwNotes) break; }
+  assert.ok(R, 'restored'); assert.strictEqual(R.notes, '', 'its remarks\' key: a text'); assert.deepEqual(R.drwNotes.map((n) => n.id), ['n1', 'n2'], 'its notes moved');
+  for (let i = 0; i < 40 && !(await page.evaluate(() => window.__polecam.cef.has('drwnOLD9'))); i++) await page.waitForTimeout(250);
+  assert.ok(await page.evaluate(() => window.__polecam.cef.has('drwnOLD9')), 'its photo note\'s picture restored from the backup');
+  assert.equal(await page.evaluate(() => window.__polecam.S.project), 'DEMO OLD BACKUP'); const box2 = await remarksBox(page); assert.equal(box2, ''); assert.ok(!/object/i.test(box2));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test('the stamp on the plan\'s photos in the preview: plain with no stamp; the geotag band with Same stamp on the plan\'s photos (its fields); Plan style\'s lat, long band; plain again; each made once', async () => {
   const { ctx, page, errors } = await open({ pl: { photo: { stamp: 'off', size: 18 } } });
   await drawing(page); await shown(page, (x) => x.count && x.count.pictures === 8); await page.waitForTimeout(800);
@@ -215,7 +318,7 @@ test('the preview that cannot be made says so where Regenerate says what it does
 
 test('a project whose kept Drawing edits hold leftovers (a null note, a note without a place, ops for items that are gone, a turn and a style for a deleted point, null pins): previewed, counted, exported; the plan\'s job holds none of them', async () => {
   const meta = {
-    notes: [null, { id: 'n1', kind: 'text', at: [787300, 785990], lines: ['DEMO NOTE'] }, { id: 'n2', kind: 'text', lines: ['NO PLACE'] }, { kind: 'text', at: [1, 2] }, 'junk'],
+    drwNotes: [null, { id: 'n1', kind: 'text', at: [787300, 785990], lines: ['DEMO NOTE'] }, { id: 'n2', kind: 'text', lines: ['NO PLACE'] }, { kind: 'text', at: [1, 2] }, 'junk'], // ((beta 7.16, Fixes) the Drawing's notes: drwNotes)
     mvOrder: [null, { id: 'lbl:s99', op: 'front' }, { id: 'lbl:s3' }, { op: 'back' }, { id: 'lbl:s5', op: 'back' }],
     mvTurn: { 'lbl:s99': [1, 2], 'lbl:s3': null }, mvRec: { 'pole:s99': { p: ['s99'], w: ['moved'] }, 'pole:s4': null, 'nap:s6': { p: null, w: 'status' } },
     mvPin: { 'lbl:s99': null, 'clo:s2': 'junk', 'guy:s3': { rot: 30 } }, mvStyle: { 'lbl:s99': null, 'lbl:s5': { h: 1.5 }, 'lbl:s6': [] }, mvKind: { details: null }, mvText: { 'lbl:s99': null, 'lbl:s7': ['DEMO', null] },

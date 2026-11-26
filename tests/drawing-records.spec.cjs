@@ -135,7 +135,7 @@ const tbOf = (page) => page.evaluate(() => window.__polecam.drwTb());
 const icoOf = (page) => page.evaluate(() => window.__polecam.drwIco());
 const txtOf = (page) => page.evaluate(() => window.__polecam.drwTxt());
 const notesOf = (page) => page.evaluate(() => window.__polecam.drwNotes());
-const kept = (page, n) => page.evaluate((x) => { const m = JSON.parse(localStorage.getItem('polecam.settings')).meta[x]; return { mvText: m.mvText || {}, mvOrder: m.mvOrder || [], notes: m.notes || [], mvStyle: m.mvStyle || {}, mvKind: m.mvKind || {}, mvPin: m.mvPin || {}, phPin: m.phPin || {} }; }, n || NAME);
+const kept = (page, n) => page.evaluate((x) => { const m = JSON.parse(localStorage.getItem('polecam.settings')).meta[x]; return { mvText: m.mvText || {}, mvOrder: m.mvOrder || [], notes: m.drwNotes || [] /* ((beta 7.16, Fixes) the Drawing's notes: drwNotes) */, mvStyle: m.mvStyle || {}, mvKind: m.mvKind || {}, mvPin: m.mvPin || {}, phPin: m.phPin || {} }; }, n || NAME);
 async function drawing(page, mpp, fy) {
   await closeAll(page); await page.evaluate(() => document.getElementById('drawBtn').click()); await page.waitForTimeout(700);
   await page.evaluate(() => { const d = document.querySelector('dialog[open]'); if (d) d.close(); });
