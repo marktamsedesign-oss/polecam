@@ -4585,7 +4585,7 @@
           : k === 'span' ? geoOf(E.sp[0], E.sp[1]).m : (k === 'loop' || k === 'landmark' || k === 'road' || k === 'cablename' || k === 'messenger') && E.at ? E.at : k === 'closurelabel' && E.at ? E.at : p && p.dp ? p.dp : p ? [p.E, p.N] : [0, 0]; // ((beta 7.12) a cable's name, a messenger arm: where it is)
         E.anchor = [E.anchor[0], E.anchor[1]];
         if (ATTK.has(k)) E.about = [p.dp[0], p.dp[1]];
-        if (k === 'guy' || k === 'ground' || k === 'arm' || k === 'loop' || k === 'loopsym' || k === 'clamp' || ((k === 'nap' || k === 'closure' || k === 'closurelabel') && pl)) E.pole = String(pl.id);
+        if (pl && (k === 'guy' || k === 'ground' || k === 'arm' || k === 'loop' || k === 'loopsym' || k === 'clamp' || k === 'nap' || k === 'closure' || k === 'closurelabel')) E.pole = String(pl.id); // ((beta 7.15, Fixes) only where its point is a pole: a loop written at a handhole, manhole, service box, ODF, site or ODC (Plan style › 20 m loops at boxes: Written) has none (its point carries it); it read the id of no pole: "Export failed: Cannot read properties of null (reading 'id')", and no plan preview)
         if (!E.status && p && (k === 'pole' || k === 'site') && (p.el === 'Pole' || p.el === 'Site' || p.el === 'ODC' || p.el === 'ODF' || INLINE_EL.has(p.el) || JNW[p.el])) E.status = { now: p.status === 'Proposed' || p.status === 'New' ? 'proposed' : 'existing', field: 'status' };
         if (!E.status && p && (k === 'nap' || k === 'closure' || k === 'closurelabel') && !pl) E.status = { now: p.status === 'Proposed' || p.status === 'New' ? 'proposed' : 'existing', field: 'status' };
         if (k === 'closurelabel' && !E.status && pl) E.status = { now: pl.closureOld ? 'existing' : 'proposed', field: 'closureOld' };
