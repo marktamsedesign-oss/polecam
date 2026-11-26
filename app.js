@@ -17854,7 +17854,8 @@
       ...(typeof j.teamOn === 'boolean' ? { teamOn: j.teamOn } : {}), // v2.43 beta 3.2 (QA-17): Team for this company (sheet → CompanyKeys → Team)
       ...(j.perm && typeof j.perm === 'object' && typeof j.perm.on === 'boolean' ? { perm: { on: j.perm.on, row: permRowClean(j.perm.row), ...(j.perm.at ? { at: s100(j.perm.at, 30) } : {}) } } : {}), // (beta 7.16, Permissions) this user's row of User permissions (sheet v2.43.5)
       ...(Array.isArray(j.perms) ? { perms: j.perms.filter((r) => r && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(r.e || '')) && String(r.e).length <= 120).slice(0, 2000) // (beta 7.16, Permissions) the whole tab, to the admin phone
-        .map((r) => ({ e: String(r.e).trim().toLowerCase(), c: s100(r.c), f: permRowClean(r.f) || {}, at: s100(r.at, 30), n: s100(r.n, 120) })) } : {}) };
+        .map((r) => ({ e: String(r.e).trim().toLowerCase(), c: s100(r.c), f: permRowClean(r.f) || {}, at: s100(r.at, 30), n: s100(r.n, 120) })) } : {}),
+      ...(typeof j.permsOn === 'boolean' ? { permsOn: j.permsOn } : {}) }; // (beta 7.16, Permissions) the sheet's Settings → User permissions, to the admin phone
   }
   let cloudBusy = null, cloudErr = '';
   /** v2.42.18: "a new Survey or PAT must use a site of the online sheet": the sheet's Settings → Site required (Yes / No), which every
@@ -18099,15 +18100,15 @@
   const permFull = (f) => Object.fromEntries(PERM_SET.map((x) => [x.k, f && typeof f[x.k] === 'boolean' ? f[x.k] : x.on]));
   /** The editor's draft: the list's users, the sheet's tab over them (the sheet wins; a user only in the list is written to the sheet at the
       next save), the switch as the sheet (or else the list) has it. */
-  function permDraft() {
-    const L = listPerms(), C = S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url ? S.cloud : null, rows = C && Array.isArray(C.perms) ? C.perms : null;
+  function permDraft(C0) { // (C0: an answer of the sheet just read by Administration, else this phone's last read of the list's sheet)
+    const L = listPerms(), C = C0 || (S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url ? S.cloud : null), rows = C && Array.isArray(C.perms) ? C.perms : null;
     const users = new Map(), chg = new Set();
     if (L && L.u) Object.entries(L.u).forEach(([e, v]) => { const d = permDecode(v); users.set(e, { c: d.c, f: permFull(d.f) }); });
     if (rows) {
       const seen = new Set(rows.map((r) => r.e)); [...users.keys()].forEach((e) => { if (!seen.has(e)) chg.add(e); });
       rows.forEach((r) => users.set(r.e, { c: r.c || (users.get(r.e) || {}).c || '', f: permFull(r.f), n: r.n || '', at: r.at || '' }));
     }
-    const son = C && C.perm && typeof C.perm.on === 'boolean' ? C.perm.on : null, on = son != null ? son : !!(L && L.on);
+    const son = C && typeof C.permsOn === 'boolean' ? C.permsOn : C && C.perm && typeof C.perm.on === 'boolean' ? C.perm.on : null, on = son != null ? son : !!(L && L.on);
     return { on, on0: on, sheetOn: son, sheet: !!rows, users, chg, q: '', more: 0, touched: false };
   }
   function renderAdmPerm() {
@@ -18673,6 +18674,7 @@
     out.textContent = 'Reading the companies from the sheet…';
     try {
       const u = new URL(url); u.searchParams.set('key', key); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); if (akey) u.searchParams.set('akey', akey);
+      if (akey) u.searchParams.set('pv', '1'); // (beta 7.16, Permissions) with the Admin key: the sheet's User permissions tab and its switch too
       const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow' }), 25000, 'The online sheet did not answer');
       const j = await r.json();
       if (!j || !j.ok) { out.textContent = `The sheet refused: ${j && j.error === 'key' ? 'wrong read key' : (j && j.error) || 'unknown reason'}.`; return false; }
@@ -18681,6 +18683,7 @@
       const kept = names.slice(0, 300);
       admDraft.co = kept; admDraft.coRead = new Date().toISOString();
       if (c.adminUsers) admDraft.sheetUsers = c.adminUsers; if (c.kmzPass) admDraft.sheetKmz = c.kmzPass; renderAdmSheet(); // v2.28
+      if (Array.isArray(c.perms) && admDraft.perm && !admDraft.perm.touched) { admDraft.perm = permDraft(c); renderAdmPerm(); } // (beta 7.16, Permissions) the tab as it is now (nothing changed here yet)
       { const own0 = kept.find((x) => normCo(x) === normCo(admDraft.pol.owner)); // the admin company as the sheet writes it, else the sheet's ADMIN company
         if (own0) admDraft.pol.owner = own0; else if (c.admins && c.admins.length) { const a0 = kept.find((x) => normCo(x) === normCo(c.admins[0])); if (a0) admDraft.pol.owner = a0; } }
       renderAdmDraft();
@@ -18849,10 +18852,7 @@
     $('setDefItems').value = (polDraft.defects[cats[0]] || []).join('\n');
     $('setMaxSpan').value = polDraft.maxSpan; $('setAngle').value = polDraft.angleDeg; $('setAutoGap').value = polDraft.autoGap; $('setMloopLen').value = polDraft.mloopLen || 15; $('admQuality').value = polDraft.quality === 'normal' ? 'normal' : 'strict';
     $('admChangePin').hidden = create || admDraft.newKey;
-    admDraft.perm = permDraft(); $('admPermEmail').value = ''; $('admPermQ').value = ''; renderAdmPerm(); // (beta 7.16, Permissions) User permissions
-    if (!create && S.team && S.team.src && S.onlineAdminKey && navigator.onLine) { // (the sheet's tab as it is now, unless the admin already changed something here)
-      const d0 = admDraft; cloudSync(true).then(() => { if (admDraft === d0 && admDraft.perm && !admDraft.perm.touched && !$('admin').hidden) { admDraft.perm = permDraft(); renderAdmPerm(); } }).catch(() => {});
-    }
+    admDraft.perm = permDraft(); $('admPermEmail').value = ''; $('admPermQ').value = ''; renderAdmPerm(); // (beta 7.16, Permissions) User permissions (the sheet's tab as read now: admReadCompanies)
     $('admMain').hidden = false; renderAdmDraft();
   }
   /** Reads the policy fields back into the draft (called on Save). */

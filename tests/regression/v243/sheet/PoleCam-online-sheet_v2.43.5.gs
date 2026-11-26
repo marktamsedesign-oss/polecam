@@ -636,7 +636,7 @@ function doGet(e) {
     catch (e) { /* the read goes on without it */ } }
   if (p.email) { try { out.credit = creditInfo_(p, s); } catch (e) { /* the read goes on without it */ } } // v2.42.6
   if (!acc.none) { try { var cl = cseLeads_(s); if (cl) out.cseLeads = cl; } catch (e) { /* the read goes on without it */ } } // v2.42.12: the CSE Lead of each territory
-  if (String(p.pv || '') === '1' || verAtLeast_(p.v, PERM_APP)) { try { var pm = permOf_(p, s); if (pm) out.perm = pm; if (isAdmin_(p, s)) out.perms = permList_(); } catch (e) { console.log('perm: ' + (e && e.message || e)); } } // v2.43.5 (User permissions): this user's row (G-eSAA 2.45.18 or later; older apps get no new field); the whole tab to the admin phone
+  if (String(p.pv || '') === '1' || verAtLeast_(p.v, PERM_APP)) { try { var pm = permOf_(p, s); if (pm) out.perm = pm; if (isAdmin_(p, s)) { out.perms = permList_(); out.permsOn = permOn_(s); } } catch (e) { console.log('perm: ' + (e && e.message || e)); } } // v2.43.5 (User permissions): this user's row (G-eSAA 2.45.18 or later; older apps get no new field); the whole tab to the admin phone
   return json_(out);
 }
 
@@ -1682,8 +1682,8 @@ function teamAdmin_(body) {
 }
 
 /* ==== v2.43.5 (User permissions) ==== what each user may do (see the note at the top). A phone of G-eSAA 2.45.18 (beta 7.16) or later
-   (its version, or pv=1 that it sends with its read) gets its own row (perm); the admin phone (Admin key) gets the whole tab too (perms)
-   and writes its changes back (setPerms). Older G-eSAA get exactly the answers they got before. */
+   (its version, or pv=1 that it sends with its read) gets its own row (perm); the admin phone (Admin key) gets the whole tab too (perms,
+   and permsOn: Settings → User permissions) and writes its changes back (setPerms). Older G-eSAA get exactly the answers they got before. */
 /** The features, in the tab's order: [the key the phones use, the column's header, what a user not listed has, other headers it is
     found by (compared without case or punctuation)]. Survey (records, map, photos) is always allowed: it has no column. */
 var PERM_FEATS = [

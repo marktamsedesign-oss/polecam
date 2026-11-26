@@ -79,12 +79,13 @@ after(async () => { if (admin) await admin.ctx.close().catch(() => {}); if (brow
 async function open(o) {
   o = o || {};
   const ctx = await browser.newContext({ viewport: o.desk ? { width: 1280, height: 900 } : { width: 390, height: 844 }, isMobile: !o.desk, hasTouch: !o.desk, deviceScaleFactor: 1, serviceWorkers: 'block' });
-  const net = { down: false };
+  const net = { down: false, noPerms: false };
   await ctx.route('**/*', async (r) => {
     const u = r.request().url(); if (u.startsWith(base)) return r.continue();
     if (u.startsWith(SHEET)) {
       if (net.down) return r.abort();
       const q = Object.fromEntries(new URL(u).searchParams), post = r.request().method() === 'POST', b = post ? r.request().postData() || '' : '';
+      if (post && net.noPerms && /"action":"setPerms"/.test(b)) return r.abort(); // (the sheet not answering the admin's permissions)
       const out = post ? gs.doPost({ postData: { contents: b } }) : gs.doGet({ parameter: q });
       sheetLog.push(post ? { post: (() => { try { return JSON.parse(b).action; } catch (e) { return '?'; } })() } : { get: q.email || '', pv: q.pv || '', v: q.v || '' });
       return r.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: out.getContent() });
@@ -394,4 +395,40 @@ test('the admin phone and the admin company\'s users have everything', async () 
     await drawing(page); assert.equal((await page.evaluate(() => window.__polecam.drwMode('edit'))).mode, 'edit');
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); }
+});
+
+test('the admin puts a user back (×) and turns permissions off; not written at once: sent at the next sync; the phones follow', async () => {
+  assert.ok(admin, 'the admin phone');
+  const { page: pg, errors, net } = admin;
+  await closeAll(pg); await pg.evaluate(() => document.getElementById('settingsBtn').click()); await pg.waitForTimeout(300);
+  await pg.evaluate(() => document.getElementById('goAdmin').click()); await pg.waitForTimeout(300);
+  await pg.fill('#admPin', '1234'); await pg.click('#admUnlock'); await until(pg, () => !document.getElementById('admMain').hidden, null, 20); await pg.waitForTimeout(1500);
+  await pg.evaluate(() => { const h = document.querySelector('#admPermBox > h3'); if (document.getElementById('admPermBox').classList.contains('shut')) h.click(); });
+  const d0 = await pg.evaluate(() => window.__polecam.permDraft());
+  assert.deepEqual(d0.users[PEDRO.email].f, { kmz: false, plan: false, exp: true, cef: false, edit: false, tpl: false, admin: false }, 'Pedro\'s row as the sheet has it (typed by hand)');
+  await pg.click(`#admPermList [data-e="${PEDRO.email}"] [data-pa="del"]`); await pg.uncheck('#admPermOn');
+  net.noPerms = true; const t0 = (await toasts(pg)).length;
+  await pg.evaluate(() => document.getElementById('admSave').click()); await answer(pg, 'OK'); await pg.waitForTimeout(800);
+  await until(pg, () => window.__polecam.S.team.rev === 3, null, 20);
+  const T3 = await pg.evaluate(() => JSON.parse(JSON.stringify(window.__polecam.S.team)));
+  assert.deepEqual(T3.perms, { on: false, at: T3.perms.at, u: { [JUAN.email]: 'PA' } }, 'the list: off, Juan kept');
+  assert.ok((await toasts(pg)).slice(t0).some((x) => /^User permissions not written to the online sheet/.test(x)), 'said');
+  let p = await perm(pg); assert.deepEqual(p.pend && { users: p.pend.users, gone: p.pend.gone, on: p.pend.on }, { users: [], gone: [PEDRO.email], on: false }, 'kept to be sent again');
+  assert.equal(setting('User permissions'), 'Yes', 'not written yet'); assert.equal(permRow(PEDRO.email)['Other exports'], true);
+  // the next sync sends it
+  net.noPerms = false; await pg.evaluate(() => window.__polecam.cloudSync(true)); await pg.waitForTimeout(800);
+  await until(pg, () => !window.__polecam.perm().pend, null, 20);
+  assert.equal(setting('User permissions'), 'No', 'Settings → User permissions = No');
+  const P = permRow(PEDRO.email); assert.deepEqual(['KMZ export', 'Plan drawing', 'Other exports', 'CEF plan'].map((h) => P[h]), ['', '', '', ''], 'Pedro\'s feature cells cleared (what a user not listed has)');
+  assert.ok(/^Back to what a user not listed has, in G-eSAA by ana@demo-telco\.example$/.test(P.Notes), P.Notes);
+  assert.deepEqual(errors, []);
+  // Pedro's phone (joined at version 1): off: every feature again
+  const u = await open({ state: userState(PEDRO, team1) });
+  try {
+    await u.page.evaluate(() => window.__polecam.cloudSync(true)); await u.page.waitForTimeout(600);
+    await until(u.page, () => window.__polecam.S.team.rev === 3, null, 20);
+    p = await perm(u.page); assert.equal(p.state.on, false); assert.deepEqual(FEATS.filter((k) => !p.ok[k]), [], 'off: every user has every feature');
+    assert.equal(await u.page.evaluate(() => document.getElementById('permMe').hidden), true);
+    assert.deepEqual(u.errors, []);
+  } finally { await u.ctx.close(); }
 });
