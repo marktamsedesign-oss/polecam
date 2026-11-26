@@ -501,6 +501,11 @@ const poleR = (pole, dz) => Math.max(pole.w / 2, 0.1) * (1 - 0.3 * clamp(dz / Ma
 const GIR = 0.057;                                  /* half the width of the G.I. riser pipe */
 /* the side of a pole that takes the loop holder and the closure: square to the aerial cable, and the riser's side when the pole has a riser */
 function poleSide(rg, pole, u) { let n = [-u[1], u[0]]; const r = pole ? rg.risers.find(q => q.pole === pole) : null, rs = r ? r.s || r.u : null; if (rs && n[0] * rs[0] + n[1] * rs[1] < -0.01) n = [-n[0], -n[1]]; return n; }
+/* (beta 7.16, CEF drawing) the owner: "Exit Conduit: extend conduits only without concrete scenarios". An exit conduit is the concrete block with the two
+   114.3 mm pipes in it (as before), or, with el.conc false, the two conduits only: they come up out of the ground, up the wall as high as the item is
+   (its height), with no concrete round them. Drawn so in every view, named so (", NO CONCRETE"), and counted apart in the table, with no concrete for it.
+   EXMOUTH: how far the pipe the cable is in stands above the block (or above the item's height): the cable leaves the conduit there, through its mouth. */
+const exitBare = e => !!e && e.t === 'exit' && e.conc === false, EXMOUTH = 0.07;
 /* the buried conduit that ends at an exit conduit which no cable uses yet: the way it runs from there, and how deep its lower pipe lies */
 function exitRun(S, el) {
   let b = null;
@@ -566,6 +571,7 @@ function elLabel0(S, el) {
   if (el.t === 'sbox' && SBOX[el.ty]) return nm + ' ' + el.ty;                 /* a box of the standard: its type says its size and depth */
   if (el.t === 'hh' || el.t === 'sbox') return nm + deepNote(num(el.dp, UGD));
   if (T.num) { const same = S.els.filter(q => q.t === el.t && (el.t !== 'cabin' || isTR(q) === isTR(el))), i = same.findIndex(q => q.id === el.id); if (same.length > 1 && i >= 0) return nm + ' ' + (i + 1); }      /* (fix 47: cabins and telco rooms are counted apart; open and closed racks together) */       /* ODC 1, ODC 2: so that a detail can say which one it shows */
+  if (exitBare(el)) return nm + ', NO CONCRETE';      /* (beta 7.16, CEF drawing) the exit conduit with its conduits only */
   return nm;
 }
 const labRec = (S, key) => (S.lab && S.lab[key]) || null;
@@ -1144,7 +1150,8 @@ function cefTable(S) {
   for (const k of drawn) { const sm = rg.parts[k].sum, c = cab(CB[k].ug.cable), Lf = sm.ugt; if (Lf <= 0.05) continue; focRows.push(['UG ' + c[0] + ' FOC' + (drawn.length > 1 ? ' - C' + (k + 1) : ''), c[1], '', Lm(Lf)]); }      /* (14 Nov) one row for each cable */
   const dps = Array.from(new Set(S.runs.filter(r => r.kind === 'trench' && r.st === 'P').map(r => f1(runDepth(r))))), deep = trench > 0.05 ? (dps.length > 1 ? 'SEE PLAN' : (dps[0] || f1(UGD)) + 'm DEEP') : '';
   const TR = S.runs.filter(r => r.kind === 'trench' && r.st === 'P'), TT = Array.from(new Set(S.runs.filter(r => (r.kind === 'conduit' || r.kind === 'encase') && r.st === 'P' && buried(r)).map(r => runN(r) + '-' + runMM(r) + 'mm')));      /* (22:24) the proposed conduits that are drawn say the runs and the size; with none drawn, the standard */
-  const nclo = cnt('clo') + rg.joins.filter(j => j.auto).length, nexit = rg.exits.length + S.els.filter(e => e.t === 'exit' && !rg.exits.some(x => x.el === e.id)).length;
+  const nclo = cnt('clo') + rg.joins.filter(j => j.auto).length, nexit0 = rg.exits.length + S.els.filter(e => e.t === 'exit' && !rg.exits.some(x => x.el === e.id)).length;
+  const nbare = rg.exits.filter(x => exitBare(S.els.find(e => e.id === x.el))).length + S.els.filter(e => exitBare(e) && !rg.exits.some(x => x.el === e.id)).length, nexit = nexit0 - nbare;      /* (beta 7.16, CEF drawing) an exit conduit with its conduits only has a row of its own, with no concrete */
   return [
     ['ODF', odf.length ? Array.from(new Set(odf.map(e => e.size || ''))).join(', ') : '', Q(odf.length), ''],
     ...(cnt('dnap') ? [['DUMMY NAP', Array.from(new Set(S.els.filter(e => e.t === 'dnap').map(e => String(e.size || '').trim().toUpperCase()).filter(Boolean))).join(', '), Q(cnt('dnap')), '']] : []),      /* (14 Nov 17:00) */
@@ -1159,6 +1166,7 @@ function cefTable(S) {
     ['LOOP HOLDER', '', Q(g.nloop), ''],
     ['SERVICE BOX', sbt, Q(cnt('sbox')), ''],
     ['EXIT CONDUIT', nexit ? PVC_MM + 'mm' : '', Q(nexit), ''],
+    ...(nbare ? [['EXIT CONDUIT, NO CONCRETE', '2-' + PVC_MM + 'mm PVC', Q(nbare), '']] : []),
     ...(rg.padx.length ? [['EXIT PIPE IN BASE PAD', PVC_MM + 'mm', Q(rg.padx.length), '']] : []),      /* (14 Nov 17:00) */
     ['LIQUID TIGHT', '', '', Lm(g.liquid)],
     ['G.I. RISER PIPE', '', '', Lm(pipe)],
@@ -1279,7 +1287,9 @@ function topEl(S, el, G, rg) {
     case 'ac': { if (!S.room) { G.pl(P, lay, 1); break; } const k = wallOf(S.site.L, S.site.W, el.x, el.y), hz = k.side === 'S' || k.side === 'N', ad = num(el.d, 0.3), aw = num(el.w, 0.8), q = [k.x + k.n[0] * (0.1 + ad / 2), k.y + k.n[1] * (0.1 + ad / 2)]; G.pl(rectAt(q, hz ? aw : ad, hz ? ad : aw, 0), lay, 1); G.ci(q, Math.min(aw, ad) * 0.36, lay); break; }      /* outside the wall, beyond its thickness */
     case 'port': { if (!S.room) { G.pl(P, lay, 1); break; } const k = wallOf(S.site.L, S.site.W, el.x, el.y), hz = k.side === 'S' || k.side === 'N', q = [k.x + k.n[0] * 0.05, k.y + k.n[1] * 0.05], hw = Math.max(0.1, el.w / 2); G.pl(rectAt(q, hz ? 2 * hw : 0.16, hz ? 0.16 : 2 * hw, 0), lay, 1); for (const j of [-0.6, 0, 0.6]) G.ci(hz ? [q[0] + j * hw, q[1]] : [q[0], q[1] + j * hw], 0.035, lay); break; }
     case 'clo': { const m = cloMount(S, rg || routeGeom(S), el); if (m) { G.ci(m.c, STD.cloR * 1.12, lay); G.ci(m.c, STD.cloR * 0.5, lay); } else { G.ci(c, 0.22, lay); cross(c, 0.22, lay); } break; }
-    case 'exit': { const x = rg ? rg.exits.find(q => q.el === el.id) : null, er = x ? null : exitRun(S, el), at = x ? x.at : c, u = x ? x.u : er ? er.u : rot2(1, 0, el.rot || 0), hc = [at[0] + u[0] * 0.025, at[1] + u[1] * 0.025]; G.pl(rectAt(hc, el.w, el.d, el.rot), lay, 1); G.ci(hc, STD.sleeve / 2, lay); for (const k of [0, 1]) G.ci([at[0] + u[0] * k * 0.05, at[1] + u[1] * k * 0.05], 0.025, lay); break; }      /* the block, its 114 mm hole and the two 50 mm pipes in it; the cable is in the first one */      /* a square block, the 114 mm pipe in it, and the two 50 mm pipes in that */
+    case 'exit': { const x = rg ? rg.exits.find(q => q.el === el.id) : null, er = x ? null : exitRun(S, el), at = x ? x.at : c, u = x ? x.u : er ? er.u : rot2(1, 0, el.rot || 0), hc = [at[0] + u[0] * 0.025, at[1] + u[1] * 0.025];
+      if (exitBare(el)) { const r = STD.hdpe / 2, sp = [at[0] + u[0] * STD.hdpe, at[1] + u[1] * STD.hdpe]; G.ci(at, r, lay); G.ci(sp, r, lay); G.pl([[sp[0] - u[0] * r * 0.7 - u[1] * r * 0.7, sp[1] - u[1] * r * 0.7 + u[0] * r * 0.7], [sp[0] + u[0] * r * 0.7 + u[1] * r * 0.7, sp[1] + u[1] * r * 0.7 - u[0] * r * 0.7]], lay); G.pl([[sp[0] - u[0] * r * 0.7 + u[1] * r * 0.7, sp[1] - u[1] * r * 0.7 - u[0] * r * 0.7], [sp[0] + u[0] * r * 0.7 - u[1] * r * 0.7, sp[1] + u[1] * r * 0.7 + u[0] * r * 0.7]], lay); break; }      /* (beta 7.16, CEF drawing) conduits only: the two pipes, side by side as the isometric has them, the spare with the cross of its blank duct plug; no block */
+      G.pl(rectAt(hc, el.w, el.d, el.rot), lay, 1); G.ci(hc, STD.sleeve / 2, lay); for (const k of [0, 1]) G.ci([at[0] + u[0] * k * 0.05, at[1] + u[1] * k * 0.05], 0.025, lay); break; }      /* the block, its 114 mm hole and the two 50 mm pipes in it; the cable is in the first one */      /* a square block, the 114 mm pipe in it, and the two 50 mm pipes in that */
     case 'sbox': G.pl(P, lay, 1); G.pl(rectAt(c, el.w * 0.55, el.d * 0.55, el.rot), lay, 1); break;
     case 'dnap': { G.pl(P, lay, 1); G.pl([lp(-el.w / 2, -el.d / 2 + 0.04), lp(el.w / 2, -el.d / 2 + 0.04)], lay); const pl = napPole(S, el); if (pl) G.pl([lp(0, el.d / 2), [pl.x + (el.x - pl.x) * 0.55, pl.y + (el.y - pl.y) * 0.55]], lay); break; }      /* (14 Nov 17:00) a Dummy NAP: its front, and its bracket to the pole */
     default: G.pl(P, lay, 1);

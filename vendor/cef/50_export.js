@@ -256,7 +256,20 @@ function partDetails(S, rg) {
     } });
   }
   const x0 = rg.exits.find(x => x.st === 'P');
-  if (x0) {
+  if (x0 && exitBare(S.els.find(e => e.id === x0.el))) {      /* (beta 7.16, CEF drawing) conduits only: the two pipes come up out of the ground, no concrete block */
+    const W = 66, H = 70;
+    out.push({ key: 'exit', w: W, h: H, at: [x0.at[0], x0.at[1], x0.g + x0.h], draw: G => {
+      const yg = 21, pr = 3.2, pb = [13.4, yg], sb = [pb[0] + 2 * pr + 1.4, yg];
+      G.pl([[0, 0], [W, 0], [W, H], [0, H]], 'lot', 1); dTitle(G, W, 'EXIT CONDUIT DETAIL');
+      G.pl([[2, yg], [33, yg]], 'dt'); for (let x = 4; x < 33; x += 3) G.pl([[x, yg], [x - 1.6, yg - 1.6]], 'dt');      /* the ground */
+      for (const c of [pb, sb]) for (const sx of [-1, 1]) G.pl([[c[0] + sx * pr, yg], [c[0] + sx * pr, yg - 6]], 'hp');      /* the two conduits below the ground, dashed */
+      dTube(G, sb, pr, 15 - 2.4, 'pp'); dBlank(G, [sb[0], sb[1] + 15 - 2.4], pr * 0.9, 'pp');      /* the spare, its blank duct plug on its top */
+      dTube(G, pb, pr, 15, 'pp'); const K = dPlugs(G, [pb[0], pb[1] + 15], pr);      /* the conduit the cable comes up in, with its plugs */
+      G.pl([K.out, [K.out[0] - 0.5, K.out[1] + 5], [K.out[0] + 2.5, K.out[1] + 9.5]], 'ug');
+      dNotes(G, 35, H - 4, 10, [{ s: ['SIMPLEX DUCT-PLUG 32mm', 'W/ GUIDE ROPE'], to: K.plug }, { s: ['QUADPLEX PLUG,', 'SUB-DUCT 4 x 32mm'], to: K.collar }, { s: ['PVC CONDUIT ' + mm, 'NO CONCRETE'], to: [pb[0] + pr, yg + 7] }, { s: ['MECHANICAL BLANK DUCT', 'PLUG 114mm (SPARE)'], to: [sb[0] + pr * 0.8, sb[1] + 15 - 2.4] }], 2);
+    } });
+  }
+  else if (x0) {
     const W = 66, H = 70;
     out.push({ key: 'exit', w: W, h: H, at: [x0.at[0], x0.at[1], x0.g + x0.h], draw: G => {
       const c = [17, 21], bh = 8, pr = 3.2, pb = [c[0] - 3.6, c[1] + bh + 0.9];
@@ -693,7 +706,8 @@ function baseName(S) { return String(S.site.id || S.site.name || 'CEF').trim().r
 function stdNote(S) {
   const g = routeGeom(S), t = [];
   if (S.runs.some(r => r.kind === 'conduit') || g.exits.length || g.risers.length || g.padx.length) t.push('CONDUIT: 2 RUNS OF ' + PVC_MM + ' mm PVC, CONCRETE ENCASED, EACH WITH 4 x 32 mm HDPE SUB-DUCTS. THE CABLE IS IN ONE SUB-DUCT; THE SPARE RUN IS CLOSED WITH A BLANK DUCT PLUG.');
-  if (g.exits.length || S.els.some(e => e.t === 'exit')) t.push('RISER PIPE AT THE TOWER END: G.I. PIPE ' + PVC_MM + ' mm IN A CONCRETE BLOCK.');
+  if (g.exits.some(x => !exitBare(S.els.find(e => e.id === x.el))) || S.els.some(e => e.t === 'exit' && !exitBare(e))) t.push('RISER PIPE AT THE TOWER END: G.I. PIPE ' + PVC_MM + ' mm IN A CONCRETE BLOCK.');
+  if (S.els.some(exitBare)) t.push('EXIT CONDUIT, NO CONCRETE: THE 2 RUNS OF ' + PVC_MM + ' mm PVC CONDUIT COME UP OUT OF THE GROUND, UP THE WALL AS HIGH AS DRAWN, WITH NO CONCRETE BLOCK; THE CABLE LEAVES ITS CONDUIT AT THE MOUTH. THE SPARE IS CLOSED WITH A BLANK DUCT PLUG.');      /* (beta 7.16, CEF drawing) */
   if (g.padx.length) t.push('EXIT PIPE: ' + PVC_MM + ' mm, BUILT INTO THE BASE PAD; THE CABLE COMES UP THROUGH IT.' + (g.padx.some(x => x.n > 1) ? ' THE SPARE PIPE IS CLOSED WITH A BLANK DUCT PLUG.' : ''));      /* (14 Nov 17:00) */
   if (g.risers.length || g.join) t.push(g.join && g.join.none ? 'RISER AND LOOP HOLDER TO THE OSP STANDARD. NO CLOSURE ON THE RISER POLE: THE DESIGN DOES NOT NEED ONE.' : 'RISER, CLOSURE AND LOOP HOLDER TO THE OSP STANDARD.');
   if (S.els.some(e => pedOf(e))) t.push('PEDESTAL BOX: AT THE FOOT OF THE POLE, IN PLACE OF THE G.I. RISER PIPE. THE CONDUIT COMES UP INTO IT; THE U-GUARD GOES ON UP THE POLE FROM ITS TOP.');      /* (fix 47) */

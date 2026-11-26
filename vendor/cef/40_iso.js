@@ -262,11 +262,11 @@ function elbow2(sc, p, zg, dp, R, u, lay, tail, one) {      /* (14 Nov 17:00) on
 /* where a buried conduit comes out of the ground: a concrete block (poly) with the two 114.3 mm pipes in it.
    p: the pipe the cable is in; the spare one stands next to it along u, the way the buried conduit runs, and is closed with a blank duct plug. Below ground the two bend to run along u. */
 const exitMid = (p, u) => [p[0] + u[0] * STD.hdpe / 2, p[1] + u[1] * STD.hdpe / 2];      /* the middle of the block, between the two pipes */
-function exitStub(sc, p, z0, h, poly, lay, hid, u, dp, R, tail) {
+function exitStub(sc, p, z0, h, poly, lay, hid, u, dp, R, tail, bare) {
   const s0 = sc.sid, zt = z0 + h, r = STD.hdpe / 2, sp = [p[0] + u[0] * STD.hdpe, p[1] + u[1] * STD.hdpe];
-  prism(sc, poly, z0, zt, lay);
-  frustum(sc, p, zt, zt + 0.07, r, r, lay, 8);                     /* the pipe the cable comes up in */
-  frustum(sc, sp, zt, zt + 0.03, r, r, lay, 8);                    /* the spare pipe, closed with a blank duct plug: a cross on its top */
+  if (!bare) prism(sc, poly, z0, zt, lay);      /* (beta 7.16, CEF drawing) bare: the conduits only, no concrete: the two pipes stand from the ground up */
+  frustum(sc, p, bare ? z0 : zt, zt + EXMOUTH, r, r, lay, 8);                     /* the pipe the cable comes up in (the cable leaves it at its mouth) */
+  frustum(sc, sp, bare ? z0 : zt, zt + 0.03, r, r, lay, 8);                    /* the spare pipe, closed with a blank duct plug: a cross on its top */
   for (const a of [0, 90]) { const c = Math.cos(a * D2R) * r, sn = Math.sin(a * D2R) * r; sc.line([sp[0] - c, sp[1] - sn, zt + 0.032], [sp[0] + c, sp[1] + sn, zt + 0.032], lay); }
   for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i);
   if (FLAT) return;
@@ -681,7 +681,8 @@ function isoEl(S, el, sc, A, rg, X) {
       else for (const k of [0.25, 0.5, 0.75]) { const m = (a, b) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, zc]; sc.line(m(inn[0], inn[1]), m(inn[0], inn[3]), lay); sc.line(m(inn[2], inn[3]), m(inn[2], inn[1]), lay); }      /* drawn flat, as on the hand-made plans: a hatched slab at ground level */
       if (!FLAT) { edit = 'dp'; hp = [el.x, el.y, zc - dp - h]; } flat = true; break;      /* drawn flat, its depth has no handle to drag: it is typed in the panel */
     }
-    case 'exit': { const x = rg.exits.find(q => q.el === el.id); const er = x ? null : exitRun(S, el), at = x ? x.at : c, uu = x ? x.u : er ? er.u : rot2(1, 0, rot); fp = rectAt(exitMid(at, uu), w, d, rot); exitStub(sc, at, z0, h, fp, lay, hid, uu, x ? x.dp : er ? er.dp : depthAt(S, c) - STD.hdpe / 2, x ? x.R : 0, x || er ? 0 : 0.35); break; }
+    case 'exit': { const x = rg.exits.find(q => q.el === el.id); const er = x ? null : exitRun(S, el), at = x ? x.at : c, uu = x ? x.u : er ? er.u : rot2(1, 0, rot), nc = exitBare(el); fp = rectAt(exitMid(at, uu), w, d, rot); exitStub(sc, at, z0, h, fp, lay, hid, uu, x ? x.dp : er ? er.dp : depthAt(S, c) - STD.hdpe / 2, x ? x.R : 0, x || er ? 0 : 0.35, nc);
+      if (nc) fp = rectAt(exitMid(at, uu), 2 * STD.hdpe + 0.04, STD.hdpe + 0.04, Math.atan2(uu[1], uu[0]) / D2R); break; }      /* (beta 7.16, CEF drawing) conduits only: its name goes to the two pipes */
     case 'epole': case 'rpole': {
       const r = Math.max(w / 2, 0.1), pr = z => poleR(el, z - z0), onG = z0 < 0.01;
       if (el.t === 'rpole') {
