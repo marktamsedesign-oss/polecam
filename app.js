@@ -7921,7 +7921,7 @@
       const n = xcList(proj).length;
       const v = await ask('Existing cables on the plan?', `Include the existing cable${n === 1 ? '' : 's'} you drew (${n}) on the plan? They are drawn as existing cables along their side of the road, with their notes, and the plan's sheets cover them. For reference only: never in the BOQ, the PMI or the cable lengths.\nPlan style › Cables changes it later.`, [{ label: 'No', value: false }, { label: 'Yes', value: true, primary: true }]);
       S.meta[proj] = { ...pmeta(proj), xcPlan: !!v }; persist(); LOG.info('xc.plan.ask', { on: !!v });
-      if ($('style') && !$('style').hidden) renderStyle();
+      xcStyleRender(); // (Plan style's row shows the answer)
     })().finally(() => { xcAsking = null; });
     return xcAsking;
   }
