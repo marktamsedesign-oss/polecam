@@ -7737,7 +7737,8 @@
     if (!XC || XC.proj !== S.project) return;
     draw(XC.c, true);
     XC.c.taps.forEach((t, i) => {
-      const m = L.marker([t.lat, t.lon], { pane: 'xcHPane', draggable: XC.step === 'draw' || XC.step === 'more', keyboard: false, icon: L.divIcon({ className: `xc-h${XC.sel === i ? ' sel' : ''}${t.pole ? ' pole' : ''}${t.x ? ' x' : ''}`, html: `<i>${t.x ? '⇄' : i + 1}</i>`, iconSize: [30, 30], iconAnchor: [15, 15] }) });
+      const tip = !XC.was && i === XC.c.taps.length - 1; // (a new cable's last tap: its circle not tappable, so the next tap near it is a tap on the map (a phone moves a tap onto a button near it); ↶ takes it back)
+      const m = L.marker([t.lat, t.lon], { pane: 'xcHPane', draggable: !tip && (XC.step === 'draw' || XC.step === 'more'), interactive: !tip, keyboard: false, icon: L.divIcon({ className: `xc-h${XC.sel === i ? ' sel' : ''}${t.pole ? ' pole' : ''}${t.x ? ' x' : ''}`, html: `<i>${t.x ? '⇄' : i + 1}</i>`, iconSize: [30, 30], iconAnchor: [15, 15] }) });
       m.on('click', (e) => { L.DomEvent.stop(e); if (!XC) return; XC.sel = XC.sel === i ? null : i; xcDraw(); xcBarRender(); });
       m.on('dragstart', () => { if (!XC) return; XC.undo.push(xcCopy(XC.c)); XC.sel = i; });
       m.on('drag', (e) => { if (!XC) return; const q = e.target.getLatLng(); t.lat = q.lat; t.lon = q.lng; delete t.pole; });
