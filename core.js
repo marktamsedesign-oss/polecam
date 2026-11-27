@@ -750,6 +750,40 @@
     const pts = []; segs.forEach((s) => s.forEach((p) => { if (!pts.length || xcD(pts[pts.length - 1], p) > 0.05) pts.push(p); }));
     return { pts, segs, road };
   }
+  /* (beta 7.19, existing cable) The owner (27 Nov): "allow the app to detect which side it click first" and "allow user to cross the road by a
+     traversing its route clicked". The side of the road a tap is on: left or right of its road's centre line as the cable runs, so the app can
+     take the cable's side from the first tap and cross the road by itself where a tap is on the other side. */
+  const XC_MID = 1; // (a tap within about a metre of its road's centre line is on neither side: it keeps the side the cable had)
+  /** The side of its road each tap of the stretch A → B ({ E, N }) is on, as the cable runs from A to B: { a, b } 'L' | 'R', or null (no road within
+      reach, within o.mid (1 m) of the centre line, or the way it runs not known), da / db: how far from the centre line (null: no road). The way it
+      runs at a tap: the way along the roads between the two (as xcSegment takes it), else the tap's road turned the way from A to B, else (A and B
+      straight across the road from each other) the way o.dir ([dE, dN]: the way the cable came, the stretch before). */
+  function xcSides(roads0, A, B, o) {
+    o = o || {}; const roads = xcRoadsOf(roads0), reach = o.reach == null ? XC_REACH : +o.reach, mid = o.mid == null ? XC_MID : +o.mid;
+    const qa = [A.E, A.N], qb = [B.E, B.N], na = xcNear(roads, qa, reach), nb = xcNear(roads, qb, reach), dl = xcD(qa, qb), u = dl > 1e-6 ? [(qb[0] - qa[0]) / dl, (qb[1] - qa[1]) / dl] : null;
+    let wa = null, wb = null;
+    if (na && nb) {
+      const w = xcWay(roads, na, nb);
+      if (w && w.pts.length > 1 && w.len >= 2 && w.len <= Math.max(2 * xcD(na.P, nb.P) + 60, 1)) { // (the way along the roads, as the line is drawn)
+        const dirOf = (p, q) => { const l = xcD(p, q); return l > 0.05 ? [(q[0] - p[0]) / l, (q[1] - p[1]) / l] : null; };
+        for (let i = 1; i < w.pts.length && !wa; i++) wa = dirOf(w.pts[i - 1], w.pts[i]);
+        for (let i = w.pts.length - 1; i > 0 && !wb; i--) wb = dirOf(w.pts[i - 1], w.pts[i]);
+      }
+    }
+    const side = (n, q, w) => {
+      if (!n || n.d < mid) return null;
+      let v = w;
+      if (!v) {
+        const rd = roads[n.r], a = rd.pts[n.i - 1], b = rd.pts[n.i], l = xcD(a, b) || 1; v = [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+        const by = (d) => { const L = d ? Math.hypot(d[0], d[1]) : 0; return L > 1e-9 ? (v[0] * d[0] + v[1] * d[1]) / L : 0; };
+        let k = by(u); if (Math.abs(k) < 0.3) k = by(o.dir); // (across the road: the way it came)
+        if (Math.abs(k) < 0.05) return null;
+        if (k < 0) v = [-v[0], -v[1]];
+      }
+      return v[0] * (q[1] - n.P[1]) - v[1] * (q[0] - n.P[0]) > 0 ? 'L' : 'R';
+    };
+    return { a: side(na, qa, wa), b: side(nb, qb, wb), da: na ? na.d : null, db: nb ? nb.d : null };
+  }
 
   /* ---------------- v2.35: G-eSAA road packs (made by tools/osm-pack/make_road_packs.py) ----------------
      A file: "GESAARP1", the header size (4 bytes), the header (JSON: region, date, bbox, the gzip chunks of each tile), then
@@ -1888,6 +1922,6 @@
     RP_MAGIC, roadPackTiles, roadPackFeatures, inPackArea, packAdminAt, rowCoverage, // v2.35
 
     setGlyphModel, glyphReady, glyphRead, glyphPatch, glyphProbs, GCLASSES, _glyph: { inkMaps, textLines, edgeLines, grayOf, glyphText, readLine } };
-  api.xc = { near: xcNear, way: xcWay, offset: xcOffset, onLine: xcOnLine, tapAt: xcTapAt, segment: xcSegment, line: xcLine, REACH: XC_REACH }; // (stage 11, existing cable)
+  api.xc = { near: xcNear, way: xcWay, offset: xcOffset, onLine: xcOnLine, tapAt: xcTapAt, segment: xcSegment, line: xcLine, REACH: XC_REACH, sides: xcSides, MID: XC_MID }; // (stage 11, existing cable; (beta 7.19, existing cable) sides, MID)
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);

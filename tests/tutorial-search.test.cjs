@@ -139,6 +139,7 @@ const LINES = [
   ['Stage 11', '!delete a completed project · delete project · remove a project', 'delete'],
   ['Stage 11', '!approve a request · !request code · approval code · undo complete approval', 'adm-approve', true],
   ['Stage 11', '!cef site name · cef site id · !same as the project', 'cef'],
+  ['7.19', '!draw an existing cable · !existing cable side · which side first tap · cross the road existing cable · !undo the last tap · right-click undo existing cable', 'excable'], // ((beta 7.19, existing cable) the side from the first tap, the road crossed by itself, a right-click / Ctrl+Z undo)
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];

@@ -19,6 +19,12 @@
      byte for byte the one made before the cable was drawn.
    - Share: the whole project carries it; only the changes: it goes only when changed since; an update merges each cable whole (the newer wins, a deletion
      carries over); a backup restores it; the KMZ has its folder "Existing cables (reference)", its route folder as before.
+   - (beta 7.19, existing cable) The owner (27 Nov): "allow user to cross the road by a traversing its route clicked and allow the app to detect which side it
+     click first. allow also right click or ctrl+z to undo the clicked or action." The phone: the cable's side from the first tap (the street's south side: the
+     right; Left / Right shows the side it is on), a tap on the other side (on pole 3) crosses the road there by itself, a tap on the same side goes on along it,
+     a crossing made by hand (⇄) kept by the taps after it. The computer: a tap dragged across the street in Edit crosses it there; Ctrl+Z, Ctrl+Y and a
+     right-click on the map undo / redo it; Ctrl+Z in the end's note is the note's own; drawing one, a right-click and Ctrl+Z take back the last tap,
+     Ctrl+Shift+Z puts it back; the browser's menu kept off only while drawing.
    No page errors. Every name, number and place is made up. */
 'use strict';
 const { test, before, after } = require('node:test');
@@ -141,7 +147,7 @@ async function exportPlan(page) {
   return e[0];
 }
 
-test('a phone: Route › ＋ Existing; the taps follow the road on its left (4 m), on a pole near one; ⇄ Cross here; ↶; ⋯ underground, snap off; ✓ Finish: its ends; saved, drawn, reference only (the route and its quantities as before)', async () => {
+test('a phone: Route › ＋ Existing; the taps follow the road 4 m from its centre line on the side of the first tap (the right); a tap on the other side (on pole 3) crosses the road by itself; ⇄ Cross here; ↶; ⋯ underground, snap off; ✓ Finish: its ends; saved, drawn, reference only (the route and its quantities as before)', async () => {
   const { ctx, page, errors } = await open({ phone: true });
   const c0 = await xc(page, 'counts');
   await xc(page, 'look', [LA0 + 0.0001, LO0 + 0.0011, 18]); await page.waitForTimeout(400);
@@ -156,25 +162,34 @@ test('a phone: Route › ＋ Existing; the taps follow the road on its left (4 m
   assert.match(bar.live, /Tap along the road where the cable runs/);
   assert.ok(bar.h < 740 * 0.25, `a small bar: ${bar.h}`); for (const [t, w, h, inside] of bar.btns) assert.ok(w >= 38 && h >= 34 && inside, `a thumb's button: ${t} ${w}x${h}`);
   assert.deepEqual(bar.btns.map((x) => x[0]), ['Left', 'Right', '⇄ Cross here', '⋯', '↶', '✕', '✓ Finish']);
-  // three taps along the street (on its centre line, between the poles), then one more across the poles' line near pole 3: on pole 3
-  let n = await tapAt(page, LA0 + 0.00001, LO0 + 0.5 * D, true); assert.equal(n.c.taps.length, 1); assert.ok(!n.c.taps[0].pole, 'not near a pole: where tapped');
-  n = await tapAt(page, LA0 + 0.00004, LO0 + 2 * D + 0.00003, true); assert.equal(n.c.taps[1].pole, 'a3', 'near pole 3: on it');
-  n = await tapAt(page, LA0 - 0.00001, LO0 + 3.5 * D, true);
-  let P = mOf(await xc(page, 'll', [n.c.id]));
-  const pole3 = ([x, y]) => Math.abs(x - 2 * D * MLON) < 0.3 && Math.abs(y - 5.53) < 0.3, mid = P.filter((q) => !pole3(q));
-  assert.ok(mid.length >= 2 && mid.every(([, y]) => Math.abs(y - 4) < 0.35), `on the street's north side (the left of the way east), 4 m from its centre line: ${JSON.stringify(P)}`);
+  // (beta 7.19, existing cable) the side from the taps: two taps on the street's south side (no Left / Right chosen: Left, as always, before them): the
+  // cable's side found from the first, the right of the way east, 4 m from the centre line
+  const sideOn = () => page.evaluate(() => [...document.querySelectorAll('#xcBar [data-xc="side"]')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent).join());
+  let n = await tapAt(page, LA0 - 0.00004, LO0 + 0.5 * D, true); assert.equal(n.c.taps.length, 1); assert.ok(!n.c.taps[0].pole, 'not near a pole: where tapped'); assert.equal(await sideOn(), 'Left');
+  n = await tapAt(page, LA0 - 0.00004, LO0 + 1.4 * D, true); assert.equal(n.c.side, 'R', 'the first tap\'s side');
+  assert.equal(await sideOn(), 'Right'); assert.match(await page.evaluate(() => document.getElementById('xcLive').textContent), /^Existing cable · 2 taps · \d+ m$/);
+  let P = mOf(await xc(page, 'll', [n.c.id])); assert.ok(P.length >= 2 && P.every(([, y]) => Math.abs(y + 4) < 0.35), `on the street's south side: ${JSON.stringify(P)}`);
+  // a tap near pole 3, on the other side of the street: on the pole, the road crossed there by itself (⇄ shows it); a tap on along the north side: no crossing
+  n = await tapAt(page, LA0 + 0.00004, LO0 + 2 * D + 0.00003, true); assert.equal(n.c.taps[2].pole, 'a3', 'near pole 3: on it'); assert.equal(n.c.taps[2].x, 1, 'the road crossed at pole 3 by itself');
+  assert.equal(await page.evaluate(() => document.querySelector('#xcBar [data-xc="cross"]').getAttribute('aria-pressed')), 'true');
+  n = await tapAt(page, LA0 + 0.00004, LO0 + 3.5 * D, true); assert.equal(n.c.taps.length, 4); assert.equal(n.c.taps[3].x, undefined, 'the same side: on along it');
+  P = mOf(await xc(page, 'll', [n.c.id]));
+  const x2 = 2 * D * MLON, pole3 = ([x, y]) => Math.abs(x - x2) < 0.3 && Math.abs(y - 5.53) < 0.3;
+  assert.ok(P.filter(([x]) => x < x2 - 1).every(([, y]) => Math.abs(y + 4) < 0.35) && P.filter(([x]) => x > x2 + 1).every(([, y]) => Math.abs(y - 4) < 0.35), `south side, then through pole 3 to the north side: ${JSON.stringify(P)}`);
   assert.equal(P.filter(pole3).length, 1, 'through pole 3');
-  // ⇄ Cross here: the road crossed at the last tap; the next stretch on the right (the south side)
+  assert.equal(await sideOn(), 'Left', 'Left / Right: the side it is on now');
+  assert.ok((await page.evaluate(() => window.__toasts.slice())).some((t) => t === 'The road is crossed at tap 3: the left side from there on (↶ takes it back)'));
+  // ⇄ Cross here by hand at the last tap: the road crossed there; a tap on the south side after it goes on along it (the crossing made by hand kept)
   await press(page, '#xcBar [data-xc="cross"]', true); await idle(page);
   assert.equal(await page.evaluate(() => document.querySelector('#xcBar [data-xc="cross"]').getAttribute('aria-pressed')), 'true');
-  n = await tapAt(page, LA0 + 0.00001, LO0 + 4.6 * D, true); assert.equal(n.c.taps.length, 4); assert.equal(n.c.taps[2].x, 1);
+  n = await tapAt(page, LA0 - 0.00004, LO0 + 4.6 * D, true); assert.equal(n.c.taps.length, 5); assert.equal(n.c.taps[3].x, 1); assert.equal(n.c.taps[4].x, undefined);
   P = mOf(await xc(page, 'll', [n.c.id]));
   const x3 = 3.5 * D * MLON, after1 = P.filter(([x]) => x > x3 + 1);
   assert.ok(after1.length >= 1 && after1.every(([, y]) => Math.abs(y + 4) < 0.35), `after the crossing: the south side: ${JSON.stringify(P)}`);
-  assert.ok(P.some(([x, y], i) => i && Math.abs(x - x3) < 0.5 && Math.abs(P[i - 1][0] - x3) < 0.5 && Math.sign(y) !== Math.sign(P[i - 1][1])), 'the road crossed at tap 3');
+  assert.ok(P.some(([x, y], i) => i && Math.abs(x - x3) < 0.5 && Math.abs(P[i - 1][0] - x3) < 0.5 && Math.sign(y) !== Math.sign(P[i - 1][1])), 'the road crossed at tap 4');
   // ↶: the last tap taken back
-  await press(page, '#xcBar [data-xc="undo"]', true); n = await idle(page); assert.equal(n.c.taps.length, 3);
-  n = await tapAt(page, LA0 + 0.00001, LO0 + 4.6 * D, true); assert.equal(n.c.taps.length, 4);
+  await press(page, '#xcBar [data-xc="undo"]', true); n = await idle(page); assert.equal(n.c.taps.length, 4);
+  n = await tapAt(page, LA0 - 0.00004, LO0 + 4.6 * D, true); assert.equal(n.c.taps.length, 5); assert.equal(n.c.taps[4].x, undefined);
   // ⋯: underground (dotted on the map), snap to poles off (kept for next time), the distance from the road
   await press(page, '#xcBar [data-xc="more"]', true);
   const more = await page.evaluate(() => [...document.querySelectorAll('#xcBar .xc-more .lbl')].map((x) => x.textContent));
@@ -184,7 +199,7 @@ test('a phone: Route › ＋ Existing; the taps follow the road on its left (4 m
   await press(page, '#xcBar [data-xc="kind"][data-v="ae"]', true); await press(page, '#xcBar [data-xc="more"]', true);
   assert.equal(await page.evaluate(() => window.__polecam.S.xcPref.snap), false);
   await xc(page, 'look', [LA0 + 0.0001, LO0 + 0.0016, 18]); await page.waitForTimeout(300); // (the map moved on, as a thumb does)
-  n = await tapAt(page, LA0 + 0.00005, LO0 + 5 * D + 0.00003, true); assert.equal(n.c.taps.length, 5); assert.ok(!n.c.taps[4].pole, 'snap off: not on pole 6, 3 m away');
+  n = await tapAt(page, LA0 + 0.00005, LO0 + 5 * D + 0.00003, true); assert.equal(n.c.taps.length, 6); assert.ok(!n.c.taps[5].pole, 'snap off: not on pole 6, 3 m away'); assert.equal(n.c.taps[5].x, 1, 'on the north side: the road crossed there');
   assert.equal(await sideways(page), false);
   // ✓ Finish: its ends
   await press(page, '#xcFinishBtn', true);
@@ -197,7 +212,8 @@ test('a phone: Route › ＋ Existing; the taps follow the road on its left (4 m
   assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#xcBar [data-xc="eodf"]')].map((b) => [b.textContent, b.getAttribute('aria-pressed')])), [['ODF-9001 · ODF', 'true'], ['DEMO TOWER · site', 'false']], 'the nearest ODF or site picked');
   await press(page, '#xcSaveBtn', true);
   const L = await xc(page, 'list'); assert.equal(L.length, 1); const c = L[0];
-  assert.deepEqual([c.n, c.kind, c.side, c.off, c.taps.length, c.end, c.start, c.o], [1, 'ae', 'L', 4, 5, { at: 'hang', text: 'TO DEMO SITE 2' }, { at: 'odf', text: '', odf: 'o1' }, USER.email]);
+  assert.deepEqual([c.n, c.kind, c.side, c.off, c.taps.length, c.end, c.start, c.o], [1, 'ae', 'R', 4, 6, { at: 'hang', text: 'TO DEMO SITE 2' }, { at: 'odf', text: '', odf: 'o1' }, USER.email]);
+  assert.ok(!('hand' in c) && c.taps.every((t) => !('chk' in t)), 'the drawing\'s own marks not kept');
   assert.ok(c.taps.slice(0, -1).every((t) => Array.isArray(t.g) && t.g.length > 1 && t.gs), 'each stretch kept as drawn');
   assert.ok((await page.evaluate(() => window.__toasts.slice())).some((t) => /^Existing cable 1 saved: \d+ m, for reference only \(not in the BOQ, the PMI or the cable lengths\)$/.test(t)));
   const ll = await xc(page, 'll', [c.id]), odf = RECS.find((r) => r.id === 'o1'); assert.deepEqual(ll[0], [odf.lat, odf.lon], 'its start drawn on to the ODF');
@@ -211,10 +227,11 @@ test('a phone: Route › ＋ Existing; the taps follow the road on its left (4 m
   await ctx.close();
 });
 
-test('a computer: a cable tapped, its card; Edit: a tap dragged follows the road again, Right: every stretch on the right, ✕ leaves the changes; Its ends; Delete; the list of cables', async () => {
+test('a computer: a cable tapped, its card; Edit: a tap dragged follows the road again, dragged across it crosses it; Ctrl+Z, Ctrl+Y, a right-click; Right: every stretch on the right, ✕ leaves the changes; Its ends; Delete; the list of cables; drawing: a right-click and Ctrl+Z take back the last tap', async () => {
   const { ctx, page, errors } = await open();
   await xc(page, 'look', [LA0 + 0.0008, LO0 + 0.0016, 18]); await page.waitForTimeout(400);
-  const c = await drawOne(page, [[LA0 - 0.00001, LO0 + 0.5 * D], [LA0 - 0.00001, LO0 + 3.5 * D], [LA0 + 0.0011, AVE + 0.00001]]);
+  await page.evaluate(() => { window.__cm = []; window.addEventListener('contextmenu', (e) => window.__cm.push(e.defaultPrevented)); }); // ((beta 7.19, existing cable) the browser's menu kept off only while drawing)
+  const c = await drawOne(page, [[LA0 + 0.00004, LO0 + 0.5 * D], [LA0 + 0.00004, LO0 + 3.5 * D], [LA0 + 0.0011, AVE - 0.00004]]); // (the street's north side, the avenue's west side: the left)
   let P = mOf(await xc(page, 'll', [c.id]));
   const aveX = (AVE - LO0) * MLON, up = P.filter(([x]) => x > aveX - 20);
   assert.ok(up.length >= 2 && up.every(([x]) => Math.abs(x - (aveX - 4)) < 0.4), `up the avenue on its west side (the left going north): ${JSON.stringify(P)}`);
@@ -227,19 +244,31 @@ test('a computer: a cable tapped, its card; Edit: a tap dragged follows the road
   // Edit: tap 2 dragged onto the avenue's west side further north... (a handle dragged with the mouse): its stretches drawn along the road again
   await press(page, '#xcBar [data-xc="vedit"]');
   let n = await xc(page, 'now'); assert.equal(n.was, true); assert.equal(n.step, 'draw');
-  const [hx, hy] = await xc(page, 'px', [n.c.taps[1].lat, n.c.taps[1].lon]), [tx, ty] = await xc(page, 'px', [LA0 - 0.00001, LO0 + 2.5 * D]);
-  await page.mouse.move(hx, hy); await page.mouse.down(); for (let k = 1; k <= 8; k++) { await page.mouse.move(hx + (tx - hx) * k / 8, hy + (ty - hy) * k / 8); await page.waitForTimeout(20); } await page.mouse.up(); await page.waitForTimeout(300);
-  n = await idle(page); assert.ok(Math.abs((n.c.taps[1].lon - LO0) * MLON - 2.5 * D * MLON) < 1.5, 'tap 2 moved');
-  P = mOf(n.c.taps[0].g.concat(n.c.taps[1].g)); assert.ok(P.filter(([, y]) => y < 20).every(([, y]) => Math.abs(y - 4) < 0.4), 'along the street again');
+  const drag = async (la0, lo0, la1, lo1) => { const [hx, hy] = await xc(page, 'px', [la0, lo0]), [tx, ty] = await xc(page, 'px', [la1, lo1]);
+    await page.mouse.move(hx, hy); await page.mouse.down(); for (let k = 1; k <= 8; k++) { await page.mouse.move(hx + (tx - hx) * k / 8, hy + (ty - hy) * k / 8); await page.waitForTimeout(20); } await page.mouse.up(); await page.waitForTimeout(300); return idle(page); };
+  n = await drag(n.c.taps[1].lat, n.c.taps[1].lon, LA0 + 0.00004, LO0 + 2.5 * D); assert.ok(Math.abs((n.c.taps[1].lon - LO0) * MLON - 2.5 * D * MLON) < 1.5, 'tap 2 moved');
+  P = mOf(n.c.taps[0].g.concat(n.c.taps[1].g)); assert.ok(P.filter(([, y]) => y < 20).every(([, y]) => Math.abs(y - 4) < 0.4), 'along the street again'); assert.equal(n.c.taps[1].x, undefined);
+  // (beta 7.19, existing cable) tap 2 dragged across the street: the road crossed there by itself, on along the south side and up the avenue's east side
+  n = await drag(n.c.taps[1].lat, n.c.taps[1].lon, LA0 - 0.00004, LO0 + 2.5 * D); assert.equal(n.c.taps[1].x, 1, 'dragged across: crossed there');
+  P = mOf(n.c.taps[1].g); assert.ok(P.filter(([, y]) => y < 20).every(([, y]) => Math.abs(y + 4) < 0.4) && P.filter(([x]) => x > aveX - 20).every(([x]) => Math.abs(x - (aveX + 4)) < 0.4), `after it the right: ${JSON.stringify(P)}`);
+  // Ctrl+Z: the drag taken back (tap 2 on the north side, not crossed); Ctrl+Y: done again; a right-click on the map: taken back again
+  const u0 = n.undo; await page.keyboard.press('Control+z'); n = await idle(page);
+  assert.ok(Math.abs((n.c.taps[1].lat - LA0) * MLAT - 4.4) < 1 && n.c.taps[1].x === undefined && n.undo === u0 - 1 && n.redo === 1, `Ctrl+Z: ${JSON.stringify([n.c.taps[1], n.undo, n.redo])}`);
+  await page.keyboard.press('Control+y'); n = await idle(page); assert.equal(n.c.taps[1].x, 1, 'Ctrl+Y: done again'); assert.equal(n.redo, 0);
+  const [ex, ey] = await xc(page, 'px', [LA0 + 0.0004, LO0 + 1.5 * D]); await page.mouse.click(ex, ey, { button: 'right' }); await page.waitForTimeout(250); n = await idle(page);
+  assert.equal(n.c.taps[1].x, undefined, 'a right-click: taken back'); assert.equal(n.c.taps.length, 3); assert.equal(n.step, 'draw');
   // Right: every stretch on the right
   await press(page, '#xcBar [data-xc="side"][data-v="R"]'); n = await idle(page);
   P = mOf(await xc(page, 'll', [n.c.id])); const st = P.filter(([x, y]) => y < 20 && x > 25 && x < aveX - 10), av = P.filter(([x]) => x > aveX - 20);
   assert.ok(st.length >= 1 && av.length >= 2 && st.every(([, y]) => Math.abs(y + 4) < 0.4) && av.every(([x]) => Math.abs(x - (aveX + 4)) < 0.4), `the right: the street's south side, the avenue's east side: ${JSON.stringify(P)}`);
   // ✕: the changes left out (asked)
   await press(page, '#xcBar [data-xc="cancel"]'); const q = await answer(page, 'Leave the changes'); assert.equal(q.title, 'Stop editing Existing cable 1?');
+  assert.deepEqual(await page.evaluate(() => window.__cm.splice(0)), [true], 'the browser\'s menu kept off while editing');
   assert.deepEqual((await xc(page, 'list'))[0], c, 'as it was');
   // Its ends: the note changed
   await xc(page, 'start', [c.id, 'end']); await page.waitForTimeout(200);
+  await page.fill('#xcBar .xc-in[data-w="end"]', 'TO DEMO OLT 9'); await page.focus('#xcBar .xc-in[data-w="end"]'); await page.keyboard.press('Control+z'); await page.waitForTimeout(150);
+  n = await xc(page, 'now'); assert.equal(n.step, 'end', 'Ctrl+Z in its note: the note\'s own'); assert.deepEqual(n.c.taps, c.taps);
   await page.fill('#xcBar .xc-in[data-w="end"]', 'TO DEMO OLT 9'); await press(page, '#xcSaveBtn');
   let L = await xc(page, 'list'); assert.equal(L[0].end.text, 'TO DEMO OLT 9'); assert.deepEqual(L[0].taps, c.taps); assert.ok(L[0].t > c.t);
   // the list of cables (Route › Cables): listed, with Edit, Its ends, Delete
@@ -253,6 +282,16 @@ test('a computer: a cable tapped, its card; Edit: a tap dragged follows the road
   assert.deepEqual(await xc(page, 'list'), []); const m = await page.evaluate((a) => window.__polecam.S.meta[a], A);
   assert.ok(m.xcgone[c.id] && m.xcgone[c.id].by === USER.email && m.xcAt >= m.xcgone[c.id].t);
   assert.deepEqual(await xc(page, 'lines'), []);
+  // (beta 7.19, existing cable) drawing one: a right-click on the map takes back the last tap, Ctrl+Z the one before; Ctrl+Shift+Z puts one back; outside it the
+  // right-click as before (the browser's own)
+  await page.mouse.click(ex, ey, { button: 'right' }); await page.waitForTimeout(150); assert.deepEqual(await page.evaluate(() => window.__cm.splice(0)), [false], 'not drawing: as before');
+  await xc(page, 'start'); await page.waitForTimeout(200);
+  await tapAt(page, LA0 + 0.00004, LO0 + 0.5 * D); n = await tapAt(page, LA0 + 0.00004, LO0 + 1.5 * D); assert.equal(n.c.taps.length, 2);
+  await page.mouse.click(ex, ey, { button: 'right' }); await page.waitForTimeout(250); n = await idle(page); assert.equal(n.c.taps.length, 1, 'a right-click: the last tap taken back');
+  await page.keyboard.press('Control+z'); n = await idle(page); assert.equal(n.c.taps.length, 0, 'Ctrl+Z: the one before');
+  await page.keyboard.press('Control+Shift+z'); n = await idle(page); assert.equal(n.c.taps.length, 1, 'Ctrl+Shift+Z: put back'); assert.equal(n.redo, 1);
+  assert.equal(await page.evaluate(() => document.querySelector('#xcBar [data-xc="undo"]').title), 'Undo the last tap or change (Ctrl+Z, or a right-click on the map)');
+  await press(page, '#xcBar [data-xc="cancel"]'); await answer(page, 'Leave it'); assert.equal(await xc(page, 'now'), null);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -260,7 +299,7 @@ test('a computer: a cable tapped, its card; Edit: a tap dragged follows the road
 test('Add Pin on the cable: a pole and a closure placed by hand go on its line and remember it; a new cable (RUN) starts from the pole', async () => {
   const { ctx, page, errors } = await open();
   await xc(page, 'look', [LA0 + 0.0005, LO0 + 0.0016, 18]); await page.waitForTimeout(300);
-  const c = await drawOne(page, [[LA0 - 0.00001, LO0 + 5 * D + 0.0002], [LA0 + 0.0011, AVE + 0.00001]]); // (east of the poles, then up the avenue)
+  const c = await drawOne(page, [[LA0 + 0.00004, LO0 + 5 * D + 0.0002], [LA0 + 0.0011, AVE - 0.00004]]); // (east of the poles, then up the avenue; on the north / west side: the left)
   const aveX = (AVE - LO0) * MLON;
   const addPin = async (k, la, lo) => {
     await page.click('#pinAddBtn'); await page.waitForTimeout(400); await page.click(`#askBox .ptile[data-kind="${k}"]`); await page.waitForSelector('#editor:not([hidden])'); await page.waitForTimeout(600);

@@ -7647,7 +7647,11 @@
      odf (the ODF or site id) }, o (who drew it), t (its time) }. pmeta().xcgone: the cables deleted ({ id: { o, by, t } }); xcAt: the last change
      (Share: the route is sent with it); xcPlan: on the plan or not (Plan style › Cables; asked once, xcAskPlan; unset: not on it). */
   const XC_COL = '#1864ab', XC_OFFS = [2, 3, 4, 5, 6, 8], XC_ON_ELS = new Set(['Pole', 'Closure', 'NAP', 'Handhole', 'Manhole', 'Service box', 'Pull-off', 'Cross-over']);
-  var XC = null, xcView = null, xcGen = 0, xcLayer = null, xcHLayer = null; // the cable being drawn or edited ({ proj, c: the draft, was: the cable before (Edit), undo, step: 'draw' | 'more' | 'end', sel: a tap, busy, back: 'route' }); the cable tapped on the map (its card)
+  var XC = null, xcView = null, xcGen = 0, xcLayer = null, xcHLayer = null; // the cable being drawn or edited ({ proj, c: the draft, was: the cable before (Edit), undo, redo, step: 'draw' | 'more' | 'end', sel: a tap, busy, back: 'route' }); the cable tapped on the map (its card)
+  /* (beta 7.19, existing cable) While drawing, the draft has two marks that are never kept with the cable (xcClean): c.hand (Left / Right pressed:
+     the side chosen by hand, so the taps no longer give the cable its side) and a tap's chk (its side of the road still to be checked, xcSettle:
+     1 a tap just added; { lat, lon } a tap just dragged, from there). They are in Undo's copies, so ↶ and Redo bring them back with the rest. */
+  const xcClean = (c) => { const d = JSON.parse(JSON.stringify(c)); delete d.hand; delete d.sel; (d.taps || []).forEach((t) => { delete t.chk; }); return d; };
   map.createPane('xcHPane'); map.getPane('xcHPane').style.zIndex = 615; // (the taps' handles over the pins: dragged with a finger)
   xcLayer = L.layerGroup().addTo(map); xcHLayer = L.layerGroup().addTo(map);
   const xcPref = () => ({ side: 'L', kind: 'ae', snap: true, off: 4, ...(S.xcPref || {}) });
@@ -7658,6 +7662,9 @@
   const xcCopy = (c) => JSON.parse(JSON.stringify(c));
   const xcPt = (id) => (id == null ? null : points.find((p) => p.id === id && p.project === (XC ? XC.proj : S.project)) || null);
   const xcSideAt = (c) => { const out = []; let s = c.side === 'R' ? 'R' : 'L'; for (let k = 0; k < c.taps.length - 1; k++) { if (k > 0 && c.taps[k].x) s = s === 'L' ? 'R' : 'L'; out.push(s); } return out; };
+  /** ((beta 7.19, existing cable) The side the cable leaves tap k on: its stretch's; the last tap's, the one it comes in on, turned when the road is crossed there
+      (7.18 said "the right side" for a crossing at the last tap whatever the side.) */
+  const xcSideFrom = (c, k) => { const s = xcSideAt(c); if (k < s.length) return s[k]; const a = s.length ? s[s.length - 1] : (c.side === 'R' ? 'R' : 'L'); return k > 0 && c.taps[k] && c.taps[k].x ? (a === 'L' ? 'R' : 'L') : a; };
   const xcSig = (a, b, side, off) => `${(+a.lat).toFixed(7)},${(+a.lon).toFixed(7)},${a.pole || ''}|${(+b.lat).toFixed(7)},${(+b.lon).toFixed(7)},${b.pole || ''}|${side}|${off}|${S.zone}`;
   /** A cable's line [[lat, lon], …]: its stretches as drawn (one not worked out yet: straight), on to its ODF at an end there. */
   function xcLL(c, ends) {
@@ -7677,7 +7684,7 @@
   /** Keep a cable (new or changed) in its project: its maker, its time; the project's last change (Share). */
   function xcPut(proj, c) {
     const now = new Date().toISOString(), L0 = xcList(proj).filter((x) => x.id !== c.id), n = c.n || Math.max(0, ...xcList(proj).map((x) => +x.n || 0)) + 1;
-    const keep = { ...c, n, o: c.o || routeWho(), t: now }; delete keep.sel;
+    const keep = { ...xcClean(c), n, o: c.o || routeWho(), t: now }; // ((beta 7.19, existing cable) the drawing's own marks left out)
     const G = { ...(pmeta(proj).xcgone || {}) }; delete G[c.id];
     S.meta = S.meta || {}; S.meta[proj] = { ...pmeta(proj), excab: [...L0, keep].sort((a, b) => a.n - b.n), xcgone: G, xcAt: now }; persist(); xcStyleRender();
     LOG.info('xc.save', { taps: keep.taps.length, kind: keep.kind, end: (keep.end || {}).at || 'hang', start: (keep.start || {}).at || 'hang' });
@@ -7729,10 +7736,21 @@
   }
   /** The draft's stretches worked out where they changed (a tap moved, added or removed, the side, the distance), then drawn. */
   async function xcWork() {
-    const X = XC; if (!X) return; const c = X.c, T = c.taps, sides = xcSideAt(c), off = +c.off || 4, todo = [];
+    const X = XC; if (!X) return; const c = X.c, T = c.taps;
     if (T.length) { delete T[T.length - 1].g; delete T[T.length - 1].gs; delete T[T.length - 1].gr; }
+    let settled = false;
+    // ((beta 7.19, existing cable) a tap added or dragged: its side of the road first (the cable's side, or the road crossed there), every such tap in
+    // order, with the roads round all of them (a tap added while they came: round again); another work may have done it meanwhile)
+    const nearOf = () => { const n = new Set(); T.forEach((t, k) => { if (!t.chk) return; for (let j = Math.max(0, k - 2); j <= Math.min(T.length - 1, k + 1); j++) n.add(T[j]); if (typeof t.chk === 'object') n.add(t.chk); }); return n; };
+    for (let round = 0; round < 6 && T.some((t) => t.chk); round++) {
+      const near = nearOf(); X.busy = (X.busy || 0) + 1; xcBarRender(); let R = null;
+      try { R = await xcRoadsAt(X.proj, [...near]); } finally { X.busy--; }
+      if (XC !== X || X.c !== c) { if (XC === X) xcBarRender(); return; } // (undone meanwhile: the newer work does it)
+      if ([...nearOf()].every((q) => near.has(q))) { if (T.some((t) => t.chk)) { xcSettle(X, R.roads); settled = true; } break; }
+    }
+    const sides = xcSideAt(c), off = +c.off || 4, todo = [];
     for (let k = 0; k < T.length - 1; k++) { const sg = xcSig(T[k], T[k + 1], sides[k], off); if (T[k].gs !== sg || !Array.isArray(T[k].g)) todo.push({ k, a: T[k], b: T[k + 1], sg, side: sides[k] }); }
-    if (!todo.length) return;
+    if (!todo.length) { if (settled && XC === X) { xcDraw(); xcBarRender(); } return; }
     const gen = ++xcGen; X.busy = (X.busy || 0) + 1; xcBarRender();
     try {
       const R = await xcRoadsAt(X.proj, todo.flatMap((x) => [x.a, x.b])); if (XC !== X) return;
@@ -7745,6 +7763,46 @@
       X.noRoads = R.none && todo.some((x) => !x.a.gr);
     } finally { X.busy--; }
     if (XC === X && gen === xcGen) { xcDraw(); xcBarRender(); } else if (XC === X) xcDraw();
+  }
+  /** (beta 7.19, existing cable) The owner (27 Nov): "make it more user friendly by allow user to cross the road by a traversing its route clicked and
+      allow the app to detect which side it click first". The taps marked chk (just added or dragged) settled with the roads R (C.xc.sides: left or
+      right of the road's centre line as the cable runs; within about a metre of it, or no road: neither, the cable keeps the side it had):
+      - the second tap of a new cable: the first tap's side is the cable's (the way it runs known from the second); the first on the centre line: the
+        second's; Left / Right pressed (c.hand): the side chosen stays;
+      - a later tap: where the cable should be as it leaves the tap is the side of the latest tap before it (not one where the road is crossed) that
+        has one, carried over the changes of side since (a crossing, by hand or found, turns it too; Left / Right turns both, so a side chosen by hand
+        against the taps stays); a tap on the other side crosses the road there (x, as ⇄ Cross here), on the same side it goes on along it. None
+        before it with a side: the side the cable comes in on (a new cable with no side found yet: this tap's is the cable's);
+      - a tap dragged across the road's centre line (Edit, or a tap of the cable being drawn): the same, from where it is now (the first tap: the
+        cable's side turns); dragged along its side: nothing changes (a crossing made by hand stays). */
+  function xcSettle(X, roads) {
+    const c = X.c, T = c.taps, side0 = () => (c.side === 'R' ? 'R' : 'L'), flip = (s) => (s === 'L' ? 'R' : 'L');
+    const U = (t) => { const [E, N] = xcU(t); return { E, N }; }, dirOf = (a, b) => { const [Ea, Na] = xcU(a), [Eb, Nb] = xcU(b); return [Eb - Ea, Nb - Na]; };
+    /** tap k's side of its road as the cable runs there (q: at another place, where it was dragged from) */
+    const sideOf = (k, q) => { const at = q || T[k];
+      if (k === 0) return T.length > 1 ? C.xc.sides(roads, U(at), U(T[1]), { dir: T[2] ? dirOf(T[1], T[2]) : null }).a : null;
+      return C.xc.sides(roads, U(T[k - 1]), U(at), { dir: k > 1 ? dirOf(T[k - 2], T[k - 1]) : T[k + 1] ? dirOf(at, T[k + 1]) : null }).b; };
+    let found = null; const crossed = [];
+    for (let k = 0; k < T.length; k++) {
+      const t = T[k], was = t.chk && typeof t.chk === 'object' ? t.chk : null; if (!t.chk) continue; delete t.chk;
+      if (k === 1 && !was && !X.was && !c.hand) { // (the second tap: the cable's side from the first)
+        const p0 = sideOf(0), p1 = sideOf(1), s = p0 || p1;
+        if (s && s !== side0()) { c.side = s; found = s; } else if (s) found = s;
+        if (p0 && p1 && p1 !== p0) { t.x = 1; crossed.push(k); }
+        continue;
+      }
+      const p = sideOf(k); if (!p) continue; // (on the centre line, or no road: the side it had)
+      if (was) { const p0 = sideOf(k, was); if (p0 === p) continue; } // (moved along its side)
+      if (k === 0) { if (!was) continue; const p0 = sideOf(0, was), s = p0 ? flip(side0()) : p; if (s !== side0()) { c.side = s; found = s; } continue; }
+      const S0 = xcSideAt(c); let ref = null;
+      for (let j = k - 1; j >= 0 && !ref; j--) { if (j > 0 && T[j].x) continue; const q = sideOf(j); if (q) ref = S0[j] === S0[k - 1] ? q : flip(q); }
+      if (!ref && !was && !X.was && !c.hand) { if (S0[k - 1] !== p) c.side = flip(side0()); found = p; continue; } // (no side found before: this tap's is the cable's)
+      if (!ref) ref = S0[k - 1];
+      if (p !== ref) { if (!t.x) { t.x = 1; crossed.push(k); } } else delete t.x;
+    }
+    if (found) LOG.info('xc.side', { side: found });
+    if (crossed.length) { LOG.info('xc.cross', { n: crossed.length }); const k = crossed[crossed.length - 1]; toast(`The road is crossed at tap ${k + 1}: the ${xcSideFrom(c, k) === 'L' ? 'left' : 'right'} side from there on (↶ takes it back)`, 2600); }
+    else if (found) toast(`The ${found === 'L' ? 'left' : 'right'} side of the road, from your taps (Left / Right changes it)`, 2600);
   }
 
   /* -- the map: every cable of the project (dashed blue when aerial, dotted when underground: the existing style), its hanging end's note; the one
@@ -7772,9 +7830,10 @@
       const tip = !XC.was && i === XC.c.taps.length - 1; // (a new cable's last tap: its circle not tappable, so the next tap near it is a tap on the map (a phone moves a tap onto a button near it); ↶ takes it back)
       const m = L.marker([t.lat, t.lon], { pane: 'xcHPane', draggable: !tip && (XC.step === 'draw' || XC.step === 'more'), interactive: !tip, keyboard: false, icon: L.divIcon({ className: `xc-h${XC.sel === i ? ' sel' : ''}${t.pole ? ' pole' : ''}${t.x ? ' x' : ''}`, html: `<i>${t.x ? '⇄' : i + 1}</i>`, iconSize: [30, 30], iconAnchor: [15, 15] }) });
       m.on('click', (e) => { L.DomEvent.stop(e); if (!XC) return; XC.sel = XC.sel === i ? null : i; xcDraw(); xcBarRender(); });
-      m.on('dragstart', () => { if (!XC) return; XC.undo.push(xcCopy(XC.c)); XC.sel = i; });
+      let from = null; // ((beta 7.19, existing cable) where it was: dragged across the road, the road is crossed there)
+      m.on('dragstart', () => { if (!XC) return; xcKeep(); XC.sel = i; from = { lat: t.lat, lon: t.lon }; });
       m.on('drag', (e) => { if (!XC) return; const q = e.target.getLatLng(); t.lat = q.lat; t.lon = q.lng; delete t.pole; });
-      m.on('dragend', (e) => { if (!XC) return; const q = e.target.getLatLng(), s = xcSnap(q); t.lat = s.lat; t.lon = s.lon; if (s.pole) t.pole = s.pole; else delete t.pole; xcDraw(); xcBarRender(); xcWork(); });
+      m.on('dragend', (e) => { if (!XC) return; const q = e.target.getLatLng(), s = xcSnap(q); t.lat = s.lat; t.lon = s.lon; if (s.pole) t.pole = s.pole; else delete t.pole; if (from && haversine(from, t) > 0.3) t.chk = from; from = null; xcDraw(); xcBarRender(); xcWork(); });
       m.addTo(xcHLayer);
     });
   }
@@ -7790,10 +7849,26 @@
     const s = xcSnap(q), T = XC.c.taps, last = T[T.length - 1];
     if (XC.sel != null) { XC.sel = null; } // (a tap selected: the map tapped puts it down)
     if (last && haversine(last, s) < 1) { xcDraw(); xcBarRender(); return; } // (the same place again)
-    XC.undo.push(xcCopy(XC.c)); T.push({ lat: +s.lat.toFixed(8), lon: +s.lon.toFixed(8), ...(s.pole ? { pole: s.pole } : {}) });
+    xcKeep(); T.push({ lat: +s.lat.toFixed(8), lon: +s.lon.toFixed(8), ...(s.pole ? { pole: s.pole } : {}), ...(T.length ? { chk: 1 } : {}) }); // ((beta 7.19, existing cable) chk: its side of the road (xcSettle); the first tap's is settled by the second)
     xcDraw(); xcBarRender(); xcWork();
   }
   map.on('click', (e) => { if (XC && XC.step === 'draw') { xcTap(e.latlng); return; } if (XC && XC.step === 'more') { XC.step = 'draw'; xcBarRender(); return; } if (xcView != null && !XC) { xcView = null; xcDraw(); xcBarRender(); } });
+  /* (beta 7.19, existing cable) Undo and Redo. The owner (27 Nov): "allow also right click or ctrl+z to undo the clicked or action." While drawing or
+     editing one (not its ends): ↶, a right-click on the map (a mouse or a pen; a finger's long press does nothing) and Ctrl+Z (⌘Z) take back the last
+     tap or change (a tap, a crossing, a side, a tap dragged or removed, aerial / underground, the distance); Ctrl+Y or Ctrl+Shift+Z (⌘⇧Z) put it back,
+     until the next change. Outside it the map's right-click and the keys do what they did; typing in a text field keeps its own Ctrl+Z. */
+  function xcKeep() { if (!XC) return; XC.undo.push(xcCopy(XC.c)); XC.redo = []; } // (a change about to be made: Undo's copy; Redo's list starts again)
+  const xcUndoOn = () => !!XC && XC.proj === S.project && (XC.step === 'draw' || XC.step === 'more');
+  function xcUndo() { if (!xcUndoOn() || !XC.undo.length) return false; XC.redo.push(xcCopy(XC.c)); XC.c = XC.undo.pop(); XC.sel = null; xcDraw(); xcBarRender(); xcWork(); return true; }
+  function xcRedo() { if (!xcUndoOn() || !XC.redo.length) return false; XC.undo.push(xcCopy(XC.c)); XC.c = XC.redo.pop(); XC.sel = null; xcDraw(); xcBarRender(); xcWork(); return true; }
+  { const mc = map.getContainer(); let ptr = '';
+    mc.addEventListener('pointerdown', (e) => { ptr = e.pointerType || ''; }, true);
+    mc.addEventListener('contextmenu', (e) => { if (!xcUndoOn() || (e.target.closest && e.target.closest('.leaflet-control-container'))) return; e.preventDefault(); if (ptr !== 'touch') xcUndo(); }); }
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented || !xcUndoOn() || typingIn(e.target) || !$('askBox').hidden || boxOpen() || stack.length) return;
+    const k = String(e.key || '').toLowerCase();
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); xcUndo(); } else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); xcRedo(); }
+  });
 
   /** Start drawing (c: a cable to edit; step: 'end' for its ends only). From Route, back to Route after. */
   function xcStart(c, step) {
@@ -7801,7 +7876,7 @@
     { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } }
     const back = routeMode ? 'route' : ''; if (routeMode) setRouteMode(false);
     const P = xcPref(), d = c ? xcCopy(c) : { id: `xc${uid()}`, kind: P.kind, off: P.off, side: P.side, taps: [], start: { at: 'hang', text: '' }, end: { at: 'hang', text: 'TO ' } };
-    XC = { proj: S.project, c: d, was: c ? xcCopy(c) : null, undo: [], step: step || 'draw', sel: null, busy: 0, back }; xcView = null;
+    XC = { proj: S.project, c: d, was: c ? xcCopy(c) : null, undo: [], redo: [], step: step || 'draw', sel: null, busy: 0, back }; xcView = null;
     document.body.classList.add('xcdraw'); $('visitCard').hidden = true;
     xcDraw(); xcBarRender();
     if (!c) { const m = map.getCenter(); xcRoadsAt(S.project, [{ lat: m.lat, lon: m.lng }]).catch(() => {}); } // (the roads where the map looks, got ahead)
@@ -7828,7 +7903,7 @@
     xcEnd();
   }
   function xcCancel() {
-    if (!XC) return; const ch = XC.was ? JSON.stringify(XC.was) !== JSON.stringify(XC.c) : XC.c.taps.length > 0;
+    if (!XC) return; const ch = XC.was ? JSON.stringify(xcClean(XC.was)) !== JSON.stringify(xcClean(XC.c)) : XC.c.taps.length > 0; // ((beta 7.19, existing cable) its own marks are no change)
     if (!ch) { xcEnd(); return; }
     ask(XC.was ? `Stop editing ${xcName(XC.was)}?` : 'Leave this existing cable?', XC.was ? 'The changes made since Edit are not kept.' : 'What you drew is not kept.', [{ label: 'Keep drawing', value: false }, { label: XC.was ? 'Leave the changes' : 'Leave it', value: true, primary: true }]).then((v) => { if (v) xcEnd(); });
   }
@@ -7855,16 +7930,16 @@
         + `<div class="rt-row"><button class="ib" type="button" data-xc="back">‹ Back</button><span class="rt-sp"></span><button class="ib" type="button" data-xc="cancel" aria-label="Cancel">✕</button><button class="ib primary" type="button" data-xc="save" id="xcSaveBtn">Save</button></div>`;
     } else {
       const c = XC.c, T = c.taps, tgt = XC.sel != null ? XC.sel : T.length - 1, tx = tgt > 0 && tgt < T.length && !!T[tgt].x, len = T.length > 1 ? xcLen(c) : 0;
-      const live = XC.busy ? 'Getting the roads here…' : !T.length ? 'Tap along the road where the cable runs' : T.length === 1 ? 'Tap the next place along the road' : `${T.length} taps · ${fmtLen(len)}${XC.noRoads ? ' · <span class="rt-warn">no road here: straight</span>' : ''}`;
+      const live = XC.busy ? 'Getting the roads here…' : !T.length ? 'Tap along the road where the cable runs, on its side' : T.length === 1 ? 'Tap the next place along the road' : `${T.length} taps · ${fmtLen(len)}${XC.noRoads ? ' · <span class="rt-warn">no road here: straight</span>' : ''}`; // ((beta 7.19, existing cable) Left / Right shows the side it is on: the side found)
       if (XC.step === 'more') h += `<div class="xc-more"><div class="lbl">IT IS</div><div class="rt-opts" role="radiogroup" aria-label="Aerial or underground">${opt('kind', 'ae', 'Aerial', c.kind !== 'ug')}${opt('kind', 'ug', 'Underground', c.kind === 'ug')}</div>`
         + `<div class="lbl">SNAP TO POLES</div><div class="rt-opts" role="radiogroup" aria-label="Snap to poles">${opt('snap', '1', 'On', xcPref().snap)}${opt('snap', '0', 'Off', !xcPref().snap)}</div>`
         + `<div class="lbl">FROM THE ROAD’S CENTRE LINE</div><div class="rt-opts" role="radiogroup" aria-label="Distance from the road's centre line">${XC_OFFS.map((m) => opt('off', m, `${m} m`, +c.off === m)).join('')}</div>`
         + '<p class="rt-note">Existing, for reference only: drawn dashed, never in the BOQ, the PMI or the cable lengths.</p></div>';
       if (XC.sel != null && T[XC.sel]) { const t = T[XC.sel], p = xcPt(t.pole);
         h += `<div class="rt-ask xc-tapsel"><div><b>Tap ${XC.sel + 1}</b>${p ? ` · on ${hEsc(recName(p) || p.poleId || '')}` : ''}${t.x ? ' · the road is crossed here' : ''}. Drag it to move it.</div><div class="rt-acts"><button class="ib" type="button" data-xc="tdel">Remove this tap</button><button class="ib" type="button" data-xc="tunsel">Done</button></div></div>`; }
-      h += `<div class="rt-row"><div class="rt-penseg xc-side" role="radiogroup" aria-label="Side of the road (as it runs)">${['L', 'R'].map((v) => `<button type="button" data-xc="side" data-v="${v}" aria-pressed="${(c.side === 'R' ? 'R' : 'L') === v}">${v === 'L' ? 'Left' : 'Right'}</button>`).join('')}</div>`
+      h += `<div class="rt-row"><div class="rt-penseg xc-side" role="radiogroup" aria-label="Side of the road (as it runs): found from your taps, or chosen here">${['L', 'R'].map((v) => `<button type="button" data-xc="side" data-v="${v}" aria-pressed="${xcSideFrom(c, Math.max(0, tgt)) === v}">${v === 'L' ? 'Left' : 'Right'}</button>`).join('')}</div>`
         + `<button class="ib" type="button" data-xc="cross" aria-pressed="${tx}"${tgt > 0 && tgt < T.length ? '' : ' disabled'} aria-label="Cross the road here: the other side from tap ${tgt + 1} on">⇄ Cross here</button><span class="rt-sp"></span>`
-        + `<button class="ib" type="button" data-xc="more" aria-pressed="${XC.step === 'more'}" aria-label="More: aerial or underground, snap to poles, distance from the road">⋯</button><button class="ib" type="button" data-xc="undo" aria-label="Undo"${XC.undo.length ? '' : ' disabled'}>↶</button></div>`
+        + `<button class="ib" type="button" data-xc="more" aria-pressed="${XC.step === 'more'}" aria-label="More: aerial or underground, snap to poles, distance from the road">⋯</button><button class="ib" type="button" data-xc="undo" aria-label="Undo" title="Undo the last tap or change (Ctrl+Z, or a right-click on the map)"${XC.undo.length ? '' : ' disabled'}>↶</button></div>`
         + `<div class="rt-row"><div class="rt-meta grow" id="xcLive" aria-live="polite"><b>${XC.was ? hEsc(xcName(XC.was)) : 'Existing cable'}</b> · ${live}</div><button class="ib" type="button" data-xc="cancel" aria-label="Cancel">✕</button><button class="ib primary" type="button" data-xc="finish" id="xcFinishBtn"${T.length > 1 ? '' : ' disabled'}>✓ Finish</button></div>`;
     }
     bar.innerHTML = h; bar.hidden = false; document.body.classList.add('xcbar');
@@ -7882,15 +7957,15 @@
       if (a === 'vdel') { if (await ask(`Delete ${xcName(c)}?`, `${xcKind(c)}, ${fmtLen(xcLen(c))}, from ${xcEndSay(c, 'start')} to ${xcEndSay(c, 'end')}. It is for reference only: nothing else changes.`, [{ label: 'Keep', value: false }, { label: 'Delete', value: true, primary: true }])) { xcDel(S.project, c.id); xcView = null; xcDraw(); xcBarRender(); if (routeMode) routeRefresh(); toast(`${xcName(c)} deleted`, 2500); } return; }
       return;
     }
-    const c = XC.c, T = c.taps, snap = () => XC.undo.push(xcCopy(c));
+    const c = XC.c, T = c.taps, snap = xcKeep;
     if (a === 'cancel') { xcCancel(); return; }
     if (a === 'finish') { xcFinish(); return; }
     if (a === 'save') { xcSave(); return; }
     if (a === 'back') { XC.step = 'draw'; xcDraw(); xcBarRender(); return; }
-    if (a === 'undo') { const u = XC.undo.pop(); if (u) { XC.c = u; XC.sel = null; xcDraw(); xcBarRender(); xcWork(); } return; }
+    if (a === 'undo') { xcUndo(); return; }
     if (a === 'more') { XC.step = XC.step === 'more' ? 'draw' : 'more'; xcBarRender(); return; }
-    if (a === 'side') { if ((c.side === 'R' ? 'R' : 'L') === v) return; snap(); c.side = v; xcSetPref({ side: v }); xcBarRender(); xcWork(); toast(`${v === 'L' ? 'Left' : 'Right'} side of the road (as it runs)`, 1800); return; }
-    if (a === 'cross') { const k = XC.sel != null ? XC.sel : T.length - 1; if (k < 1 || k >= T.length) return; snap(); if (T[k].x) delete T[k].x; else T[k].x = 1; xcDraw(); xcBarRender(); xcWork(); if (T[k].x) toast(`The road is crossed at tap ${k + 1}: the ${xcSideAt(c)[k] === 'L' ? 'left' : 'right'} side from there on`, 2500); return; }
+    if (a === 'side') { const k = XC.sel != null ? XC.sel : T.length - 1; if (xcSideFrom(c, Math.max(0, k)) === v) return; snap(); c.side = c.side === 'R' ? 'L' : 'R'; c.hand = 1; xcSetPref({ side: c.side }); /* ((beta 7.19, existing cable) Left / Right shows the side it is on at the tap (the last, or the one selected) and turns the whole cable, crossings and all; by hand: the taps no longer give the cable its side) */ xcBarRender(); xcWork(); toast(`${v === 'L' ? 'Left' : 'Right'} side of the road (as it runs)`, 1800); return; }
+    if (a === 'cross') { const k = XC.sel != null ? XC.sel : T.length - 1; if (k < 1 || k >= T.length) return; snap(); if (T[k].x) delete T[k].x; else T[k].x = 1; xcDraw(); xcBarRender(); xcWork(); if (T[k].x) toast(`The road is crossed at tap ${k + 1}: the ${xcSideFrom(c, k) === 'L' ? 'left' : 'right'} side from there on`, 2500); return; } // ((beta 7.19, existing cable) xcSideFrom: the last tap's too)
     if (a === 'kind') { if ((c.kind === 'ug' ? 'ug' : 'ae') === v) return; snap(); c.kind = v; xcSetPref({ kind: v }); xcDraw(); xcBarRender(); return; }
     if (a === 'snap') { xcSetPref({ snap: v === '1' }); xcBarRender(); return; }
     if (a === 'off') { if (+c.off === +v) return; snap(); c.off = +v; xcSetPref({ off: +v }); xcBarRender(); xcWork(); return; }
@@ -24840,7 +24915,7 @@
     return { grid: m.planGrid ? JSON.parse(JSON.stringify(m.planGrid)) : null, id: (m.planRoads || {}).id || null, roads: K ? K.parts.map((x) => ({ bb: x.bb, nb: x.nb, zone: x.zone, src: x.src, at: x.at, roads: x.roads.length, pois: x.pois.length, note: x.note, names: x.roads.map((r) => r.name) })) : null }; }; // ((beta 7.14, Roads again) and the roads' names)
   /* (stage 11, existing cable) tests: the project's existing cables; the one being drawn (its taps, step, busy); a tap on the map (lat, lon: as a finger
      there, snapped as the user's); the map's lines; the job's xcab; a pin's place on a cable */
-  window.__polecam.xc = { list: (n) => JSON.parse(JSON.stringify(xcList(n || S.project))), now: () => (XC ? JSON.parse(JSON.stringify({ c: XC.c, step: XC.step, sel: XC.sel, busy: XC.busy || 0, undo: XC.undo.length, was: !!XC.was })) : null), view: () => xcView,
+  window.__polecam.xc = { list: (n) => JSON.parse(JSON.stringify(xcList(n || S.project))), now: () => (XC ? JSON.parse(JSON.stringify({ c: XC.c, step: XC.step, sel: XC.sel, busy: XC.busy || 0, undo: XC.undo.length, redo: (XC.redo || []).length, was: !!XC.was })) : null), view: () => xcView, undo: () => xcUndo(), redo: () => xcRedo(), /* ((beta 7.19, existing cable) redo's count, Undo / Redo) */
     tap: (lat, lon) => xcTap(L.latLng(lat, lon)), start: (id, step) => xcStart(id ? xcList(S.project).find((c) => c.id === id) : null, step), ll: (id) => { const c = (XC && XC.c.id === id ? XC.c : null) || xcList(S.project).find((x) => x.id === id); return c ? xcLL(c) : null; }, // (the one being drawn or edited, else as kept)
     len: (id) => { const c = xcList(S.project).find((x) => x.id === id); return c ? xcLen(c) : null; }, job: (n) => JSON.parse(JSON.stringify(xcJob(n || S.project, S.zone))), merge: (mm) => xcMerge(S.project, mm), nearest: (lat, lon, m) => { const h = xcNearest({ lat, lon }, m || 5); return h ? { id: h.id, d: h.d, lat: h.lat, lon: h.lon } : null; },
     lines: () => (xcLayer ? xcLayer.getLayers().filter((l) => l.getLatLngs && l.options.opacity > 0.5 && l.options.color === XC_COL).map((l) => ({ ll: l.getLatLngs().map((q) => [q.lat, q.lng]), dash: l.options.dashArray || '', w: l.options.weight })) : []), roadsGot: () => xcRC.map((x) => ({ src: x.src, roads: x.roads.length, none: !!x.none })), work: () => xcWork(),
