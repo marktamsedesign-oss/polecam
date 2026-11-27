@@ -1792,7 +1792,7 @@
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], pinLook(p, sel)); // (v2.42.19: its look in pinLook)
       m._tipO = { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' }; m._tipP = p; // v2.42.26: its label bound near the screen only (labelCull)
-      m.on('click', () => { if (!routeMode && jnPick && jnPick.surf === 'map') { jnPickTap(p.id); return; } /* beta 6.9: a pull-off's or cross-over's pole */ if (!routeMode && tmHooks.pinTap && tmHooks.pinTap(p.id)) return; /* v2.43 beta 3: the fix list */ if (hlId && hlId !== p.id && !routeMode) hlClear(); /* v2.42.27: the ring goes when another pole is tapped */ return routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id); }); // (v2.42.21: a tap the drawing gesture took)
+      m.on('click', () => { if (XC) { if (XC.step === 'draw' && !m.options.bubblingMouseEvents) xcTap(m.getLatLng()); return; } /* (stage 11, existing cable) drawing one: a pin tapped is a place on it (a round pin's tap reaches the map's) */ if (!routeMode && jnPick && jnPick.surf === 'map') { jnPickTap(p.id); return; } /* beta 6.9: a pull-off's or cross-over's pole */ if (!routeMode && tmHooks.pinTap && tmHooks.pinTap(p.id)) return; /* v2.43 beta 3: the fix list */ if (hlId && hlId !== p.id && !routeMode) hlClear(); /* v2.42.27: the ring goes when another pole is tapped */ return routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id); }); // (v2.42.21: a tap the drawing gesture took)
       m.addTo(poleLayer); pinMarkers.set(p.id, m);
     }
     pinShownSel = routeMode ? routeSel : null;
@@ -2257,6 +2257,7 @@
     const seed = await seedText(proj); if (!live()) return; // ((beta 7.15, Client templates) the project's template)
     if (!seed || !seedOk(seed)) { drwPlanNone(); return; } // (no template on the phone: the Drawing as before)
     if (!drw.plWant) { drw.plWant = true; drwPlanUi(); } // ((beta 7.9, Drawing preview) a plan to preview: Regenerate plan preview on the Drawing)
+    if (pmeta(proj).xcPlan == null && xcList(proj).length) { await xcAskPlan(proj); if (!live()) return; } // (stage 11, existing cable) asked once, at the first preview too
     const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live()) return; // (the records as an export sees them)
     if (!st) { drwPlanFail('the export has no plan drawing to make'); return; } // ((beta 7.16, Fixes) said, never a silent stop)
     // ((beta 7.9, Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
@@ -4910,6 +4911,7 @@
     o('stSum', plSummary());
     DSP.soon(); drawVicPreview(P); // (beta 3.8: the scene the user works on; beta 6.7, UX step 4: drawn after a 150 ms pause)
     renderPlanSet(); plDims(P); plSums(P); // beta 6.7 (UX step 4): the Basic rows, the company standard, the greyed rows' reasons, each section's summary
+    xcStyleRender(); // (stage 11, existing cable) Plan style › Cables › Existing cables you drew (this project's)
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
   }
   [['stNumH', 'num', 'h'], ['stNumD', 'num', 'd'], ['stNumG', 'num', 'g'], ['stIdH', 'id', 'h'], ['stVicW', 'vic', 'circleW'], ['stVicRW', 'vic', 'routeW'], ['stClH', 'clamp', 'h'], ['stCrowdMin', 'crowd', 'min'], ['stCrowdMove', 'crowd', 'move']].forEach(([id, part, key]) => $(id).addEventListener('input', () => setPl(part, key, +$(id).value)));
@@ -5961,6 +5963,7 @@
   const fmtLen = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   function drawRoute() {
     routeLayer.clearLayers(); fibLayer.clearLayers(); lastR = null; spanLbls = [];
+    xcDraw(); // (stage 11, existing cable) the existing cables drawn along the road: on the map with the route (hidden with it)
     if (xOmit) xOmitDraw = true; // (drawn during an export: drawn again after it, with the hidden poles)
     xHid = isAcc() ? null : xHiddenIds(); if (xf) xfSoon(); // (Hide: those pins faded; Fix: a pole put on a cable moves the bar on)
     if (isAcc()) return null;
@@ -6468,6 +6471,7 @@
         return `<div class="ccard${fibAdd === f.n ? ' on' : ''}${fibSel === f.n ? ' sel' : ''}" data-n="${f.n}"><div class="cc-t"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i><b>RUN ${f.n}</b><span>${hEsc(fibCabName(f))}${!f.ex && isUG(f.cab) ? ` · ${hEsc(UG_METHODS.find(([k]) => k === ugOf(f).m)[1])}` : ''}</span></div>`
           + `<div class="cc-m">${fmtLen(fi.len || 0)} · ${a0 ? `${hEsc(a0)} → ${hEsc(z0 || '…')}` : 'no points yet'}${fibAdd === f.n ? ' · <b>in the bar</b>' : ''}</div>`
           + `<div class="cc-a">${busy ? '' : `<button class="btn sm primary" type="button" data-cc="cont" data-n="${f.n}">Continue</button>${cabSel(f)}`}<button class="btn sm" type="button" data-cc="det" data-n="${f.n}" aria-pressed="${fibSel === f.n}">Details</button>${busy ? '' : `<button class="btn sm danger" type="button" data-cc="del" data-n="${f.n}">${rtDelArm === f.n ? 'Tap again to delete' : 'Delete'}</button>`}</div></div>`; }).join('');
+    if (!busy && !drwEd) box.insertAdjacentHTML('beforeend', xcListHtml()); // (stage 11, existing cable) the existing cables drawn along the road, ＋ Existing
     box.hidden = false;
     const f = fibSel != null ? all.find((x) => x.n === fibSel) : null;
     if (!f) { card.hidden = true; card.innerHTML = ''; return; }
@@ -7521,7 +7525,7 @@
           + `<div class="rt-row"><div class="rt-meta grow" id="rtLive">${f.path.length} point${f.path.length === 1 ? '' : 's'}${info ? ` · ${fmtLen(info.len || 0)}` : ''}</div>${snapB}<button class="ib" type="button" data-rt="tools" aria-label="RUN ${f.n}: details (ends, side, Reverse) and the list of cables">⋯</button></div>`;
       } else {
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
-        h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
+        h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button>${drwEd ? '' : '<button class="ib" type="button" data-rt="xc" id="rtXcNew" aria-label="Draw an existing cable along the road (for reference; no poles needed)">＋ Existing</button>'}<span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
         if (drwEd && !rtPairs) { h += `<div class="rt-row"><button class="ib pinadd" type="button" data-rt="site" id="rtDrwSite" aria-label="Add Pin: pick what it is (as the map's Add Pin), then tap the Drawing where it goes" title="Add Pin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.8-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21Z"/><path d="M12 6.8v6M9 9.8h6"/></svg></button><div class="rt-meta grow">Hold a site, ODC, pull-off or cross-over to move it</div></div>`; } // beta 6.7: on the Drawing (beta 6.8: + a proposed pole; beta 6.9: + a pull-off or cross-over; (beta 7.9, Add Pin): the map's list)
       }
@@ -7584,6 +7588,7 @@
     if (a === 'finish') { rtFinish(); return; }
     if (a === 'cancel') { rtCancel(); return; } // v2.42.24
     if (a === 'newcab') { rtOpenSheet({}); return; }
+    if (a === 'xc') { xcStart(null); return; } // (stage 11, existing cable) Draw an existing cable
     if (a === 'site') { drwSiteAsk(); return; } // beta 6.7: on the Drawing
     if (a === 'tools') { rtTools = !rtTools; if (rtTools && fibAdd != null) fibSel = fibAdd; const w = routeSel; if (!rtTools && rtPenOn()) routeSel = null; routeRefresh([w]); return; } // (v2.42.22: the route check's rings with it)
     if (a === 'fib' && g) { rtActivate(g.n, 'end'); routeRefresh(); return; }
@@ -7620,6 +7625,361 @@
   $('rbToolsClose').addEventListener('click', () => { rtTools = false; const w = routeSel; if (rtPenOn()) routeSel = null; routeRefresh([w]); }); // (✎: back to drawing, no pole's options)
   $('rbUndo').addEventListener('click', () => rtUndo()); $('rbDone').addEventListener('click', () => setRouteMode(false)); // (Route tools: as before)
   $('rbPairs').addEventListener('change', () => { rtPairs = $('rbPairs').checked; if (rtPairs) rtFinish(true); fibStartAt = null; fibNew = false; routeSel = null; routeRefresh(); toast(rtPairs ? 'Tap a pole, then the next pole, to link a span without a cable. Untick to draw again.' : 'Drawing again (✎)', 2500); });
+
+  /* ================= (stage 11, existing cable) an existing cable drawn along the road =================
+     The owner (27 Nov): "on the AsPlan or asbuilt, can you allow a drawing of cable route without a requirement of poles snapping, just a fiber
+     drawn in parallel only to its road that is being taken. allow right or left side route as the user require to route it on the left side of
+     the road or on the right side or do a traverse. If the user has the pole it will attach, then allow user to snap it on that pole as needed.
+     And also, it does[n't] need to have a end of cable fiber to be on ODF, it can left hanging with a info text where it will go. It can also be
+     terminated to the ODF on the site it will home to if the user requires or want. this will be use for reference only during implementation."
+     Decided: it is always EXISTING and for reference only: kept apart from the route (pmeta().excab, which the route analysis, the BOQ, the PMI,
+     the cable lengths and the route's KMZ never read). New items can be dropped on it (Add Pin: xcPinSnap) and count as usual.
+     On the route map, ＋ Existing (the Route bar, or the list of cables) starts "Draw an existing cable": each tap along the road adds a place;
+     between two places the line follows the project's roads (the plan's kept roads, else a road pack, else OpenStreetMap: planRoads, as Get the
+     roads again gets them; kept here for the drawing only) at a few metres from the road's centre line on the side chosen (Left / Right of the
+     way it runs), C.xc.segment; ⇄ Cross here: the road crossed at the last tap (a traverse), the other side from there on. No road under a tap:
+     straight. A tap near a pole (Snap to poles: on by default) is on the pole. Each tap can be dragged; ↶ undoes; ✓ Finish asks its ends (its
+     end hanging with a note, "TO <where>", the default; or at an ODF or site of the project, drawn on to it; its start the same, hanging by
+     default); ✕ Cancel. Aerial (default) or underground. A cable tapped on the map: Edit, Its ends, Delete.
+     A cable: { id, n, kind 'ae' | 'ug', off (m from the road's centre line), side 'L' | 'R' (its first stretch's), taps: [{ lat, lon, pole (the
+     point it is on), x (the road crossed here: the other side from here on), g (the line from here to the next tap, [[lat, lon], …], as worked out
+     when drawn: kept, so the roads are needed only while drawing), gs (what g was worked out from) }], start / end: { at: 'hang' | 'odf', text,
+     odf (the ODF or site id) }, o (who drew it), t (its time) }. pmeta().xcgone: the cables deleted ({ id: { o, by, t } }); xcAt: the last change
+     (Share: the route is sent with it); xcPlan: on the plan or not (Plan style › Cables; asked once, xcAskPlan; unset: not on it). */
+  const XC_COL = '#1864ab', XC_OFFS = [2, 3, 4, 5, 6, 8], XC_ON_ELS = new Set(['Pole', 'Closure', 'NAP', 'Handhole', 'Manhole', 'Service box', 'Pull-off', 'Cross-over']);
+  var XC = null, xcView = null, xcGen = 0, xcLayer = null, xcHLayer = null; // the cable being drawn or edited ({ proj, c: the draft, was: the cable before (Edit), undo, step: 'draw' | 'more' | 'end', sel: a tap, busy, back: 'route' }); the cable tapped on the map (its card)
+  map.createPane('xcHPane'); map.getPane('xcHPane').style.zIndex = 615; // (the taps' handles over the pins: dragged with a finger)
+  xcLayer = L.layerGroup().addTo(map); xcHLayer = L.layerGroup().addTo(map);
+  const xcPref = () => ({ side: 'L', kind: 'ae', snap: true, off: 4, ...(S.xcPref || {}) });
+  const xcSetPref = (o) => { S.xcPref = { ...(S.xcPref || {}), ...o }; persist(); };
+  /** The project's existing cables (whole ones). */
+  function xcList(proj) { const L0 = pmeta(proj).excab; return Array.isArray(L0) ? L0.filter((c) => c && c.id && Array.isArray(c.taps) && c.taps.length > 1 && c.taps.every((t) => t && Number.isFinite(+t.lat) && Number.isFinite(+t.lon))) : []; }
+  const xcU = (q) => { const u = C.utmForward(+q.lat, +q.lon, S.zone, +q.lat < 0); return [u.E, u.N]; };
+  const xcCopy = (c) => JSON.parse(JSON.stringify(c));
+  const xcPt = (id) => (id == null ? null : points.find((p) => p.id === id && p.project === (XC ? XC.proj : S.project)) || null);
+  const xcSideAt = (c) => { const out = []; let s = c.side === 'R' ? 'R' : 'L'; for (let k = 0; k < c.taps.length - 1; k++) { if (k > 0 && c.taps[k].x) s = s === 'L' ? 'R' : 'L'; out.push(s); } return out; };
+  const xcSig = (a, b, side, off) => `${(+a.lat).toFixed(7)},${(+a.lon).toFixed(7)},${a.pole || ''}|${(+b.lat).toFixed(7)},${(+b.lon).toFixed(7)},${b.pole || ''}|${side}|${off}|${S.zone}`;
+  /** A cable's line [[lat, lon], …]: its stretches as drawn (one not worked out yet: straight), on to its ODF at an end there. */
+  function xcLL(c, ends) {
+    const out = [], push = (q) => { const l = out[out.length - 1]; if (!l || Math.abs(l[0] - q[0]) > 1e-8 || Math.abs(l[1] - q[1]) > 1e-8) out.push([+q[0], +q[1]]); };
+    const at = (e) => { const p = e && e.at === 'odf' ? xcPt(e.odf) : null; return p ? [p.lat, p.lon] : null; };
+    if (ends !== false && at(c.start)) push(at(c.start));
+    c.taps.forEach((t, k) => { const g = Array.isArray(t.g) && t.g.length > 1 ? t.g : null, pg = k ? c.taps[k - 1].g : null; if (k === c.taps.length - 1) { if (!(Array.isArray(pg) && pg.length > 1)) push([t.lat, t.lon]); return; } if (g) g.forEach(push); else push([t.lat, t.lon]); }); // (a stretch not worked out yet: straight from its tap)
+    if (ends !== false && at(c.end)) push(at(c.end));
+    return out;
+  }
+  const xcLen = (c) => { const P = xcLL(c); let m = 0; for (let k = 1; k < P.length; k++) m += haversine({ lat: P[k - 1][0], lon: P[k - 1][1] }, { lat: P[k][0], lon: P[k][1] }); return m; };
+  const xcName = (c) => `Existing cable ${c.n || 1}`;
+  const xcKind = (c) => (c.kind === 'ug' ? 'Underground' : 'Aerial');
+  /** An end in words: its note (hanging), or the ODF or site it is on. */
+  const xcEndSay = (c, w) => { const e = c[w] || {}; if (e.at === 'odf') { const p = xcPt(e.odf); return p ? `at ${recName(p) || p.poleId || elemOf(p)}` : 'at an ODF (not found)'; } const t = String(e.text || '').trim(); return /^(to|from)$/i.test(t) ? 'hanging' : t || 'hanging'; };
+  const xcHomes = () => projPoints().filter((p) => ['ODF', 'Site'].includes(elemOf(p)));
+  /** Keep a cable (new or changed) in its project: its maker, its time; the project's last change (Share). */
+  function xcPut(proj, c) {
+    const now = new Date().toISOString(), L0 = xcList(proj).filter((x) => x.id !== c.id), n = c.n || Math.max(0, ...xcList(proj).map((x) => +x.n || 0)) + 1;
+    const keep = { ...c, n, o: c.o || routeWho(), t: now }; delete keep.sel;
+    const G = { ...(pmeta(proj).xcgone || {}) }; delete G[c.id];
+    S.meta = S.meta || {}; S.meta[proj] = { ...pmeta(proj), excab: [...L0, keep].sort((a, b) => a.n - b.n), xcgone: G, xcAt: now }; persist(); xcStyleRender();
+    LOG.info('xc.save', { taps: keep.taps.length, kind: keep.kind, end: (keep.end || {}).at || 'hang', start: (keep.start || {}).at || 'hang' });
+    return keep;
+  }
+  function xcDel(proj, id) {
+    const c = xcList(proj).find((x) => x.id === id); if (!c) return false; const now = new Date().toISOString();
+    S.meta[proj] = { ...pmeta(proj), excab: xcList(proj).filter((x) => x.id !== id), xcgone: { ...(pmeta(proj).xcgone || {}), [id]: { o: c.o || '', by: routeWho(), t: now } }, xcAt: now }; persist(); xcStyleRender();
+    LOG.info('xc.delete', {}); return true;
+  }
+  /** An update's existing cables (Share, the team mailbox, a backup into a project this phone has): each cable whole, the newer wins; one deleted
+      there goes here unless changed here after that. Returns how many changed. */
+  function xcMerge(proj, mm) {
+    const m = S.meta[proj]; if (!m || !mm) return 0;
+    const here = new Map(xcList(proj).map((c) => [c.id, c])), G = { ...(m.xcgone || {}) }, tS = (v) => String(v || ''); let n = 0;
+    Object.entries(mm.xcgone && typeof mm.xcgone === 'object' ? mm.xcgone : {}).forEach(([id, T]) => { if (!T) return; if (!G[id] || tS(G[id].t) < tS(T.t)) G[id] = { o: T.o || '', by: T.by || '', t: tS(T.t) }; });
+    (Array.isArray(mm.excab) ? mm.excab : []).forEach((c) => { if (!c || !c.id || !Array.isArray(c.taps) || c.taps.length < 2) return; const h = here.get(c.id);
+      if (G[c.id] && tS(G[c.id].t) >= tS(c.t)) return;
+      if (!h || tS(c.t) > tS(h.t)) { here.set(c.id, xcCopy(c)); delete G[c.id]; n++; } });
+    [...here.keys()].forEach((id) => { if (G[id] && tS(G[id].t) >= tS(here.get(id).t)) { here.delete(id); n++; } });
+    const L0 = [...here.values()].sort((a, b) => (a.n || 0) - (b.n || 0)), used = new Set(); L0.forEach((c) => { if (!(c.n > 0) || used.has(c.n)) c.n = Math.max(0, ...used) + 1; used.add(c.n); });
+    if (n || Object.keys(G).length !== Object.keys(m.xcgone || {}).length) S.meta[proj] = { ...m, excab: L0, xcgone: G, ...(n ? { xcAt: new Date().toISOString() } : {}) };
+    return n;
+  }
+
+  /* -- the roads the line follows: the plan's roads kept with the project (rkGet), else got for about 1.2 km round the tap (planRoads: a road pack on
+     this phone, else OpenStreetMap, else an offline map pack), kept while the app is open (not with the plan: its own roads never change by
+     themselves, beta 7.10). Not got: the line drawn straight there (said). */
+  const xcRC = [], xcRBusy = new Map();
+  const xcIn = (b, q) => q.lat >= b[0] && q.lat <= b[2] && q.lon >= b[1] && q.lon <= b[3];
+  async function xcRoadsAt(proj, P) {
+    const zone = S.zone, K = await rkGet(proj).catch(() => null), kept = K ? K.parts.filter((x) => x.zone === zone && Array.isArray(x.bb)) : [], out = new Set(); let none = false;
+    for (const q of P) {
+      const fresh = (x) => x.zone === zone && xcIn(x.bb, q) && !(x.none && Date.now() - x.at > 180000);
+      let H = kept.filter((x) => xcIn(x.bb, q)).concat(xcRC.filter(fresh));
+      if (!H.length) {
+        const cell = `${zone}|${Math.round(q.lat * 200)},${Math.round(q.lon * 200)}`; // (one get at a time for a place)
+        if (!xcRBusy.has(cell)) xcRBusy.set(cell, (async () => {
+          const dLa = 600 / 111320, dLo = 600 / (111320 * Math.cos(q.lat * Math.PI / 180)), bb = [q.lat - dLa, q.lon - dLo, q.lat + dLa, q.lon + dLo];
+          let r = null; try { r = await planRoads(bb, bb, true); } catch (e) { LOG.warn('xc.roads', errInfo(e)); }
+          const got = { bb, zone, roads: r && Array.isArray(r.roads) ? r.roads : [], at: Date.now(), src: r ? r.src : 'none', none: !r || !r.roads || !r.roads.length };
+          xcRC.push(got); if (xcRC.length > 24) xcRC.shift(); LOG.info('xc.roads', { src: got.src, roads: got.roads.length }); return got;
+        })().finally(() => xcRBusy.delete(cell)));
+        H = [await xcRBusy.get(cell)];
+      }
+      H.forEach((x) => { (x.roads || []).forEach((r) => out.add(r)); if (x.none) none = true; });
+    }
+    return { roads: [...out], none };
+  }
+  /** The draft's stretches worked out where they changed (a tap moved, added or removed, the side, the distance), then drawn. */
+  async function xcWork() {
+    const X = XC; if (!X) return; const c = X.c, T = c.taps, sides = xcSideAt(c), off = +c.off || 4, todo = [];
+    if (T.length) { delete T[T.length - 1].g; delete T[T.length - 1].gs; delete T[T.length - 1].gr; }
+    for (let k = 0; k < T.length - 1; k++) { const sg = xcSig(T[k], T[k + 1], sides[k], off); if (T[k].gs !== sg || !Array.isArray(T[k].g)) todo.push({ k, a: T[k], b: T[k + 1], sg, side: sides[k] }); }
+    if (!todo.length) return;
+    const gen = ++xcGen; X.busy = (X.busy || 0) + 1; xcBarRender();
+    try {
+      const R = await xcRoadsAt(X.proj, todo.flatMap((x) => [x.a, x.b])); if (XC !== X) return;
+      const south = T.some((t) => +t.lat < 0), back = ([E, N]) => { const q = C.utmInverse(E, N, S.zone, south); return [+q[0].toFixed(8), +q[1].toFixed(8)]; };
+      for (const x of todo) {
+        const k = T.indexOf(x.a); if (k < 0 || T[k + 1] !== x.b || xcSig(x.a, x.b, xcSideAt(c)[k], +c.off || 4) !== x.sg) continue; // (changed again meanwhile: the newer work does it)
+        const [Ea, Na] = xcU(x.a), [Eb, Nb] = xcU(x.b), s = C.xc.segment(R.roads, { E: Ea, N: Na, pole: !!x.a.pole }, { E: Eb, N: Nb, pole: !!x.b.pole }, { off, side: x.side });
+        x.a.g = s.pts.map(back); x.a.gs = x.sg; x.a.gr = s.road ? 1 : 0;
+      }
+      X.noRoads = R.none && todo.some((x) => !x.a.gr);
+    } finally { X.busy--; }
+    if (XC === X && gen === xcGen) { xcDraw(); xcBarRender(); } else if (XC === X) xcDraw();
+  }
+
+  /* -- the map: every cable of the project (dashed blue when aerial, dotted when underground: the existing style), its hanging end's note; the one
+     being drawn thicker, with its taps' handles; a cable tapped (outside Route): its card */
+  function xcDraw() {
+    if (!xcLayer) return; xcLayer.clearLayers(); xcHLayer.clearLayers();
+    if (XC && XC.proj !== S.project) { XC = null; xcView = null; document.body.classList.remove('xcdraw'); setTimeout(xcBarRender, 0); } // (another project opened: the drawing left)
+    if (xcView != null && (routeMode || !xcList(S.project).some((c) => c.id === xcView))) { xcView = null; setTimeout(xcBarRender, 0); } // (Route opened, another project: the card closes)
+    if (!S.project || isAcc() || (viewHide().route && !routeMode && !XC)) return;
+    const draw = (c, on) => {
+      const P = xcLL(c); if (P.length < 2) return; const sel = xcView === c.id;
+      if (sel || on) L.polyline(P, { pane: 'routePane', color: '#fab005', weight: 13, opacity: 0.45, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(xcLayer);
+      L.polyline(P, { pane: 'routePane', color: XC_COL, weight: on ? 5 : 4, opacity: 0.95, dashArray: c.kind === 'ug' ? '2 7' : '9 7', lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(xcLayer);
+      if (!on && !routeMode && !XC) L.polyline(P, { pane: 'routePane', color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); xcView = c.id; xcDraw(); xcBarRender(); }).addTo(xcLayer);
+      for (const [w, q] of [['end', P[P.length - 1]], ['start', P[0]]]) {
+        const e = c[w] || {}, t0 = String(e.text || '').trim(), t = /^(to|from)$/i.test(t0) ? '' : t0; if (e.at === 'odf' || (!t && !(on && w === 'end'))) continue; // (only "TO" typed so far: no note yet)
+        L.circleMarker(q, { pane: 'routePane', radius: 4.5, color: XC_COL, weight: 2.5, fillColor: '#fff', fillOpacity: 1, interactive: false }).addTo(xcLayer);
+        if (t) L.marker(q, { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="xc-tag">${hEsc(t)}</span>`, iconSize: null }) }).addTo(xcLayer);
+      }
+    };
+    for (const c of xcList(S.project)) if (!(XC && XC.c.id === c.id)) draw(c, false);
+    if (!XC || XC.proj !== S.project) return;
+    draw(XC.c, true);
+    XC.c.taps.forEach((t, i) => {
+      const tip = !XC.was && i === XC.c.taps.length - 1; // (a new cable's last tap: its circle not tappable, so the next tap near it is a tap on the map (a phone moves a tap onto a button near it); ↶ takes it back)
+      const m = L.marker([t.lat, t.lon], { pane: 'xcHPane', draggable: !tip && (XC.step === 'draw' || XC.step === 'more'), interactive: !tip, keyboard: false, icon: L.divIcon({ className: `xc-h${XC.sel === i ? ' sel' : ''}${t.pole ? ' pole' : ''}${t.x ? ' x' : ''}`, html: `<i>${t.x ? '⇄' : i + 1}</i>`, iconSize: [30, 30], iconAnchor: [15, 15] }) });
+      m.on('click', (e) => { L.DomEvent.stop(e); if (!XC) return; XC.sel = XC.sel === i ? null : i; xcDraw(); xcBarRender(); });
+      m.on('dragstart', () => { if (!XC) return; XC.undo.push(xcCopy(XC.c)); XC.sel = i; });
+      m.on('drag', (e) => { if (!XC) return; const q = e.target.getLatLng(); t.lat = q.lat; t.lon = q.lng; delete t.pole; });
+      m.on('dragend', (e) => { if (!XC) return; const q = e.target.getLatLng(), s = xcSnap(q); t.lat = s.lat; t.lon = s.lon; if (s.pole) t.pole = s.pole; else delete t.pole; xcDraw(); xcBarRender(); xcWork(); });
+      m.addTo(xcHLayer);
+    });
+  }
+  /** Where a tap goes: on a pole (or another point of the route) near it while Snap to poles is on, else where it was tapped. */
+  function xcSnap(q) {
+    const at = { lat: q.lat, lon: q.lng != null ? q.lng : q.lon }; if (!xcPref().snap) return at;
+    const lim = Math.max(4, Math.min(20, 26 * mPerPx())); let best = null;
+    for (const p of routePts()) { const d = haversine(at, p); if (d <= lim && (!best || d < best.d)) best = { d, p }; }
+    return best ? { lat: best.p.lat, lon: best.p.lon, pole: best.p.id } : at;
+  }
+  function xcTap(q) {
+    if (!XC || XC.step !== 'draw') return;
+    const s = xcSnap(q), T = XC.c.taps, last = T[T.length - 1];
+    if (XC.sel != null) { XC.sel = null; } // (a tap selected: the map tapped puts it down)
+    if (last && haversine(last, s) < 1) { xcDraw(); xcBarRender(); return; } // (the same place again)
+    XC.undo.push(xcCopy(XC.c)); T.push({ lat: +s.lat.toFixed(8), lon: +s.lon.toFixed(8), ...(s.pole ? { pole: s.pole } : {}) });
+    xcDraw(); xcBarRender(); xcWork();
+  }
+  map.on('click', (e) => { if (XC && XC.step === 'draw') { xcTap(e.latlng); return; } if (XC && XC.step === 'more') { XC.step = 'draw'; xcBarRender(); return; } if (xcView != null && !XC) { xcView = null; xcDraw(); xcBarRender(); } });
+
+  /** Start drawing (c: a cable to edit; step: 'end' for its ends only). From Route, back to Route after. */
+  function xcStart(c, step) {
+    if (!S.project || isAcc()) return;
+    { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } }
+    const back = routeMode ? 'route' : ''; if (routeMode) setRouteMode(false);
+    const P = xcPref(), d = c ? xcCopy(c) : { id: `xc${uid()}`, kind: P.kind, off: P.off, side: P.side, taps: [], start: { at: 'hang', text: '' }, end: { at: 'hang', text: 'TO ' } };
+    XC = { proj: S.project, c: d, was: c ? xcCopy(c) : null, undo: [], step: step || 'draw', sel: null, busy: 0, back }; xcView = null;
+    document.body.classList.add('xcdraw'); $('visitCard').hidden = true;
+    xcDraw(); xcBarRender();
+    if (!c) { const m = map.getCenter(); xcRoadsAt(S.project, [{ lat: m.lat, lon: m.lng }]).catch(() => {}); } // (the roads where the map looks, got ahead)
+    LOG.info('xc.start', { edit: !!c, step: step || 'draw' });
+  }
+  function xcEnd() {
+    const back = XC && XC.back === 'route' && XC.proj === S.project; XC = null; xcView = null;
+    document.body.classList.remove('xcdraw'); xcDraw(); xcBarRender();
+    if (back) setRouteMode(true);
+  }
+  function xcFinish() {
+    if (!XC) return; const T = XC.c.taps;
+    if (T.length < 2) { toast('Tap at least two places along the road', 2500); return; }
+    if (XC.busy) { toast('Getting the roads: a moment…', 2000); return; }
+    XC.step = 'end'; XC.sel = null; xcDraw(); xcBarRender();
+    try { const q = T[T.length - 1], p = map.latLngToContainerPoint([q.lat, q.lon]), top = $('xcBar').getBoundingClientRect().top - map.getContainer().getBoundingClientRect().top; if (p.y > top - 40) map.panBy([0, p.y - (top - 70)], { animate: false }); } catch (e) { /* the map as it is */ } // (its end in sight above its ends' questions)
+  }
+  function xcSave() {
+    if (!XC) return; const c = XC.c;
+    for (const w of ['start', 'end']) { const e = c[w] || (c[w] = { at: 'hang', text: '' }); if (e.at === 'odf' && !xcPt(e.odf)) { toast(`Pick the ODF or site its ${w} is at`, 2500); return; } e.text = String(e.text || '').replace(/\s+/g, ' ').trim().slice(0, 60); if (/^(to|from)$/i.test(e.text)) e.text = ''; if (e.at !== 'odf') delete e.odf; }
+    const kept = xcPut(XC.proj, c), isNew = !XC.was;
+    toast(`${xcName(kept)} saved: ${fmtLen(xcLen(kept))}, for reference only (not in the BOQ, the PMI or the cable lengths)`, 4000);
+    if (isNew && pmeta(XC.proj).xcPlan == null && xcList(XC.proj).length === 1) setTimeout(() => toast('Plan style › Cables: put the existing cables on the plan or not (you are asked at the first plan)', 4500), 4200);
+    xcEnd();
+  }
+  function xcCancel() {
+    if (!XC) return; const ch = XC.was ? JSON.stringify(XC.was) !== JSON.stringify(XC.c) : XC.c.taps.length > 0;
+    if (!ch) { xcEnd(); return; }
+    ask(XC.was ? `Stop editing ${xcName(XC.was)}?` : 'Leave this existing cable?', XC.was ? 'The changes made since Edit are not kept.' : 'What you drew is not kept.', [{ label: 'Keep drawing', value: false }, { label: XC.was ? 'Leave the changes' : 'Leave it', value: true, primary: true }]).then((v) => { if (v) xcEnd(); });
+  }
+
+  /* -- the bar (#xcBar): drawing (Left / Right, ⇄ Cross here, ⋯ more, ↶; what it is now, ✕, ✓ Finish), its ends (Save), a cable's card */
+  function xcBarRender() {
+    const bar = $('xcBar'); if (!bar) return; document.body.classList.toggle('xcend', !!(XC && XC.step === 'end')); // (its ends: the map's buttons out of the way)
+    if (!XC && xcView == null) { bar.hidden = true; bar.innerHTML = ''; document.body.classList.remove('xcbar'); document.body.style.removeProperty('--xcbh'); return; }
+    const opt = (k, v, t, on, extra) => `<button class="ib" type="button" data-xc="${k}" data-v="${v}" aria-pressed="${!!on}"${extra || ''}>${hEsc(t)}</button>`;
+    let h = '';
+    if (!XC) {
+      const c = xcList(S.project).find((x) => x.id === xcView); if (!c) { xcView = null; bar.hidden = true; document.body.classList.remove('xcbar'); return; }
+      h = `<div class="rt-row"><div class="rt-meta grow"><b>${hEsc(xcName(c))}</b> · ${xcKind(c)} · ${fmtLen(xcLen(c))}</div><button class="ib" type="button" data-xc="vclose" aria-label="Close">✕</button></div>`
+        + `<div class="rt-meta xc-ends">From ${hEsc(xcEndSay(c, 'start'))} → ${hEsc(xcEndSay(c, 'end'))}</div>`
+        + `<div class="rt-acts"><button class="ib primary" type="button" data-xc="vedit">Edit</button><button class="ib" type="button" data-xc="vends">Its ends</button><button class="ib" type="button" data-xc="vdel">Delete</button></div>`
+        + '<p class="rt-note">Existing, for reference only: not in the BOQ, the PMI or the cable lengths.</p>';
+    } else if (XC.step === 'end') {
+      const c = XC.c, H = xcHomes(), endB = (w) => { const e = c[w] || {}, odf = e.at === 'odf';
+        return `<div class="lbl">ITS ${w === 'end' ? 'END' : 'START'}</div><div class="rt-opts" role="radiogroup" aria-label="Its ${w}">${opt('eat', 'hang', w === 'end' ? 'Hanging, with a note' : 'Hanging', !odf, ` data-w="${w}"`)}${opt('eat', 'odf', 'At an ODF or site', odf, ` data-w="${w}"${H.length ? '' : ' disabled'}`)}</div>`
+          + (odf ? `<div class="rt-opts" role="radiogroup" aria-label="The ODF or site its ${w} is at">${H.map((p) => opt('eodf', p.id, `${recName(p) || p.poleId || elemOf(p)} · ${elemOf(p) === 'ODF' ? 'ODF' : 'site'}`, e.odf === p.id, ` data-w="${w}"`)).join('')}</div>`
+            : `<input class="xc-in" type="text" data-w="${w}" maxlength="60" autocomplete="off" enterkeyhint="done" value="${hEsc(e.text || '')}" placeholder="${w === 'end' ? 'TO DEMO SITE' : 'Its note (optional)'}" aria-label="${w === 'end' ? 'Its end’s note: where it goes (TO …)' : 'Its start’s note (optional)'}">`); };
+      h = `<div class="rt-row"><div class="rt-meta grow"><b>${hEsc(xcName({ n: c.n || Math.max(0, ...xcList(XC.proj).map((x) => +x.n || 0)) + 1 }))}</b> · ${xcKind(c)} · ${fmtLen(xcLen(c))}</div></div><div class="xc-endbox">${endB('end')}${endB('start')}`
+        + `<p class="rt-note">${H.length ? 'At an ODF or site: the line goes on to it.' : 'No ODF or site in this project: its ends hang.'} Existing, for reference only: not in the BOQ, the PMI or the cable lengths.</p></div>`
+        + `<div class="rt-row"><button class="ib" type="button" data-xc="back">‹ Back</button><span class="rt-sp"></span><button class="ib" type="button" data-xc="cancel" aria-label="Cancel">✕</button><button class="ib primary" type="button" data-xc="save" id="xcSaveBtn">Save</button></div>`;
+    } else {
+      const c = XC.c, T = c.taps, tgt = XC.sel != null ? XC.sel : T.length - 1, tx = tgt > 0 && tgt < T.length && !!T[tgt].x, len = T.length > 1 ? xcLen(c) : 0;
+      const live = XC.busy ? 'Getting the roads here…' : !T.length ? 'Tap along the road where the cable runs' : T.length === 1 ? 'Tap the next place along the road' : `${T.length} taps · ${fmtLen(len)}${XC.noRoads ? ' · <span class="rt-warn">no road here: straight</span>' : ''}`;
+      if (XC.step === 'more') h += `<div class="xc-more"><div class="lbl">IT IS</div><div class="rt-opts" role="radiogroup" aria-label="Aerial or underground">${opt('kind', 'ae', 'Aerial', c.kind !== 'ug')}${opt('kind', 'ug', 'Underground', c.kind === 'ug')}</div>`
+        + `<div class="lbl">SNAP TO POLES</div><div class="rt-opts" role="radiogroup" aria-label="Snap to poles">${opt('snap', '1', 'On', xcPref().snap)}${opt('snap', '0', 'Off', !xcPref().snap)}</div>`
+        + `<div class="lbl">FROM THE ROAD’S CENTRE LINE</div><div class="rt-opts" role="radiogroup" aria-label="Distance from the road's centre line">${XC_OFFS.map((m) => opt('off', m, `${m} m`, +c.off === m)).join('')}</div>`
+        + '<p class="rt-note">Existing, for reference only: drawn dashed, never in the BOQ, the PMI or the cable lengths.</p></div>';
+      if (XC.sel != null && T[XC.sel]) { const t = T[XC.sel], p = xcPt(t.pole);
+        h += `<div class="rt-ask xc-tapsel"><div><b>Tap ${XC.sel + 1}</b>${p ? ` · on ${hEsc(recName(p) || p.poleId || '')}` : ''}${t.x ? ' · the road is crossed here' : ''}. Drag it to move it.</div><div class="rt-acts"><button class="ib" type="button" data-xc="tdel">Remove this tap</button><button class="ib" type="button" data-xc="tunsel">Done</button></div></div>`; }
+      h += `<div class="rt-row"><div class="rt-penseg xc-side" role="radiogroup" aria-label="Side of the road (as it runs)">${['L', 'R'].map((v) => `<button type="button" data-xc="side" data-v="${v}" aria-pressed="${(c.side === 'R' ? 'R' : 'L') === v}">${v === 'L' ? 'Left' : 'Right'}</button>`).join('')}</div>`
+        + `<button class="ib" type="button" data-xc="cross" aria-pressed="${tx}"${tgt > 0 && tgt < T.length ? '' : ' disabled'} aria-label="Cross the road here: the other side from tap ${tgt + 1} on">⇄ Cross here</button><span class="rt-sp"></span>`
+        + `<button class="ib" type="button" data-xc="more" aria-pressed="${XC.step === 'more'}" aria-label="More: aerial or underground, snap to poles, distance from the road">⋯</button><button class="ib" type="button" data-xc="undo" aria-label="Undo"${XC.undo.length ? '' : ' disabled'}>↶</button></div>`
+        + `<div class="rt-row"><div class="rt-meta grow" id="xcLive" aria-live="polite"><b>${XC.was ? hEsc(xcName(XC.was)) : 'Existing cable'}</b> · ${live}</div><button class="ib" type="button" data-xc="cancel" aria-label="Cancel">✕</button><button class="ib primary" type="button" data-xc="finish" id="xcFinishBtn"${T.length > 1 ? '' : ' disabled'}>✓ Finish</button></div>`;
+    }
+    bar.innerHTML = h; bar.hidden = false; document.body.classList.add('xcbar');
+    document.body.style.setProperty('--xcbh', `${Math.round(bar.getBoundingClientRect().height)}px`);
+  }
+  $('xcBar').addEventListener('input', (e) => { const t = e.target; if (XC && t.matches('.xc-in')) { const w = t.dataset.w; XC.c[w] = { ...(XC.c[w] || {}), at: 'hang', text: t.value }; xcDraw(); } }); // (its note on the map as it is typed)
+  $('xcBar').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.xc-in')) { e.preventDefault(); e.target.blur(); } });
+  $('xcBar').addEventListener('click', (e) => guard(async () => {
+    const b = e.target.closest('button[data-xc]'); if (!b || b.disabled) return; if (e.detail) b.blur(); const a = b.dataset.xc, v = b.dataset.v;
+    if (!XC) { // a cable's card
+      const c = xcList(S.project).find((x) => x.id === xcView);
+      if (a === 'vclose' || !c) { xcView = null; xcDraw(); xcBarRender(); return; }
+      if (a === 'vedit') { xcStart(c); return; }
+      if (a === 'vends') { xcStart(c, 'end'); return; }
+      if (a === 'vdel') { if (await ask(`Delete ${xcName(c)}?`, `${xcKind(c)}, ${fmtLen(xcLen(c))}, from ${xcEndSay(c, 'start')} to ${xcEndSay(c, 'end')}. It is for reference only: nothing else changes.`, [{ label: 'Keep', value: false }, { label: 'Delete', value: true, primary: true }])) { xcDel(S.project, c.id); xcView = null; xcDraw(); xcBarRender(); if (routeMode) routeRefresh(); toast(`${xcName(c)} deleted`, 2500); } return; }
+      return;
+    }
+    const c = XC.c, T = c.taps, snap = () => XC.undo.push(xcCopy(c));
+    if (a === 'cancel') { xcCancel(); return; }
+    if (a === 'finish') { xcFinish(); return; }
+    if (a === 'save') { xcSave(); return; }
+    if (a === 'back') { XC.step = 'draw'; xcDraw(); xcBarRender(); return; }
+    if (a === 'undo') { const u = XC.undo.pop(); if (u) { XC.c = u; XC.sel = null; xcDraw(); xcBarRender(); xcWork(); } return; }
+    if (a === 'more') { XC.step = XC.step === 'more' ? 'draw' : 'more'; xcBarRender(); return; }
+    if (a === 'side') { if ((c.side === 'R' ? 'R' : 'L') === v) return; snap(); c.side = v; xcSetPref({ side: v }); xcBarRender(); xcWork(); toast(`${v === 'L' ? 'Left' : 'Right'} side of the road (as it runs)`, 1800); return; }
+    if (a === 'cross') { const k = XC.sel != null ? XC.sel : T.length - 1; if (k < 1 || k >= T.length) return; snap(); if (T[k].x) delete T[k].x; else T[k].x = 1; xcDraw(); xcBarRender(); xcWork(); if (T[k].x) toast(`The road is crossed at tap ${k + 1}: the ${xcSideAt(c)[k] === 'L' ? 'left' : 'right'} side from there on`, 2500); return; }
+    if (a === 'kind') { if ((c.kind === 'ug' ? 'ug' : 'ae') === v) return; snap(); c.kind = v; xcSetPref({ kind: v }); xcDraw(); xcBarRender(); return; }
+    if (a === 'snap') { xcSetPref({ snap: v === '1' }); xcBarRender(); return; }
+    if (a === 'off') { if (+c.off === +v) return; snap(); c.off = +v; xcSetPref({ off: +v }); xcBarRender(); xcWork(); return; }
+    if (a === 'tdel' && XC.sel != null) { snap(); T.splice(XC.sel, 1); if (T[0]) delete T[0].x; XC.sel = null; xcDraw(); xcBarRender(); xcWork(); return; }
+    if (a === 'tunsel') { XC.sel = null; xcDraw(); xcBarRender(); return; }
+    if (a === 'eat') { const w = b.dataset.w, e0 = c[w] || {}; if (v === 'odf') { const H = xcHomes(); if (!H.length) return; const q = w === 'end' ? T[T.length - 1] : T[0], near = H.slice().sort((x, y) => haversine(q, x) - haversine(q, y))[0]; c[w] = { ...e0, at: 'odf', odf: e0.odf && xcPt(e0.odf) ? e0.odf : near.id }; } else c[w] = { ...e0, at: 'hang' }; xcDraw(); xcBarRender(); return; }
+    if (a === 'eodf') { const w = b.dataset.w; c[w] = { ...(c[w] || {}), at: 'odf', odf: v }; xcDraw(); xcBarRender(); }
+  }, 'Existing cable'));
+
+  /* -- the list of cables (Route › Cables): the existing cables too, ＋ Existing */
+  function xcListHtml() {
+    const L0 = xcList(S.project);
+    return `<div class="cl-head xc-lh"><span class="lbl">EXISTING CABLES (REFERENCE) · ${L0.length}</span><button class="btn sm" type="button" data-xcl="new">＋ Existing</button></div>`
+      + (L0.length ? '' : '<p class="rb-hint">An existing cable along the road, no poles needed: tap where it runs. For reference only (not in the BOQ, the PMI or the cable lengths).</p>')
+      + L0.map((c) => `<div class="ccard" data-xcid="${hEsc(c.id)}"><div class="cc-t"><i class="ex" style="color:${XC_COL};background:${XC_COL}"></i><b>${hEsc(xcName(c))}</b><span>${xcKind(c)} · existing</span></div>`
+        + `<div class="cc-m">${fmtLen(xcLen(c))} · from ${hEsc(xcEndSay(c, 'start'))} → ${hEsc(xcEndSay(c, 'end'))}</div>`
+        + `<div class="cc-a"><button class="btn sm" type="button" data-xcl="edit" data-id="${hEsc(c.id)}">Edit</button><button class="btn sm" type="button" data-xcl="ends" data-id="${hEsc(c.id)}">Its ends</button><button class="btn sm danger" type="button" data-xcl="del" data-id="${hEsc(c.id)}">Delete</button></div></div>`).join('');
+  }
+  $('rbFibers').addEventListener('click', (e) => guard(async () => {
+    const b = e.target.closest('button[data-xcl]'); if (!b) return; const a = b.dataset.xcl, c = xcList(S.project).find((x) => x.id === b.dataset.id);
+    if (a === 'new') { rtTools = false; xcStart(null); return; }
+    if (!c) return;
+    if (a === 'edit' || a === 'ends') { rtTools = false; xcStart(c, a === 'ends' ? 'end' : null); return; }
+    if (a === 'del' && await ask(`Delete ${xcName(c)}?`, `${xcKind(c)}, ${fmtLen(xcLen(c))}. It is for reference only: nothing else changes.`, [{ label: 'Keep', value: false }, { label: 'Delete', value: true, primary: true }])) { xcDel(S.project, c.id); routeRefresh(); xcDraw(); toast(`${xcName(c)} deleted`, 2500); }
+  }, 'Existing cable'));
+
+  /* -- E4: new items dropped on it. A pin placed by hand (Add Pin: a pole, closure, NAP, LCP, handhole, manhole, service box, pull-off or
+     cross-over) within reach of an existing cable is put on its line at Save, and the record remembers it (xcOn: the cable's id). It is a normal
+     record: counted as usual, and a new cable (RUN) can start from it (or from the pole it stands on) as from any point. */
+  function xcNearest(q, lim, proj) {
+    let best = null; const P0 = xcU(q);
+    for (const c of xcList(proj || S.project)) { const L1 = xcLL(c).map((x) => xcU({ lat: x[0], lon: x[1] })); if (L1.length < 2) continue; const h = C.xc.onLine(L1, P0); if (h && h.d <= lim && (!best || h.d < best.d)) best = { d: h.d, c, P: h.P }; }
+    if (!best) return null; const ll = C.utmInverse(best.P[0], best.P[1], S.zone, q.lat < 0); return { id: best.c.id, c: best.c, d: best.d, lat: +(+ll[0]).toFixed(8), lon: +(+ll[1]).toFixed(8) };
+  }
+  const xcPinLim = () => { try { const c = pinMap.getSize().divideBy(2), a = pinMap.containerPointToLatLng(c), b = pinMap.containerPointToLatLng(c.add([100, 0])); return Math.max(1.5, Math.min(8, 24 * (pinMap.distance(a, b) / 100))); } catch (e) { return 5; } };
+  const xcPinMay = () => !!ed && !ed.acc && XC_ON_ELS.has(ed.element || 'Pole') && (ed.mapPin || (ed.mode === 'edit' && ed.dragged && (points.find((x) => x.id === ed.id) || {}).source === 'map'));
+  /** At Save: the pin's place on the cable (and the cable), or null (not by hand, not near one). */
+  function xcPinSnap(pos) { if (!xcPinMay() || !pinMap) return null; return xcNearest(pos, xcPinLim()); }
+  /** The record's map: the existing cables faint (a guide), and while the pin is near one, said under the coordinates. */
+  function xcPinDraw(layer) {
+    if (!pinMap || !layer) return;
+    for (const c of xcList(S.project)) { const P = xcLL(c); if (P.length > 1) L.polyline(P, { pane: 'othPane', color: XC_COL, weight: 3, opacity: 0.7, dashArray: c.kind === 'ug' ? '2 6' : '8 6', interactive: false }).addTo(layer); }
+    xcPinSay();
+  }
+  function xcPinSay() {
+    let el = $('pinXc'); if (!el) { if (!$('coordBox')) return; el = document.createElement('div'); el.id = 'pinXc'; el.className = 'xc-pinsay'; el.setAttribute('role', 'status'); $('coordBox').appendChild(el); }
+    const c = pinMap && xcPinMay() ? pinMap.getCenter() : null, h = c ? xcNearest({ lat: c.lat, lon: c.lng }, xcPinLim()) : null;
+    el.hidden = !h; el.textContent = h ? `On ${xcName(h.c)} (existing): put on its line at Save` : '';
+  }
+
+  /* -- E5: on the plan. Plan style › Cables › "Existing cables you drew": On the plan / Not on the plan (this project's, pmeta().xcPlan); unset: not
+     on it, and the first plan export or preview of a project that has them asks once (the owner: "ask the user if it wants to include these existing
+     fiber drawing on the plan. default it will not be part but let the user choose"). */
+  let xcAsking = null;
+  async function xcAskPlan(proj) {
+    if (!proj || pmeta(proj).xcPlan != null || !xcList(proj).length) return;
+    if (xcAsking) return xcAsking;
+    xcAsking = (async () => {
+      const n = xcList(proj).length;
+      const v = await ask('Existing cables on the plan?', `Include the existing cable${n === 1 ? '' : 's'} you drew (${n}) on the plan? They are drawn as existing cables along their side of the road, with their notes, and the plan's sheets cover them. For reference only: never in the BOQ, the PMI or the cable lengths.\nPlan style › Cables changes it later.`, [{ label: 'No', value: false }, { label: 'Yes', value: true, primary: true }]);
+      S.meta[proj] = { ...pmeta(proj), xcPlan: !!v }; persist(); LOG.info('xc.plan.ask', { on: !!v });
+      xcStyleRender(); // (Plan style's row shows the answer)
+    })().finally(() => { xcAsking = null; });
+    return xcAsking;
+  }
+  /** The plan's job.xcab: the cables in metres (UTM) with their ends, when the project puts them on its plan; else null (the plan as before). */
+  function xcJob(proj, zone) {
+    if (pmeta(proj).xcPlan !== true) return null; const L0 = xcList(proj); if (!L0.length) return null;
+    const U = (q) => { const u = C.utmForward(+q[0], +q[1], zone, +q[0] < 0); return [+u.E.toFixed(3), +u.N.toFixed(3)]; };
+    return L0.map((c) => ({ id: c.id, n: c.n, ug: c.kind === 'ug', pts: xcLL(c, false).map(U), start: { text: (c.start || {}).at === 'odf' ? '' : String((c.start || {}).text || ''), ...((c.start || {}).at === 'odf' && xcPt(c.start.odf) ? { odf: c.start.odf } : {}) }, end: { text: (c.end || {}).at === 'odf' ? '' : String((c.end || {}).text || ''), ...((c.end || {}).at === 'odf' && xcPt(c.end.odf) ? { odf: c.end.odf } : {}) } }));
+  }
+  /** Where the cables put on the plan run further than 400 m out of place k (the place nearest them): the box round those parts [E0, N0, E1, N1]
+      (the roads got for it too, apart from the place's own); null: none (the place's roads cover them). */
+  function xcFarBox(locs, k, XJ) {
+    const dTo = (B, q) => Math.hypot(Math.max(B[0] - q[0], 0, q[0] - B[2]), Math.max(B[1] - q[1], 0, q[1] - B[3])); let b = null;
+    for (const c of XJ) for (const q of c.pts) { let k0 = 0, d0 = Infinity; locs.forEach((L1, i) => { const d = dTo(L1.box, q); if (d < d0) { d0 = d; k0 = i; } }); if (k0 !== k || d0 <= 400) continue; b = b ? [Math.min(b[0], q[0]), Math.min(b[1], q[1]), Math.max(b[2], q[0]), Math.max(b[3], q[1])] : [q[0], q[1], q[0], q[1]]; }
+    return b;
+  }
+  /** The points on the project's existing cables: put on one (xcOn) or a tap of one on them (Export's poles on no cable: these are on a cable). */
+  function xcOnIds(proj) { const L0 = xcList(proj), ids = new Set(L0.map((c) => c.id)), out = new Set(); L0.forEach((c) => c.taps.forEach((t) => { if (t.pole) out.add(String(t.pole)); })); points.forEach((p) => { if (p.project === proj && p.xcOn && ids.has(p.xcOn)) out.add(String(p.id)); }); return out; }
+  /** The KMZ's folder "Existing cables (reference)": each cable's line and its ends (core.js buildKml, opts.excab). */
+  const xcKml = () => xcList(S.project).map((c) => ({ name: xcName(c), kind: xcKind(c), len: xcLen(c), from: xcEndSay(c, 'start'), to: xcEndSay(c, 'end'), side: c.side === 'R' ? 'right' : 'left', pts: xcLL(c).map(([lat, lon]) => ({ lat, lon })) }));
+  /** Plan style › Cables › Existing cables you drew: this project's choice shown (none drawn: said). */
+  function xcStyleRender() {
+    const b = $('stXc'); if (!b || !S.project) return; const on = pmeta().xcPlan === true, n = xcList(S.project).length;
+    b.querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === (on ? '1' : '0'))));
+    $('stXcHint').textContent = `${n ? `This project has ${n} existing cable${n === 1 ? '' : 's'} drawn along the road (Route › ＋ Existing).` : 'This project has none yet (Route › ＋ Existing draws one).'} On the plan: on its existing cable layers with their notes, the sheets covering them. For reference only: never in the BOQ, the PMI or the cable lengths.${pmeta().xcPlan == null && n ? ' Not asked yet: the first plan asks.' : ''}`;
+  }
+  $('stXc').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b || !S.project) return; S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), xcPlan: b.dataset.v === '1' }; persist(); renderStyle(); });
 
   function fitProject() {
     const pts = projPoints();
@@ -9060,6 +9420,7 @@
     pinMap.setView([12.3, 122.6], 6);
     pinMap.on('move', updateCoordBox); pinMap.on('move', () => movePinOwnLines()); // v2.42.19
     pinMap.on('moveend', clampPin);
+    pinMap.on('moveend', () => { if (ed) xcPinSay(); }); // (stage 11, existing cable) near an existing cable: said (the pin goes on its line at Save)
     pinMap.on('moveend', () => { if (ed && ed.dragged) scheduleDraft(); }); // v2.21
     pinMap.on('moveend', () => { if (ed && ed.plan) applyPlan(); }); // v2.26.1: the planned element nearest the pin
     pinMap.on('moveend', () => { if (ed && pinOthersBox && !pinOthersBox.contains(pinMap.getBounds())) drawPinOthers(); }); // beta 5.9: the other pins of the part now in view
@@ -10247,6 +10608,7 @@
       L.circleMarker([p.lat, p.lon], { pane: 'othPane', radius: 5.5, color: '#fff', weight: 2, fillColor: col, fillOpacity: 0.85, interactive: false })
         .bindTooltip(C.xmlEsc(recName(p) || p.poleId || ''), { permanent: true, direction: 'right', offset: [6, 0], className: 'pole-label oth', interactive: false }).addTo(pinOthers);
     }
+    xcPinDraw(pinOthers); // (stage 11, existing cable) the existing cables too: a pin placed on one goes on its line
   }
   function markToggles() { ['atMloop', 'atNap', 'atClosure', 'atNoClo'].forEach((id) => $(id).closest('.tchip').classList.toggle('on', $(id).checked)); }
   const noCloSync = () => { const b = (ed && ed.boq) || {}; $('atNoClo').checked = !!ed && !ed.closure && b.cloNo === 'Yes'; $('atNoClo').closest('.tchip').hidden = !ed || !!ed.acc || !boqOn(); }; // v2.42.26
@@ -11211,6 +11573,7 @@
       return;
     }
     const c = pinMap.getCenter(), pos = { lat: c.lat, lon: c.lng };
+    const xcOn = xcPinSnap(pos); if (xcOn) { pos.lat = xcOn.lat; pos.lon = xcOn.lon; } // (stage 11, existing cable) a pin placed by hand on an existing cable: on its line
     const btn = $('edSave'); btn.disabled = true;
     const t0 = Date.now();
     LOG.step('save.survey', { mode: ed.mode, photo: !!ed.newBlob, mem: memMB(), map: S.base });
@@ -11241,6 +11604,7 @@
         color: ed.color || '', // v2.36: the pin's own colour ('' = by its status)
         siteKind: ed.element === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT' : 'Tower') : '', // v2.37
       });
+      if (xcOn) rec.xcOn = xcOn.id; else if (rec.xcOn && (ed.mapPin || ed.dragged)) delete rec.xcOn; // (stage 11, existing cable) the record remembers the existing cable it sits on (moved off it: no longer)
       if (!rec.color) delete rec.color; if (!rec.siteKind) delete rec.siteKind; if (rec.gpsAge == null) delete rec.gpsAge; if (rec.gpsRef == null) delete rec.gpsRef;
       if (ed.riserDetSet) { const o = riserOk(ed.riserDet); if (o && rec.element === 'Pole') rec.riserDet = o; else delete rec.riserDet; } // ((stage 11, riser detail) as set in the form; its record's otherwise, kept as it was)
       const photos = [], dropO = []; // ((beta 7.16, Photo marks) dropO: the unmarked photos no longer kept (their photo's marks taken off))
@@ -12073,7 +12437,7 @@
     const m = pmeta(name), sh = m.shares || {}, since = sh.at || '', at = new Date().toISOString(), all = points.filter((p) => p.project === name);
     const ch = since ? all.filter((p) => String(p.updated || p.created || '') > since) : all;
     const gone = since ? Object.values(m.gone || {}).filter((t) => t > since).length : 0;
-    const route = !!(since && m.linksAt && m.linksAt > since), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0;
+    const route = !!(since && ((m.linksAt && m.linksAt > since) || (m.xcAt && m.xcAt > since))), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0; // ((stage 11, existing cable) an existing cable drawn, changed or deleted since: the route goes)
     const pl = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`, nph = new Set(ch.flatMap(allPids)).size;
     const n = (sh.n || 0) + 1, u = S.user || {}, sender = String(u.email || u.mobile || u.name || '').trim().toLowerCase();
     const whole = `The whole project: ${pl(all.length, 'record')} · ${pl(projPhotos(name), 'photo')}. For a new phone, your admin, a backup, or a team leader who missed an update.`;
@@ -12093,7 +12457,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.drwNotes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ if (typeof m.notes !== 'string') delete m.notes; /* ((beta 7.16, Fixes) the remarks go to the team again (a text only), as before beta 7.12 */ delete m.tpl; /* ((beta 7.15, Client templates) the project's client template: on this phone in this beta) */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } if (U && !U.full && !(m.xcAt && m.xcAt > (U.since || ''))) { delete m.excab; delete m.xcgone; delete m.xcAt; } /* ((stage 11, existing cable) only the changes: the existing cables when they changed since) */ delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.drwNotes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ if (typeof m.notes !== 'string') delete m.notes; /* ((beta 7.16, Fixes) the remarks go to the team again (a text only), as before beta 7.12 */ delete m.tpl; /* ((beta 7.15, Client templates) the project's client template: on this phone in this beta) */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): always asked first. (stage 11, small) A completed one too, with no admin's approval (the
       owner: "remove the PIN requirement for deletion of completed sites. allow each user to delete as they needed."; from v2.22 it took an
       approval code or the admin PIN). */
@@ -13121,6 +13485,7 @@
     const nm = name || S.project; if (!nm || isAcc(nm) || (cefHooks.isCef && cefHooks.isCef(nm))) return [];
     const on = onCableIds(nm); if (!on.size) return [];
     points.filter((q) => q.project === nm && isJn(q)).forEach((q) => jnAtt(q).forEach((x) => on.add(String(x.id)))); // (beta 6.9: a pole holding a pull-off's or cross-over's messenger is on the route)
+    xcOnIds(nm).forEach((id) => on.add(id)); // ((stage 11, existing cable) a pole on an existing cable (put on it, or its line drawn through it) is on a cable)
     return points.filter((p) => p.project === nm && elemOf(p) === 'Pole' && !p.xHide && !on.has(String(p.id)) && Number.isFinite(+p.lat) && Number.isFinite(+p.lon)).sort((a, b) => (a.created < b.created ? -1 : 1));
   }
   /** At Export: the poles on no cable not left as they are before (null: nothing to ask). */
@@ -13536,7 +13901,7 @@
       rows.push(r);
     }
     busy('Building KMZ…', 1);
-    const kml = C.buildKml(rows, { project: `${S.project}${pmeta().purpose ? ` · ${pmeta().purpose}` : ''}`, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [], fibers: E.kmzRoute ? kmzFibers() : [], stamped: !!E.kmzStamp, stampFields: E.stampFields, exportedBy: exporterLine() });
+    const kml = C.buildKml(rows, { project: `${S.project}${pmeta().purpose ? ` · ${pmeta().purpose}` : ''}`, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [], fibers: E.kmzRoute ? kmzFibers() : [], ...(E.kmzRoute && xcList(S.project).length ? { excab: xcKml() } : {}), /* (stage 11, existing cable) its own folder */ stamped: !!E.kmzStamp, stampFields: E.stampFields, exportedBy: exporterLine() });
     const parts = C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files]);
     return new Blob(parts, { type: 'application/vnd.google-earth.kmz' });
   }
@@ -15435,7 +15800,8 @@
     // the whole vicinity area
     const south = rows.some((r) => r.lat < 0), locs = window.GeDxfTpl.locations(rows, spans), nLoc = locs.length;
     const llBox = (b, m) => { const c = [[b[0] - m, b[1] - m], [b[2] + m, b[1] - m], [b[0] - m, b[3] + m], [b[2] + m, b[3] + m]].map(([E, N]) => C.utmInverse(E, N, zone, south)); return [Math.min(...c.map((q) => q[0])), Math.min(...c.map((q) => q[1])), Math.max(...c.map((q) => q[0])), Math.max(...c.map((q) => q[1]))]; };
-    if (o && o.areas) return locs.map((l) => [llBox(l.box, 500), llBox(l.box, 250)]); // ((beta 7.14, Roads again) only the places whose roads the plan gets, as the loop below asks planRoadsOf)
+    const XJ = xcJob(proj, zone), xFar = locs.map((l, k) => (XJ ? xcFarBox(locs, k, XJ) : null)); // ((stage 11, existing cable) the existing cables on this plan (Plan style › Cables): job.xcab; the roads got too where they run far out of a place, apart)
+    if (o && o.areas) return locs.map((l) => [llBox(l.box, 500), llBox(l.box, 250)]).concat(xFar.filter(Boolean).map((b) => [llBox(b, 300), llBox(b, 0)])); // ((beta 7.14, Roads again) only the places whose roads the plan gets, as the loop below asks planRoadsOf)
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), isNew = (p) => ['Proposed', 'New'].includes(p.status), exist = poles.filter((p) => !isNew(p));
     const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = isGlobePole; // (beta 6.6: Globe's own poles, as the numbers' colours: its type, or Globe as owner)
     const m1 = (v) => `${(Math.round(v * 10) / 10).toFixed(1)}m`;
@@ -15543,6 +15909,7 @@
       for (let k = 0; k < nLoc; k++) {
         if (nLoc > 1) say(`Roads and places: place ${k + 1} of ${nLoc}…`);
         const r = await planRoadsOf(proj, llBox(locs[k].box, 500), llBox(locs[k].box, 250), prev); notes.push(r.note); keptAt.push(r.keptAt || ''); // ((beta 7.10, Plan kept) the roads kept with the project: the preview's and the export's the same)
+        if (xFar[k]) { const r2 = await planRoadsOf(proj, llBox(xFar[k], 300), llBox(xFar[k], 0), prev); r.roads = (r.roads || []).concat(r2.roads || []); r.pois = (r.pois || []).concat(r2.pois || []); } // ((stage 11, existing cable) and where its existing cables run far out of it: kept apart, so the place's own roads stay as they are)
         for (const x of r.roads || []) { const a = x.pts[0], b = x.pts[x.pts.length - 1], kk = `${x.name}|${x.pts.length}|${Math.round(a[0])},${Math.round(a[1])}|${Math.round(b[0])},${Math.round(b[1])}`; if (!seenR.has(kk)) { seenR.add(kk); roads.push(x); } }
         for (const q of r.pois || []) { const kk = `${q.name}|${Math.round(q.E)},${Math.round(q.N)}`; if (!seenP.has(kk)) { seenP.add(kk); pois.push(q); } }
       }
@@ -15619,7 +15986,7 @@
     /** The job of one drawing of the export (st: one of SETS), for GeDxfTpl.build. */
     const jobOf = (st) => {
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      return { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, jnName: PLS.jn.name, /* beta 7.4 / 2.45.6 */ odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
+      return { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ ...(XJ ? { xcab: XJ } : {}), /* (stage 11, existing cable) */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, jnName: PLS.jn.name, /* beta 7.4 / 2.45.6 */ odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: CELL, viewH: CELL, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', phPin, /* (beta 7.8, Drawing photos) */ numPin, lblPin, cabPin, /* (beta 7.10, Drawing labels) */ ...(gridKeep ? { gridKeep } : {}), /* (beta 7.10, Plan kept) */ ...tools, /* (beta 7.11, Drawing tools) */ date: new Date() };
     };
@@ -15631,6 +15998,7 @@
     if (!window.GeDxfTpl) await loadScript('dxftpl.js');
     const seed = await ensureSeed();
     if (!seed) { if (!seedId()) toast('No plan template yet: ask your admin to share it, or load the template file they sent you', 6000); renderDxfTpl(); return; }
+    await xcAskPlan(S.project); // (stage 11, existing cable) a project with existing cables drawn: on the plan or not, asked once
     busy('Preparing the plan drawing…');
     drwPhStop(); // (beta 7.8, Drawing photos) a preview of the Drawing's photos still being made stops: the export first
     const { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, roadsKept, gridKeep, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name: name0, byPt, many, rtaC, rtaN, boxLoopN, jobOf } = await planJob(pts, { one }), outs = [];
@@ -16390,6 +16758,7 @@
             S.meta[proj].links = (S.meta[proj].links || []).concat(meta.meta.links.filter(([x, y]) => !have.has([x, y].sort().join('|'))));
           }
         }
+        if ((Array.isArray(meta.meta.excab) || meta.meta.xcgone) && xcMerge(proj, meta.meta) && !routeNew) routeNew = true; // (stage 11, existing cable) each existing cable whole, the newer wins
       }
       // v2.42.18: records deleted on the other phone are deleted here too (unless edited here after that)
       const G = (meta.meta && meta.meta.gone) || {}, delIds = new Set();
@@ -21343,7 +21712,7 @@
     const echo = (p) => !!(E && E.p && E.p[p.id] && E.p[p.id] === String(p.updated || p.created || ''));
     const ch = since ? all.filter((p) => String(p.updated || p.created || '') > since && !echo(p)) : all;
     const gone = since ? Object.entries(m.gone || {}).filter(([id, t]) => t > since && !(E && E.g && E.g[id] === t)).length : 0;
-    const route = !!(since && m.linksAt && m.linksAt > since && !(E && E.l && E.l === m.linksAt)), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0;
+    const route = !!(since && ((m.linksAt && m.linksAt > since && !(E && E.l && E.l === m.linksAt)) || (m.xcAt && m.xcAt > since))), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0; // ((stage 11, existing cable) an existing cable changed since: the route goes, as Share's)
     return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size, cef: since && cefHooks.changed ? cefHooks.changed(name, since) : 0, spl: since && splHooks.changed ? splHooks.changed(name, since) : 0 }; // (v2.44: + the CEF plans saved since; beta 4.6: the splicing details)
   }
   async function mbxBytes(name, U, ref, say) { const blob = await bundleZip([name], { update: U, ref, say }); return new Uint8Array(await blob.arrayBuffer()); }
@@ -24469,6 +24838,17 @@
      list's hash (the Drawing's plan; or the one dxfpdf.js's planList makes of a DXF and its report, on the page: an export's) */
   window.__polecam.planKept = async (n) => { const nm = n || S.project, m = pmeta(nm), K = await rkGet(nm).catch(() => null);
     return { grid: m.planGrid ? JSON.parse(JSON.stringify(m.planGrid)) : null, id: (m.planRoads || {}).id || null, roads: K ? K.parts.map((x) => ({ bb: x.bb, nb: x.nb, zone: x.zone, src: x.src, at: x.at, roads: x.roads.length, pois: x.pois.length, note: x.note, names: x.roads.map((r) => r.name) })) : null }; }; // ((beta 7.14, Roads again) and the roads' names)
+  /* (stage 11, existing cable) tests: the project's existing cables; the one being drawn (its taps, step, busy); a tap on the map (lat, lon: as a finger
+     there, snapped as the user's); the map's lines; the job's xcab; a pin's place on a cable */
+  window.__polecam.xc = { list: (n) => JSON.parse(JSON.stringify(xcList(n || S.project))), now: () => (XC ? JSON.parse(JSON.stringify({ c: XC.c, step: XC.step, sel: XC.sel, busy: XC.busy || 0, undo: XC.undo.length, was: !!XC.was })) : null), view: () => xcView,
+    tap: (lat, lon) => xcTap(L.latLng(lat, lon)), start: (id, step) => xcStart(id ? xcList(S.project).find((c) => c.id === id) : null, step), ll: (id) => { const c = (XC && XC.c.id === id ? XC.c : null) || xcList(S.project).find((x) => x.id === id); return c ? xcLL(c) : null; }, // (the one being drawn or edited, else as kept)
+    len: (id) => { const c = xcList(S.project).find((x) => x.id === id); return c ? xcLen(c) : null; }, job: (n) => JSON.parse(JSON.stringify(xcJob(n || S.project, S.zone))), merge: (mm) => xcMerge(S.project, mm), nearest: (lat, lon, m) => { const h = xcNearest({ lat, lon }, m || 5); return h ? { id: h.id, d: h.d, lat: h.lat, lon: h.lon } : null; },
+    lines: () => (xcLayer ? xcLayer.getLayers().filter((l) => l.getLatLngs && l.options.opacity > 0.5 && l.options.color === XC_COL).map((l) => ({ ll: l.getLatLngs().map((q) => [q.lat, q.lng]), dash: l.options.dashArray || '', w: l.options.weight })) : []), roadsGot: () => xcRC.map((x) => ({ src: x.src, roads: x.roads.length, none: !!x.none })), work: () => xcWork(),
+    counts: () => { const R = routeModel(), Q = surveyQty(projPoints(), { loops: [] }); return JSON.parse(JSON.stringify({ spans: R.spans.length, total: R.total, cable: R.cableTotal, fib: R.fib ? R.fib.list.map((f) => [f.n, f.len]) : [], qty: Q.rows, links: pmeta().links || [], fibers: pmeta().fibers || [] })); },
+    kmz: async () => { try { const z = await zipReader(await surveyKmzBlob(projPoints())); return new TextDecoder().decode(await z.get('doc.kml')); } finally { busy(false); } },
+    backup: async () => { try { window.__xcZip = await projectZip(S.project); return window.__xcZip.size; } finally { busy(false); } }, restore: async () => { try { return !!(await restoreZip(window.__xcZip, { quiet: true })); } finally { busy(false); } },
+    shareDelta: (since) => JSON.parse(JSON.stringify(shareMeta(S.project, { full: false, route: false, since }))), del: (id) => xcDel(S.project, id), loose: () => loosePoles().map((p) => p.id),
+    px: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = map.getContainer().getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, look: (lat, lon, z) => map.setView([lat, lon], z || 19, { animate: false }) };
   window.__polecam.drwPlanHash = () => (drw && drw.ph && drw.ph.plan ? planListHash(drw.ph.plan) : null);
   window.__polecam.planListHash = (text, report) => (window.GeDxfPdf ? planListHash(window.GeDxfPdf.planList(text, report)) : null);
   /** ((beta 7.16, Span allowance) tests) A span tapped on the route map: its details (its runs or cables, its UG way, its length allowance). */
