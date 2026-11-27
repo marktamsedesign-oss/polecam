@@ -21627,7 +21627,7 @@
     const echo = (p) => !!(E && E.p && E.p[p.id] && E.p[p.id] === String(p.updated || p.created || ''));
     const ch = since ? all.filter((p) => String(p.updated || p.created || '') > since && !echo(p)) : all;
     const gone = since ? Object.entries(m.gone || {}).filter(([id, t]) => t > since && !(E && E.g && E.g[id] === t)).length : 0;
-    const route = !!(since && m.linksAt && m.linksAt > since && !(E && E.l && E.l === m.linksAt)), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0;
+    const route = !!(since && ((m.linksAt && m.linksAt > since && !(E && E.l && E.l === m.linksAt)) || (m.xcAt && m.xcAt > since))), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0; // ((stage 11, existing cable) an existing cable changed since: the route goes, as Share's)
     return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size, cef: since && cefHooks.changed ? cefHooks.changed(name, since) : 0, spl: since && splHooks.changed ? splHooks.changed(name, since) : 0 }; // (v2.44: + the CEF plans saved since; beta 4.6: the splicing details)
   }
   async function mbxBytes(name, U, ref, say) { const blob = await bundleZip([name], { update: U, ref, say }); return new Uint8Array(await blob.arrayBuffer()); }
