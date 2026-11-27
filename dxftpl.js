@@ -2529,7 +2529,7 @@
         const no = String(p.poleId || p.tag || p.id), id = !q ? '' : String((q.el === 'Site' ? q.siteName || q.poleId : q.poleId || q.tag) || '').trim();
         out.push({ p, show, I: { no, poleEx: isEx(p), ...Z, cdL: Z.cdL || lenP, cdOwn: !!Z.cdL, to: q ? { kind, name, id, ex: qEx, sym, pid: String(q.id) } : null } });
       }
-      const ord = riserOrder(pts, spans.filter((s) => !ugS(s)), out.map((x) => x.p.id)); // (along the aerial route from the homing, as the plan numbers its poles) out.sort((a, b) => ord.indexOf(String(a.p.id)) - ord.indexOf(String(b.p.id)));
+      if (!out.length) return out; const ord = riserOrder(pts, spans.filter((s) => !ugS(s)), out.map((x) => x.p.id)); // (along the aerial route from the homing, as the plan numbers its poles) out.sort((a, b) => ord.indexOf(String(a.p.id)) - ord.indexOf(String(b.p.id)));
       return out;
     })();
     const detPage = RISERS.filter((x) => x.show === 'page'), detNames = [], detAt = new Map(); // (each page detail: its sheet, its place on it in paper units, its scale)
@@ -4728,7 +4728,7 @@
        (its labels 1.3 mm, its title 1.8 mm high as printed; the kit's PLAN DETAIL height when it has one), where it covers no label, symbol or photo
        (a road or the cable counts little) inside its pole's GEO sheet, else inside another sheet that prints; all round its pole, nearest first, with a
        thin line to its pole (none where it is right beside it); where nothing is free, where it covers least (noted). Kept clear of afterwards as a photo. */
-    const detPlan = RISERS.filter((x) => x.show === 'plan'), detOn = new Map();
+    const detPlan = RISERS.filter((x) => x.show === 'plan'), detOn = new Map(), detMiss = [];
     if (detPlan.length) {
       const pkm = (printK || 0.62) * NU, FI = 0.65, Z = rzOf(), hK = kitH('PLAN DETAIL', 1, pkm), s = FI / pkm, w = RISER_W * s, h = RISER_H * s;
       const W_IN = (t) => (t === 'road' ? 0.3 : t === 'cable' ? 4 : 10), LD_IN = (t) => (t === 'road' || t === 'cable' ? 0 : 1), ptIn = (q) => pts.reduce((n, r) => { const c = r.dp || [r.E, r.N]; return n + (Math.abs(c[0] - q[0]) < w / 2 + 2 && Math.abs(c[1] - q[1]) < h / 2 + 2 ? 1 : 0); }, 0); // (a point under it counts as a symbol, drawn or not)
@@ -4741,7 +4741,7 @@
           const np = ptIn(q), cost = (hb + np * 10) * 10 + (ln ? spots.hitsW(ln, LD_IN) * 4 : 0) + (own ? 0 : 25) + dd * 0.15 + Math.min(a, 360 - a) / 15 * 0.01;
           if (!best || cost < best.cost - 1e-9) best = { q, u, box, lead: ln ? [la, lb] : null, cost, free: !np && hb < 4 }; // (free: over a road or two at most)
         }
-        if (!best) continue;
+        if (!best) { detMiss.push(x.I.no); continue; } // (no printed sheet has room for it near its pole: said in the notes)
         const D = riserDraw(x.I, riserK(hK * pkm, FI)), x0 = best.q[0] - w / 2, y0 = best.q[1] - h / 2;
         o.lwpoly(Z.d, [[x0 - 1.5 * s, y0 - 1 * s], [x0 + (RISER_W + 1.5) * s, y0 - 1 * s], [x0 + (RISER_W + 1.5) * s, y0 + (RISER_H + 1) * s], [x0 - 1.5 * s, y0 + (RISER_H + 1) * s]], { closed: true });
         riserPut(o, D, x0, y0, s, Z); if (best.lead) o.lwpoly(...ldr(Z.d, best.lead)); // (its line to its pole as a photo's: the kit's PLAN LEADER)
@@ -4753,6 +4753,7 @@
       rep.riserDetails = RISERS.map((x) => ({ id: String(x.p.id), pole: x.I ? x.I.no : String(x.p.poleId || x.p.id), show: x.show, ...(x.show === 'page' && detAt.has(x) ? { sheet: detAt.get(x).sheet } : {}), ...(detOn.has(x) ? { plan: detOn.get(x) } : {}),
         sizes: { pipeD: x.I.pipeD, pipeL: x.I.pipeL, guardL: x.I.guardL, encW: x.I.encW, encH: x.I.encH, cdD: x.I.cdD, cdR: x.I.cdR, cdL: x.I.cdL, cdFrom: x.I.cdOwn ? 'typed' : x.I.cdL ? 'plan' : null }, to: x.I.to ? { id: x.I.to.id, kind: x.I.to.kind, point: x.I.to.pid, existing: x.I.to.ex } : null, texts: riserTexts(x.I) }));
       const nP = RISERS.filter((x) => x.show === 'page').length, nO = detOn.size, nBad = [...detOn.values()].filter((v) => !v.free).length;
+      if (detMiss.length) rep.notes.push(`Riser details left off the plan (no room for them near their pole on a printed sheet): ${detMiss.join(', ')}: give them a sheet of their own`);
       if (nP || nO) rep.notes.push(`Riser details: ${[nP ? `${nP} on ${detNames.length === 1 ? `${nP === 1 ? 'a sheet of its' : 'a sheet of their'} own` : `${detNames.length} sheets of their own`} (${detNames.join(', ')})` : '', nO ? `${nO} on the plan beside ${nO === 1 ? 'its pole' : 'their poles'}` : ''].filter(Boolean).join(', ')}${nBad ? `; ${nBad} on the plan with no free place near ${nBad === 1 ? 'its pole' : 'their poles'} (placed where ${nBad === 1 ? 'it covers' : 'they cover'} least: move ${nBad === 1 ? 'it' : 'them'} to its own sheet if it is in the way)` : ''}`);
     }
     /* (beta 7.10, Plan kept) every photo on a printed sheet (see build): the cells each photo's frame is in (upright, or turned in its Tidy block: its corners,
