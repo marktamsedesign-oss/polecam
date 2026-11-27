@@ -2345,6 +2345,13 @@
     const samp = [];
     spans.forEach((sp) => { const a = sp.a, b = sp.b; if (!a || !b) return; const lk = locOfId(sp.ia), n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 10)); for (let s = 0; s <= n; s++) samp.push([a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n, lk]); });
     pts.forEach((p) => samp.push([p.E, p.N, locOfPt.get(p) || 0]));
+    /* (stage 11, existing cable) the existing cables the project puts on its plan (job.xcab, see their drawing below): the plan's sheets (the grid) cover
+       them too, each part with the place nearest to it (the owner: "in terms of Grid, ask the user if it wants to include these existing fiber drawing on
+       the plan"). Without job.xcab: none (the grid as before). */
+    const XCAB = Array.isArray(job.xcab) ? job.xcab.filter((c) => c && Array.isArray(c.pts) && c.pts.length > 1 && c.pts.every((q) => Array.isArray(q) && Number.isFinite(+q[0]) && Number.isFinite(+q[1]))) : [];
+    const xcFull = (c) => { const L = c.pts.map((q) => [+q[0], +q[1]]), at = (e) => { const p = e && e.odf != null ? ptById.get(String(e.odf)) : null; return p && Number.isFinite(p.E) && Number.isFinite(p.N) ? [p.E, p.N] : null; }, a = at(c.start), z = at(c.end); return [...(a ? [a] : []), ...L, ...(z ? [z] : [])]; }; // (an end at an ODF: on to the ODF where the plan draws it)
+    const xcLoc = (q) => { let k0 = 0, d0 = Infinity; locs.forEach((L, k) => { const b = L.box, d = Math.hypot(Math.max(b[0] - q[0], 0, q[0] - b[2]), Math.max(b[1] - q[1], 0, q[1] - b[3])); if (d < d0) { d0 = d; k0 = k; } }); return k0; };
+    for (const c of XCAB) { const L = xcFull(c); for (let k = 1; k < L.length; k++) { const a = L[k - 1], b = L[k], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 10)); for (let s = k > 1 ? 1 : 0; s <= n; s++) { const q = [a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n]; samp.push([q[0], q[1], xcLoc(q)]); } } }
     let gox = 0, goy = 0; const GO = job.gridOrigin || (gridKeepOf(job) || {}).origin; // ((beta 7.10, Plan kept) job.gridKeep: the grid kept with a plan edited on the Drawing)
     if (GO) { gox = +GO[0] || 0; goy = +GO[1] || 0; } else {
       const steps = 22, st = cell / steps, every = Math.max(1, Math.ceil(samp.length / 6000)); let best = null;
@@ -2902,6 +2909,29 @@
       const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1)
       if (!FIB.length) { const [kl, ko] = kitLine(cabKit(st.aerial, true), lay(st.layer, 'Proposed foc aerial'), { lwt: cabLwL(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); CABR.push(o.lwpoly(kl, line, ko)); spots.line(line, 1.0); } // ((templates, As-plan kit) on its kit layer) // (v2.42.23: with fibers, drawn as a fiber above)
       if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
+    }
+    /* (stage 11, existing cable) the existing cables drawn along the road on the route map (job.xcab: only when the project puts them on its plan, Plan
+       style › Cables): each one line as it was drawn (its points [E, N], on its side of the road), on the kit's PLAN CABLE AE EXISTING / PLAN CABLE UG
+       EXISTING layer (else the cable's layer, blue, dashed when aerial: the existing cables' look); an end at an ODF drawn on to the ODF where the plan
+       draws it; a hanging end with its note (the owner: "it can left hanging with a info text where it will go": "TO <where>"), a thin leader to it, in
+       the first free place. For reference only: nothing counts them. Without job.xcab: nothing here (the plan as before, byte for byte). */
+    if (XCAB.length) {
+      let nX = 0;
+      for (const c of XCAB) {
+        const line = xcFull(c); if (line.length < 2) continue;
+        const st = c.ug ? CABLE_STYLE.U144 : CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', lw = LKW('cableExisting');
+        const [kl, ko] = kitLine(cabKit(st.aerial, true), lay(st.layer, 'Proposed foc aerial'), { lwt: lw != null ? lw : exLw(+c.cores || 12), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true });
+        o.lwpoly(kl, line, ko); spots.line(line, 1.0); nX++;
+        for (const [w, at, nx] of [['end', line[line.length - 1], line[line.length - 2]], ['start', line[0], line[1]]]) {
+          const e = c[w] || {}, txt = String(e.text || '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 60); if (!txt || (e.odf != null && ptById.has(String(e.odf)))) continue;
+          const u = unit(nx, at), h = 2.2 * kG, Ld = 3.5 * kG + 1;
+          const cands = [0, 25, -25, 50, -50, 80, -80, 120, -120].map((a, i) => { const v = rotv(u, a), T = add2(at, v, Ld), ha = v[0] >= 0 ? 0 : 2, q = add2(T, [ha ? -1 : 1, 0], 0.5 * h); return { T, q, ha, cost: i, boxes: [textBoxA(q[0], q[1], h, txt, 0, ha, 2)] }; });
+          const cb = pick(spots, cands); spots.add(cb.boxes);
+          o.lwpoly(...ldr(kl, [add2(at, unit(at, cb.T), 0.4), cb.T])); spots.line([at, cb.T], 0.3);
+          o.text(kl, cb.q[0], cb.q[1], h, txt, kitT('PLAN CABLE LABEL', { ha: cb.ha, va: 2, style: 'arial', color: 5 }));
+        }
+      }
+      rep.xcab = nX;
     }
     const rOf = (p) => (p.el === 'Pole' ? p.rp : inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : p.el === 'Site' ? 8 : 4); // (a point's reach round its centre as drawn)
     /* (beta 7.8, Drawing photos) a photo placed by hand on the Drawing, job.phPin { [pointId]: [dE, dN] }: its centre that far (metres) from its point as

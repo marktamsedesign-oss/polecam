@@ -374,6 +374,14 @@
     { // beta 6.9: each pull-off's and cross-over's extended messengers, a thin red line to each of its poles
       const ms = points.filter((p) => Array.isArray(p.attPts) && p.attPts.length).flatMap((p) => p.attPts.map((q) => `<Placemark><name>${xmlEsc(`${p.poleId || p.element} → ${q.poleId || ''}: extended messenger · ${distM(p, q).toFixed(0)} m`)}</name><styleUrl>#messenger</styleUrl><LineString><tessellate>1</tessellate><coordinates>${p.lon.toFixed(8)},${p.lat.toFixed(8)},0 ${(+q.lon).toFixed(8)},${(+q.lat).toFixed(8)},0</coordinates></LineString></Placemark>`));
       if (ms.length) { styles.push('<Style id="messenger"><LineStyle><color>ff3131e0</color><width>1.5</width></LineStyle></Style>'); route += `<Folder><name>Extended messengers (${ms.length})</name>\n${ms.join('\n')}\n</Folder>\n`; } }
+    if (Array.isArray(o.excab) && o.excab.length) { // (stage 11, existing cable) the existing cables drawn along the road: a folder of their own, for reference (never in the route's lengths)
+      const ll2 = (q) => `${(+q.lon).toFixed(8)},${(+q.lat).toFixed(8)},0`, xs = o.excab.filter((c) => c && Array.isArray(c.pts) && c.pts.length > 1);
+      styles.push('<Style id="excable"><LineStyle><color>ffab6418</color><width>2.5</width></LineStyle></Style>');
+      route += `<Folder><name>Existing cables (reference)</name>\n${xs.map((c) => `<Placemark><name>${xmlEsc(`${c.name}: ${c.from} → ${c.to} · ${Math.round(+c.len || 0)} m · ${String(c.kind || '').toLowerCase()}`)}</name><styleUrl>#excable</styleUrl>`
+        + `<description>${xmlEsc(`Existing cable, for reference only: not in the BOQ, the PMI or the cable lengths. ${c.kind}, ${(+c.len || 0).toFixed(1)} m, on the ${c.side} side of the road. Its start: ${c.from}; its end: ${c.to}.`)}</description>`
+        + `<ExtendedData><Data name="status"><value>Existing</value></Data><Data name="reference_only"><value>yes</value></Data><Data name="kind"><value>${xmlEsc(c.kind)}</value></Data><Data name="length_m"><value>${(+c.len || 0).toFixed(1)}</value></Data><Data name="from"><value>${xmlEsc(c.from)}</value></Data><Data name="to"><value>${xmlEsc(c.to)}</value></Data><Data name="side"><value>${xmlEsc(c.side)}</value></Data></ExtendedData>`
+        + `<LineString><tessellate>1</tessellate><coordinates>${c.pts.map(ll2).join(' ')}</coordinates></LineString></Placemark>`).join('\n')}\n</Folder>\n`;
+    }
     const by = o.exportedBy ? `<description>${xmlEsc(o.exportedBy)}</description><ExtendedData><Data name="exported_by"><value>${xmlEsc(o.exportedBy)}</value></Data></ExtendedData>\n` : '';
     const folders = Object.keys(KML_EL).filter((k) => marks[k]).map((k) => `<Folder><name>${KML_EL[k][0]}</name>\n${marks[k].join('\n')}\n</Folder>`).join('\n') || '<Folder><name>Poles</name>\n</Folder>';
     return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.project || 'G-eSAA')}</name>\n${by}${styles.join('\n')}\n${route}${folders}</Document></kml>\n`;
@@ -646,6 +654,101 @@
     for (const p of points) { s = Math.min(s, p.lat); n = Math.max(n, p.lat); w = Math.min(w, p.lon); e = Math.max(e, p.lon); }
     const dLat = bufferM / 111320, dLon = bufferM / (111320 * Math.cos(((s + n) / 2) * Math.PI / 180));
     return `[out:json][timeout:60];way["highway"](${(s - dLat).toFixed(6)},${(w - dLon).toFixed(6)},${(n + dLat).toFixed(6)},${(e + dLon).toFixed(6)});out geom;`;
+  }
+
+  /* ---------------- (stage 11, existing cable) an existing cable drawn along the road ----------------
+     The owner: "allow a drawing of cable route without a requirement of poles snapping, just a fiber drawn in parallel only to its road that
+     is being taken. allow right or left side route as the user require to route it on the left side of the road or on the right side or do
+     a traverse." The user taps along the road; between two taps the line follows the roads (the plan's roads, as planRoads gives them:
+     [{ pts: [[E, N], …], cls }], UTM metres) at off metres from the road's centre line, on the side s of the way it runs ('L' / 'R'). A tap
+     on a pole (A.pole) has the line through the pole; a tap with no road within reach, or two taps the roads do not join without a long
+     way round, are joined straight. Pure geometry (no app state): the app (the route map) and the tests call it. */
+  const XC_REACH = 25; // (a tap further than this from every road's centre line has no road under it: drawn straight)
+  const xcSub = (a, b) => [a[0] - b[0], a[1] - b[1]], xcLen = (v) => Math.hypot(v[0], v[1]), xcD = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const xcRoadsOf = (roads) => (roads || []).filter((r) => r && Array.isArray(r.pts) && r.pts.length > 1 && r.cls !== 'path'); // (footpaths: not a road a cable runs along)
+  /** The nearest point of the roads to q within reach: { r, i (its segment), t, P, d }, or null. */
+  function xcNear(roads, q, reach) {
+    let best = null; const R = reach == null ? XC_REACH : reach;
+    roads.forEach((rd, r) => { for (let i = 1; i < rd.pts.length; i++) {
+      const a = rd.pts[i - 1], b = rd.pts[i], v = xcSub(b, a), L2 = v[0] * v[0] + v[1] * v[1]; if (L2 < 1e-9) continue;
+      const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * v[0] + (q[1] - a[1]) * v[1]) / L2)), P = [a[0] + v[0] * t, a[1] + v[1] * t], d = xcD(P, q);
+      if (d <= R && (!best || d < best.d - 1e-9)) best = { r, i, t, P, d };
+    } });
+    return best;
+  }
+  /** The shortest way along the roads from the road point na to nb (xcNear's): its centre line [[E, N], …] and length, or null. */
+  function xcWay(roads, na, nb) {
+    if (na.r === nb.r && na.i === nb.i) return { pts: [na.P, nb.P], len: xcD(na.P, nb.P) };
+    const K = (p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`, id = new Map(), xy = [], adj = [];
+    const node = (p) => { const k = K(p); if (!id.has(k)) { id.set(k, xy.length); xy.push(p); adj.push([]); } return id.get(k); };
+    const edge = (a, b) => { if (a === b) return; const w = xcD(xy[a], xy[b]); adj[a].push([b, w]); adj[b].push([a, w]); };
+    const lo = [Math.min(na.P[0], nb.P[0]), Math.min(na.P[1], nb.P[1])], hi = [Math.max(na.P[0], nb.P[0]), Math.max(na.P[1], nb.P[1])], m = 300 + xcD(na.P, nb.P); // (only the roads round the two taps)
+    roads.forEach((rd, r) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const p of rd.pts) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
+      if (x1 < lo[0] - m || x0 > hi[0] + m || y1 < lo[1] - m || y0 > hi[1] + m) return;
+      for (let i = 1; i < rd.pts.length; i++) {
+        const a = node(rd.pts[i - 1]), b = node(rd.pts[i]), on = [na, nb].filter((n) => n.r === r && n.i === i).sort((u, v) => u.t - v.t); // (a tap's road point splits its segment)
+        let prev = a; for (const n of on) { const k = node(n.P); edge(prev, k); prev = k; } edge(prev, b);
+      }
+    });
+    const s = id.get(K(na.P)), g = id.get(K(nb.P)); if (s == null || g == null) return null;
+    const dist = new Array(xy.length).fill(Infinity), from = new Array(xy.length).fill(-1), done = new Uint8Array(xy.length); dist[s] = 0;
+    for (;;) { let u = -1; for (let k = 0; k < xy.length; k++) if (!done[k] && dist[k] < Infinity && (u < 0 || dist[k] < dist[u])) u = k; if (u < 0 || u === g) break; done[u] = 1; for (const [v, w] of adj[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; from[v] = u; } }
+    if (!(dist[g] < Infinity)) return null;
+    const pts = []; for (let k = g; k >= 0; k = from[k]) pts.unshift(xy[k]);
+    return { pts, len: dist[g] };
+  }
+  /** A line moved off sideways by off metres: sg 1 to its left, -1 to its right (as it runs); mitred at its corners (a sharp one: cut). */
+  function xcOffset(line, off, sg) {
+    const L = []; for (const p of line) if (!L.length || xcD(L[L.length - 1], p) > 0.05) L.push(p);
+    if (L.length < 2) return L.slice();
+    const nrm = []; for (let i = 1; i < L.length; i++) { const v = xcSub(L[i], L[i - 1]), l = xcLen(v); nrm.push([-v[1] / l * sg, v[0] / l * sg]); }
+    const out = [[L[0][0] + nrm[0][0] * off, L[0][1] + nrm[0][1] * off]];
+    for (let i = 1; i < L.length - 1; i++) {
+      const a = nrm[i - 1], b = nrm[i], m = [a[0] + b[0], a[1] + b[1]], ml = xcLen(m);
+      if (ml < 0.6) { out.push([L[i][0] + a[0] * off, L[i][1] + a[1] * off], [L[i][0] + b[0] * off, L[i][1] + b[1] * off]); continue; } // (a corner sharper than ~145°)
+      const u = [m[0] / ml, m[1] / ml], c = u[0] * b[0] + u[1] * b[1]; out.push([L[i][0] + u[0] * off / c, L[i][1] + u[1] * off / c]);
+    }
+    const z = nrm[nrm.length - 1], e = L[L.length - 1]; out.push([e[0] + z[0] * off, e[1] + z[1] * off]);
+    return out;
+  }
+  /** The nearest point of a line to q: { k (its segment), t, P, s (how far along) }. */
+  function xcOnLine(line, q) {
+    let best = null, s0 = 0;
+    for (let k = 1; k < line.length; k++) { const a = line[k - 1], v = xcSub(line[k], a), L2 = v[0] * v[0] + v[1] * v[1], l = Math.sqrt(L2);
+      const t = L2 < 1e-12 ? 0 : Math.max(0, Math.min(1, ((q[0] - a[0]) * v[0] + (q[1] - a[1]) * v[1]) / L2)), P = [a[0] + v[0] * t, a[1] + v[1] * t], d = xcD(P, q);
+      if (!best || d < best.d - 1e-9) best = { k, t, P, d, s: s0 + l * t }; s0 += l; }
+    return best;
+  }
+  /** Where a tap puts the line on side sg (1 left, -1 right) of its road, going along dir: a pole itself; on a road, beside its centre line;
+      else the tap. */
+  function xcTapAt(roads, tap, off, sg, dir, reach) {
+    const q = [tap.E, tap.N]; if (tap.pole) return q;
+    const n = xcNear(roads, q, reach); if (!n) return q;
+    const rd = roads[n.r], a = rd.pts[n.i - 1], b = rd.pts[n.i]; let v = xcSub(b, a); const l = xcLen(v) || 1; v = [v[0] / l, v[1] / l];
+    if (dir && v[0] * dir[0] + v[1] * dir[1] < 0) v = [-v[0], -v[1]]; // (the road's way as the cable runs)
+    return [n.P[0] - v[1] * sg * off, n.P[1] + v[0] * sg * off];
+  }
+  /** The line from tap A to tap B ({ E, N, pole }), o: { off (m, 3), side 'L' | 'R', reach }: { pts: [[E, N], …], road: followed a road }. */
+  function xcSegment(roads0, A, B, o) {
+    o = o || {}; const roads = xcRoadsOf(roads0), off = +o.off > 0 ? +o.off : 3, sg = o.side === 'R' ? -1 : 1, reach = o.reach == null ? XC_REACH : +o.reach;
+    const qa = [A.E, A.N], qb = [B.E, B.N], dir = xcSub(qb, qa), dl = xcLen(dir) || 1, u = [dir[0] / dl, dir[1] / dl];
+    const pa = xcTapAt(roads, A, off, sg, u, reach), pb = xcTapAt(roads, B, off, sg, u, reach), straight = { pts: [pa, pb], road: false };
+    const na = xcNear(roads, qa, reach), nb = xcNear(roads, qb, reach); if (!na || !nb) return straight;
+    const w = xcWay(roads, na, nb); if (!w || w.pts.length < 2 || w.len > Math.max(2 * xcD(na.P, nb.P) + 60, 1)) return straight; // (no way along the roads, or a long way round: straight)
+    let line = xcOffset(w.pts, off, sg); if (line.length < 2) return straight;
+    if (A.pole) { const c = xcOnLine(line, qa); line = [qa, ...line.slice(c.k)]; } // (through the pole: the line from it to its side of the road ahead, the part behind it left out)
+    if (B.pole) { const c = xcOnLine(line, qb); line = [...line.slice(0, c.k), qb]; }
+    const pts = []; for (const p of line) if (!pts.length || xcD(pts[pts.length - 1], p) > 0.05) pts.push(p);
+    return { pts: pts.length > 1 ? pts : [pa, pb], road: true };
+  }
+  /** The whole line of taps T ([{ E, N, pole, x: the road crossed here (the side switches from this tap on) }]), side0: the first stretch's side:
+      { pts, segs: [each stretch's points], road: [each stretch followed a road] }. */
+  function xcLine(roads, T, o) {
+    o = o || {}; const segs = [], road = []; let side = o.side === 'R' ? 'R' : 'L';
+    for (let k = 1; k < T.length; k++) { if (k > 1 && T[k - 1].x) side = side === 'L' ? 'R' : 'L'; const s = xcSegment(roads, T[k - 1], T[k], { ...o, side }); segs.push(s.pts); road.push(s.road); }
+    const pts = []; segs.forEach((s) => s.forEach((p) => { if (!pts.length || xcD(pts[pts.length - 1], p) > 0.05) pts.push(p); }));
+    return { pts, segs, road };
   }
 
   /* ---------------- v2.35: G-eSAA road packs (made by tools/osm-pack/make_road_packs.py) ----------------
@@ -1785,5 +1888,6 @@
     RP_MAGIC, roadPackTiles, roadPackFeatures, inPackArea, packAdminAt, rowCoverage, // v2.35
 
     setGlyphModel, glyphReady, glyphRead, glyphPatch, glyphProbs, GCLASSES, _glyph: { inkMaps, textLines, edgeLines, grayOf, glyphText, readLine } };
+  api.xc = { near: xcNear, way: xcWay, offset: xcOffset, onLine: xcOnLine, tapAt: xcTapAt, segment: xcSegment, line: xcLine, REACH: XC_REACH }; // (stage 11, existing cable)
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);
