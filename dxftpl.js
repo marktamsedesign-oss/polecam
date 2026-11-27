@@ -5021,6 +5021,7 @@
       if (vicNames.includes(L.name)) vpFreeze(vp, offInVic); else if (/^GEO( \(\d+\))?$/.test(L.name) || kmNames.includes(L.name)) vpFreeze(vp, vicOnly); // v2.38: every place's sheets
       // v2.42.10: the keymap's own cell names on the keymap only; there, not the small corner names
       if (kmNames.includes(L.name)) vpFreeze(vp, [layerH(lay('GRIDNO.', 'GRIDNO'))].filter(Boolean)); else if (layerH(KMLAY)) vpFreeze(vp, [layerH(KMLAY)]);
+      if (kmNames.includes(L.name) && detOn.size && RZ) vpFreeze(vp, [...new Set([RZ.d, RZ.p, RZ.e])].map(layerH).filter(Boolean)); // ((stage 11, riser detail) a detail on the plan: not on the key map)
     }
     /* (beta 7.11, Drawing tools) DT, the end of the build: every element the Drawing may select, as written (beta 7.10's photos, numbers, pole details and
        cable labels, MV; the others, OWN), placed by hand and turned (job.pins), then report.movable: each one's id and kind, the DXF entities that draw
@@ -6663,5 +6664,5 @@
     };
   }
   return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, wrapLine, textWidth: arialW, APP_FONTS: APP_FONTS.map((f) => ({ name: f.name, file: f.file, kind: f.kind, from: f.from, ...(f.family ? { family: f.family } : {}) })), version: '2.42.17',
-    withKit, kitOf, PLAN_KIT: { text: PLAN_KIT.text.map(([name, , what, , learn]) => ({ name, what, learn })), layers: PLAN_KIT.layers.map(([name, color, lt, lw, what, learn]) => ({ name, color, lt, lw, what, learn: learn || null })), sym: PLAN_KIT.sym.map(([name, what]) => ({ name, what })) } }; // ((templates, As-plan kit) a template's kit, its starting kit, the kit's names) // ((beta 7.14, Text format) wrapLine, textWidth: the plan's own wrap and measure; APP_FONTS: the app's fonts)
+    riserStd, /* ((stage 11, riser detail) the riser detail's standard sizes, the CEF editor's: what the app's form shows when none is typed) */ withKit, kitOf, PLAN_KIT: { text: PLAN_KIT.text.map(([name, , what, , learn]) => ({ name, what, learn })), layers: PLAN_KIT.layers.map(([name, color, lt, lw, what, learn]) => ({ name, color, lt, lw, what, learn: learn || null })), sym: PLAN_KIT.sym.map(([name, what]) => ({ name, what })) } }; // ((templates, As-plan kit) a template's kit, its starting kit, the kit's names) // ((beta 7.14, Text format) wrapLine, textWidth: the plan's own wrap and measure; APP_FONTS: the app's fonts)
 }));
