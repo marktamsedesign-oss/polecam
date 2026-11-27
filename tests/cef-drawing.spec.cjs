@@ -22,7 +22,7 @@ const root = path.resolve(__dirname, '..'), SHOTS = process.env.SHOTS_DIR || '';
 /* the made-up plans, made by the engine in Node */
 const E = vm.createContext({ console, Math: Object.create(Math), JSON }); E.self = E; E.window = E;
 { let seed = 11; E.Math.random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; }
-for (const f of ['30_core.js']) vm.runInContext(fs.readFileSync(path.join(root, 'vendor', 'cef', f), 'utf8'), E, { filename: f });
+for (const f of ['20_isokit.js', '30_core.js']) vm.runInContext(fs.readFileSync(path.join(root, 'vendor', 'cef', f), 'utf8'), E, { filename: f });
 const plan = (code) => JSON.parse(vm.runInContext(`JSON.stringify((() => { ${code} })())`, E));
 const NAMED = `const S = sampleSite(); S.sample = false; Object.assign(S.site, { name: 'DEMO SITE', id: 'DEMO-0001', link: 'DEMO PROJECT' }); return S;`;
 /* a stand-in for the app: what cef.html asks of window.parent.__cefHost */

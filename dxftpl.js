@@ -897,8 +897,9 @@
   /** beta 6.0: writes entities into a layout's paper space (its own block, or the ENTITIES section for *Paper_Space), with Out's helpers. */
   function paperOut(d, S, L, OutC) {
     const brec = S.br.get(L.brh), bn = get(brec, 2), own = get(brec, 5), po = new OutC(d, S);
-    if (bn === '*Paper_Space') { const E = d.sec('ENTITIES').recs; po.base = (t, layer, extra) => { const r = [[0, t], [5, d.newHandle()], [330, own], [100, 'AcDbEntity'], [67, I(1)], [8, layer]]; if (extra && extra.color != null) r.push(...colGroups(extra.color)); if (extra && extra.lwt != null) r.push([370, I(extra.lwt)]); return r; }; po.add = (r) => { E.push(r); return r; }; }
-    else { const bo = blockOut(d, S, bn); if (!bo) return null; po.base = (t, layer, extra) => { const r = bo.base(t, layer, extra); if (extra && extra.lwt != null) r.push([370, I(extra.lwt)]); return r; }; po.add = bo.add; }
+    const ltOf = (r, extra) => { if (extra && extra.lt) r.push([6, extra.lt]); if (extra && extra.lts) r.push([48, F(extra.lts)]); return r; }; // ((beta 7.19, riser detail) a line type of its own and its scale, when given: the riser detail's dashed lines)
+    if (bn === '*Paper_Space') { const E = d.sec('ENTITIES').recs; po.base = (t, layer, extra) => { const r = [[0, t], [5, d.newHandle()], [330, own], [100, 'AcDbEntity'], [67, I(1)], [8, layer]]; if (extra && extra.color != null) r.push(...colGroups(extra.color)); if (extra && extra.lwt != null) r.push([370, I(extra.lwt)]); return ltOf(r, extra); }; po.add = (r) => { E.push(r); return r; }; }
+    else { const bo = blockOut(d, S, bn); if (!bo) return null; po.base = (t, layer, extra) => { const r = bo.base(t, layer, extra); if (extra && extra.lwt != null) r.push([370, I(extra.lwt)]); return ltOf(r, extra); }; po.add = bo.add; }
     return po;
   }
   /** beta 6.0: a paper-space entity's box [x0, y0, x1, y1] (lines, polylines, texts by their insertion and Arial width; circles), or null. */
@@ -1953,13 +1954,146 @@
     const to = I.to, cd = `${I.cdR > 1 ? `${I.cdR} x ` : ''}%%c${I.cdD}mm PVC CONDUIT${I.cdL > 0 ? `, ${mStr(I.cdL)}m` : ''}${to ? ` TO ${to.id || to.name}` : ''}`;
     return { title: `RISER DETAIL – POLE ${I.no}`, nts: 'NOT TO SCALE', pole: `${I.poleEx ? 'EXISTING' : 'PROPOSED'} POLE ${I.no}`, guard: `PROPOSED U-GUARD, ${mStr(I.guardL)}m`,
       pipe: `PROPOSED %%c${I.pipeD}mm G.I. RISER PIPE, ${mStr(I.pipeL)}m`, enc: `PROPOSED CONCRETE ENCASEMENT, ${mStr(I.encW)} x ${mStr(I.encW)} x ${mStr(I.encH)}m`, cd: `PROPOSED ${cd}`,
-      to: to ? `${to.ex ? 'EXISTING' : 'PROPOSED'} ${to.name}${to.id ? ` ${to.id}` : ''}` : null };
+      to: to ? `${to.ex ? 'EXISTING' : 'PROPOSED'} ${to.name}${to.id ? ` ${to.id}` : ''}` : null, ...(I.clo ? { clo: `${I.clo.ex ? 'EXISTING' : 'PROPOSED'} CLOSURE` } : {}) }; // ((beta 7.19, riser detail) a closure on the pole: drawn and named)
   }
   const RISER_W = 100, RISER_H = 114; // (stage 11, riser detail) its size as printed at its own size (mm), its title and NOT TO SCALE in it
   /** (stage 11, riser detail) the drawing in printed millimetres from its lower left corner, K its texts' size (1: the labels 2 mm, the title 2.8 mm):
       { w, h, P: [{ t: 'l', k, pts, closed } (a line; k 'd' the detail's own, 'p' proposed, 'e' existing), { t: 's', k, pts } (a filled triangle), { t: 'x', s,
       x, y, h, ha, va, rot } (a text), { t: 'b', name, x, y, size } (the end point's symbol)] } */
+  /* ---------------- (beta 7.19, riser detail) the riser detail drawn with the CEF editor's own isometric model ----------------
+     The owner (27 Nov, on beta 7.18): "Can you use the riser cable model of the CEF? it much more ok than this.. also check other model of the CEF that
+     can be reuse on this riser detail." The detail is the CEF editor's 3D model of a riser pole, drawn by the CEF's own code (vendor/cef/20_isokit.js,
+     what the CEF's isometric draws with): its scene with the hidden lines taken out (Scene), the pole (the CEF's: 0.27 m, tapered, 7.64 m above the
+     ground and 1.5 m in it), the concrete encasement round its foot (encW across, encH tall: above and below the ground as the standard splits its
+     0.406 + 1.32 m), the riser kit on the pole (riserKit: the G.I. pipe from the ground to pipeL, the U-guard on to pipeL + guardL, the stainless straps
+     where the standard puts them), the bend under the riser (elbow2: 1 m radius) into the conduit 1.5 m deep (one pipe, or two one on top of the other),
+     the UG cable in it and up the riser (what a solid hides of it dashed, as the CEF draws it), the dome closure on the pole when the pole has one, the
+     AE cable off along its span, the next underground point as the CEF models one (a handhole or service box: its frame at the ground and its pit below,
+     seen through its opening; a manhole the same, larger; a pole: its foot, cut; a site, ODC, ODF or OLT: a pad, the conduit coming up under it; none:
+     the conduit cut off) and the ground round them, its two near edges hatched. Not to scale: the conduit drawn short, broken where it is longer. What
+     is below the ground dashed, as the CEF draws it. Its labels, title and NOT TO SCALE as beta 7.18 wrote them, their leaders to the CEF model's parts. */
+  let CEFISO = null;
+  /** (beta 7.19, riser detail) the CEF's isometric model (GeCefIso): loaded before this file in a browser or worker (the app's page, dxf-worker.js); in Node,
+      required from beside this file. null: not there (the detail then drawn as beta 7.18 drew it) */
+  const cefIso = () => {
+    if (CEFISO) return CEFISO; let k = null; // (not cached while not there: a page that loads it later)
+    try { k = (typeof self !== 'undefined' && self.GeCefIso) || (typeof globalThis !== 'undefined' && globalThis.GeCefIso) || null; if (!k && typeof module === 'object' && module.exports && typeof require === 'function') k = require(require('path').join(__dirname, 'vendor', 'cef', '20_isokit.js')); } catch (e) { k = null; }
+    return (CEFISO = k && typeof k.Scene === 'function' ? k : null);
+  };
+  /** (beta 7.19, riser detail) the model's measures (metres): the pole across, the conduit's depth (the CEF's usual depth), how much of the AE cable, the
+      ground round the items (gl: on the left, room for GROUND LINE) and the straight conduit are drawn */
+  const RD = { pole: 0.27, dp: 1.5, ae: 1.9, gnd: 0.85, gl: 1.75, run: 2.1 };
+  /** (beta 7.19, riser detail) the CEF model of a riser (I as riserDraw's), seen as the CEF's isometric sees it (view 0): { L: [{ a, b, k: 'p' | 'e' | 'd',
+      dash }] the visible lines in the drawing's metres (x right, y up), A: the places the labels point at, xr: the right of the pole and its riser, end:
+      the end point's box, gnd: the ground's near left edge [from, to] } */
+  function riserScene(I, X) {
+    const { Scene, prism, frustum, tube, riserKit, elbow2, domeClosure, breakMark, sqr, rectAt, STD, GIR, CLOZ, bendR, poleR } = X;
+    const sc = new Scene(0, 0, 0), pk = I.poleEx ? 'ex' : 'pp', ph = I.poleEx ? 'hd' : 'hp', pole = { w: RD.pole, h: STD.poleUp }, r = Math.max(pole.w / 2, 0.1), pr = (z) => poleR(pole, z), u = [1, 0], h = STD.hdpe, one = I.cdR < 2;
+    const eS = STD.encUp + STD.encDn, eUp = Math.abs(I.encH - eS) < 0.006 ? STD.encUp : I.encH * STD.encUp / eS, eDn = I.encH - eUp, // (the standard's 0.406 m up as the CEF has it; a typed height split as it splits its own)
+      hw = Math.max(I.encW, pole.w + 0.16) / 2, EP = sqr([0, 0], hw, 0), A = {};
+    // the concrete encasement (proposed: 0.406 m above the ground and 1.32 m below, the standard's), the pole's foot under it, the pole (isoEl's 'epole' / 'rpole')
+    prism(sc, EP, 0, eUp, 'pp'); sc.poly(EP.map((q) => [q[0], q[1], -eDn]), 'hp', 1); for (const q of EP) sc.line([q[0], q[1], 0], [q[0], q[1], -eDn], 'hp');
+    if (eDn < STD.poleIn - 0.05) { const H = sc.hdir(), e = (k) => [H[0] * k * r, H[1] * k * r]; for (const k of [-1, 1]) sc.line([e(k)[0], e(k)[1], -eDn], [e(k)[0], e(k)[1], -STD.poleIn], ph); sc.line([e(-1)[0], e(-1)[1], -STD.poleIn], [e(1)[0], e(1)[1], -STD.poleIn], ph); }
+    // the riser kit's heights from the sizes (the straps where the standard puts them, on along a longer pipe or guard); the cable on the pole above it (the standard's
+    // 5.5 m, higher above a longer riser typed); the pole cut above the cable, or its closure, with a break mark: the riser drawn larger
+    const K = { e: eUp, giTop: Math.max(eUp + 0.2, I.pipeL), ugTop: 0, gi: [], ug: [] }; K.ugTop = K.giTop + I.guardL;
+    const zMsg = Math.max(STD.msg, K.ugTop + 0.4), cloZ = zMsg + CLOZ, ph0 = Math.max(pole.h, cloZ + STD.cloH + 1.2), zCut = Math.min(ph0, (I.clo ? cloZ + STD.cloH : zMsg) + 0.95);
+    frustum(sc, [0, 0], 0, zCut, r, pr(zCut), pk, 10); if (zCut < ph0 - 0.05) breakMark(sc, [0, 0, zCut - 0.22], sc.hdir(), r * 1.9, pk);
+    // the riser kit (riserKit) on the pole, not hiding the cable in it
+    for (let z = eUp, i = 0; (z += STD.gi[Math.min(i, STD.gi.length - 1)]) <= K.giTop + 1e-6; i++) K.gi.push(z);
+    for (let t = K.giTop, i = 0; (t += STD.ugd[Math.min(i, STD.ugd.length - 1)]) <= K.ugTop - 0.04; i++) K.ug.push(t);
+    { const s0 = sc.sid; riserKit(sc, [0, 0], u, 0, STD.msg, pr, 'pp', K); for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i); }
+    // the bend under the riser (elbow2, as the CEF draws a riser's) and the conduit from it: one pipe, or two one on top of the other; broken in the middle where it is longer than drawn
+    const at = [pr(0) + GIR, 0], dp = RD.dp, R = bendR(dp), xa = at[0] + R, xe = xa + RD.run, zs = (one ? [0, 1] : [0, 1, 2]).map((k) => -dp - h / 2 + k * h), zm = (zs[0] + zs[zs.length - 1]) / 2;
+    elbow2(sc, at, 0, dp, R, u, 'hp', 0, one);
+    const run = (x0, x1) => { for (const z of zs) sc.line([x0, 0, z], [x1, 0, z], 'hp'); }, brk = !(I.cdL > 0) || I.cdL > RD.run + R + 1, m = xa + RD.run * 0.42, gp = 0.16;
+    if (brk) { run(xa, m - gp); run(m + gp, xe); for (const x of [m - gp, m + gp]) breakMark(sc, [x, 0, zm], [0, 1], 0.22, 'dt'); } else run(xa, xe);
+    A.cd = sc.P([xa + RD.run * 0.2, 0, zs[zs.length - 1]]); A.cd2 = sc.P([xa + RD.run * 0.8, 0, zs[zs.length - 1]]);
+    // the next underground point, as the CEF models it; the cable's way into it
+    const to = I.to, lay = to && to.ex ? 'ex' : 'pp', hid = to && to.ex ? 'hd' : 'hp'; let x1 = xe + 0.6, fib0 = [xe, 0, -dp], endZ = 0;
+    if (!to) { sc.line([xe, 0, zs[0]], [xe, 0, zs[zs.length - 1]], 'hp'); breakMark(sc, [xe + 0.12, 0, zm], [0, 1], 0.22, 'dt'); }
+    else if (to.kind === 'hh' || to.kind === 'mh' || to.kind === 'sb') { // a pit (isoEl's 'hh' / 'sbox'): its frame at the ground, the pit below it seen through its opening; the conduit ends at its wall
+      const w = to.kind === 'mh' ? 1.5 : to.kind === 'sb' ? 0.6 : 1, zt = to.kind === 'sb' ? 0.1 : 0.05, t = Math.min(0.1, w * 0.15), c = [xe + w / 2, 0], out = rectAt(c, w, w, 0), inn = rectAt(c, w - 2 * t, w - 2 * t, 0);
+      for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; prism(sc, [out[i], out[j], inn[j], inn[i]], 0, zt, lay); }
+      sc.pit(inn.map((q) => [q[0], q[1], zt]), dp + 0.25 + zt, lay, hid); sc.line([xe, 0, zs[0]], [xe, 0, zs[zs.length - 1]], 'hp');
+      A.to = sc.P([xe + w, 0, zt]); x1 = xe + w; fib0 = [xe + w / 2, 0, -dp]; endZ = zt;
+    } else { // a pole (its foot, cut) or a pad (a site, ODC, ODF, OLT): the conduit bends up there
+      const isP = to.kind === 'pole', c = isP ? [xe + R + pr(0) + GIR, 0] : [xe + R + 0.7, 0], p2 = isP ? [c[0] - pr(0) - GIR, 0] : [xe + R, 0];
+      elbow2(sc, p2, 0, dp, R, [-1, 0], 'hp', 0, one);
+      if (isP) { const zt = 2.4; frustum(sc, c, 0, zt, r, pr(zt), lay, 10); breakMark(sc, [c[0], c[1], zt + 0.05], sc.hdir(), r * 1.6, lay); tube(sc, [p2[0], 0, 0], [p2[0], 0, 0.45], GIR, GIR, 'pp', 8); A.to = sc.P([c[0] + r, -r, 1.4]); x1 = c[0] + r; fib0 = [p2[0], 0, 0.45]; endZ = zt; }
+      else { const P = rectAt(c, 1.6, 1.2, 0); prism(sc, P, 0, 0.25, lay); A.to = sc.P([c[0] + 0.8, 0, 0.125]); x1 = c[0] + 0.8; fib0 = [p2[0], 0, 0]; endZ = 0.25; }
+    }
+    // the closure on the pole (domeClosure: the CEF's), on the riser's side above the cable, when the pole has one
+    const cc = [pr(cloZ) + STD.cloR + 0.03, 0];
+    if (I.clo) { const s0 = sc.sid; domeClosure(sc, cc, cloZ, I.clo.ex ? 'ex' : 'pp'); for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i); A.clo = sc.P([cc[0] + STD.cloR * 1.16, 0, cloZ + STD.cloH * 0.62]); }
+    // the ground round the items: its outline, its two near edges hatched (the CEF's ground, the lot's line)
+    const g0 = -RD.gnd, gx0 = -RD.gl, gx1 = x1 + RD.gnd * 0.7, G = [[gx0, g0], [gx1, g0], [gx1, -g0], [gx0, -g0]]; sc.poly(G.map((q) => [q[0], q[1], 0]), 'dt', 1);
+    const L = []; for (const q of sc.render()) L.push({ a: q.pts[0], b: q.pts[1], k: { pp: 'p', pt: 'p', ex: 'e', eq: 'e', hp: 'p', hd: 'e', ae: 'p', fh: 'p', ug: 'p' }[q.lay] || 'd', dash: ['hp', 'hd', 'ae', 'fh'].includes(q.lay) });
+    // the UG cable: from the end point along the conduit, round the bend, up the riser (leaning with the pole) to the cable on the pole; the AE cable off along its span.
+    // As the CEF draws a cable: never hidden; what a solid stands in front of (the pole, the encasement; not the riser kit or the closure it is in) dashed
+    const fib = (Q, aerial) => { for (let i = 0; i + 1 < Q.length; i++) { const a = Q[i], b = Q[i + 1], P = sc.P(a), Qp = sc.P(b), dx = Qp[0] - P[0], dy = Qp[1] - P[1]; if (Math.abs(dx) + Math.abs(dy) < 1e-6) continue; let t = 0; const put = (t0, t1, see) => { if (t1 - t0 > 1e-5) L.push({ a: [P[0] + dx * t0, P[1] + dy * t0], b: [P[0] + dx * t1, P[1] + dy * t1], k: 'p', dash: aerial || !see, w: 1 }); };
+      for (const v of sc.shown(sc.R(a), sc.R(b), 0, sc.thru)) { put(t, v[0], false); put(v[0], v[1], true); t = v[1]; } put(t, 1, false); } };
+    const ux = (z) => pr(z) + GIR, zb = -dp + R, Q = [fib0];
+    if (to && to.kind !== 'hh' && to.kind !== 'mh' && to.kind !== 'sb') { const p2x = fib0[0]; if (fib0[2] > zb) Q.push([p2x, 0, zb]); for (let i = 1; i <= 6; i++) { const a = Math.PI + i * Math.PI / 12; Q.push([p2x - R * (1 + Math.cos(a)), 0, zb + R * Math.sin(a)]); } }
+    Q.push([xa, 0, -dp]); for (let i = 1; i <= 6; i++) { const a = Math.PI * 1.5 - i * Math.PI / 12; Q.push([at[0] + R * (1 + Math.cos(a)), 0, zb + R * Math.sin(a)]); }
+    for (const z of [0, K.giTop * 0.5, K.giTop]) Q.push([ux(z), 0, z]); Q.push([pr(K.giTop) + 0.06, 0, K.giTop + 0.08], [pr(K.ugTop) + 0.06, 0, K.ugTop]);
+    const top = I.clo ? [cc[0], 0, cloZ] : [pr(zMsg) + 0.06, 0, zMsg]; Q.push(top); fib(Q.filter((q, i) => !i || Math.hypot(q[0] - Q[i - 1][0], q[2] - Q[i - 1][2]) > 1e-6));
+    fib([I.clo ? [cc[0] - STD.cloR * 0.4, 0, cloZ] : top, [pr(zMsg), 0, zMsg - 0.04], [-RD.ae, 0, zMsg]], true);
+    // the places the labels point at, the pole's and its riser's right, the end point's box, the ground's near left edge
+    const zp = Math.min(zCut - 0.45, (I.clo ? cloZ + STD.cloH : zMsg) + 0.45), zg = (K.giTop + K.ugTop) / 2, zq = (eUp + K.giTop) / 2;
+    A.pole = [Math.SQRT2 * C30 * pr(zp), zp]; A.guard = sc.P([pr(zg) + 0.125, 0, zg]); A.pipe = sc.P([pr(zq) + 2 * GIR, 0, zq]); A.enc = sc.P([hw, -hw * 0.45, eUp * 0.5]);
+    const xr = Math.max(...[A.guard, A.pipe, A.enc, A.clo].filter(Boolean).map((q) => q[0]), sc.P([hw, -hw, 0])[0]);
+    const EB = [sc.P([xe, -0.8, 0]), sc.P([x1, -0.8, 0]), sc.P([x1, 0.8, 0]), sc.P([xe, 0.8, endZ]), sc.P([x1, -0.8, endZ]), sc.P([xe, -0.8, -dp - 0.4])];
+    return { L, A, xr, end: [Math.min(...EB.map((q) => q[0])), Math.min(...EB.map((q) => q[1])), Math.max(...EB.map((q) => q[0])), Math.max(...EB.map((q) => q[1]))], gnd: [sc.P([gx0, g0, 0]), sc.P([gx1, g0, 0]), sc.P([gx1, -g0, 0])] };
+  }
+  const C30 = Math.cos(Math.PI / 6);
+  /** (beta 7.19, riser detail) the riser detail with the CEF model (riserScene), else as beta 7.18 drew it (riserDraw718): see riserDraw718 for what it gives */
   function riserDraw(I, K) {
+    const X = cefIso(); if (!X) return riserDraw718(I, K);
+    K = K > 0 ? K : 1; const W = RISER_W, H = RISER_H, P = [], T = riserTexts(I), M = riserScene(I, X), hT = 2 * K, pitch = hT * 1.55, x0 = 56, FW = 1.18;
+    // the model fitted in the drawing's place: left of the names' column (the pole and its riser), above the title; the end point may go under the names
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity; for (const q of M.L) for (const p of [q.a, q.b]) { bx0 = Math.min(bx0, p[0]); by0 = Math.min(by0, p[1]); bx1 = Math.max(bx1, p[0]); by1 = Math.max(by1, p[1]); }
+    const k = Math.min((W - 4) / (bx1 - bx0), (H - 15) / (by1 - by0), (x0 - 7) / Math.max(1e-6, M.xr - bx0)), ox = 2 - bx0 * k, oy = 13 - by0 * k + Math.max(0, (H - 15) - (by1 - by0) * k) * 0.5;
+    const Xm = (q) => [ox + q[0] * k, oy + q[1] * k], L = (kk, pts, o) => P.push({ t: 'l', k: kk, pts, closed: false, ...(o && o.dash ? { dash: true } : {}) });
+    // the lines, joined where one goes on from the last (the same layer, the same look)
+    let cur = null; for (const q of M.L) { const a = Xm(q.a), b = Xm(q.b); if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.02) continue;
+      if (cur && cur.k === q.k && !!cur.dash === !!q.dash && Math.hypot(a[0] - cur.pts[cur.pts.length - 1][0], a[1] - cur.pts[cur.pts.length - 1][1]) < 1e-6) { cur.pts.push(b); continue; }
+      L(q.k, [a, b], q); cur = P[P.length - 1]; }
+    // the ground's near edges hatched (earth marks under them), GROUND LINE along the left one
+    { const [G0, G1, G2] = M.gnd.map(Xm); for (const [A, B] of [[G0, G1], [G1, G2]]) { const len = dist2(A, B), uu = unit(A, B); for (let s = 1.5; s < len - 0.5; s += 2.6) { const q = add2(A, uu, s); L('d', [q, [q[0] - 1.2, q[1] - 1.5]]); } }
+      const uu = unit(G0, G1), gr = deg(uu), c = Math.cos(gr * Math.PI / 180), sn = Math.sin(gr * Math.PI / 180); P.push({ t: 'x', s: 'GROUND LINE', x: G0[0] + 1.6 * c - 0.9 * sn, y: G0[1] + 1.6 * sn + 0.9 * c, h: 1.5 * K, ha: 0, va: 0, rot: gr }); }
+    // the names, each with its leader (a short level line, then to its part, an arrow at the part): the pole's parts in a column at the right, top to
+    // bottom in the order of their parts; the conduit's at the lower left (beta 7.18's)
+    const tw = (t) => arialW(t.replace(/%%c/g, 'Ø'), hT) * FW, wrapW = (s, w) => wrapLine(s.replace(/%%c/g, 'Ø'), w / FW, hT, false).map((t) => t.replace(/Ø/g, '%%c')), wrap = (s) => wrapW(s, W - x0 - 1.5);
+    const notes = [{ s: T.pole, to: Xm(M.A.pole) }, { s: T.guard, to: Xm(M.A.guard) }, { s: T.pipe, to: Xm(M.A.pipe) }, { s: T.enc, to: Xm(M.A.enc) }];
+    if (T.clo && M.A.clo) notes.push({ s: T.clo, to: Xm(M.A.clo) });
+    if (T.to && M.A.to) notes.push({ s: T.to, to: Xm(M.A.to), sym: I.to.sym || null });
+    // the conduit's name at the lower left (beta 7.18's place), clear of every line drawn (the ground's edge and its earth marks, the bend, the conduit), above the
+    // title: the widest that fits, as high as it fits (30 mm at most); none fits: in the column with the others, its leader to the conduit nearer the end point
+    const E0 = Xm([M.end[0], M.end[1]]), E1 = Xm([M.end[2], M.end[3]]), SG = []; for (const q of P) if (q.t === 'l') for (let i = 0; i + 1 < q.pts.length; i++) SG.push([q.pts[i], q.pts[i + 1]]);
+    const hitB = (x0b, y0b, x1b, y1b) => SG.some(([a, b]) => { if (Math.max(a[0], b[0]) < x0b || Math.min(a[0], b[0]) > x1b || Math.max(a[1], b[1]) < y0b || Math.min(a[1], b[1]) > y1b) return false; const dx = b[0] - a[0], dy = b[1] - a[1]; let t0 = 0, t1 = 1;
+      for (const [p0, d0, lo, hi] of [[a[0], dx, x0b, x1b], [a[1], dy, y0b, y1b]]) { if (Math.abs(d0) < 1e-12) { if (p0 < lo || p0 > hi) return false; continue; } let u0 = (lo - p0) / d0, u1 = (hi - p0) / d0; if (u0 > u1) [u0, u1] = [u1, u0]; t0 = Math.max(t0, u0); t1 = Math.min(t1, u1); if (t0 > t1) return false; } return true; });
+    let cdL = null; for (const room of [40, 36, 32, 28, 24]) { const Lc2 = wrapW(T.cd, room), w0 = tw(Lc2[0]), n = Lc2.length;
+      for (let yt = 30; yt - (n - 1) * pitch >= 13.5 && !cdL; yt -= 0.5) if (!Lc2.some((t, j) => hitB(1.5, yt - j * pitch - 0.8, 2 + tw(t) + 0.8, yt - j * pitch + hT + 0.8)) && !hitB(2 + w0 + 0.5, yt + hT / 2 - 0.3, 2 + w0 + 3.4, yt + hT / 2 + 0.3)) cdL = { L: Lc2, yt, w0 };
+      if (cdL) break; }
+    if (!cdL) notes.push({ s: T.cd, to: Xm(M.A.cd2) });
+    const lead = (from, at) => { const uu = unit(from, at), ah = 1.7, aw = 0.45, b = add2(at, uu, -ah); L('d', [from, b]); P.push({ t: 's', k: 'd', pts: [at, [b[0] - uu[1] * aw, b[1] + uu[0] * aw], [b[0] + uu[1] * aw, b[1] - uu[0] * aw]] }); };
+    const N = notes.map((q) => ({ ...q, L: wrap(q.s) })).sort((p, q) => q.to[1] - p.to[1]); let y = H - 2;
+    const Y = N.map((q) => { const hb = q.L.length * pitch; const top2 = Math.min(y, q.to[1] + hb / 2 + 1.2); y = top2 - hb - 1.6; return top2; });
+    const under = E1[0] > x0 - 2 ? E1[1] + 3 : 0; // (the end point reaching under the column: the column above it)
+    for (let i = N.length - 1, floor = under; i >= 0; i--) { const hb = N[i].L.length * pitch; if (Y[i] - hb < floor) Y[i] = floor + hb; floor = Y[i] + 1.6; }
+    N.forEach((q, i) => { const xs0 = x0 + (q.sym ? 5.6 : 0); q.L.forEach((t, j) => P.push({ t: 'x', s: t, x: xs0, y: Y[i] - hT - j * pitch, h: hT, ha: 0, va: 0 }));
+      if (q.sym) P.push({ t: 'b', name: q.sym, x: x0 + 2.4, y: Y[i] - hT / 2, size: 4.4 });
+      if (q.to[0] > x0 - 2) { const yb = Y[i] - q.L.length * pitch - 0.2, xb = Math.min(Math.max(q.to[0], x0 + 1), xs0 + Math.min(...q.L.map(tw))); lead([xb, yb], q.to); return; } // (its part under it: from under its text)
+      const ym = Y[i] - hT / 2; L('d', [[x0 - 0.8, ym], [x0 - 3.2, ym]]); lead([x0 - 3.2, ym], q.to); });
+    if (cdL) { const { L: Lc2, yt, w0: wl } = cdL, at = Xm(M.A.cd); Lc2.forEach((t, j) => P.push({ t: 'x', s: t, x: 2, y: yt - j * pitch, h: hT, ha: 0, va: 0 })); const ym = yt + hT / 2;
+      L('d', [[2 + wl + 0.8, ym], [2 + wl + 3.2, ym]]); lead([2 + wl + 3.2, ym], at); }
+    // its title, underlined (%%u: as wide as the font draws it), and NOT TO SCALE under it
+    P.push({ t: 'x', s: `%%u${T.title}`, x: W / 2, y: 6.2, h: 2.8 * K, ha: 1, va: 0 }); P.push({ t: 'x', s: T.nts, x: W / 2, y: 1.4, h: 2 * K, ha: 1, va: 0 });
+    return { w: W, h: H, P, cef: true };
+  }
+  /** (stage 11, riser detail) beta 7.18's drawing (riserDraw draws with the CEF model; this one where the model is not loaded) */
+  function riserDraw718(I, K) {
     K = K > 0 ? K : 1; const W = RISER_W, H = RISER_H, P = [], T = riserTexts(I), C = Math.cos(Math.PI / 6), Sn = 0.5, KW = Math.sqrt(1.5), ox = 24, oy = 56;
     const iso = (x, y, z) => [ox + (x - y) * C, oy + (x + y) * Sn + z], L = (k, pts, closed) => P.push({ t: 'l', k, pts: pts.map((q) => [q[0], q[1]]), closed: !!closed });
     const ell = (c, rx, ry, a0, a1, n) => { const o = []; for (let i = 0; i <= n; i++) { const a = (a0 + (a1 - a0) * i / n) * Math.PI / 180; o.push([c[0] + rx * Math.cos(a), c[1] + ry * Math.sin(a)]); } return o; };
@@ -2025,12 +2159,24 @@
   function riserPut(out, D, x0, y0, s, Z) {
     const X = (q) => [x0 + q[0] * s, y0 + q[1] * s], recs = [];
     for (const q of D.P) {
-      if (q.t === 'l') recs.push(out.lwpoly(Z[q.k], q.pts.map(X), { closed: q.closed }));
+      if (q.t === 'l') recs.push(out.lwpoly(Z[q.k], q.pts.map(X), { closed: q.closed, ...(q.dash && Z.lt ? { lt: Z.lt, lts: Z.ltk } : {}) })); // ((beta 7.19, riser detail) what is below the ground and the AE cable dashed, as the CEF draws them)
       else if (q.t === 's') recs.push(out.solid(Z[q.k], q.pts.map(X)));
       else if (q.t === 'x') { const p = X([q.x, q.y]); recs.push(out.text(Z.d, p[0], p[1], q.h * s, q.s, { ...Z.st, ha: q.ha, va: q.va, ...(q.rot ? { rot: q.rot } : {}) })); }
       else if (q.t === 'b') { const bb = Z.box(q.name); if (!bb) continue; const sz = Math.max(bb[2] - bb[0], bb[3] - bb[1]), p = X([q.x, q.y]), r = out.insert(Z.d, q.name, p[0], p[1], { scale: q.size * s / (sz > 1e-9 ? sz : 1), center: true }); if (r) recs.push(r); }
     }
     return recs;
+  }
+
+  /** (beta 7.19, riser detail) a white mask over the rectangle b [x0, y0, x1, y1] (model space), so that what is drawn under it does not show: a WIPEOUT (AutoCAD's
+      own: the drawing's background colour on the screen, white on paper; its class added once), or where the drawing has no classes (an R12 one) a white
+      SOLID (true colour white). The owner: "allow also if added on plan to be moved and filled white background covering the details below." */
+  function maskOut(d, o, layer, b) {
+    const C = d.sec('CLASSES');
+    if (!C) { const q = [[b[0], b[1]], [b[2], b[1]], [b[0], b[3]], [b[2], b[3]]]; return o.solid(layer, q, { color: 255, tc: 0xFFFFFF }); }
+    if (!C.raw.some(([c, v]) => c === 1 && v === 'WIPEOUT')) C.raw.push([0, 'CLASS'], [1, 'WIPEOUT'], [2, 'AcDbWipeout'], [3, 'WipeOut'], [90, I(127)], [91, I(0)], [280, I(0)], [281, I(1)]);
+    const r = o.base('WIPEOUT', layer); r.push([100, 'AcDbWipeout'], [90, I(0)], [10, F(b[0])], [20, F(b[1])], [30, '0.0'], [11, F(b[2] - b[0])], [21, '0.0'], [31, '0.0'], [12, '0.0'], [22, F(b[3] - b[1])], [32, '0.0'], [13, '1.0'], [23, '1.0'],
+      [340, '0'], [70, I(7)], [280, I(1)], [281, I(50)], [282, I(50)], [283, I(0)], [360, '0'], [71, I(2)], [91, I(5)], [14, '-0.5'], [24, '0.5'], [14, '0.5'], [24, '0.5'], [14, '0.5'], [24, '-0.5'], [14, '-0.5'], [24, '-0.5'], [14, '-0.5'], [24, '0.5'], [290, I(0)]);
+    return o.add(r);
   }
 
   /* ---------------- the build ---------------- */
@@ -2522,6 +2668,10 @@
        numbered within their kind as the GEO sheets are; none: nothing of this, the plan as before. */
     const RISERS = (() => {
       const byI = new Map(pts.map((p) => [String(p.id), p])), ugS = (s) => (CABLE_STYLE[s.cable] || CABLE_STYLE['']).aerial === false, out = [], isEx = (q) => !(q.status === 'Proposed' || q.status === 'New');
+      // ((beta 7.19, riser detail) a closure on the pole, drawn on it in the detail: the pole's own, or a closure recorded as its own pin that stands on it (as the plan puts
+      // one: on the nearest pole of the route within 30 m, the first one there))
+      const onR = new Set(spans.flatMap((s) => [String(s.ia), String(s.ib)])), cloAt = new Map();
+      for (const q of pts) { if (q.el !== 'Closure' || q.handAt) continue; let best = null, bd = 30; for (const p of pts) { if (p.el !== 'Pole' || !onR.has(String(p.id))) continue; const dd = Math.hypot(p.E - q.E, p.N - q.N); if (dd < bd) { bd = dd; best = p; } } if (best && !cloAt.has(best) && !best.closure && !best.closureId) cloAt.set(best, q); }
       for (const p of pts) {
         if (p.el !== 'Pole' || p.onPole) continue;
         const at = spans.filter((s) => String(s.ia) === String(p.id) || String(s.ib) === String(p.id)), ug = at.filter(ugS);
@@ -2534,7 +2684,8 @@
           : q.el === 'ODF' ? (qEx ? 'X-HOST' : 'P-HOST') : q.el === 'ODC' ? ODC_BLOCK : q.siteKind === 'OLT' ? (qEx ? 'OLT1' : '7') : qEx || !S.blocks.has('G-ESAA P-BTS') ? 'X-BTS' : 'G-ESAA P-BTS';
         const lenP = s0 ? [s0.lenC, s0.lenW].map(Number).find((v) => Number.isFinite(v) && v > 0) || Math.round(+s0.len || 0) || null : null;
         const no = String(p.poleId || p.tag || p.id), id = !q ? '' : String((q.el === 'Site' ? q.siteName || q.poleId : q.poleId || q.tag) || '').trim();
-        out.push({ p, show, I: { no, poleEx: isEx(p), ...Z, cdL: Z.cdL || lenP, cdOwn: !!Z.cdL, to: q ? { kind, name, id, ex: qEx, sym, pid: String(q.id) } : null } });
+        const clo = p.closure || p.closureId ? { ex: !!p.closureOld } : cloAt.has(p) ? { ex: cloAt.get(p).status === 'Existing' } : null; // ((beta 7.19, riser detail))
+        out.push({ p, show, I: { no, poleEx: isEx(p), ...Z, cdL: Z.cdL || lenP, cdOwn: !!Z.cdL, to: q ? { kind, name, id, ex: qEx, sym, pid: String(q.id) } : null, ...(clo ? { clo } : {}) } });
       }
       if (!out.length) return out; const ord = riserOrder(pts, spans.filter((s) => !ugS(s)), out.map((x) => x.p.id)); // (along the aerial route from the homing, as the plan numbers its poles) out.sort((a, b) => ord.indexOf(String(a.p.id)) - ord.indexOf(String(b.p.id)));
       return out;
@@ -2565,13 +2716,17 @@
       for (const [nm, color, lt, lw] of PLAN_KIT.layers.filter((k) => /^PLAN DETAIL/.test(k[0]))) { const K = KIT && KIT.layers[nm]; if (K) { Lz[nm] = K.name; continue; }
         const LU = [...S.layers.keys()].find((n) => String(n).toUpperCase() === nm); if (LU) { Lz[nm] = LU; continue; }
         addLayer(d, S, nm, color); const r = S.layers.get(nm); setFirst(r, 6, S.ltypes.has(lt) ? lt : 'Continuous'); if (!setFirst(r, 370, I(lw))) { const k6 = r.findIndex((q, i) => i > 0 && q[0] === 6); r.splice(k6 > 0 ? k6 + 1 : r.length, 0, [370, I(lw)]); } Lz[nm] = nm; }
-      return (RZ = { d: Lz['PLAN DETAIL'], p: Lz['PLAN DETAIL PROPOSED'], e: Lz['PLAN DETAIL EXISTING'], st: kitT('PLAN DETAIL', { style: 'arial' }), box: (nm) => (S.blocks.has(nm) ? blockBoxA(S, nm, 0) || blockBox(S, nm, 0) : null) }); };
+      // ((beta 7.19, riser detail) lt: the template's line type for what the detail draws dashed (HIDDEN, else DASHED; none: drawn whole); dash(pu): its scale for the
+      // dashes to repeat every 1.8 mm of the detail as printed, pu paper units for that (the drawing's own line type scale and the pattern's length taken in))
+      const LT = ['HIDDEN', 'DASHED', 'DASHED2'].find((n) => S.ltypes.has(n)) || null, ltr = LT ? S.T.find((r) => typ(r) === 'LTYPE' && get(r, 2) === LT) : null, pl = ltr ? Math.abs(num(ltr, 40, 0)) : 0, lts0 = parseFloat((d.headerVar('$LTSCALE') || [0, '1'])[1]) || 1;
+      return (RZ = { d: Lz['PLAN DETAIL'], p: Lz['PLAN DETAIL PROPOSED'], e: Lz['PLAN DETAIL EXISTING'], st: kitT('PLAN DETAIL', { style: 'arial' }), box: (nm) => (S.blocks.has(nm) ? blockBoxA(S, nm, 0) || blockBox(S, nm, 0) : null),
+        lt: LT, dash: (pu) => (LT ? { ltk: +(1.8 * pu / ((pl > 0 ? pl : 0.75) * lts0)).toFixed(4) } : {}) }); };
     const riserK = (mm, f) => (mm > 0 ? Math.max(0.5, Math.min(2, mm / (2.8 * f))) : 1);
     for (const x of detPage) { // (stage 11, riser detail) each page detail drawn on its sheet's paper, in a thin frame
       const at = detAt.get(x), L = S.layouts.find((q) => q.name === at.sheet), po = L && paperOut(d, S, L, Out); if (!po) continue; const Z = rzOf();
       const hK = kitH('PLAN DETAIL', at.uP, 0), D = riserDraw(x.I, riserK(hK / at.uP, at.f)); // (the kit's height: the title's, printed mm on the page)
       po.lwpoly(Z.d, [[at.x0 - 2 * at.s, at.y0 - 1.5 * at.s], [at.x0 + (RISER_W + 2) * at.s, at.y0 - 1.5 * at.s], [at.x0 + (RISER_W + 2) * at.s, at.y0 + (RISER_H + 1.5) * at.s], [at.x0 - 2 * at.s, at.y0 + (RISER_H + 1.5) * at.s]], { closed: true });
-      riserPut(po, D, at.x0, at.y0, at.s, Z);
+      riserPut(po, D, at.x0, at.y0, at.s, { ...Z, ...Z.dash(at.s) }); // ((beta 7.19, riser detail) its dashes: paper units a mm of the detail)
     }
     // tab order: TITLE, TOC, LEGENDS, VICINITY MAP(s), ROW AREA COVERAGE, KEYMAP(s), GEO…, PMI, then anything else ((stage 11, riser detail) the detail sheets after the GEO sheets)
     const want = ['TITLE', 'TOC', 'LEGENDS', ...vicNames, 'ROW AREA COVERAGE', ...kmNames, ...geoNames(N), ...detNames, 'PMI'];
@@ -4758,30 +4913,46 @@
        (its labels 1.3 mm, its title 1.8 mm high as printed; the kit's PLAN DETAIL height when it has one), where it covers no label, symbol or photo
        (a road or the cable counts little) inside its pole's GEO sheet, else inside another sheet that prints; all round its pole, nearest first, with a
        thin line to its pole (none where it is right beside it); where nothing is free, where it covers least (noted). Kept clear of afterwards as a photo. */
-    const detPlan = RISERS.filter((x) => x.show === 'plan'), detOn = new Map(), detMiss = [];
+    const detPlan = RISERS.filter((x) => x.show === 'plan'), detOn = new Map(), detMiss = [], RDMV = []; // ((beta 7.19, riser detail) RDMV: each one on the plan, for the Drawing (report.movable riser:<pointId>))
     if (detPlan.length) {
-      const pkm = (printK || 0.62) * NU, FI = 0.65, Z = rzOf(), hK = kitH('PLAN DETAIL', 1, pkm), s = FI / pkm, w = RISER_W * s, h = RISER_H * s;
-      const W_IN = (t) => (t === 'road' ? 0.3 : t === 'cable' ? 4 : 10), LD_IN = (t) => (t === 'road' || t === 'cable' ? 0 : 1), ptIn = (q) => pts.reduce((n, r) => { const c = r.dp || [r.E, r.N]; return n + (Math.abs(c[0] - q[0]) < w / 2 + 2 && Math.abs(c[1] - q[1]) < h / 2 + 2 ? 1 : 0); }, 0); // (a point under it counts as a symbol, drawn or not)
+      const pkm = (printK || 0.62) * NU, FI = 0.65, Z = rzOf(), hK = kitH('PLAN DETAIL', 1, pkm), s0 = FI / pkm;
+      // ((beta 7.19, riser detail) the GEO sheet's paper units a printed mm (its dashes' scale), and each detail's size: the Drawing's (job.style / styleKind scale of
+      // riser:<pointId> / riserdet), else 1; never larger than its sheet)
+      const uPg = (() => { const G0 = S.layouts.find((L) => L.name === 'GEO'); if (!G0) return 1; let win = [num(G0.rec, 48, 0), num(G0.rec, 49, 0), num(G0.rec, 140, 0), num(G0.rec, 141, 0)]; if (!(win[2] - win[0] > 1 && win[3] - win[1] > 1)) return 1;
+        const pa = num(G0.rec, 44, 420), pb = num(G0.rec, 45, 297), ww = win[2] - win[0], wh = win[3] - win[1], land = ww >= wh, kmm = Math.min((land ? Math.max(pa, pb) : Math.min(pa, pb)) / ww, (land ? Math.min(pa, pb) : Math.max(pa, pb)) / wh); return kmm > 0 && Number.isFinite(kmm) ? 1 / kmm : 1; })();
+      const scOf = (id) => { const v = [((job.style || {})[id] || {}).scale, ((job.styleKind || {}).riserdet || {}).scale].map(Number).find((n) => Number.isFinite(n) && n > 0); return v ? Math.max(0.3, Math.min(3, v)) : 1; };
+      const W_IN = (t) => (t === 'road' ? 0.3 : t === 'cable' ? 4 : 10), LD_IN = (t) => (t === 'road' || t === 'cable' ? 0 : 1), ptIn = (q, w, h) => pts.reduce((n, r) => { const c = r.dp || [r.E, r.N]; return n + (Math.abs(c[0] - q[0]) < w / 2 + 2 && Math.abs(c[1] - q[1]) < h / 2 + 2 ? 1 : 0); }, 0); // (a point under it counts as a symbol, drawn or not)
       for (const x of detPlan) {
         const p = byId.get(String(x.p.id)) || x.p; if (!p.dp) continue; let best = null;
-        for (const dd of [1, 4, 8, 13, 19, 27, 37, 50, 66]) for (let a = 0; a < 360; a += 15) {
+        const id = `riser:${p.id}`, pin = PINS.get(id), fz = Math.min(scOf(id), (cell - 6) / ((RISER_W + 3) * s0), (cell - 6) / ((RISER_H + 2) * s0)), s = s0 * fz, w = RISER_W * s, h = RISER_H * s; // ((beta 7.19, riser detail) its size)
+        if (pin && pin.at) { // ((beta 7.19, riser detail) placed by hand on the Drawing: its middle where it was put (from its pole as drawn), kept inside the GEO sheet it is on
+          // (its pole's where that one does not print), its line to its pole as a photo's placed by hand)
+          const q0 = [p.dp[0] + pin.at[0], p.dp[1] + pin.at[1]], on = used.has(key(ci(q0[0]), cj(q0[1]))), I0 = on ? ci(q0[0]) : ci(p.E), J0 = on ? cj(q0[1]) : cj(p.N);
+          const fw = (RISER_W + 3) * s / 2, fh = (RISER_H + 2) * s / 2, cx = (lo, hi, v, hw) => Math.max(lo + hw, Math.min(hi - hw, v)), q = [cx(gox + I0 * cell + 2, gox + (I0 + 1) * cell - 2, q0[0], fw), cx(goy + J0 * cell + 2, goy + (J0 + 1) * cell - 2, q0[1], fh)];
+          const u = unit(p.dp, q), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9), gap = Math.hypot(Math.max(Math.abs(q[0] - p.dp[0]) - w / 2, 0), Math.max(Math.abs(q[1] - p.dp[1]) - h / 2, 0)) - rOf(p);
+          const la = add2(p.dp, u, rOf(p) + 0.3), lb = add2(q, u, -t), box = Spots.box(q[0], q[1], w + 2, h + 2, 0);
+          best = { q, u, box, lead: gap > 0.3 && dist2(la, lb) > 1.2 ? [la, lb] : null, cost: 0, free: !spots.hitsW(box, (tt) => (tt === 'road' ? 0.3 : tt === 'cable' ? 4 : 10)), hand: true, moved: Math.hypot(q[0] - q0[0], q[1] - q0[1]) > 0.05 };
+        }
+        if (!best) for (const dd of [1, 4, 8, 13, 19, 27, 37, 50, 66]) for (let a = 0; a < 360; a += 15) {
           const u = rotv([1, 0], a), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9), q = add2(p.dp, u, rOf(p) + dd + t);
           const own = cellHoldsQ(q, w / 2, h / 2, p.E, p.N); if (!own && !(cellHoldsQ(q, w / 2, h / 2, q[0], q[1]) && used.has(key(ci(q[0]), cj(q[1]))))) continue;
           const box = Spots.box(q[0], q[1], w + 2, h + 2, 0), hb = spots.hitsW(box, W_IN), la = add2(p.dp, u, rOf(p) + 0.3), lb = add2(q, u, -t), L = dist2(la, lb), ln = L > 1.2 ? Spots.box((la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2, L, 0.3, deg(u)) : null;
-          const np = ptIn(q), cost = (hb + np * 10) * 10 + (ln ? spots.hitsW(ln, LD_IN) * 4 : 0) + (own ? 0 : 25) + dd * 0.15 + Math.min(a, 360 - a) / 15 * 0.01;
+          const np = ptIn(q, w, h), cost = (hb + np * 10) * 10 + (ln ? spots.hitsW(ln, LD_IN) * 4 : 0) + (own ? 0 : 25) + dd * 0.15 + Math.min(a, 360 - a) / 15 * 0.01;
           if (!best || cost < best.cost - 1e-9) best = { q, u, box, lead: ln ? [la, lb] : null, cost, free: !np && hb < 4 }; // (free: over a road or two at most)
         }
         if (!best) { detMiss.push(x.I.no); continue; } // (no printed sheet has room for it near its pole: said in the notes)
-        const D = riserDraw(x.I, riserK(hK * pkm, FI)), x0 = best.q[0] - w / 2, y0 = best.q[1] - h / 2;
-        o.lwpoly(Z.d, [[x0 - 1.5 * s, y0 - 1 * s], [x0 + (RISER_W + 1.5) * s, y0 - 1 * s], [x0 + (RISER_W + 1.5) * s, y0 + (RISER_H + 1) * s], [x0 - 1.5 * s, y0 + (RISER_H + 1) * s]], { closed: true });
-        riserPut(o, D, x0, y0, s, Z); if (best.lead) o.lwpoly(...ldr(Z.d, best.lead)); // (its line to its pole as a photo's: the kit's PLAN LEADER)
+        const D = riserDraw(x.I, riserK(hK * pkm, FI * fz)), x0 = best.q[0] - w / 2, y0 = best.q[1] - h / 2, k0 = o.model.length, fb = [x0 - 1.5 * s, y0 - 1 * s, x0 + (RISER_W + 1.5) * s, y0 + (RISER_H + 1) * s];
+        maskOut(d, o, Z.d, fb); // ((beta 7.19, riser detail) its frame filled white: what is under it does not show (drawn first, then the detail; the whole of it after the plan's own items: DT))
+        o.lwpoly(Z.d, [[fb[0], fb[1]], [fb[2], fb[1]], [fb[2], fb[3]], [fb[0], fb[3]]], { closed: true });
+        riserPut(o, D, x0, y0, s, { ...Z, ...Z.dash(1.8 * FI * fz * uPg) }); if (best.lead) o.lwpoly(...ldr(Z.d, best.lead)); // (its line to its pole as a photo's: the kit's PLAN LEADER)
         spots.add(best.box, 'photo'); if (best.lead) spots.line(best.lead, 0.3);
-        detOn.set(x, { at: [+best.q[0].toFixed(2), +best.q[1].toFixed(2)], w: +w.toFixed(2), h: +h.toFixed(2), line: !!best.lead, free: best.free });
+        detOn.set(x, { at: [+best.q[0].toFixed(2), +best.q[1].toFixed(2)], w: +w.toFixed(2), h: +h.toFixed(2), line: !!best.lead, free: best.free, ...(best.hand ? { how: 'by hand' } : {}), ...(Math.abs(fz - 1) > 1e-9 ? { scale: +fz.toFixed(3) } : {}), ...(best.moved ? { kept: 'inside its sheet' } : {}) });
+        RDMV.push({ id, p, recs: o.model.slice(k0), box: [+best.q[0].toFixed(3), +best.q[1].toFixed(3), +(fb[2] - fb[0]).toFixed(3), +(fb[3] - fb[1]).toFixed(3), 0], how: best.hand ? 'by hand' : 'auto', fz });
       }
     }
     if (RISERS.length) { // (stage 11, riser detail) where each riser's detail went, for the app and the checks; none: no such key (the report as before)
       rep.riserDetails = RISERS.map((x) => ({ id: String(x.p.id), pole: x.I ? x.I.no : String(x.p.poleId || x.p.id), show: x.show, ...(x.show === 'page' && detAt.has(x) ? { sheet: detAt.get(x).sheet } : {}), ...(detOn.has(x) ? { plan: detOn.get(x) } : {}),
-        sizes: { pipeD: x.I.pipeD, pipeL: x.I.pipeL, guardL: x.I.guardL, encW: x.I.encW, encH: x.I.encH, cdD: x.I.cdD, cdR: x.I.cdR, cdL: x.I.cdL, cdFrom: x.I.cdOwn ? 'typed' : x.I.cdL ? 'plan' : null }, to: x.I.to ? { id: x.I.to.id, kind: x.I.to.kind, point: x.I.to.pid, existing: x.I.to.ex } : null, texts: riserTexts(x.I) }));
+        ...(x.show !== 'none' && cefIso() ? { model: 'CEF' } : {}), /* ((beta 7.19, riser detail) drawn with the CEF editor's model) */ sizes: { pipeD: x.I.pipeD, pipeL: x.I.pipeL, guardL: x.I.guardL, encW: x.I.encW, encH: x.I.encH, cdD: x.I.cdD, cdR: x.I.cdR, cdL: x.I.cdL, cdFrom: x.I.cdOwn ? 'typed' : x.I.cdL ? 'plan' : null }, to: x.I.to ? { id: x.I.to.id, kind: x.I.to.kind, point: x.I.to.pid, existing: x.I.to.ex } : null, texts: riserTexts(x.I) }));
       const nP = RISERS.filter((x) => x.show === 'page').length, nO = detOn.size, nBad = [...detOn.values()].filter((v) => !v.free).length;
       if (detMiss.length) rep.notes.push(`Riser details left off the plan (no room for them near their pole on a printed sheet): ${detMiss.join(', ')}: give them a sheet of their own`);
       if (nP || nO) rep.notes.push(`Riser details: ${[nP ? `${nP} on ${detNames.length === 1 ? `${nP === 1 ? 'a sheet of its' : 'a sheet of their'} own` : `${detNames.length} sheets of their own`} (${detNames.join(', ')})` : '', nO ? `${nO} on the plan beside ${nO === 1 ? 'its pole' : 'their poles'}` : ''].filter(Boolean).join(', ')}${nBad ? `; ${nBad} on the plan with no free place near ${nBad === 1 ? 'its pole' : 'their poles'} (placed where ${nBad === 1 ? 'it covers' : 'they cover'} least: move ${nBad === 1 ? 'it' : 'them'} to its own sheet if it is in the way)` : ''}`);
@@ -5054,6 +5225,7 @@
       if (kmNames.includes(L.name)) vpFreeze(vp, [layerH(lay('GRIDNO.', 'GRIDNO'))].filter(Boolean)); else if (layerH(KMLAY)) vpFreeze(vp, [layerH(KMLAY)]);
       if (kmNames.includes(L.name) && detOn.size && RZ) vpFreeze(vp, [...new Set([RZ.d, RZ.p, RZ.e])].map(layerH).filter(Boolean)); // ((stage 11, riser detail) a detail on the plan: not on the key map)
     }
+    if (RDMV.length) { const mine = new Set(RDMV.flatMap((m) => m.recs)), rest = o.model.filter((r) => !mine.has(r)); o.model.length = 0; o.model.push(...rest, ...RDMV.flatMap((m) => m.recs)); } // ((beta 7.19, riser detail) drawn after what they cover)
     /* (beta 7.11, Drawing tools) DT, the end of the build: every element the Drawing may select, as written (beta 7.10's photos, numbers, pole details and
        cable labels, MV; the others, OWN), placed by hand and turned (job.pins), then report.movable: each one's id and kind, the DXF entities that draw
        it (handles: each entity one item's only), where it is (box [cx, cy, w, h, deg]: its middle the reference point a pin moves; a label's box its
@@ -5769,6 +5941,9 @@
         outE.push(o2);
       }
       rep.movable = [...outE, ...out]; // (the other elements first: a pole before its number, details and photo, which it carries (with) and which may have pins of their own)
+      // ((beta 7.19, riser detail) each riser detail on the plan, last: moved (job.pins[riser:<pointId>].at, its middle from its pole as drawn) and sized (job.style scale);
+      // its white mask, frame, drawing and line to its pole (handles); its riser's choices on its pole's record (Own sheet, On the plan, None) as the pole's)
+      for (const m of RDMV) rep.movable.push({ id: m.id, kind: 'riserdet', box: m.box, anchor: [m.p.dp[0], m.p.dp[1]], how: m.how, handles: m.recs.filter((r) => o.model.includes(r)).map((r) => r[1][1]), point: String(m.p.id), name: String(m.p.poleId || m.p.id), riser: String(m.p.id), scale: +m.fz.toFixed(3), can: { move: true, rotate: false, scale: true, text: false, color: false } });
       /* (beta 7.12, Drawing edit) the notes drawn last (over the plan's own items, the lines the end of the build added too), then the draw order the user set:
          job.order [{ id, op: 'front' | 'forward' | 'backward' | 'back' }], in its order (the owner: "allow order on the selected item, say, sent to back,
          backward, sent to front or forward"). An item's entities moved in the model space, whose order IS the draw order (AutoCAD, the PDF and the Drawing

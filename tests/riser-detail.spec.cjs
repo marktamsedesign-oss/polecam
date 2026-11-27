@@ -7,6 +7,8 @@
      plan's job carries it; the plan draws it there (Export › Plan drawing: on the plan near its pole; its own sheet; none).
    - The Drawing (a computer): the riser pole selected, its tools Own sheet / On the plan / No detail (the one in its record pressed), also in its right-click
      menu; a choice changes its record, the plan made again shows it (the inset on the plan); Undo takes it back; a pole that is not a riser: no such tools.
+     (beta 7.19, riser detail) the inset on the plan selected on its own (its pole's choices and Size with it), dragged and sized: kept as the Drawing keeps an
+     item placed by hand (mvPin, mvStyle), the plan made again with it there and that size (drawn by the plan's worker with the CEF's model); Undo takes each back.
    Uses an isolated browser profile and a local HTTP server; every name, number and place is made up. */
 'use strict';
 const { test, before, after } = require('node:test');
@@ -69,12 +71,13 @@ async function open(o) {
   await page.evaluate(async (text) => {
     await new Promise((res, rej) => { const r = indexedDB.open('polecam'); r.onsuccess = () => { const d = r.result, tx = d.transaction('packs', 'readwrite'); tx.objectStore('packs').put({ k: '~dxfseed', text }); tx.oncomplete = () => { d.close(); res(); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); });
     const S = window.__polecam.S; S.dxfSeed = { name: 'plan-seed-made-up-blocks.dxf', size: text.length, at: '2026-11-01T08:00:00.000Z', from: 'file', id: '' }; window.__polecam.persist();
-    if (!window.GeDxfTpl) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'dxftpl.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    for (const [g, f] of [['GeCefIso', 'vendor/cef/20_isokit.js'], ['GeDxfTpl', 'dxftpl.js']]) if (!window[g]) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = f; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); // ((beta 7.19, riser detail) as the app loads them)
     const T = window.GeDxfTpl, real = T.build; T.__w = true; window.__exp = [];
     T.build = function (seed, job) { const out = real.call(this, seed, job); window.__exp.push({ pts: job.pts.filter((p) => p.riserDet || p.riser).map((p) => ({ id: p.id, riser: p.riser, riserDet: p.riserDet || null })), riserDetails: out.report.riserDetails || null, sheets: (out.text.match(/\nAcDbLayout\r?\n  1\r?\n[^\r\n]+/g) || []).map((x) => x.split(/\r?\n/).pop()), inset: (out.text.match(/\nPLAN DETAIL PROPOSED\r?\n/g) || []).length }); return out; };
   }, SEED);
   return { ctx, page, errors };
 }
+async function drag(page, x, y, dx, dy) { await page.mouse.move(x, y); await page.mouse.down(); for (let k = 1; k <= 12; k++) { await page.mouse.move(x + dx * k / 12, y + dy * k / 12); await page.waitForTimeout(16); } await page.mouse.up(); await page.waitForTimeout(500); }
 const closeAll = async (page) => { for (let i = 0; i < 8; i++) { if (!(await page.evaluate(() => document.querySelectorAll('section.sheet:not([hidden])').length))) return; await page.goBack(); await page.waitForTimeout(500); } };
 const recOf = (page, id) => page.evaluate((x) => JSON.parse(JSON.stringify(window.__polecam.points.find((p) => p.id === x))), id);
 /** Export › Plan drawing (each question answered as a user going on would): what the builder was given and made. */
@@ -117,7 +120,7 @@ test('the pole\'s form: a riser pole\'s detail (Own sheet by default for an exis
   assert.deepEqual((await recOf(page, 's4')).riserDet, { show: 'plan', pipeL: 3, cdL: 25 }, 'in its record: only what was set');
   e = await exportPlan(page);
   assert.deepEqual(e.pts.map((p) => [p.id, p.riserDet]), [['s4', { show: 'plan', pipeL: 3, cdL: 25 }]], 'the job carries it');
-  const x = e.riserDetails[0]; assert.deepEqual([x.show, x.sizes.pipeL, x.sizes.cdL, x.sizes.cdFrom, x.to.id, x.texts.pipe], ['plan', 3, 25, 'typed', 'HH-9401', 'PROPOSED %%c114.3mm G.I. RISER PIPE, 3m']);
+  const x = e.riserDetails[0]; assert.deepEqual([x.show, x.sizes.pipeL, x.sizes.cdL, x.sizes.cdFrom, x.to.id, x.texts.pipe, x.model], ['plan', 3, 25, 'typed', 'HH-9401', 'PROPOSED %%c114.3mm G.I. RISER PIPE, 3m', 'CEF']); // ((beta 7.19) with the CEF's model)
   assert.ok(x.plan && x.plan.w > 0, 'on the plan'); assert.ok(!e.sheets.includes('RISER DETAIL'), 'no sheet of its own');
   // None: no detail
   await form(page, 's4'); await page.evaluate(() => { [...document.querySelectorAll('#editor .riserdet .chips button')].find((b) => b.textContent === 'None').click(); });
@@ -147,6 +150,21 @@ test('the Drawing: a riser pole\'s tools Own sheet / On the plan / No detail (an
   assert.deepEqual((await recOf(page, 's4')).riserDet, { show: 'plan' }, 'in its record');
   s = await shown((x) => x.n > n0); if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'riser-drawing.png') });
   R = await seg(); assert.deepEqual(R.seg.map((b) => b.pressed), ['false', 'true', 'false'], 'the pole still selected, On the plan pressed');
+  // ((beta 7.19, riser detail) the detail on the plan: selected on its own, moved, sized; kept as an item placed by hand; Undo takes each back)
+  let it = (await mv()).items.find((q) => q.id === 'riser:s4'); assert.ok(it && it.kind === 'riserdet' && it.how === 'auto' && it.handles > 50, `the detail on the plan: ${JSON.stringify(it && [it.kind, it.how, it.handles])}`);
+  assert.equal(it.name, 'Riser detail of CC-9404');
+  await sel('riser:s4'); const tb1 = await tb(), vis = (a) => !(tb1.tools.find((t) => t.a === a) || { hidden: true }).hidden;
+  assert.deepEqual(['riserdet', 's+', 's-', 'rot+', 'color'].map(vis), [true, true, true, false, false], 'its tools: where it goes, its size'); assert.deepEqual((await seg()).seg.map((b) => b.pressed), ['false', 'true', 'false']);
+  it = (await mv()).items.find((q) => q.id === 'riser:s4'); const b0 = it.box.slice(), n1 = s.n;
+  await drag(page, it.x, it.y, -40, -30); const k1 = (await mv()).tools; assert.ok(k1.mvPin['riser:s4'] && Array.isArray(k1.mvPin['riser:s4'].at), `its place kept: ${JSON.stringify(k1.mvPin)}`);
+  s = await shown((x) => x.n > n1); it = (await mv()).items.find((q) => q.id === 'riser:s4');
+  assert.equal(it.how, 'by hand'); assert.ok(it.box[0] < b0[0] - 1 && it.box[1] > b0[1] + 1, `the plan made again: where it was put (${b0.slice(0, 2)} → ${it.box.slice(0, 2)})`);
+  await sel('riser:s4'); const n2 = s.n; await page.evaluate(() => document.querySelector('#drawTb [data-a="s+"]').click()); await page.waitForTimeout(500);
+  assert.equal((await mv()).tools.mvStyle['riser:s4'].scale, 1.25, 'its size kept'); s = await shown((x) => x.n > n2); const it2 = (await mv()).items.find((q) => q.id === 'riser:s4');
+  assert.ok(Math.abs(it2.box[2] / b0[2] - 1.25) < 0.01, `the plan made again: 1.25 times as large (${b0[2]} → ${it2.box[2]})`); if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'riser-inset-moved.png') });
+  await page.click('#drawUndo'); await page.waitForTimeout(700); assert.equal(((await mv()).tools.mvStyle || {})['riser:s4'], undefined, 'Undo: its size');
+  await page.click('#drawUndo'); await page.waitForTimeout(700); assert.equal(((await mv()).tools.mvPin || {})['riser:s4'], undefined, 'Undo: its place');
+  await sel('pole:s4');
   // the toolbar: No detail; Undo: back to On the plan, then to none set
   await page.evaluate(() => document.querySelector('#drawTb [data-a="riserdet"] button[data-v="none"]').click()); await page.waitForTimeout(600);
   assert.equal((await recOf(page, 's4')).riserDet.show, 'none');

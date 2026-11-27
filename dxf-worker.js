@@ -5,7 +5,7 @@
    same drawing code as the PDF), for the Drawing to draw; what is on or near its GEO sheets, their grid left out (the Drawing draws the
    sheets itself); its arrays sent, not copied. plan null (perr: why) when it cannot be made: the report still comes. (beta 7.10, Drawing labels) plan.own:
    each item's index in report.movable (the label, number, pole details or photo it draws), sent too. */
-importScripts('dxftpl.js');
+importScripts('vendor/cef/20_isokit.js', 'dxftpl.js'); // ((beta 7.19, riser detail) the CEF's isometric model first: the riser detail is drawn with it)
 self.onmessage = (ev) => {
   const { id, seed, job, only } = ev.data || {};
   try {
