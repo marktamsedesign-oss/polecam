@@ -90,6 +90,7 @@ function resetWorld() {
   world.lockBusy = false;
   world.lockHeld = 0;
   world.logs = [];
+  world.drive = { files: {}, folders: {}, n: 0, denied: false }; // ((stage 11, templates) Google Drive of the script's owner, for sheet v2.43.7)
 }
 resetWorld();
 
@@ -159,6 +160,28 @@ const ContentService = {
   createTextOutput: (s) => ({ content: s, mime: null, getContent() { return this.content; }, setMimeType(m) { this.mime = m; return this; } }),
 };
 const Session = { getScriptTimeZone: () => 'Asia/Manila', getEffectiveUser: () => ({ getEmail: () => 'owner@demo-telco.example' }) };
+/* ((stage 11, templates) Google Drive as the script's owner sees it, for sheet v2.43.7: folders and files in memory (world.drive); world.drive.denied:
+   the script not allowed to use Drive yet (every call throws, as before setup is run again). A file id may be added by a test (world.drive.files). */
+const driveCheck = () => { if (world.drive.denied) throw new Error('You do not have permission to call DriveApp.getFileById. Required permissions: https://www.googleapis.com/auth/drive'); };
+const driveId = (p) => { world.drive.n++; return `${p}${String(world.drive.n).padStart(4, '0')}DemoDriveFile00000000000000`; };
+function driveFile(id) {
+  const f = world.drive.files[id];
+  return { getId: () => id, getName: () => f.name, setName(n) { driveCheck(); f.name = String(n); return this; }, isTrashed: () => !!f.trashed, getSize: () => Buffer.byteLength(f.text, 'utf8'),
+    getUrl: () => `https://drive.google.com/file/d/${id}/view`, getBlob: () => ({ getDataAsString: () => f.text, getName: () => f.name }), getParents: () => ({ hasNext: () => !!f.folder, next: () => driveFolder(f.folder) }) };
+}
+function driveFolder(id) {
+  const d = world.drive.folders[id];
+  return { getId: () => id, getName: () => d.name, isTrashed: () => !!d.trashed, getUrl: () => `https://drive.google.com/drive/folders/${id}`,
+    createFile(a, b) { driveCheck(); const blob = typeof a === 'object' ? a : { name: a, text: String(b) }; const fid = driveId('1F'); world.drive.files[fid] = { name: blob.name, text: blob.text, folder: id }; return driveFile(fid); },
+    getFiles: () => { const L = Object.keys(world.drive.files).filter((k) => world.drive.files[k].folder === id); let i = 0; return { hasNext: () => i < L.length, next: () => driveFile(L[i++]) }; } };
+}
+const DriveApp = {
+  getFileById(id) { driveCheck(); if (!world.drive.files[id]) throw new Error('No item with the given ID could be found. Possibly because you have not edited this item or you do not have permission to access it.'); return driveFile(id); },
+  getFolderById(id) { driveCheck(); if (!world.drive.folders[id]) throw new Error('No item with the given ID could be found.'); return driveFolder(id); },
+  getFoldersByName(n) { driveCheck(); const L = Object.keys(world.drive.folders).filter((k) => world.drive.folders[k].name === n); let i = 0; return { hasNext: () => i < L.length, next: () => driveFolder(L[i++]) }; },
+  createFolder(n) { driveCheck(); const id = driveId('1D'); world.drive.folders[id] = { name: String(n) }; return driveFolder(id); },
+};
+Utilities.newBlob = (data, type, name) => ({ text: String(data), type: type || '', name: name || '', getDataAsString: () => String(data), getName: () => name || '', getContentType: () => type || '' }); // ((stage 11, templates))
 const UrlFetchApp = { fetch: (u, o) => { if (typeof world.urlFetch === 'function') return world.urlFetch(u, o); throw new Error('no network in this test'); } }; // ((templates, sheet v2.43.6) world.urlFetch: a test's stand-in for Google Drive)
 const quietConsole = { log: (...a) => world.logs.push(a.join(' ')), warn: (...a) => world.logs.push(a.join(' ')), error: (...a) => world.logs.push(a.join(' ')) };
 
@@ -167,8 +190,8 @@ const EXPORTS = ['setup', 'doGet', 'doPost', 'resetTeamTokens', 'teamToken_', 's
 function load(file) {
   const code = fs.readFileSync(file, 'utf8');
   const ret = '\n;return {' + EXPORTS.map((n) => `${n}: typeof ${n} === 'function' ? ${n} : undefined`).join(', ') + '};';
-  const f = new Function('SpreadsheetApp', 'PropertiesService', 'CacheService', 'LockService', 'MailApp', 'Utilities', 'ContentService', 'Session', 'UrlFetchApp', 'console', code + ret);
-  return f(SpreadsheetApp, PropertiesService, CacheService, LockService, MailApp, Utilities, ContentService, Session, UrlFetchApp, quietConsole);
+  const f = new Function('SpreadsheetApp', 'PropertiesService', 'CacheService', 'LockService', 'MailApp', 'Utilities', 'ContentService', 'Session', 'UrlFetchApp', 'console', 'DriveApp', code + ret); // ((stage 11, templates) DriveApp: sheet v2.43.7)
+  return f(SpreadsheetApp, PropertiesService, CacheService, LockService, MailApp, Utilities, ContentService, Session, UrlFetchApp, quietConsole, DriveApp);
 }
 function post(gs, body) {
   const out = gs.doPost({ postData: { contents: JSON.stringify(body) } });
