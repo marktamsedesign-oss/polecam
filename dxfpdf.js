@@ -236,6 +236,11 @@
           const P = [[num(r, 10, 0), num(r, 20, 0)], [num(r, 11, 0), num(r, 21, 0)], [num(r, 13, num(r, 12, 0)), num(r, 23, num(r, 22, 0))], [num(r, 12, 0), num(r, 22, 0)]];
           if (t === '3DFACE') stroke([P[0], P[1], [num(r, 12, 0), num(r, 22, 0)], [num(r, 13, 0), num(r, 23, 0)]], true); else fill([P]);
         } else if (t === 'HATCH') { const H = hatchLoops(r); if (H.solid) fill(H.loops); }
+        else if (t === 'WIPEOUT') { // ((beta 7.19, riser detail) a mask (AutoCAD's WIPEOUT): its boundary filled white, what is drawn before it hidden, as on paper)
+          const x = num(r, 10, 0), y = num(r, 20, 0), U = [num(r, 11, 0) * num(r, 13, 1), num(r, 21, 0) * num(r, 13, 1)], V = [num(r, 12, 0) * num(r, 23, 1), num(r, 22, 0) * num(r, 23, 1)], X = all(r, 14).map(Number), Y = all(r, 24).map(Number);
+          const at = (px, py) => [x + U[0] * (px + 0.5) + V[0] * (py + 0.5), y + U[1] * (px + 0.5) + V[1] * (py + 0.5)], B = int(r, 71, 1) === 1 && X.length >= 2 ? [at(X[0], Y[0]), at(X[1], Y[0]), at(X[1], Y[1]), at(X[0], Y[1])] : X.map((v, i) => at(v, Y[i]));
+          const Q = B.map(([qx, qy]) => ap(ocs, qx, qy)); if (Q.length > 2) ops.push(`q 1 1 1 rg ${f2(Q[0][0])} ${f2(Q[0][1])} m ${Q.slice(1).map((q) => `${f2(q[0])} ${f2(q[1])} l`).join(' ')} h f Q`);
+        }
         else if (t === 'LEADER') { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); stroke(X.map((x, i) => [x, Y[i]])); }
         else if (t === 'TEXT' || t === 'ATTRIB') { if (t === 'ATTRIB' && (int(r, 70, 0) & 1)) continue; textOps(r, ocs, col, ops, lwPt); }
         else if (t === 'MTEXT') mtextOps(r, M, col, ops, inh, lwPt);

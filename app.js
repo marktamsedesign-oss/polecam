@@ -2865,7 +2865,7 @@
     // ((beta 7.11, Drawing tools) the other kinds: by their point's ID (an attachment, a closure, a NAP: its pole's) or the plan's name for them)
     const pid = pidOf(m), q = pid != null ? drwEdById(pid) : null, at = q ? q.p.poleId || elemOf(q.p) : m.name || '';
     return { pole: `Pole ${at}`, site: `${at || 'Site'}`, sitedetails: `Details of ${at}`, sitename: `Site name ${m.name || at}`, nap: `NAP at ${at}`, closure: `Closure at ${at}`, closurelabel: `Closure label at ${at}`, loop: `Loop at ${at}`,
-      span: `Span length ${m.name || ''}`.trim(), loopsym: `Loop on the cable at ${at}`, clamp: `Clamp tag at ${at}`, messenger: `Messenger arm of ${at}`, msgtext: `Messenger text of ${at}`, cablename: `Cable name ${m.name || ''}`.trim(), cableline: `Cable ${String(m.id).replace(/^cableline:/, '').split('|').map((x) => { const q = drwEdById(x); return q ? q.p.poleId || elemOf(q.p) : x; }).join(' – ')}`, guy: `Guying at ${at}`, ground: `Grounding at ${at}`, arm: `Arm at ${at}`, landmark: `Landmark ${m.name || ''}`.trim(), road: `Street name ${m.name || ''}`.trim() }[m.kind] || `${m.kind} ${m.name || at}`.trim();
+      span: `Span length ${m.name || ''}`.trim(), loopsym: `Loop on the cable at ${at}`, clamp: `Clamp tag at ${at}`, messenger: `Messenger arm of ${at}`, msgtext: `Messenger text of ${at}`, cablename: `Cable name ${m.name || ''}`.trim(), cableline: `Cable ${String(m.id).replace(/^cableline:/, '').split('|').map((x) => { const q = drwEdById(x); return q ? q.p.poleId || elemOf(q.p) : x; }).join(' – ')}`, guy: `Guying at ${at}`, ground: `Grounding at ${at}`, arm: `Arm at ${at}`, riserdet: `Riser detail of ${at}` /* (beta 7.19, riser detail) */, landmark: `Landmark ${m.name || ''}`.trim(), road: `Street name ${m.name || ''}`.trim() }[m.kind] || `${m.kind} ${m.name || at}`.trim();
   }
   /** (beta 7.11, Drawing tools) What an item can do (report.movable can): the builder's; a builder that does not say (7.10): its four kinds, moved (and turned: the details, a cable label). */
   const CAN_710 = { photo: { move: true }, number: { move: true }, details: { move: true, rotate: true }, cable: { move: true, rotate: true } };
@@ -3407,7 +3407,7 @@
   }
   /** The items selected made existing or proposed: their records changed (one Undo step), the Drawing and its plan made again with them (the BOQ follows). */
   /** (stage 11, riser detail) The record of a pole the plan draws a riser on, for an item of the Drawing (the pole itself), or null. */
-  function drwRiserRec(m) { if (!m || m.kind !== 'pole' || m.point == null) return null; const p = points.find((x) => String(x.id) === String(m.point)); return p && elemOf(p) === 'Pole' && ((p.boq && p.boq.riser) || riserAuto(p)) ? p : null; }
+  function drwRiserRec(m) { if (!m || (m.kind !== 'pole' && m.kind !== 'riserdet') || m.point == null) return null; /* ((beta 7.19, riser detail) or its detail on the plan, selected) */ const p = points.find((x) => String(x.id) === String(m.point)); return p && elemOf(p) === 'Pole' && ((p.boq && p.boq.riser) || riserAuto(p)) ? p : null; }
   /** (stage 11, riser detail) The selected riser poles' detail put on a sheet of its own ('page'), on the plan ('plan') or none: in each one's record (riserDet.show), one Undo step, the
       Drawing made again (an inset on the plan shows there; a sheet of its own in the export and the PDF). */
   async function drwRiserSet(L, to) {
@@ -19005,7 +19005,8 @@
      as a picture (e.g. a screenshot sent in a chat) can be read from the gallery. */
   let qrStream = null, qrResolve = null, qrTimer = 0, qrDet;
   const scripts = {};
-  const loadScript = (src) => scripts[src] || (scripts[src] = new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { delete scripts[src]; rej(new Error('Could not load ' + src)); }; document.head.appendChild(el); }));
+  // ((beta 7.19, riser detail) the plan builder draws the riser detail with the CEF's isometric model: vendor/cef/20_isokit.js before dxftpl.js (not there: the detail as beta 7.18 drew it))
+  const loadScript = (src) => scripts[src] || (scripts[src] = (src === 'dxftpl.js' && !window.GeCefIso ? loadScript('vendor/cef/20_isokit.js').catch(() => {}) : Promise.resolve()).then(() => new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { delete scripts[src]; rej(new Error('Could not load ' + src)); }; document.head.appendChild(el); })));
   async function qrDetector() {
     if (qrDet !== undefined) return qrDet;
     qrDet = null;

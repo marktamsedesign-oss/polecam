@@ -18,6 +18,15 @@
    - The kit: PLAN DETAIL (text style), PLAN DETAIL / PLAN DETAIL PROPOSED / PLAN DETAIL EXISTING (layers): withKit adds them (the STYLE KEY lists them); the
      detail's lines BYLAYER on them and its texts in the style; a drafter's change restyles it (a layer's colour, the style's height in printed mm); a
      template without them: the layers added with the kit's look, only when a detail is drawn.
+   (beta 7.19, riser detail) the owner (27 Nov, on 7.18): "Can you use the riser cable model of the CEF? it much more ok than this.. also check other model of the
+   CEF that can be reuse on this riser detail. allow also if added on plan to be moved and filled white background covering the details below. it should also be
+   resizable as needed by the user."
+   - Drawn with the CEF editor's own isometric model (vendor/cef/20_isokit.js, the same module the CEF's isometric uses): its scene, the riser kit with the heights
+     of the detail's sizes (G.I. pipe 2.7 m, U-guard to 4.6 m; their straps where the standard puts them; typed sizes taken in), the bend under the riser, the pit
+     of a handhole / manhole, the closure when the pole has one; what is below the ground dashed (the template's line type, with its scale).
+   - On the plan: its frame filled white (a WIPEOUT, its class; first of the detail's entities, the detail's entities after every other entity of the model
+     space; printed white, before the detail, in the PDF); listed for the Drawing (report.movable riser:<pointId>, kind riserdet: moved, sized); placed by hand
+     (job.pins at, from its pole as drawn) and sized (job.style scale): kept so in the DXF and the report, inside its sheet (a place off it: brought back in).
    Every name, number and place is made up (the made-up templates of tests/fixtures; the synthesizer's made-up plan). */
 'use strict';
 const { test } = require('node:test');
@@ -81,9 +90,18 @@ function diff(a, b) {
   return out;
 }
 const texts = (ents) => ents.filter((r) => typ(r) === 'TEXT').map((r) => String(g(r, 1, '')));
+/** (beta 7.19, riser detail) the CEF's isometric model as the builder uses it (the same module), its functions watched while fn runs: { calls: { name: [args…] }, out } */
+const ISO = require(path.join(root, 'vendor', 'cef', '20_isokit.js'));
+function watchIso(fn) {
+  const calls = { riserKit: [], elbow2: [], domeClosure: [], pit: [], render: 0 }, keep = { riserKit: ISO.riserKit, elbow2: ISO.elbow2, domeClosure: ISO.domeClosure }, pit = ISO.Scene.prototype.pit, render = ISO.Scene.prototype.render;
+  for (const k of Object.keys(keep)) ISO[k] = function (...a) { calls[k].push(a); return keep[k].apply(this, a); };
+  ISO.Scene.prototype.pit = function (...a) { calls.pit.push(a); return pit.apply(this, a); }; ISO.Scene.prototype.render = function () { calls.render++; return render.call(this); };
+  try { return { calls, out: fn() }; } finally { Object.assign(ISO, keep); ISO.Scene.prototype.pit = pit; ISO.Scene.prototype.render = render; }
+}
 
 test('the sizes are the CEF editor\'s own for a riser on an existing pole (its engine, as its page runs it), and the app\'s form shows the same', () => {
   const ctx = vm.createContext({ console, Math, Date }); ctx.self = ctx; ctx.window = ctx;
+  vm.runInContext(fs.readFileSync(path.join(root, 'vendor', 'cef', '20_isokit.js'), 'utf8'), ctx, { filename: '20_isokit.js' }); // ((beta 7.19, riser detail) the isometric model, shared: first, as the editor's page loads it)
   vm.runInContext(`${fs.readFileSync(path.join(root, 'vendor', 'cef', '30_core.js'), 'utf8')};this.__R = { riserParts, STD, CLOZ, PVC_MM, encName };`, ctx, { filename: '30_core.js' });
   const R = ctx.__R, K = R.riserParts(0, R.STD.msg - R.CLOZ), s = T.riserStd(), f1 = (v) => +(+v).toFixed(1);
   assert.equal(s.pipeL, f1(K.giTop), 'the G.I. riser pipe: from the ground to its top'); assert.equal(s.guardL, f1(K.ugTop - K.giTop), 'the U-guard: from there to its top');
@@ -110,7 +128,7 @@ test('byte for byte: no riser pole, a proposed riser pole (none by default), eve
 });
 
 test('its own sheet: RISER DETAIL from the GEO sheet\'s frame and title block, after the GEO sheets, numbered within its kind, NOT TO SCALE; the detail drawn and named; nothing else changes', async () => {
-  const none = T.build(SEED_F, riserJob({ det: { s9: { show: 'none' }, s12: { show: 'none' } } })), one = T.build(SEED_F, riserJob());
+  const none = T.build(SEED_F, riserJob({ det: { s9: { show: 'none' }, s12: { show: 'none' } } })), W1 = watchIso(() => T.build(SEED_F, riserJob())), one = W1.out;
   const A = read(none.text), B = read(one.text);
   assert.deepEqual(B.sheets, [...A.sheets.filter((n) => n !== 'KEYMAP'), 'RISER DETAIL', 'KEYMAP'].filter((n, i, L) => L.indexOf(n) === i).sort((x, y) => B.sheets.indexOf(x) - B.sheets.indexOf(y)));
   assert.ok(B.sheets.indexOf('RISER DETAIL') === B.sheets.indexOf('GEO') + 1, `after the GEO sheet: ${B.sheets}`);
@@ -130,6 +148,14 @@ test('its own sheet: RISER DETAIL from the GEO sheet\'s frame and title block, a
   assert.ok(lay('PLAN DETAIL PROPOSED').length > 30 && lay('PLAN DETAIL EXISTING').length >= 8 && lay('PLAN DETAIL').filter((r) => typ(r) === 'SOLID').length >= 12, 'drawn on its layers, its leaders with arrows');
   assert.ok(pg.filter((r) => [...['PLAN DETAIL', 'PLAN DETAIL PROPOSED', 'PLAN DETAIL EXISTING']].includes(g(r, 8))).every((r) => g(r, 62) == null), 'BYLAYER');
   assert.ok(pg.some((r) => typ(r) === 'INSERT' && g(r, 2) === 'proposed Handhole'), 'the handhole\'s own symbol beside its name');
+  // ((beta 7.19, riser detail) the CEF's model: its scene rendered for each detail, its riser kit with the detail's heights (the standard's straps), the bend under it,
+  // the manhole's and the handhole's pits; below the ground dashed in the template's line type)
+  const CC = W1.calls, r3 = (v) => +(+v).toFixed(3);
+  assert.equal(CC.render, 2, 'the CEF scene: one each'); assert.equal(CC.riserKit.length, 2); assert.equal(CC.elbow2.length, 2, 'the bend under each riser'); assert.equal(CC.pit.length, 2, 'the pits: the manhole, the handhole');
+  for (const a of CC.riserKit) { const K = a[7]; assert.deepEqual([K.giTop, K.ugTop, K.gi.map(r3), K.ug.map(r3)].map((v) => (Array.isArray(v) ? v : r3(v))), [2.7, 4.6, [0.991, 1.829, 2.667], [3.3, 3.9, 4.5]], 'its heights: the sizes, the standard\'s straps'); }
+  assert.deepEqual(CC.elbow2.map((a) => [a[3], a[4], a[8]]), [[1.5, 1, true], [1.5, 1, false]], 'the bend: 1.5 m deep, 1 m round; one run (MH-0003), two runs (HH-01)');
+  const DSH = pg.filter((r) => typ(r) === 'LWPOLYLINE' && g(r, 6)); assert.ok(DSH.length >= 20 && DSH.every((r) => /^(HIDDEN|DASHED2?)$/.test(g(r, 6)) && +g(r, 48) > 0), `below the ground dashed: ${DSH.length}`);
+  assert.ok(DSH.some((r) => g(r, 8) === 'PLAN DETAIL EXISTING') && DSH.some((r) => g(r, 8) === 'PLAN DETAIL PROPOSED'), 'the manhole\'s pit (existing), the conduit and the encasement (proposed)');
   // nothing else changes: each sheet and the model space entity by entity; the tables but for the three layers
   const D = diff(none.text, one.text);
   for (const [nm, x] of Object.entries(D)) if (nm !== 'RISER DETAIL') assert.deepEqual([x.gone, x.added.length, x.a], [0, 0, x.b], `${nm}: the same`);
@@ -141,7 +167,7 @@ test('its own sheet: RISER DETAIL from the GEO sheet\'s frame and title block, a
   assert.deepEqual(pb.map((p) => p.name), ['KEYMAP', 'GEO', 'RISER DETAIL']); for (const p of pa) assert.equal(ops(pb.find((q) => q.name === p.name)), ops(p), `${p.name}: the same page`);
   const pd = ops(pb[2]); assert.ok(pd.includes('RISER DETAIL') && pd.includes('NOT TO SCALE') && /1 0 0 RG/.test(pd), 'printed: its texts, its red lines');
   assert.match(one.report.notes.join(' / '), /Riser details: 2 on a sheet of their own \(RISER DETAIL\)/);
-  assert.deepEqual(one.report.riserDetails.map((x) => [x.pole, x.show, x.sheet, x.to.id, x.sizes.cdL, x.sizes.cdFrom]), [['CC-9009', 'page', 'RISER DETAIL', 'MH-0003', 31, 'plan'], ['CC-9012', 'page', 'RISER DETAIL', 'HH-01', 21, 'plan']]);
+  assert.deepEqual(one.report.riserDetails.map((x) => [x.pole, x.show, x.sheet, x.to.id, x.sizes.cdL, x.sizes.cdFrom, x.model]), [['CC-9009', 'page', 'RISER DETAIL', 'MH-0003', 31, 'plan', 'CEF'], ['CC-9012', 'page', 'RISER DETAIL', 'HH-01', 21, 'plan', 'CEF']]);
   // six of them: two sheets (four to a sheet, in route order), each numbered in its kind
   const six = T.build(SEED_F, sixJob()), C = read(six.text);
   assert.deepEqual(C.sheets.filter((n) => /RISER/.test(n)), ['RISER DETAIL', 'RISER DETAIL (2)']);
@@ -170,6 +196,27 @@ test('on the plan: in a frame near its pole like a photo, inside its GEO sheet, 
   // Tidy (a finer grid): the same printed size, so fewer metres
   const tj = riserJob({ det: { s9: { show: 'plan' }, s12: { show: 'none' } }, job: { labels: 'tidy', _grid: 2 } }), td = T.build(SEED, tj).report.riserDetails.find((q) => q.id === 's9');
   assert.ok(Math.abs(td.plan.w * 2 - x.plan.w) < 0.5, `Tidy 1/2: half the metres (${td.plan.w} m)`);
+  // ((beta 7.19, riser detail) its frame filled white: a WIPEOUT (its class), the first of its entities, all of them after the plan's own; listed for the Drawing
+  const R = read(on.text), M0 = R.ents('Model'), mvx = on.report.movable.find((m) => m.id === 'riser:s9'), H = new Set(mvx.handles), wo = M0.filter((r) => typ(r) === 'WIPEOUT');
+  assert.ok(R.d.sec('CLASSES').raw.some(([c, v]) => c === 1 && v === 'WIPEOUT'), 'the WIPEOUT class');
+  assert.equal(wo.length, 1); assert.equal(g(wo[0], 8), 'PLAN DETAIL'); const at0 = M0.indexOf(wo[0]);
+  assert.deepEqual([mvx.kind, mvx.how, mvx.point, mvx.can.move, mvx.can.scale, mvx.can.rotate, H.has(g(wo[0], 5))], ['riserdet', 'auto', 's9', true, true, false, true], 'listed: moved, sized; its mask its own');
+  assert.ok(M0.slice(at0).every((r) => H.has(g(r, 5))) && M0.slice(0, at0).every((r) => !H.has(g(r, 5))) && H.size === M0.length - at0, 'the mask first, then the detail: after everything it covers');
+  const wb = [+g(wo[0], 10), +g(wo[0], 20), +g(wo[0], 10) + +g(wo[0], 11), +g(wo[0], 20) + +g(wo[0], 22)], fr = mvx.box; assert.ok(Math.abs((wb[0] + wb[2]) / 2 - fr[0]) < 0.01 && Math.abs(wb[2] - wb[0] - fr[2]) < 0.01 && Math.abs(wb[3] - wb[1] - fr[3]) < 0.01, `the mask over its frame: ${wb} / ${fr}`);
+  const gops = ops('GEO'), iw = gops.indexOf('q 1 1 1 rg'); assert.ok(iw > 0 && gops.indexOf('RISER DETAIL') > iw, 'the PDF: filled white, then the detail over it');
+  { const L = P.planList(on.text, on.report), mi = on.report.movable.indexOf(mvx), n = L.items.length / 4, own = [...L.own], f = own.indexOf(mi); // (the Drawing's preview: the same)
+    assert.ok(f > 0 && own.slice(f).every((v) => v === mi) && L.items[f * 4] === 1 && L.styles[L.items[f * 4 + 1]].c === '#ffffff' && n - f > 50, 'the Drawing\'s preview: its white fill first, its drawing over it, after the plan'); }
+  // placed by hand (its middle from its pole as drawn) and sized: kept so (the report, the DXF), the leader to its pole; off its sheet: brought back inside it
+  const pj = (o2) => riserJob({ det: { s9: { show: 'plan' }, s12: { show: 'none' } }, job: o2 }), dp = mvx.anchor;
+  const b1 = T.build(SEED, pj({ pins: { 'riser:s9': { at: [-45, -40] } }, style: { 'riser:s9': { scale: 1.25 } } })), m1 = b1.report.movable.find((m) => m.id === 'riser:s9'), p1 = b1.report.riserDetails.find((q) => q.id === 's9').plan;
+  assert.deepEqual([m1.how, +(m1.box[0] - dp[0]).toFixed(2), +(m1.box[1] - dp[1]).toFixed(2), p1.how, p1.scale], ['by hand', -45, -40, 'by hand', 1.25], 'where it was put, its size');
+  assert.ok(Math.abs(m1.box[2] / fr[2] - 1.25) < 1e-6 && Math.abs(m1.box[3] / fr[3] - 1.25) < 1e-6, 'its frame 1.25 times as large');
+  const w1 = read(b1.text).ents('Model').find((r) => typ(r) === 'WIPEOUT'); assert.ok(Math.abs(+g(w1, 11) - m1.box[2]) < 0.01 && Math.abs(+g(w1, 10) + +g(w1, 11) / 2 - m1.box[0]) < 0.01, 'its mask with it');
+  const ttl = (t) => read(t).ents('Model').find((r) => typ(r) === 'TEXT' && /^%%uRISER DETAIL/.test(g(r, 1, ''))); assert.ok(Math.abs(+g(ttl(b1.text), 40) / +g(ttl(on.text), 40) - 1.25) < 1e-6, 'its texts with it');
+  const again = T.build(SEED, pj({ pins: { 'riser:s9': { at: [-45, -40] } }, style: { 'riser:s9': { scale: 1.25 } } })); assert.equal(sha(again.text), sha(b1.text), 'made again: the same');
+  const b2 = T.build(SEED, pj({ pins: { 'riser:s9': { at: [900, -40] } } })), m2 = b2.report.movable.find((m) => m.id === 'riser:s9'), ce = on.report.grid.cell, g0 = on.report.grid.geo;
+  const ci2 = (v, o2) => Math.floor((v - o2) / ce); assert.deepEqual([ci2(m2.box[0] - m2.box[2] / 2, g0[0]), ci2(m2.box[0] + m2.box[2] / 2, g0[0]), ci2(m2.box[1] - m2.box[3] / 2, g0[1]), ci2(m2.box[1] + m2.box[3] / 2, g0[1])], [ci(s9.E), ci(s9.E), cj(s9.N), cj(s9.N)], 'off its sheet: inside it');
+  assert.equal(b2.report.riserDetails.find((q) => q.id === 's9').plan.kept, 'inside its sheet');
 });
 
 test('the sizes typed for a riser, the conduit\'s from its span unless typed; the ends: a service box, a pole, the site, none', () => {
@@ -184,6 +231,8 @@ test('the sizes typed for a riser, the conduit\'s from its span unless typed; th
   assert.deepEqual([by['CC-9006'].to.kind, by['CC-9006'].texts.to], ['site', 'EXISTING SITE DEMOSITE MIN9001']);
   assert.deepEqual([by['CC-9010'].to, by['CC-9010'].texts.cd, by['CC-9010'].sizes.cdL], [null, 'PROPOSED 2 x %%c114.3mm PVC CONDUIT', null], 'a riser by hand with no underground span: its conduit with no end');
   assert.equal(by['CC-9012'].texts.title, 'RISER DETAIL – POLE CC-9012');
+  assert.deepEqual([by['CC-9002'].texts.clo, by['CC-9012'].texts.clo], ['PROPOSED CLOSURE', undefined], '(beta 7.19) a closure on the riser pole: drawn (the CEF\'s dome closure) and named');
+  const W6 = watchIso(() => T.build(SEED, sixJob())); assert.equal(W6.calls.domeClosure.length, 1, 'the closure: on CC-9002 only'); assert.equal(W6.calls.pit.length, 3, 'the pits: the service box, the manhole, the handhole');
 });
 
 test('the kit: PLAN DETAIL and its layers in the starting kit and the STYLE KEY; the detail drawn in them; a drafter\'s change restyles it', () => {
