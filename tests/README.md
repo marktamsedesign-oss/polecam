@@ -12,6 +12,8 @@ All test data is made up (Juan Dela Cruz, Pedro Santos, Maria Garcia, Ana Reyes,
 
 ## What is here
 
+**Pending regression:** releases pushed with only their own tests run are listed in [PENDING-REGRESSION.md](PENDING-REGRESSION.md), with what still has to run.
+
 | | |
 |---|---|
 | `run_all.py` | The one command. Serves the app at `http://localhost:8765`, runs each file, prints `PASS name: n of n`, `FAIL name: …` or `SKIP name: needs …`, and writes `results/` (a log per file and `summary.md`). Its server answers `org.json` with 404 (beta 6.7): the repository's `org.json` ties the website to one organisation, and the tests make their own company list on a new phone (`#pfCreateBox`). `regression/v17/common.py`'s `launch` does the same for a test run on its own. It also answers, for the older tests, what came after them (`NEWER_ASKS_JS`): the plans-to-make reminder on the Drawing (Later), *poles on no cable* at Export (Export as they are) and the photo shown full size after the camera (closed). |
