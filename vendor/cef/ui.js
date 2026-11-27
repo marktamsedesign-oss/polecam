@@ -176,7 +176,24 @@ function appReadme(t) {
 async function appPdf(bytes) { try { const d = await PDFLib.PDFDocument.load(bytes); d.setCreator(APP.ver || 'G-eSAA'); d.setProducer((APP.ver || 'G-eSAA') + ' (pdf-lib)'); if (APP.by) d.setAuthor(APP.by); if (APP.footer) d.setSubject(APP.footer); return await d.save(); } catch (e) { return bytes; } }
 const b64bytes = src => { const s = atob(String(src).slice(String(src).indexOf(',') + 1)), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
 /* what comes from the project is written into the sketch: the site name, its ID and its coordinates */
-function applyFixed() { const f = APP.fix; if (!f || !ROOT) return; for (const k of ['name', 'id', 'lat', 'lon']) if (f[k] != null && f[k] !== '' && (APP.lock || ROOT.site[k] == null || ROOT.site[k] === '')) ROOT.site[k] = f[k]; if (APP.lock) ROOT.site.anchor = 'tower'; }
+function applyFixed() { const f = APP.fix; if (!f || !ROOT) return; const own = siteOwn(ROOT.site);
+  if (APP.lock) for (const k of ['name', 'id']) if (own[k] && String(ROOT.site[k] == null ? '' : ROOT.site[k]) === String(f[k] == null ? '' : f[k])) delete own[k];      /* (stage 11, small) the project's again (e.g. it was renamed to it): it follows the project from now on */
+  if (ROOT.site.own && !Object.keys(own).length) delete ROOT.site.own;
+  for (const k of ['name', 'id', 'lat', 'lon']) if (f[k] != null && f[k] !== '' && (APP.lock || ROOT.site[k] == null || ROOT.site[k] === '') && !(APP.lock && own[k])) ROOT.site[k] = f[k]; if (APP.lock) ROOT.site.anchor = 'tower'; }
+/* (stage 11, small) the owner: "the CEF plan shows the site details (name and ID) for the CEF project details.. CEF details can be the same as the
+   project but can also be different so allow user to edit this details and adjust the drawing details export to pdf or plan. Soon this CEF will be
+   the homing details required for the splicing details." The CEF plan's own site name and ID are site.name and site.id, as always: every sheet, the
+   PDF, both kinds of DXF, the KML and the file names print them. Opened from a site pin (APP.lock) they are the project's to start with and follow
+   it, as before; one typed here that differs from the project's is marked in site.own ({ name: 1, id: 1 }) and kept when the plan opens again.
+   Same as the project (data-a site-same) puts the project's back. The coordinates stay the site pin's. A plan never edited has no site.own. */
+const siteOwn = si => (si && si.own && typeof si.own === 'object' && !Array.isArray(si.own) ? si.own : {});
+/* the site name and ID that differ from the project's: an own one under a site pin; else one the project has (a CEF-Plan project's site details) */
+function siteDiff() { const f = APP.fix, si = ROOT && ROOT.site, own = siteOwn(si), t = v => String(v == null ? '' : v); if (!f || !si) return [];
+  return ['name', 'id'].filter(k => (APP.lock ? !!own[k] : t(f[k]) !== '') && t(si[k]) !== t(f[k])); }
+/* a site name or ID typed in the form (on the plan, not inside a cabin): under a site pin, marked as the plan's own while it differs from the project's */
+function siteOwnSet(k) { if (!APP.lock || !APP.fix || S !== ROOT) return; const f = APP.fix[k], own = Object.assign({}, siteOwn(ROOT.site));
+  if (String(ROOT.site[k] == null ? '' : ROOT.site[k]) === String(f == null ? '' : f)) delete own[k]; else own[k] = 1;
+  if (Object.keys(own).length) ROOT.site.own = own; else delete ROOT.site.own; }
 /* the next thing to do, for someone new to it */
 function guide() {
   if (VIEW) return { t: VIEW, view: 1 };
@@ -233,6 +250,7 @@ function norm(o) {
     for (const e of o.els) if (e.t === 'exit' && was(e.w, 0.3)) { e.w = STD.exitW; e.d = STD.exitW; }
   }
   for (const e of o.els) if (e.t === 'sbox' && e.ty != null && !SBOX[e.ty]) delete e.ty;
+  if (o.site.own != null) { const w = {}; for (const k of ['name', 'id']) if (siteOwn(o.site)[k]) w[k] = 1; if (Object.keys(w).length) o.site.own = w; else delete o.site.own; }      /* (stage 11, small) the plan's own site name and ID */
   if (o.site.names && (typeof o.site.names !== 'object' || Array.isArray(o.site.names))) delete o.site.names; if (o.site.pd && (typeof o.site.pd !== 'object' || Array.isArray(o.site.pd))) delete o.site.pd; if (o.site.txt != null && o.site.txt !== 'auto' && !isFinite(+o.site.txt)) delete o.site.txt;
   seatItems(o);
   if (o.site.below !== 'flat') delete o.site.below; if (o.site.clo !== 'none' && o.site.clo !== 'yes') delete o.site.clo;
@@ -480,9 +498,11 @@ function tabSite() {
   if (S.sample) h += '<div class="note">This is the made-up sample site, opened from a sketch file. The sheets say so.</div>';
   else if (!S.els.length) h += '<div class="note">Start here: set the site size, fence and gate. Then go to <b>Elements</b> for the tower and equipment, <b>Route</b> for the fiber, <b>Photos</b>, and <b>Export</b>.</div>';
   const LK = (a, k) => a + (APP.lock && APP.fix && APP.fix[k] != null && APP.fix[k] !== '' ? ' disabled' : '');
-  h += '<h3>Site</h3><div class="row">' + F('Site name', 'site.name', s.name, LK(TXT, 'name')) + F('Site ID', 'site.id', s.id, LK(TXT, 'id')) + '</div>';
+  h += '<h3>Site</h3><div class="row">' + F('Site name', 'site.name', s.name, TXT) + F('Site ID', 'site.id', s.id, TXT) + '</div>';      /* (stage 11, small) the plan's own: editable under a site pin too */
+  { const df = S === ROOT && !VIEW ? siteDiff() : [], t = v => String(v == null ? '' : v).trim();
+    if (df.length) h += '<div class="btns"><button class="b s" data-a="site-same">Same as the project</button><span class="sitesame">The project\'s ' + (df.length > 1 ? 'name and ID' : df[0] === 'id' ? 'ID' : 'name') + ': ' + esc(df.map(k => t(APP.fix[k]) || '(none)').join(' · ')) + '</span></div>'; }      /* (not a hint, so it is not folded away) */
   h += '<div class="row">' + F('Latitude (decimal °)', 'site.lat', s.lat, LK('type="number" step="any" inputmode="decimal" placeholder="6.198889"', 'lat')) + F('Longitude (decimal °)', 'site.lon', s.lon, LK('type="number" step="any" inputmode="decimal" placeholder="125.182306"', 'lon')) + '</div>';
-  if (APP.lock) h += '<p class="hint">The name, the ID and the coordinates come from the site pin of the project. To change them, change the pin.</p>';
+  if (APP.lock) h += '<p class="hint">The site name and ID are the project\'s to start with: change them here for this CEF plan only. The coordinates come from the site pin of the project. To change them, change the pin.</p>';
   else if (APP.gps && !S.room && !VIEW) h += '<div class="btns"><button class="b s" data-a="gps">Use this phone\'s GPS position</button></div>';
   h += '<div class="row">' + Sel('Coordinates taken at', 'site.anchor', s.anchor, [['tower', 'Tower centre'], ['sw', 'Bottom-left corner']].concat(s.anchor === 'pt' ? [['pt', 'Site pin, set on the map (' + f1(num(s.ax, 0)) + ', ' + f1(num(s.ay, 0)) + ' m)']] : [])) + F('Top side faces (° from true north)', 'site.bearing', s.bearing, 'type="number" step="1" min="0" max="360" inputmode="decimal"') + '</div>';
   if (HOST && HOST.mapPicture && !S.room && !VIEW) h += '<div class="btns"><button class="b s" data-a="map-place">' + ico('map') + 'Set it on the map…</button></div><p class="hint">The box of the site is laid on the map. Drag it onto the site, turn it by its round handle until its sides lie on the fence (that gives true north without a compass), and pull its sides by the white squares to set its width and depth. Two fingers zoom the map.' + (APP.lock ? ' The site pin stays where the project has it: the box moves round it, and the plan keeps where the pin is in the site.' : '') + '</p>';
@@ -1090,7 +1110,7 @@ function applyField(k, t) {
   if (p[0] === 'sign') { if (!['by', 'chk', 'apr'].includes(p[1])) return false; APP.sign = Object.assign({}, APP.sign); APP.sign[p[1]] = String(v == null ? '' : v).slice(0, 80); signSave(); needFit.sheets = true; return true; }      /* (22:24) the names on the sheet: kept by the app, not in the plan */
   if (p[0] === 'site') {
     const f = p[1];
-    if (['name', 'id', 'by', 'org', 'link', 'lat', 'lon', 'kind', 'fence', 'anchor', 'labels', 'cut', 'below', 'clo'].includes(f)) { push('f:' + k); si[f] = v; if (f === 'below' && v !== 'flat') delete si[f]; if (f === 'clo') si.clo = v === 'none' ? 'none' : 'yes';      /* (beta 4.2: the answer is kept, so the app does not ask again) */ if (f === 'name' || f === 'id') S.sample = false; if (f === 'kind' || f === 'labels' || f === 'cut' || f === 'below' || f === 'clo') needFit.iso = needFit.top = needFit.sheets = true; return true; }
+    if (['name', 'id', 'by', 'org', 'link', 'lat', 'lon', 'kind', 'fence', 'anchor', 'labels', 'cut', 'below', 'clo'].includes(f)) { push('f:' + k); si[f] = v; if (f === 'below' && v !== 'flat') delete si[f]; if (f === 'clo') si.clo = v === 'none' ? 'none' : 'yes';      /* (beta 4.2: the answer is kept, so the app does not ask again) */ if (f === 'name' || f === 'id') { S.sample = false; siteOwnSet(f); } if (f === 'kind' || f === 'labels' || f === 'cut' || f === 'below' || f === 'clo') needFit.iso = needFit.top = needFit.sheets = true; return true; }
     if (f === 'txt') { push('f:' + k); if (v === 'auto' || v === '') delete si.txt; else si.txt = clamp(num(v, 100), 50, 250); if (!S.room) for (const e of S.els) if (e.t === 'cabin' && e.inside) txtSync(e.inside); needFit.iso = needFit.top = needFit.sheets = true; return true; }      /* (fix 47: the inside of each cabin too, as the Text button does) */
     if (f === 'nm') { if (!NAMES.some(q => q[0] === p[2])) return false; push('f:' + k); si.names = Object.assign({}, si.names); si.names[p[2]] = String(v) === '1'; needFit.iso = needFit.top = needFit.sheets = true; return true; }
     if (f === 'towerShow') { push('f:' + k); si.towerShow = isFinite(x) && x > 0 ? clamp(x, 3, 300) : ''; needFit.iso = needFit.sheets = true; return true; }
@@ -1422,6 +1442,8 @@ function action(a, b) {
     case 'photo-pick': pickPictures(); return;
     case 'pic-on': if (mode === 'photo') { mode = 'select'; placing = null; } picToggle(d.id, d.v); return;      /* (22:24) put on a drawing by hand: the tap that marks the photo is no longer waited for */
     case 'gps': useGps(); return;
+    case 'site-same': { const df = S === ROOT ? siteDiff() : []; if (!df.length) return; push(); for (const k of df) ROOT.site[k] = APP.fix[k] == null ? '' : APP.fix[k]; delete ROOT.site.own;      /* (stage 11, small) the project's site name and ID again */
+      needFit.iso = needFit.top = needFit.sheets = true; say('The site name and ID are the project\'s again.'); refresh(true); return; }
     case 'map-place': mapPlaceOpen(); return;
     case 'go-tab': if (TABS[d.tab]) { openTab = tab = d.tab; sel = null; if (mode !== 'select') { mode = 'select'; draft = []; } msg = null; refresh(true); panel.scrollTop = 0; } return;
     case 'open-tab': openTab = TABS[d.tab] ? d.tab : null; sel = null; if (mode !== 'select') { mode = 'select'; draft = []; live = null; placing = null; } tab = tabSync = openTab || 'home'; msg = null; refresh(true); panel.scrollTop = 0; return;      /* beta 4.2 (19:25): a form from the short menu, or back to it */

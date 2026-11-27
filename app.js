@@ -23423,14 +23423,29 @@
     const f = $('cefFrame'); try { f.contentWindow.location.replace(new URL(CEF_PAGE, location.href).href); } catch (e) { f.src = CEF_PAGE; } // (replace: the phone's Back closes the plan, it does not go back inside the frame)
     return true;
   }
+  /** The project's site name and ID (and its site pin's coordinates) for a CEF plan: what its editor is given (APP.fix). pin: the plan's site pin
+      (an As-Plan's plan: the coordinates are always the pin's; (stage 11, small) the name and ID the project's until the plan has its own; '' in a
+      CEF-Plan project). */
+  function cefFixOf(name, pin) {
+    const m = pmeta(name), pinRec = pin ? points.find((p) => p.id === pin && p.project === name) : null, F = siteFieldsOf(name);
+    const sName = m.siteName || sfGet(F, /site\s*name|searchring|segment/i) || '', sId = m.plaId || sfGet(F, /pla\s*id/i) || '';
+    return { pinRec, site0: pinRec ? { name: sName || recName(pinRec) || '', id: sId, lat: +(+pinRec.lat).toFixed(6), lon: +(+pinRec.lon).toFixed(6) } : { name: sName, id: sId } };
+  }
+  /** (stage 11, small) A CEF plan's site name and ID as its sheets print them, read from one place (the owner: "Soon this CEF will be the homing
+      details required for the splicing details"): the plan's own (sk.site, typed in its editor; under a site pin site.own marks them) where it has
+      them, else the project's, as the editor takes them when it opens (vendor/cef/ui.js applyFixed). own: the names the plan has of its own. */
+  function cefSiteOf(name, plan) {
+    const si = (plan && plan.sk && plan.sk.site) || {}, w = si.own && typeof si.own === 'object' ? si.own : {}, { pinRec, site0 } = cefFixOf(name, plan && plan.pin), t = (v) => String(v == null ? '' : v);
+    const out = { name: '', id: '', own: [] };
+    for (const k of ['name', 'id']) { const f = t(site0[k]), v = t(si[k]), mine = pinRec ? !!w[k] || !f : !!v; out[k] = mine ? v : f; if (mine && v !== f) out.own.push(k); }
+    return out;
+  }
   /** What the editor starts with. */
   async function cefInit(job) {
     const c = (job && cefJobCtx[job]) || cefNow; if (!c) return null; // (beta 4.1: or the plan of a Drawing export, made out of sight)
     const plan = cefPlans(c.name).find((p) => p.id === c.id) || null, m = pmeta(c.name), u = S.user || {}, e = exporterInfo(), photos = {};
     if (plan) for (const pid of cefPhotoIds(plan)) { try { const ph = await dbGet('photos', pid); if (ph && (ph.clean || ph.thumb)) photos[pid] = (await cefPhotoSrc(ph.clean || ph.thumb)).src; } catch (x) { /* shown as not on this phone */ } }
-    const pinRec = c.pin ? points.find((p) => p.id === c.pin && p.project === c.name) : null, F = siteFieldsOf(c.name);
-    const sName = m.siteName || sfGet(F, /site\s*name|searchring|segment/i) || '', sId = m.plaId || sfGet(F, /pla\s*id/i) || '';
-    const site0 = pinRec ? { name: sName || recName(pinRec) || '', id: sId, lat: +(+pinRec.lat).toFixed(6), lon: +(+pinRec.lon).toFixed(6) } : { name: sName, id: sId };
+    const { pinRec, site0 } = cefFixOf(c.name, c.pin), F = siteFieldsOf(c.name);
     const T = tmTeam(c.name), ck = T && T.accepted ? String(T.accepted.byName || T.accepted.by || '') : '';
     const foot = `EXPORTED BY ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' - ').toUpperCase()} - G-eSAA ${VER_LABEL}`; // the line under the frame of every sheet
     return { sketch: plan ? JSON.stringify(plan.sk) : null, photos, logos: await cefLogos(), tab: c.tab || '',
@@ -24386,7 +24401,8 @@
     frame: () => $('cefFrame').contentWindow, logos: () => cefLogos(), canLogo: () => cefCanLogo(), logoSet: (f) => cefLogoSet(f), logoRemove: () => cefLogoRemove(), changed: (n, t) => cefChanged(n || S.project, t), pids: (n, t) => cefPids(n || S.project, t), summary: (n) => projSummary(n || S.project),
     put: (n, id, sk, o) => { const G = cefOf(n), x = o || {}, i = G.plans.findIndex((p) => p.id === id), rec = { id, pin: x.pin || '', sk, at: x.at || new Date().toISOString(), by: x.by || (S.user && S.user.name) || '', o: x.o != null ? x.o : cefMe(), made: x.at || new Date().toISOString() }; if (i >= 0) G.plans[i] = rec; else G.plans.push(rec); cefPut(n, G); },
     keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); },
-    planFiles: (n, only) => cefPlanFiles(n || S.project, only) }; // (beta 7.15, CEF template: the Drawing export's CEF files, for the tests)
+    planFiles: (n, only) => cefPlanFiles(n || S.project, only), // (beta 7.15, CEF template: the Drawing export's CEF files, for the tests)
+    site: (n, id) => { const p = cefPlans(n || S.project).find((x) => x.id === id) || null; return p ? cefSiteOf(n || S.project, p) : null; } }; // ((stage 11, small) a plan's own site name and ID)
   window.__polecam.jn = { att: (id) => { const j = points.find((p) => p.id === id); return j ? jnAtt(j).map((p) => p.id) : null; }, fit: (id) => { const j = points.find((p) => p.id === id); return j ? jnFit(j, jnAtt(j)) : null; }, msg: (id) => { const j = points.find((p) => p.id === id); return j ? jnMsgM(j) : null; }, // beta 6.9: a pull-off's or cross-over's poles, where it fits, its messenger
       pick: () => (jnPick ? { id: jnPick.id, need: jnPick.need, ch: jnPick.ch.slice(), fix: [...jnPick.fix], surf: jnPick.surf, bar: $('jnBarT').textContent, done: !$('jnBarDone').disabled } : null), tap: (id) => jnPickTap(id), done: () => jnPickDone(), start: (id, surf) => jnPickStart(id, surf), bar: () => ($('jnBar').hidden ? null : $('jnBarT').textContent), lbl: () => (drw && drw.jnLbl ? drw.jnLbl : null) };
   /* beta 4.6 (tests): the splicing details. frame(): the page's window; drwPt(id): where a record is on the Drawing (screen pixels) */
