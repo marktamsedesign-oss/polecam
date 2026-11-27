@@ -12933,7 +12933,7 @@
       if (xSel.includes('doDxf') || xSel.includes('xOnePdf')) {
         const tpl = dxfMode() === 'tpl'; let N = null; try { N = planNeeds(S.project); } catch (x) { N = null; }
         const ctp = tplTestFor('geo'); // ((stage 11, templates) the testing template on this admin phone)
-        if (tpl && ctp) L.push(['ok', `On the testing template ${ctp.name} (not published: its files say TEST)`]);
+        if (tpl && ctp) L.push(['no', `${TPL_TEST_SAY}: on ${ctp.name} (its files say TEST)`]); // (a warning, not a tick: a calibration plan)
         else if (tpl && !S.dxfSeed && !seedBusy) L.push(['no', 'No company template on this phone', 'Get it ›', 'tpl']);
         else if (tpl && S.dxfSeed) L.push(['ok', 'On your company’s plan template']);
         if (N && N.roads && (tpl || $('dxfRoads').checked)) L.push(['no', `The road pack of ${N.roads.regions.length === 1 && REGION_BY[N.roads.regions[0]] ? REGION_BY[N.roads.regions[0]][2] : 'this area'} is not on this phone`, 'Get it ›', 'roads', N.roads.regions[0] || '']);
@@ -13863,7 +13863,7 @@
     renderSig(); renderNums();
     if (!$('dxfFiles')) return;
     const tpl = dxfMode() === 'tpl', R = dxfRows(), pts = xNow(projPoints), np = pts.filter((p) => elemOf(p) === 'Pole').length, RM = xNow(routeModel), info = S.dxfSeed, stale = seedStale(); // (what the export makes: not the poles hidden from it)
-    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan style › More settings › Plan file)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan style › More settings › Plan file.'];
+    const pu = svPurpose(), tt = tplTestFor('geo'), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : tt ? ['mt', `${TPL_TEST_SAY}: on ${tt.name} (its files say TEST)`] /* (stage 11, templates) */ : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan style › More settings › Plan file)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan style › More settings › Plan file.'];
     $('dxfSum').innerHTML = `<span class="nm">${C.xmlEsc(S.project || '')}</span><span class="mt">${C.xmlEsc([pu === 'As-built' ? 'As-Built' : pu === 'As-plan' ? 'As-Plan' : pu, `${np} pole${np === 1 ? '' : 's'}`, `${RM.spans.length} span${RM.spans.length === 1 ? '' : 's'}`, fmtLen(RM.total)].filter(Boolean).join(' · '))}</span><span class="${st[0]}">${C.xmlEsc(st[1])}</span>`;
     $('dxfFilesBox').hidden = !tpl; $('dxfWhatRow').hidden = !tpl; $('dxfWhat').hidden = !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl; $('dxfCefRow').hidden = !tpl || !(cefHooks.plansN && cefHooks.plansN(S.project)); // (beta 4.1: shown when the project holds a CEF plan)
     // beta 6.7 (UX step 3): Drawings (1 · Every point · Photo) and Look (the company standard, or what differs from it)
