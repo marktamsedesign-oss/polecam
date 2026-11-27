@@ -1,5 +1,6 @@
 /* (stage 11, existing cable) The existing cable drawn along the road, without the app: its line (core.js PoleCore.xc: the roads followed at a distance from their
-   centre line on the Left / Right of the way it runs, a traverse, a pole tapped, straight where there is no road or the roads go a long way round), the plan
+   centre line on the Left / Right of the way it runs, a traverse, a pole tapped, straight where there is no road or the roads go a long way round; (beta 7.19,
+   existing cable) the side of the road a tap is on, C.xc.sides: the cable's side from the first tap, the road crossed where a tap is on the other side), the plan
    (dxftpl.js job.xcab: its line on the kit's PLAN CABLE AE / UG EXISTING layer, else the cable layer in blue, its end at an ODF drawn on to the ODF where the
    plan draws it, a hanging end's note with its leader, the sheets covering it; without job.xcab the plan as before, byte for byte) and the KMZ (core.js buildKml
    opts.excab: a folder "Existing cables (reference)"; without it, as before). Run: node --test tests/existing-cable.test.cjs (or python3 tests/run_all.py
@@ -48,6 +49,27 @@ test('the whole line: a traverse at a tap (the other side from it on), each stre
   assert.deepEqual(W.road, [true, true]);
   const W2 = C.xc.line(ROADS, [{ E: 10, N: 2 }, { E: 200, N: 1, x: true }, { E: 250, N: 1, x: true }], { off: 3, side: 'R' });
   assert.deepEqual(W2.pts, [[10, -3], [100, -3], [200, -3], [200, 3], [250, 3]], 'the first stretch on the right; a crossing at its last tap does nothing yet');
+});
+
+test('(beta 7.19, existing cable) the side of the road a tap is on, as the cable runs: the cable\'s side from the first tap, the road crossed where a tap is on the other side', () => {
+  const sd = (a, b, o) => { const r = C.xc.sides(ROADS, { E: a[0], N: a[1] }, { E: b[0], N: b[1] }, o); return [r.a, r.b]; };
+  assert.equal(C.xc.MID, 1, 'about a metre');
+  assert.deepEqual(sd([10, 4], [200, 4]), ['L', 'L'], 'going east: the north side is the left');
+  assert.deepEqual(sd([10, -4], [200, -4]), ['R', 'R'], 'the south side: the right');
+  assert.deepEqual(sd([200, 4], [10, 4]), ['R', 'R'], 'going west: the north side is the right');
+  assert.deepEqual(sd([10, 4], [200, -4]), ['L', 'R'], 'the second on the other side');
+  assert.deepEqual(sd([10, 4], [296, 200]), ['L', 'L'], 'round the corner: the avenue going north, its west side the left');
+  assert.deepEqual(sd([10, 4], [304, 200]), ['L', 'R'], 'its east side the right');
+  assert.deepEqual(sd([10, 0.6], [200, -1.4]), [null, 'R'], 'within a metre of the centre line: neither side');
+  assert.deepEqual(sd([10, 100], [200, 4]), [null, 'L'], 'no road within reach: neither');
+  assert.deepEqual(sd([60, 40], [200, 4]), [null, 'L'], 'a footpath is not a road');
+  assert.deepEqual(sd([100, 4], [100, -4]), [null, null], 'straight across the road: the way it runs not known');
+  assert.deepEqual(sd([100, 4], [100, -4], { dir: [1, 0] }), ['L', 'R'], 'straight across, having come from the west');
+  assert.deepEqual(sd([100, 4], [100, -4], { dir: [-1, 0] }), ['R', 'L'], 'straight across, having come from the east');
+  const s = C.xc.sides(ROADS, { E: 10, N: 4 }, { E: 200, N: -2.5 }); assert.equal(s.da, 4); assert.equal(s.db, 2.5);
+  // the line as the app then draws it: the side of the first tap (the right); a tap on the other side crosses the road there (x)
+  const W = C.xc.line(ROADS, [{ E: 10, N: -4 }, { E: 150, N: -4 }, { E: 250, N: 4, x: true }, { E: 302, N: 200 }], { off: 4, side: sd([10, -4], [150, -4])[0] });
+  assert.deepEqual(W.pts, [[10, -4], [100, -4], [150, -4], [250, -4], [250, 4], [296, 4], [296, 150], [296, 200]], 'the south side, crossed at the third tap, on along the north side and up the avenue\'s west side');
 });
 
 /** the synthesizer's made-up plan (o: more of the job) */
