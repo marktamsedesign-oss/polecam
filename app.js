@@ -7786,6 +7786,7 @@
     if (T.length < 2) { toast('Tap at least two places along the road', 2500); return; }
     if (XC.busy) { toast('Getting the roads: a moment…', 2000); return; }
     XC.step = 'end'; XC.sel = null; xcDraw(); xcBarRender();
+    try { const q = T[T.length - 1], p = map.latLngToContainerPoint([q.lat, q.lon]), top = $('xcBar').getBoundingClientRect().top - map.getContainer().getBoundingClientRect().top; if (p.y > top - 40) map.panBy([0, p.y - (top - 70)], { animate: false }); } catch (e) { /* the map as it is */ } // (its end in sight above its ends' questions)
   }
   function xcSave() {
     if (!XC) return; const c = XC.c;
@@ -7838,7 +7839,7 @@
     bar.innerHTML = h; bar.hidden = false; document.body.classList.add('xcbar');
     document.body.style.setProperty('--xcbh', `${Math.round(bar.getBoundingClientRect().height)}px`);
   }
-  $('xcBar').addEventListener('input', (e) => { const t = e.target; if (XC && t.matches('.xc-in')) { const w = t.dataset.w; XC.c[w] = { ...(XC.c[w] || {}), at: 'hang', text: t.value }; } });
+  $('xcBar').addEventListener('input', (e) => { const t = e.target; if (XC && t.matches('.xc-in')) { const w = t.dataset.w; XC.c[w] = { ...(XC.c[w] || {}), at: 'hang', text: t.value }; xcDraw(); } }); // (its note on the map as it is typed)
   $('xcBar').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.xc-in')) { e.preventDefault(); e.target.blur(); } });
   $('xcBar').addEventListener('click', (e) => guard(async () => {
     const b = e.target.closest('button[data-xc]'); if (!b || b.disabled) return; if (e.detail) b.blur(); const a = b.dataset.xc, v = b.dataset.v;
