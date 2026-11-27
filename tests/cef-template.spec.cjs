@@ -10,7 +10,8 @@
      sheet (A3 landscape, the client's labels and logo, "n OF N", the project and site); the README says so
    - the editor's buttons: Both (ZIP) says the files are on the client's template; a template the CEF cannot be printed on (no CEF sheet): the
      app's own frame, and the note says why
-   - the Drawing export's CEF plans (made out of sight, one plan after the other): on the template too
+   - the Drawing export's CEF plans (made out of sight, one plan after the other): on the template too; (stage 11, templates) the admin's testing CEF
+     template: every file of the plan says _TEST
    - no template: the files as before (the DXF the app's own frame's, as the editor makes it without one)
    Uses an isolated browser profile and a local HTTP server; every name, number and place is made up. */
 'use strict';
@@ -181,6 +182,12 @@ test('the Drawing export\'s CEF plans (made out of sight) on the template too; n
   assert.ok(job.dxf && job.names.every((n) => /^CEF_PLAN_/.test(n)), job.names.join(', '));
   assert.deepEqual(sheetsOf(job.dxf).map((s) => s.name), ['COVER PAGE', 'CONTENTS', 'LEGEND', 'ISOMETRIC', 'TOP VIEW']);
   assert.ok(sheetsOf(job.dxf).every((s) => s.layers.includes('DEMO-BORDER')), 'every sheet on the client\'s frame');
+  // (stage 11, templates) the admin's testing CEF template (the app hands it with test: true): every file of the plan says _TEST, its folder too
+  await setTpl(page, { name: 'DEMO CLIENT A3 (testing)', text: SEED, look: null, kind: 'company', test: true, note: 'Testing template: not published.' });
+  const jt = await page.evaluate(async () => (await window.__polecam.cef.planFiles()).map((x) => x.name));
+  assert.ok(jt.length > 3 && jt.every((n) => /^CEF_PLAN_[^/]*_TEST\//.test(n)) && jt.filter((n) => /\.(dxf|pdf|kml|json)$/.test(n)).every((n) => /_TEST_CEF/.test(n)), jt.join(', '));
+  assert.ok(jt.some((n) => /_TEST_CEF\.pdf$/.test(n)), 'the One PDF still finds its PDF (…_CEF.pdf)');
+  await setTpl(page, { name: 'DEMO CLIENT A3', text: SEED, look: null });
   // (templates, company CEF template) no client template (and no company one): the app's generic CEF template, not the app's own frame
   await setTpl(page, null);
   const fr = await cef(page), F = await files(fr), old = await fr.evaluate(async () => sheetsDXF(dxfSheets(appSketch(ROOT)), { dims: await picDims(appSketch(ROOT)) })), dxf = pick(F, /_CEF_sheets\.dxf$/);

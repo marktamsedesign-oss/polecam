@@ -1,19 +1,20 @@
 /* (templates, Digester) and (templates, Round trip) in the browser. The owner: "the digester learning from clients' finished plans. Learning means
    copying the template but replacing the details necessary to the project. Example: the plan itself, the project details, sheets to print details.
    Geo add sheet, vicinity, pmi and so on" and "downloading a template, editing it and loading it back; yes for admin".
-   - a computer (1280x900): Plan style › Template › Add a client's template… with a made-up FINISHED plan (tests/fixtures/client-d-made-up-plan.dxf:
+   (stage 11, templates) The owner: "for the Asplan/Asbuilt and CEF templates, do not put it on drawing settings but rather put it on the admin settings
+   only": the digester and the round trip are the admin's, in Administration › Plan templates, on the admin phone of a made-up company list
+   (tests/tpl-admin.cjs, the online sheet v2.43.7 on its stand-in); what they make is the testing template:
+   - a computer (1280x900): As-plan / as-built › Testing › Make from a client's file… with a made-up FINISHED plan (tests/fixtures/client-d-made-up-plan.dxf:
      14 poles, a cover, legend, location map with its picture, key plan, two plan sheets, PMI and ROW tables): the review says it is a finished plan
      (ticked), each sheet's role (cover, legend, vicinity map, key map, plan, plan, PMI, ROW), what it learned of each kind (pole IDs on D-POLE-ID in
-     D-LABELS 2.2 m…), its two tables, the cover's fields found by their values; Make and check (no problem), Save (listed as a finished plan); the
-     project's plan made on it: TITLE (the cover, the project's name on it), LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, GEO, PMI, every field
-     filled, the PMI's figures and the ROW's places the app's, the learned look kept (G-ESAA_LOOK.kinds); unticking makes it a template again (the
-     three sheets' choices back);
-   - the admin's round trip (a phone with no company list: its own admin): Download the company template (tagged company), edited, loaded back:
-     checked, asked, it replaces the company template on this phone (said how to share it); the client template downloaded (tagged with its id),
-     edited, loaded back: replaces that template (listed as edited in AutoCAD; Make again asks first); a file without the tag: asked which template
-     it is (added as a new client template); a file that is not a G-eSAA template: refused, saying why;
-   - who may: a phone with no company list and the admin yes; a user of a list while permissions are off, or without Team admin, no (the row not
-     shown); Team admin allowed: the company template yes, a client template only with Client templates allowed too.
+     D-LABELS 2.2 m…), its two tables, the cover's fields found by their values; Make and check (no problem), Save as testing; Use the testing templates
+     on: the project's plan made on it: TITLE (the cover, the project's name on it), LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, GEO, PMI, every
+     field filled, the PMI's figures and the ROW's places the app's, the learned look kept (G-ESAA_LOOK.kinds); unticking makes it a template again;
+   - the admin's round trip on the slots: Download (published: the company template, tagged company), edited, Load it back… (tidied, checked, the
+     testing template); again: asked to replace it; Download (testing: a client's finished plan made into a template, its learned look kept), edited,
+     loaded back; a file that is not a G-eSAA template: refused by Load it back… and by Load a DXF…, saying why;
+   - who: the admin phone (Administration, the admin PIN); a user of the list (Team admin and Client templates allowed included) has no Plan
+     templates, sets nothing, and a testing template on that phone is never used.
    Uses an isolated browser profile and a local HTTP server; every name, number and place is made up. */
 'use strict';
 const { test, before, after } = require('node:test');
@@ -23,10 +24,12 @@ const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const H = require('./tpl-admin.cjs');
 
 const root = path.resolve(__dirname, '..'), FX = path.join(__dirname, 'fixtures');
 const SEED_SQ = fs.readFileSync(path.join(FX, 'plan-seed-made-up-square.dxf'), 'utf8');
-let server, browser, base;
+const SH = H.sheet(path.join(__dirname, 'regression', 'v243', 'sheet', 'PoleCam-online-sheet_v2.43.7.gs')); // (stage 11, templates) the admin phone's list
+let server, browser, base, ADMIN = null;
 before(async () => {
   server = http.createServer(async (req, res) => {
     try {
@@ -41,6 +44,7 @@ before(async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}/`;
   browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH || undefined });
+  ADMIN = await H.makeAdmin(browser, base, SH); // ((stage 11, templates) Plan templates is the admin's)
 });
 after(async () => { if (browser) await browser.close(); if (server) await new Promise((resolve) => server.close(resolve)); });
 
@@ -52,21 +56,22 @@ const LINKS = POLES.slice(1).map((p, i) => [POLES[i][0], p[0], 'F12']);
 /** A company list a user phone keeps (made up; its structure as the app checks it), with its permissions. */
 const team = (perms) => ({ t: 'polecam-team', id: 'demo-team-1', name: 'DEMO CONTRACTOR TEAM', rev: 2, admins: [{ n: 'DEMO ADMIN', k: 'demo-admin-public-key' }], co: ['DEMO CONTRACTOR'], ...(perms ? { perms } : {}) });
 
-/** The app with the made-up project open, the made-up company template on this phone (o.team: a company list), the builder on the page (its plans kept). */
+/** The app with the made-up project open, the made-up company template on this phone, the builder on the page (its plans kept): (stage 11, templates) the
+    admin phone of the list (o.team: a user's phone of that list instead, its permissions as given). */
 async function open(o) {
   o = o || {};
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, serviceWorkers: 'block', acceptDownloads: true });
-  await ctx.route('**/*', (r) => (r.request().url().startsWith(base) ? r.continue() : r.abort()));
+  await SH.route(ctx); await ctx.route('**/*', (r) => { const u = r.request().url(); return u === `${base}org.json` ? r.fulfill({ status: 404, body: '' }) : u.startsWith(base) ? r.continue() : u.startsWith(SH.url) ? r.fallback() : r.abort(); }); // (the test's own list: no org.json)
   const page = await ctx.newPage(), errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(base + 'manifest.json');
-  await page.evaluate(async ({ R, NAME, USER, LINKS, SEED, TEAM }) => {
+  await page.evaluate(async ({ R, NAME, USER, LINKS, SEED, TEAM, ADMIN }) => {
     await new Promise((res, rej) => { const r = indexedDB.open('polecam', 2); r.onupgradeneeded = () => { const d = r.result; for (const [n, k] of [['points', 'id'], ['photos', 'id'], ['tiles', 'k'], ['packs', 'k']]) if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, { keyPath: k }); };
       r.onsuccess = () => { const d = r.result, tx = d.transaction(['points', 'packs'], 'readwrite'), st = tx.objectStore('points'); st.clear(); R.forEach((x) => st.put(x)); tx.objectStore('packs').put({ k: '~dxfseed', text: SEED }); tx.oncomplete = () => { d.close(); res(); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); });
-    localStorage.setItem('polecam.settings', JSON.stringify({ projects: [NAME], project: NAME, sampleDone: true, saveCheck: false, zone: 51, user: USER, v17: 1, v20: 1, v64addr: 1, plNotice: 1, routeTip: true, rtGrabTip: true, drawHintOff: true, drawMapKind: 'off',
-      dxfSeed: { name: 'plan-seed-made-up-square.dxf', size: SEED.length, at: '2026-11-01T08:00:00.000Z', from: 'file', id: '' }, ...(TEAM ? { team: TEAM } : {}),
+    localStorage.setItem('polecam.settings', JSON.stringify({ ...(TEAM ? { user: USER, team: TEAM } : ADMIN), projects: [NAME], project: NAME, sampleDone: true, saveCheck: false, zone: 51, v17: 1, v20: 1, v64addr: 1, plNotice: 1, routeTip: true, rtGrabTip: true, drawHintOff: true, drawMapKind: 'off',
+      dxfSeed: { name: 'plan-seed-made-up-square.dxf', size: SEED.length, at: '2026-11-01T08:00:00.000Z', from: 'file', id: '' },
       exp: { dxfMode: 'tpl', dxfPdf: false, dxfCef: false, planOut: 'files' }, meta: { [NAME]: { mode: 'survey', purpose: 'As-plan', contractor: 'DEMO CONTRACTOR', links: LINKS, cables24: true } } }));
-  }, { R: recs(NAME), NAME, USER, LINKS, SEED: SEED_SQ, TEAM: o.team || null });
+  }, { R: recs(NAME), NAME, USER, LINKS, SEED: SEED_SQ, TEAM: o.team ? { ...ADMIN.team, ...(o.team.perms ? { perms: o.team.perms } : {}) } : null, ADMIN });
   await page.goto(base + 'index.html');
   await page.waitForFunction(() => !!window.__polecam && !!document.getElementById('exportBtn') && window.__polecam.points.length > 0, null, { timeout: 60000 });
   await page.waitForTimeout(1000);
@@ -79,13 +84,8 @@ async function open(o) {
   return { ctx, page, errors };
 }
 const closeAll = async (page) => { for (let i = 0; i < 8; i++) { if (!(await page.evaluate(() => document.querySelectorAll('section.sheet:not([hidden])').length))) return; await page.goBack(); await page.waitForTimeout(400); } };
-async function planStyle(page) {
-  await closeAll(page);
-  await page.evaluate(() => document.getElementById('drawBtn').click()); await page.waitForTimeout(700);
-  await page.evaluate(() => { const d = document.querySelector('dialog[open]'); if (d) d.close(); });
-  await page.evaluate(() => document.getElementById('drawSetBtn').click()); await page.waitForTimeout(700);
-  await page.evaluate(() => { const d = document.getElementById('stTpl'); d.open = true; d.scrollIntoView(); }); await page.waitForTimeout(300);
-}
+/** (stage 11, templates) Administration › Plan templates (the admin PIN). */
+const planTemplates = (page) => H.admin(page);
 async function exportPlan(page) {
   await closeAll(page); await page.evaluate(() => { window.__exp = []; document.getElementById('exportBtn').click(); }); await page.waitForTimeout(800);
   await page.evaluate(() => { document.getElementById('resultBox').hidden = true; document.getElementById('doDxf').click(); });
@@ -109,11 +109,11 @@ const T = require(path.join(root, 'dxftpl.js')), G = require(path.join(root, 've
 const layoutsOf = (text) => { const S = T.structure(new T.Doc(text)); return S.layouts.filter((L) => L.name !== 'Model').sort((a, b) => +((a.rec.find((p, i) => i > 0 && p[0] === 71) || [])[1] || 0) - +((b.rec.find((p, i) => i > 0 && p[0] === 71) || [])[1] || 0)).map((L) => L.name); };
 const inkOf = (page, id) => page.evaluate((id) => { const c = document.getElementById(id), g = c.getContext('2d'), D = g.getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < D.length; i += 4) if (D[i] < 200 || D[i + 1] < 200 || D[i + 2] < 200) n++; return n; }, id);
 
-test('a computer: a client\'s finished plan learned (its sheets\' roles, the look of each kind, its tables), checked, saved; the project\'s plan made on it', async () => {
+test('a computer: a client\'s finished plan learned (its sheets\' roles, the look of each kind, its tables), checked, saved as the testing template; the project\'s plan made on it', async () => {
   const { ctx, page, errors } = await open();
   try {
-    await planStyle(page);
-    await page.setInputFiles('#tplFile', path.join(FX, 'client-d-made-up-plan.dxf'));
+    await planTemplates(page);
+    await page.setInputFiles('#admTplGeoMakeFile', path.join(FX, 'client-d-made-up-plan.dxf'));
     await page.waitForFunction(() => !document.getElementById('tplReview').hidden, null, { timeout: 30000 }); await page.waitForTimeout(800);
     const map = await page.evaluate(() => window.__polecam.tpl.review());
     assert.equal(map.finished, true, 'a finished plan');
@@ -147,10 +147,11 @@ test('a computer: a client\'s finished plan learned (its sheets\' roles, the loo
     assert.match(res, /Style kit: 14 entries as their plan draws them \(PLAN POLE DETAILS ← pole ids and details, /);
     assert.ok(await inkOf(page, 'tplCheckPic') > 1000, 'the made-up plan\'s picture');
     if (process.env.SHOTS) await page.screenshot({ path: path.join(process.env.SHOTS, 'client-plan-template-review.png'), fullPage: false });
-    await page.evaluate(() => document.getElementById('tplSave').click());
+    await page.evaluate(() => document.getElementById('tplSave').click()); // (no CEF sheet in their plan: nothing asked)
     await page.waitForFunction(() => document.getElementById('tplReview').hidden, null, { timeout: 20000 }); await page.waitForTimeout(500);
-    const st = await page.evaluate((n) => ({ list: window.__polecam.tpl.list(), of: window.__polecam.tpl.of(n), item: document.querySelector('#tplList .tplit small').textContent }), NAME);
-    assert.equal(st.list.length, 1); assert.equal(st.list[0].fin, true); assert.ok(st.of); assert.match(st.item, /^From client-d-made-up-plan\.dxf \(a finished plan\) · /);
+    const st = await page.evaluate(() => ({ test: window.__polecam.tpl.test(), item: document.getElementById('admTplGeoTestSum').textContent }));
+    assert.equal(st.test.geo.name, 'DEMO CLIENT D TELECOM.dxf'); assert.equal(st.test.geo.look.from.finished, true); assert.equal(st.test.cef, undefined); assert.match(st.item, /^DEMO CLIENT D TELECOM\.dxf · \d+ KB · /);
+    await page.check('#admTplTest'); await page.waitForTimeout(300); // (Use the testing templates on this phone)
     // the project's plan on their sheets
     const out = await exportPlan(page), L = layoutsOf(out.text);
     assert.deepEqual(L, ['TITLE', 'LEGENDS', 'VICINITY MAP', 'ROW AREA COVERAGE', 'KEYMAP', 'GEO', 'PMI'], L.join(', '));
@@ -164,9 +165,9 @@ test('a computer: a client\'s finished plan learned (its sheets\' roles, the loo
     assert.deepEqual([kit['PLAN POLE DETAILS'].font, kit['PLAN POLE DETAILS'].h, kit['PLAN SPAN LENGTH'].font, kit['PLAN SPAN LENGTH'].wf, kit['PLAN SPAN LENGTH'].h], ['arialn.ttf', 1.83, 'romans.shx', 0.8, 1.5]);
     assert.deepEqual(G.structCheck(out.text), [], 'its structure');
     // unticked: a template with a sample drawing (the three sheets' choices back)
-    await planStyle(page);
-    await page.evaluate(() => { document.getElementById('tplFile').value = ''; }); // (the same file again)
-    await page.setInputFiles('#tplFile', path.join(FX, 'client-d-made-up-plan.dxf'));
+    await planTemplates(page);
+    await page.evaluate(() => { document.getElementById('admTplGeoMakeFile').value = ''; }); // (the same file again)
+    await page.setInputFiles('#admTplGeoMakeFile', path.join(FX, 'client-d-made-up-plan.dxf'));
     await page.waitForFunction(() => !document.getElementById('tplReview').hidden, null, { timeout: 30000 }); await page.waitForTimeout(600);
     await page.evaluate(() => { const c = document.getElementById('tplFin'); c.checked = false; c.dispatchEvent(new Event('change', { bubbles: true })); }); await page.waitForTimeout(600);
     const m2 = await page.evaluate(() => ({ map: window.__polecam.tpl.review(), sel: document.getElementById('tplSheetSel').hidden, roles: document.getElementById('tplRoles').hidden, kinds: document.getElementById('tplKindsBox').hidden }));
@@ -175,79 +176,68 @@ test('a computer: a client\'s finished plan learned (its sheets\' roles, the loo
   } finally { await ctx.close(); }
 });
 
-test('the admin\'s round trip: the company template and a client template downloaded (style kit, tag), edited, loaded back; an untagged file asked; a broken one refused', async () => {
+test('the admin\'s round trip on the slots: Download (published, testing), edited, Load it back… (checked) into the testing slot; asked to replace; a file that is not a G-eSAA template refused', async () => {
   const { ctx, page, errors } = await open();
   try {
-    await planStyle(page);
-    const r0 = await page.evaluate(() => ({ row: !document.getElementById('tplRound').hidden, down: document.getElementById('tplDown').textContent, sum: document.getElementById('tplRoundSum').textContent, ok: [window.__polecam.tpl.roundOk('company'), window.__polecam.tpl.roundOk('client')] }));
-    assert.equal(r0.row, true, 'a phone with no company list: its own admin'); assert.equal(r0.down, 'Download the company template'); assert.match(r0.sum, /^Admin: download the company template/); assert.deepEqual(r0.ok, [true, true]);
-    // the company template: downloaded (a file: its tag and name), edited, loaded back
-    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.evaluate(() => document.getElementById('tplDown').click())]);
+    await planTemplates(page);
+    // the published one (the company template): downloaded (a file: its tag and name), edited, loaded back as the testing template
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.evaluate(() => document.getElementById('admTplGeoPubDown').click())]);
     assert.equal(dl.suggestedFilename(), 'plan-seed-made-up-square_template.dxf');
     const got = await fsp.readFile(await dl.path(), 'utf8'), tag = G.templateTag(got);
-    assert.equal(tag.kind, 'company'); assert.equal(tag.name, 'plan-seed-made-up-square.dxf'); assert.ok(G.seedOk(got));
+    assert.equal(tag.kind, 'company'); assert.equal(tag.name, 'plan-seed-made-up-square.dxf'); assert.ok(G.seedOk(got)); assert.ok(got.includes('STYLE KEY'), 'its style kit and STYLE KEY sheet');
     const edited = got.replace(/\n@@DRAWN@@\r?\n/, '\nDRAWN: @@DRAWN@@ (EDITED IN AUTOCAD)\r\n'); // (a text of its title block changed, as in AutoCAD)
     assert.notEqual(edited, got);
-    await page.evaluate((t) => { window.__back = window.__polecam.tpl.back(t, 'company_edited.dxf'); }, edited);
-    let a = await answer(page, 'Replace');
-    assert.equal(a.title, 'Replace the company template?'); assert.match(a.text, /^company_edited\.dxf: a made-up plan was drawn on it, no problem found\./);
-    a = await answer(page, 'OK'); assert.equal(a.title, 'Company template replaced on this phone'); assert.match(a.text, /Google Drive .*Administration/);
-    await page.evaluate(() => window.__back);
-    assert.equal(await page.evaluate((n) => window.__polecam.tpl.seedText(n), NAME), G.tidy(edited).text, 'the company template on this phone: the edited one (tidied as a client\'s DXF is)');
-    // a client template (from the finished plan, its choices as proposed), downloaded: tagged with its id
-    await page.setInputFiles('#tplFile', path.join(FX, 'client-d-made-up-plan.dxf'));
+    await page.setInputFiles('#admTplGeoBackFile', { name: 'company_edited.dxf', mimeType: 'application/dxf', buffer: Buffer.from(edited) });
+    let a = await answer(page, 'OK');
+    assert.equal(a.title, 'Testing template ready'); assert.match(a.text, /^company_edited\.dxf: a made-up plan was drawn on it, no problem found\. Its style kit: \d+ of \d+ text styles/);
+    assert.equal(await page.evaluate(() => window.__polecam.tpl.testText('geo')), G.tidy(edited).text, 'the testing template: the edited one (tidied as a client\'s DXF is)');
+    assert.equal(await page.evaluate((n) => window.__polecam.tpl.seedText(n), NAME), SEED_SQ, 'the plans on the published one until Use the testing templates is on');
+    assert.equal((await page.evaluate(() => window.__polecam.tpl.test())).geo.from, 'back');
+    // a client's finished plan made into the testing template (asked to replace the one there), downloaded: its learned look kept
+    await page.setInputFiles('#admTplGeoMakeFile', path.join(FX, 'client-d-made-up-plan.dxf'));
     await page.waitForFunction(() => !document.getElementById('tplReview').hidden, null, { timeout: 30000 }); await page.waitForTimeout(500);
     await page.evaluate(() => document.getElementById('tplMake').click());
     await page.waitForFunction(() => !document.getElementById('tplSave').disabled, null, { timeout: 120000 });
     await page.evaluate(() => document.getElementById('tplSave').click());
     await page.waitForFunction(() => document.getElementById('tplReview').hidden, null, { timeout: 20000 }); await page.waitForTimeout(500);
-    const id = await page.evaluate((n) => window.__polecam.tpl.of(n), NAME); assert.ok(id);
-    await planStyle(page);
-    assert.equal(await page.evaluate(() => document.getElementById('tplDown').textContent), 'Download this template');
-    const dc = await page.evaluate(() => window.__polecam.tpl.down());
-    assert.equal(dc.name, 'DEMO_CLIENT_D_TELECOM_template.dxf'); assert.deepEqual([G.templateTag(dc.text).kind, G.templateTag(dc.text).id], ['client', id]);
+    const dc = await page.evaluate(() => window.__polecam.tpl.down('geo', 'test'));
+    assert.equal(dc.name, 'DEMO_CLIENT_D_TELECOM_template.dxf'); assert.deepEqual([G.templateTag(dc.text).kind, G.templateTag(dc.text).name], ['company', 'DEMO CLIENT D TELECOM.dxf']);
     assert.ok(G.lookOf(dc.text).kinds, 'the learned look kept in it');
     const ed2 = dc.text.replace(/FIBER OPTIC CABLE AS-PLAN/g, 'FIBRE OPTIC CABLE AS-PLAN (EDITED)');
-    await page.evaluate((t) => { window.__back = window.__polecam.tpl.back(t, 'client_d_edited.dxf'); }, ed2);
-    a = await answer(page, 'Replace'); assert.equal(a.title, 'Replace DEMO CLIENT D TELECOM?');
-    await page.evaluate(() => window.__back);
-    assert.equal(await page.evaluate((n) => window.__polecam.tpl.seedText(n), NAME), G.tidy(ed2).text, 'the client template: the edited one');
-    const li = await page.evaluate(() => ({ list: window.__polecam.tpl.list(), item: document.querySelector('#tplList .tplit small').textContent }));
-    assert.equal(li.list[0].edited, true); assert.match(li.item, /edited in AutoCAD/);
-    // Make again: asked first (the edits would be left out)
-    await page.evaluate(() => [...document.querySelectorAll('#tplList .tplit button')].find((b) => b.textContent === 'Make again').click());
-    a = await answer(page, 'Cancel'); assert.equal(a.title, 'Make it again?'); assert.match(a.text, /edited in AutoCAD and loaded back .*client_d_edited\.dxf/);
-    assert.equal(await page.evaluate(() => document.getElementById('tplReview').hidden), true);
-    // a file without the tag: asked which template it is (added as a new client template, used by the project)
-    await page.evaluate((t) => { window.__back = window.__polecam.tpl.back(t, 'another_seed.dxf'); }, SEED_SQ);
-    a = await answer(page, 'Add it as a client template');
-    assert.equal(a.title, 'Which template is it?'); assert.deepEqual(a.buttons, ['Replace the company template', 'Replace DEMO CLIENT D TELECOM', 'Add it as a client template', 'Cancel']);
-    await page.evaluate(() => window.__back);
-    const l2 = await page.evaluate((n) => ({ names: window.__polecam.tpl.list().map((t) => t.name), of: window.__polecam.tpl.of(n) }), NAME);
-    assert.deepEqual(l2.names, ['DEMO CLIENT D TELECOM', 'another_seed']); assert.notEqual(l2.of, id, 'the project uses the one added');
-    // not a G-eSAA template (the client's plan itself): refused, saying why
-    await page.evaluate((t) => { window.__back = window.__polecam.tpl.back(t, 'their_plan.dxf'); }, fs.readFileSync(path.join(FX, 'client-d-made-up-plan.dxf'), 'utf8'));
+    await planTemplates(page);
+    await page.setInputFiles('#admTplGeoBackFile', { name: 'client_d_edited.dxf', mimeType: 'application/dxf', buffer: Buffer.from(ed2) });
+    a = await answer(page, 'Replace'); assert.equal(a.title, 'Replace the testing as-plan / as-built template?'); assert.equal(a.text, 'client_d_edited.dxf replaces DEMO CLIENT D TELECOM.dxf (the testing template on this phone).');
+    await answer(page, 'OK');
+    assert.equal(await page.evaluate(() => window.__polecam.tpl.testText('geo')), G.tidy(ed2).text, 'the testing template: the edited one');
+    assert.ok((await page.evaluate(() => window.__polecam.tpl.test())).geo.look.kinds, 'its look read from it');
+    // not a G-eSAA template (the client's plan itself): refused, saying why; nothing changed
+    await page.setInputFiles('#admTplGeoBackFile', { name: 'their_plan.dxf', mimeType: 'application/dxf', buffer: fs.readFileSync(path.join(FX, 'client-d-made-up-plan.dxf')) });
     a = await answer(page, 'OK'); assert.equal(a.title, 'This template cannot be used'); assert.match(a.text, /not one the app takes .*GEO sheet/);
-    await page.evaluate(() => window.__back);
-    assert.equal((await page.evaluate(() => window.__polecam.tpl.list())).length, 2, 'nothing added');
+    await page.setInputFiles('#admTplGeoLoadFile', { name: 'their_plan.dxf', mimeType: 'application/dxf', buffer: fs.readFileSync(path.join(FX, 'client-d-made-up-plan.dxf')) });
+    a = await answer(page, 'OK'); assert.equal(a.title, 'This is not a G-eSAA plan template'); assert.match(a.text, /Make from a client's file/);
+    assert.equal(await page.evaluate(() => window.__polecam.tpl.testText('geo')), G.tidy(ed2).text, 'nothing changed');
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); }
 });
 
-test('who may: a phone with no company list yes; a user of a list without Team admin no; Team admin yes, a client template only with Client templates too', async () => {
-  const cases = [
-    ['permissions off, a user of the list', team(null), [false, false]],
-    ['permissions on, Plan drawing only', team({ on: true, u: { [USER.email]: 'P' } }), [false, false]],
-    ['permissions on, Team admin', team({ on: true, u: { [USER.email]: 'PA' } }), [true, false]],
-    ['permissions on, Team admin and Client templates', team({ on: true, u: { [USER.email]: 'PAT' } }), [true, true]],
-  ];
-  for (const [what, tm, want] of cases) {
+test('who: the admin phone sets the templates; a user of the list (Team admin and Client templates allowed included) has no Plan templates, sets nothing, and a testing template there is never used', async () => {
+  const cases = [['permissions off, a user of the list', team(null)], ['permissions on, Team admin and Client templates', team({ on: true, u: { [USER.email]: 'PAT' } })]];
+  for (const [what, tm] of cases) {
     const { ctx, page, errors } = await open({ team: tm });
     try {
-      await planStyle(page);
-      const r = await page.evaluate(() => ({ ok: [window.__polecam.tpl.roundOk('company'), window.__polecam.tpl.roundOk('client')], row: !document.getElementById('tplRound').hidden, why: window.__polecam.perm().state.why }));
-      assert.deepEqual(r.ok, want, `${what}: ${JSON.stringify(r)}`); assert.equal(r.row, want[0], `${what}: the row shown for the company template`);
-      if (!want[0]) { await page.evaluate(() => { window.__back = window.__polecam.tpl.back('0\nSECTION\n0\nEOF\n', 'x.dxf'); }); await page.evaluate(() => window.__back); assert.equal(await page.evaluate(() => document.getElementById('askBox').hidden), true, `${what}: refused before reading`); }
+      assert.equal(await page.evaluate(() => window.__polecam.tpl.admin()), false, `${what}: not the admin`);
+      await page.evaluate(() => { const P = window.__polecam; P.S.tplTest = { geo: { name: 'x.dxf', size: 1, at: '2026-11-01T08:00:00.000Z', by: 'x', from: 'file' } }; P.persist(); P.tpl.use(true); });
+      assert.equal(await page.evaluate(() => window.__polecam.tpl.testFor('geo')), false, `${what}: a testing template not used`);
+      assert.equal(await page.evaluate((n) => window.__polecam.tpl.seedText(n), NAME), SEED_SQ);
+      // Settings → Administration: the list's policies, not Administration
+      await closeAll(page); await page.evaluate(() => document.getElementById('settingsBtn').click()); await page.waitForTimeout(300);
+      await page.evaluate(() => document.getElementById('goAdmin').click()); await page.waitForTimeout(500);
+      assert.equal(await page.evaluate(() => document.getElementById('admin').hidden), true, `${what}: Administration not opened`);
+      await page.evaluate(() => { const b = document.querySelector('#askBox:not([hidden]) .row button'); if (b) b.click(); });
+      // a load by any way in: refused before reading
+      await page.setInputFiles('#admTplGeoBackFile', { name: 'x.dxf', mimeType: 'application/dxf', buffer: Buffer.from(SEED_SQ) }); await page.waitForTimeout(500);
+      assert.equal(await page.evaluate(() => document.getElementById('askBox').hidden), true, `${what}: refused before reading`);
+      assert.equal(await page.evaluate(() => window.__polecam.tpl.test().geo.name), 'x.dxf', 'nothing set');
       assert.deepEqual(errors, []);
     } finally { await ctx.close(); }
   }
