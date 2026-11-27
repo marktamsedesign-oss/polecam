@@ -135,6 +135,9 @@ const LINES = [
   // (beta 7.16, Permissions): what each user may do: a locked feature says "Ask your admin to allow …"; the admin's User permissions
   ['7.16', '!ask your admin to allow · !locked feature · my features · feature blocked · what may i use', 'perms'],
   ['7.16', '!user permissions · !allow features per user · block a feature for a user · limit what users may do', 'adm-perms', true],
+  // (stage 11, small): a completed project is deleted with no admin's approval; the admin's Approve a request (the reopen)
+  ['Stage 11', '!delete a completed project · delete project · remove a project', 'delete'],
+  ['Stage 11', '!approve a request · !request code · approval code · undo complete approval', 'adm-approve', true],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];

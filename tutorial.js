@@ -453,7 +453,7 @@
       steps: [
         { t: 'Export → **Completion report** → **Finish the task and make the report** (it asks first): page 1 says the task is complete (site, vendor, dates, what was recorded, sign-off); the photo pages follow.', go: 'export', hl: '#doCompletion' },
         { t: 'Making it marks the task complete, like Projects → **✓ Mark task complete**; the online sheet gets the date.', go: 'projects', hl: '#doneBtn' },
-        { t: '**Undo complete** clears it again (and the on-site approval with it). A completed PAT is reopened only by the admin.' },
+        { t: '**Undo complete** clears it again (and the on-site approval with it). On a phone with a company list it needs an admin\'s approval: the app shows a **request code** (e.g. 674-8SC); send it to your admin and type the **6-digit approval code** you get back (it works only for that request), or an admin who is with you types the admin PIN. A completed PAT is reopened only by the admin.' },
       ] },
     { id: 'approval', aud: 'user', cat: 'Reports and files', title: 'Approval on site (inspector\'s QR code)', kw: 'approve approval on site qr inspector approver signature id number accept sign-off pat fat as-plan as-built audit',
       steps: [
@@ -475,11 +475,11 @@
         { t: 'Export → **Backup of the project** → **Back up the project**: everything in this project in one file. **Restore a backup…** under it brings one back; the links under it also send the project (Projects → Share: its own file, for another phone), through the team mailbox, or several projects in one file.', go: 'export', hl: '#doBackup' },
         { t: '**⚠ KMZ edited by unauthorized personnel** means a locked KMZ was changed after it was shared (or damaged on the way): it is refused. Ask for the original file.' },
       ] },
-    { id: 'delete', aud: 'user', cat: 'Reports and files', title: 'Delete a project', kw: 'delete remove project request code approval admin 6-digit',
+    { id: 'delete', aud: 'user', cat: 'Reports and files', title: 'Delete a project', kw: 'delete remove project completed',
       steps: [
         { t: 'Tap **Delete** on the project\'s card (in Projects, the open project and every other one).', go: 'projects', hl: '#curTools .tmtool.del' },
         { t: 'Confirm with **Delete project**, or **Keep**. Make a backup or share it first if you still need it.', when: 'The question shows after Delete.' },
-        { t: 'A **completed** project needs an admin\'s approval first: the app shows a **request code** (e.g. 674-8SC). Send it to your admin, then type the admin\'s **6-digit approval code** (it works only for that request), or an admin who is with you types the admin PIN. The sample project needs no approval.' },
+        { t: 'A **completed** project is deleted the same way: no admin\'s approval is needed.' },
       ] },
     { id: 'fieldsettings', aud: 'user', cat: 'Settings', title: 'Camera and other settings', kw: 'settings camera id scan orientation button position left right sharpness exports stamps text size help address stamp lat-long road barangay city photo files same stamp geotag stamp caption band',
       steps: [
@@ -676,10 +676,10 @@
         { t: '**To change it:** change the sheet\'s Settings → KMZ password (or this box when the sheet has none), then Save. Files locked with the last 5 passwords still open.', go: 'admin', hl: '#admKmzPass', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**To remove the lock (not recommended: shared KMZ files are then not locked):** clear the sheet\'s KMZ password, then clear this box and Save. Administration suggests a new random password each time it opens with none, so clear the box again before every Save.', go: 'admin', hl: '#admKmzPass', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
-    { id: 'adm-approve', aud: 'admin', cat: 'Administration', title: 'Approve a delete', kw: 'approve delete request code 6-digit approval completed project',
+    { id: 'adm-approve', aud: 'admin', cat: 'Administration', title: 'Approve a request', kw: 'approve request code 6-digit approval completed project reopen undo complete',
       steps: [
-        { t: 'A user who deletes a completed project gets a **request code**.' },
-        { t: 'Administration → **Approve a delete**: type the code…', go: 'admin', hl: '#admReq', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: 'A user who reopens a completed project (**Undo complete**) gets a **request code**. Deleting a completed project needs no approval any more (a phone on an older version still asks for one: the same steps).' },
+        { t: 'Administration → **Approve a request**: type the code…', go: 'admin', hl: '#admReq', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '…tap **Get code**, and give them the **6-digit approval code**. It works only for that request, so there is nothing to remove afterwards.', go: 'admin', hl: '#admReqGo', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: 'When you are with the user, type the admin PIN on their phone instead.' },
       ] },
