@@ -1994,10 +1994,12 @@
     // the concrete encasement (proposed: 0.406 m above the ground and 1.32 m below, the standard's), the pole's foot under it, the pole (isoEl's 'epole' / 'rpole')
     prism(sc, EP, 0, eUp, 'pp'); sc.poly(EP.map((q) => [q[0], q[1], -eDn]), 'hp', 1); for (const q of EP) sc.line([q[0], q[1], 0], [q[0], q[1], -eDn], 'hp');
     if (eDn < STD.poleIn - 0.05) { const H = sc.hdir(), e = (k) => [H[0] * k * r, H[1] * k * r]; for (const k of [-1, 1]) sc.line([e(k)[0], e(k)[1], -eDn], [e(k)[0], e(k)[1], -STD.poleIn], ph); sc.line([e(-1)[0], e(-1)[1], -STD.poleIn], [e(1)[0], e(1)[1], -STD.poleIn], ph); }
-    const zMsg = STD.msg, cloZ = zMsg + CLOZ, zCut = Math.min(pole.h, (I.clo ? cloZ + STD.cloH : zMsg) + 0.95); // (the pole cut above the cable, or its closure, with a break mark: the riser drawn larger)
-    frustum(sc, [0, 0], 0, zCut, r, pr(zCut), pk, 10); if (zCut < pole.h - 0.05) breakMark(sc, [0, 0, zCut - 0.22], sc.hdir(), r * 1.9, pk);
-    // the riser kit (riserKit, the heights of its parts from the sizes: the straps where the standard puts them, on along a longer pipe or guard), not hiding the cable in it
+    // the riser kit's heights from the sizes (the straps where the standard puts them, on along a longer pipe or guard); the cable on the pole above it (the standard's
+    // 5.5 m, higher above a longer riser typed); the pole cut above the cable, or its closure, with a break mark: the riser drawn larger
     const K = { e: eUp, giTop: Math.max(eUp + 0.2, I.pipeL), ugTop: 0, gi: [], ug: [] }; K.ugTop = K.giTop + I.guardL;
+    const zMsg = Math.max(STD.msg, K.ugTop + 0.4), cloZ = zMsg + CLOZ, ph0 = Math.max(pole.h, cloZ + STD.cloH + 1.2), zCut = Math.min(ph0, (I.clo ? cloZ + STD.cloH : zMsg) + 0.95);
+    frustum(sc, [0, 0], 0, zCut, r, pr(zCut), pk, 10); if (zCut < ph0 - 0.05) breakMark(sc, [0, 0, zCut - 0.22], sc.hdir(), r * 1.9, pk);
+    // the riser kit (riserKit) on the pole, not hiding the cable in it
     for (let z = eUp, i = 0; (z += STD.gi[Math.min(i, STD.gi.length - 1)]) <= K.giTop + 1e-6; i++) K.gi.push(z);
     for (let t = K.giTop, i = 0; (t += STD.ugd[Math.min(i, STD.ugd.length - 1)]) <= K.ugTop - 0.04; i++) K.ug.push(t);
     { const s0 = sc.sid; riserKit(sc, [0, 0], u, 0, STD.msg, pr, 'pp', K); for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i); }
