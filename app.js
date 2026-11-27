@@ -7641,7 +7641,7 @@
   const xcName = (c) => `Existing cable ${c.n || 1}`;
   const xcKind = (c) => (c.kind === 'ug' ? 'Underground' : 'Aerial');
   /** An end in words: its note (hanging), or the ODF or site it is on. */
-  const xcEndSay = (c, w) => { const e = c[w] || {}; if (e.at === 'odf') { const p = xcPt(e.odf); return p ? `at ${recName(p) || p.poleId || elemOf(p)}` : 'at an ODF (not found)'; } const t = String(e.text || '').trim(); return t || (w === 'end' ? 'hanging' : 'hanging'); };
+  const xcEndSay = (c, w) => { const e = c[w] || {}; if (e.at === 'odf') { const p = xcPt(e.odf); return p ? `at ${recName(p) || p.poleId || elemOf(p)}` : 'at an ODF (not found)'; } const t = String(e.text || '').trim(); return /^(to|from)$/i.test(t) ? 'hanging' : t || 'hanging'; };
   const xcHomes = () => projPoints().filter((p) => ['ODF', 'Site'].includes(elemOf(p)));
   /** Keep a cable (new or changed) in its project: its maker, its time; the project's last change (Share). */
   function xcPut(proj, c) {
@@ -7721,6 +7721,7 @@
   function xcDraw() {
     if (!xcLayer) return; xcLayer.clearLayers(); xcHLayer.clearLayers();
     if (XC && XC.proj !== S.project) { XC = null; xcView = null; document.body.classList.remove('xcdraw'); setTimeout(xcBarRender, 0); } // (another project opened: the drawing left)
+    if (xcView != null && (routeMode || !xcList(S.project).some((c) => c.id === xcView))) { xcView = null; setTimeout(xcBarRender, 0); } // (Route opened, another project: the card closes)
     if (!S.project || isAcc() || (viewHide().route && !routeMode && !XC)) return;
     const draw = (c, on) => {
       const P = xcLL(c); if (P.length < 2) return; const sel = xcView === c.id;
