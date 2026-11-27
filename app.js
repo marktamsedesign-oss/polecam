@@ -7936,6 +7936,8 @@
     for (const c of XJ) for (const q of c.pts) { let k0 = 0, d0 = Infinity; locs.forEach((L1, i) => { const d = dTo(L1.box, q); if (d < d0) { d0 = d; k0 = i; } }); if (k0 !== k || d0 <= 400) continue; b = b ? [Math.min(b[0], q[0]), Math.min(b[1], q[1]), Math.max(b[2], q[0]), Math.max(b[3], q[1])] : [q[0], q[1], q[0], q[1]]; }
     return b;
   }
+  /** The points on the project's existing cables: put on one (xcOn) or a tap of one on them (Export's poles on no cable: these are on a cable). */
+  function xcOnIds(proj) { const L0 = xcList(proj), ids = new Set(L0.map((c) => c.id)), out = new Set(); L0.forEach((c) => c.taps.forEach((t) => { if (t.pole) out.add(String(t.pole)); })); points.forEach((p) => { if (p.project === proj && p.xcOn && ids.has(p.xcOn)) out.add(String(p.id)); }); return out; }
   /** The KMZ's folder "Existing cables (reference)": each cable's line and its ends (core.js buildKml, opts.excab). */
   const xcKml = () => xcList(S.project).map((c) => ({ name: xcName(c), kind: xcKind(c), len: xcLen(c), from: xcEndSay(c, 'start'), to: xcEndSay(c, 'end'), side: c.side === 'R' ? 'right' : 'left', pts: xcLL(c).map(([lat, lon]) => ({ lat, lon })) }));
   /** Plan style › Cables › Existing cables you drew: this project's choice shown (none drawn: said). */
@@ -13432,6 +13434,7 @@
     const nm = name || S.project; if (!nm || isAcc(nm) || (cefHooks.isCef && cefHooks.isCef(nm))) return [];
     const on = onCableIds(nm); if (!on.size) return [];
     points.filter((q) => q.project === nm && isJn(q)).forEach((q) => jnAtt(q).forEach((x) => on.add(String(x.id)))); // (beta 6.9: a pole holding a pull-off's or cross-over's messenger is on the route)
+    xcOnIds(nm).forEach((id) => on.add(id)); // ((stage 11, existing cable) a pole on an existing cable (put on it, or its line drawn through it) is on a cable)
     return points.filter((p) => p.project === nm && elemOf(p) === 'Pole' && !p.xHide && !on.has(String(p.id)) && Number.isFinite(+p.lat) && Number.isFinite(+p.lon)).sort((a, b) => (a.created < b.created ? -1 : 1));
   }
   /** At Export: the poles on no cable not left as they are before (null: nothing to ask). */
@@ -24738,7 +24741,7 @@
     counts: () => { const R = routeModel(), Q = surveyQty(projPoints(), { loops: [] }); return JSON.parse(JSON.stringify({ spans: R.spans.length, total: R.total, cable: R.cableTotal, fib: R.fib ? R.fib.list.map((f) => [f.n, f.len]) : [], qty: Q.rows, links: pmeta().links || [], fibers: pmeta().fibers || [] })); },
     kmz: async () => { try { const z = await zipReader(await surveyKmzBlob(projPoints())); return new TextDecoder().decode(await z.get('doc.kml')); } finally { busy(false); } },
     backup: async () => { try { window.__xcZip = await projectZip(S.project); return window.__xcZip.size; } finally { busy(false); } }, restore: async () => { try { return !!(await restoreZip(window.__xcZip, { quiet: true })); } finally { busy(false); } },
-    shareDelta: (since) => JSON.parse(JSON.stringify(shareMeta(S.project, { full: false, route: false, since }))), del: (id) => xcDel(S.project, id),
+    shareDelta: (since) => JSON.parse(JSON.stringify(shareMeta(S.project, { full: false, route: false, since }))), del: (id) => xcDel(S.project, id), loose: () => loosePoles().map((p) => p.id),
     px: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = map.getContainer().getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, look: (lat, lon, z) => map.setView([lat, lon], z || 19, { animate: false }) };
   window.__polecam.drwPlanHash = () => (drw && drw.ph && drw.ph.plan ? planListHash(drw.ph.plan) : null);
   window.__polecam.planListHash = (text, report) => (window.GeDxfPdf ? planListHash(window.GeDxfPdf.planList(text, report)) : null);

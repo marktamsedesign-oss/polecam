@@ -267,7 +267,9 @@ test('Add Pin on the cable: a pole and a closure placed by hand go on its line a
     await page.evaluate(([a, b]) => window.__polecam.pinMap.setView([a, b], 19, { animate: false }), [la, lo]); await page.waitForTimeout(400);
     const say = await page.evaluate(() => { const e = document.getElementById('pinXc'); return e && !e.hidden ? e.textContent : ''; });
     await page.click('#edSave'); await page.waitForTimeout(1200);
-    const P = await page.evaluate(() => window.__polecam.points); return { say, r: P[P.length - 1] };
+    const q = await page.evaluate(() => (document.getElementById('askBox').hidden ? null : [document.getElementById('askTitle').textContent, [...document.querySelectorAll('#askBox .row button')].map((b) => b.textContent)]));
+    if (q) { assert.match(q[0], /^Put P-\d+ on the cable\?$/); await page.evaluate(() => [...document.querySelectorAll('#askBox .row button')].find((b) => b.textContent === 'Not on a cable').click()); await page.waitForTimeout(400); } // (a new pole near a new cable's span: asked as always; left off it)
+    const P = await page.evaluate(() => window.__polecam.points); return { say, r: P[P.length - 1], q };
   };
   // a new pole 1.5 m off the cable's line on the avenue (its line 4 m west of the centre line): put on the line
   const p1 = await addPin('pole', LA0 + 0.0006, AVE - 5.5 / MLON);
@@ -283,6 +285,11 @@ test('Add Pin on the cable: a pole and a closure placed by hand go on its line a
   await page.click('#rtFinish'); await page.waitForTimeout(400);
   const F = await page.evaluate((a) => window.__polecam.S.meta[a].fibers || [], A);
   assert.ok(F.some((f) => f.path[0] === p1.r.id && f.path.includes('a6')), `a RUN from the new pole: ${JSON.stringify(F.map((f) => f.path))}`);
+  await page.click('#rtDone'); await page.waitForTimeout(300);
+  // Export's poles on no cable: a pole on the existing cable is on a cable; one placed away from it is not
+  const p4 = await addPin('pole', LA0 + 0.00045, AVE - 4.5 / MLON), p5 = await addPin('pole', LA0 + 0.00045, AVE - 40 / MLON);
+  assert.equal(p4.r.xcOn, c.id); assert.equal(p5.r.xcOn, undefined);
+  const loose = await xc(page, 'loose'); assert.ok(loose.includes(p5.r.id) && !loose.includes(p4.r.id), `on no cable: ${JSON.stringify(loose)}`);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
