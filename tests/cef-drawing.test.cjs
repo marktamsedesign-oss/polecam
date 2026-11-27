@@ -43,7 +43,7 @@ function engine() {
   ctx.self = ctx; ctx.window = ctx;
   let seed = 7; ctx.Math.random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
   vm.runInContext(fs.readFileSync(path.join(root, 'vendor', 'pdf-lib', 'pdf-lib.min.js'), 'utf8'), ctx, { filename: 'pdf-lib.min.js' });
-  for (const f of ['30_core.js', '40_iso.js', '50_export.js']) vm.runInContext(fs.readFileSync(path.join(root, 'vendor', 'cef', f), 'utf8'), ctx, { filename: f });
+  for (const f of ['20_isokit.js', '30_core.js', '40_iso.js', '50_export.js']) vm.runInContext(fs.readFileSync(path.join(root, 'vendor', 'cef', f), 'utf8'), ctx, { filename: f });
   vm.runInContext(SKETCHES, ctx, { filename: 'sketches' });
   return ctx;
 }

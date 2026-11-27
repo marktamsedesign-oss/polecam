@@ -11,7 +11,7 @@ const path = require('node:path');
 
 const CEF = path.join(__dirname, '..', '..', 'vendor', 'cef');
 const ctx = vm.createContext({ console, Math, Date });
-for (const f of ['30_core.js', '40_iso.js', '50_export.js']) vm.runInContext(fs.readFileSync(path.join(CEF, f), 'utf8'), ctx, { filename: f });
+for (const f of ['20_isokit.js', '30_core.js', '40_iso.js', '50_export.js']) vm.runInContext(fs.readFileSync(path.join(CEF, f), 'utf8'), ctx, { filename: f });
 const out = vm.runInContext(`(() => {
   const AREAS = [], ROOM = new WeakMap();
   /* a value keeps its height (the template's field has its box, the room the engine gives it); a logo's box is noted */

@@ -1,6 +1,6 @@
 'use strict';
 /* ---------- basics ---------- */
-const D2R = Math.PI / 180, C30 = Math.cos(Math.PI / 6);
+const { D2R, C30, clamp, num, STD, LOOPZ, CLOZ, bendR, PED, riserParts, rot2, rectAt, sqr, polyBox, hull, poleR, GIR } = GeCefIso;      /* (beta 7.19, riser detail) the basics, the standard and the plan geometry the isometric model uses: in 20_isokit.js, shared with the As-plan's riser detail */
 const f1 = v => (Math.round(v * 10) / 10).toFixed(1);
 const r1w = v => Math.round((+v || 0) * 10) / 10;      /* beta 6.6 (the owner: "yes always same with the CEF"): a length as the plan writes it, to 0.1 m */
 const f0 = v => String(Math.round(v));
@@ -18,13 +18,11 @@ function setLoopM(v) { const n = v == null || v === '' ? NaN : +v; LOOP_M = Numb
 const cloLoopLen = R => /LIGHT/i.test(String(((R || {}).ae || {}).cable || '')) ? 10 : LOOP_M;
 const loopName = len => 'PROPOSED ' + f2(len) + 'm LOOP ON LOOP HOLDER', LOOPBAND = 'SS BAND & BUCKLE (2)';      /* (beta 7.2: PROPOSED 15m LOOP W/ HOLDER; before: LOOP HOLDER W/ 15m LOOP) beta 7.3 / 2.45.5: the loop holder is a snowshoe, strapped with two stainless steel bands */
 const allowOf = L => Math.round(Math.round((+L || 0) * 10) * ALLOW_PCT / 100) / 10;      /* (in tenths, whole numbers: 28.5 m at 10 % is 2.9 m) */
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const snap = v => Math.round(v * 10) / 10;
 const uid = () => 'e' + Math.random().toString(36).slice(2, 8);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const f2 = v => String(Math.round(v * 100) / 100);
 const r3 = v => Math.round(v * 1000) / 1000;
-const num = (v, d) => { const n = parseFloat(v); return isFinite(n) ? n : d; };
 const HELV = [278,278,355,556,556,889,667,222,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,222,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
 const CAP = 0.718;
 /* (beta 7.15, CEF template) the client's text size factor (its template's look, text.scale) while the sheets are laid out on its sheet
@@ -65,23 +63,8 @@ const SLAY = { gh: ['', 8, 1, '--d-ghost', [0.6, 0.65, 0.71], 0.16] };
 
 /* ---------- what can be placed ---------- */
 const UGD = 1.5, EXH = 0.4;                    /* the usual depth of anything buried; how far an exit conduit stands out of the ground */
-/* Dimensions read from the OSP standard drawings, in metres.
-   Closure on a pole: the messenger wire is 5.5 m above ground on a 9.14 m pole that stands 1.5 m in the ground. The loop, 0.4 m across at most, sits in its holder 0.1 m above the wire; the closure, 0.45 m high, stands 0.1 m above the loop.
-   Riser: concrete encasement 0.406 m above ground and 1.32 m below, 100 mm of concrete on each side of the 270 mm pole; G.I. pipe held by stainless straps 0.585, 0.838 and 0.838 m apart; above it a U-guard with a strap pipe every 0.6 m; the bend below ground has a 1 m radius.
-   Conduit, as on the hand-made CEF plans (2022 to 2026): two runs of 114.3 mm PVC, concrete encased, each with four 32 mm HDPE sub-ducts; the G.I. riser pipe is 114.3 mm too.
-   Where the conduit comes out of the ground: a concrete block with the pipe the cable is in and the spare pipe, which is closed with a blank duct plug. */
-const STD = { msg: 5.5, poleUp: 7.64, poleIn: 1.5, loopD: 0.4, gap: 0.1, cloH: 0.45, cloR: 0.095, encUp: 0.406, encDn: 1.32, encW: 0.47, gi: [0.585, 0.838, 0.838], ugd: [0.6, 0.6, 0.6, 0.6], bendR: 1, hdpe: 0.1143, sub: 0.032, sleeve: 0.114, exitW: 0.42 };
-const LOOPZ = STD.gap + STD.loopD / 2, CLOZ = 2 * STD.gap + STD.loopD, bendR = d => Math.min(STD.bendR, Math.max(0.05, d - 0.03));      /* the bend below a riser or an exit conduit: 1 m radius where the depth allows it */      /* above the wire: the middle of the loop, and the bottom of the closure */
 /* service boxes of the standard: the frame as it shows at ground level, how deep the box goes, its inside size in mm, and how deep its conduit comes in */
 const SBOX = { A1: { w: 0.8, d: 0.8, dp: 0.85, inn: '500x500x700', cd: 0.1 }, A2: { w: 0.8, d: 0.8, dp: 0.85, inn: '500x500x700', cd: 0.2 }, B1: { w: 1, d: 0.75, dp: 0.65, inn: '700x500x500', cd: 0.1 }, B2: { w: 1, d: 0.75, dp: 0.65, inn: '700x500x500', cd: 0.2 } };
-/* the riser on a pole whose cable is zc above the datum and whose ground is at g: where the encasement ends, where the G.I. pipe ends and the U-guard ends, and the heights of their straps */
-function riserParts(g, zc, ped) {
-  if (ped) { const giTop = g + PED.h, R = riserParts(g, zc), ugTop = Math.max(giTop + 0.3, R.ugTop), ug = []; for (let t = giTop + 0.3; t < ugTop - 0.04; t += 0.6) ug.push(t); return { e: g, giTop, ugTop, gi: [], ug, ped: 1 }; }      /* (fix 47) a pedestal box at the foot: no encasement of its own and no G.I. pipe; the U-guard goes from the top of the box to where it ends on a riser */
-  const e = g + STD.encUp, gi = [], ug = []; let z = e; for (const q of STD.gi) { z += q; gi.push(z); }
-  const giTop = Math.max(e + 0.2, Math.min(z, zc - 1)); let t = giTop; for (const q of STD.ugd) { t += q; ug.push(t); }
-  const ugTop = Math.max(giTop, Math.min(t + 0.1, zc - 0.3));
-  return { e, giTop, ugTop, gi: gi.filter(q => q <= giTop + 1e-6), ug: ug.filter(q => q <= ugTop - 0.04) };
-}
 const TYPES = {
   t3: { n: '3-legged tower', s: 'Tower', g: 'tower', w: 5, d: 5, th: 45 },
   t4: { n: '4-legged tower', s: 'Tower', g: 'tower', w: 6, d: 6, th: 50 },
@@ -193,7 +176,6 @@ function odf2P(h, e) { const K = twoPost(h), hw = rackOf(h).hw, dp = dp2P(h, e);
 const roomWord = e => isTR(e) ? 'telco room' : 'cabin';
 /* (fix 47) the ground pedestal box at the foot of a pole, where the UG cable comes up, in place of the G.I. riser pipe: el.ped 'P' (proposed) or 'E' (existing) on the pole.
    PED: its size (w along the side of the pole, d out from it, h above the ground). It stands on the side of the riser, against the pole (against its concrete encasement on a riser pole). */
-const PED = { w: 0.36, d: 0.3, h: 1 };
 const pedOf = pole => !!pole && (pole.t === 'rpole' || pole.t === 'epole') && (pole.ped === 'P' || pole.ped === 'E') ? pole.ped : null;
 const pedName = st => (st === 'E' ? 'EXISTING' : 'PROPOSED') + ' PEDESTAL BOX';
 function pedAt(pole, u) { const off = (pole.t === 'rpole' ? Math.max(STD.encW, pole.w + 0.16) / 2 : Math.max(pole.w / 2, 0.1)) + 0.03 + PED.d / 2, c = [pole.x + u[0] * off, pole.y + u[1] * off]; return { c, rot: Math.atan2(u[1], u[0]) / D2R + 90, poly: rectAt(c, PED.w, PED.d, Math.atan2(u[1], u[0]) / D2R + 90), u }; }
@@ -222,16 +204,12 @@ function sampleSite() {
 }
 
 /* ---------- plan geometry ---------- */
-const rot2 = (x, y, a) => { const c = Math.cos(a * D2R), s = Math.sin(a * D2R); return [x * c - y * s, x * s + y * c]; };
 function loc(el, lx, ly) { const q = rot2(lx, ly, el.rot || 0); return [el.x + q[0], el.y + q[1]]; }
-function rectAt(c, w, d, rot) { return [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(p => { const q = rot2(p[0], p[1], rot || 0); return [c[0] + q[0], c[1] + q[1]]; }); }
-const sqr = (c, half, rot) => rectAt(c, half * 2, half * 2, rot);
 function elPoly(el) {
   const hull = towerHull(el); if (hull && hull.length === 3) return hull;   /* three-legged footprints are triangles */
   if (TYPES[el.t].rd) { const r = Math.max(el.w / 2, 0.12), o = []; for (let i = 0; i < 16; i++) { const a = i * 22.5 * D2R; o.push([el.x + r * Math.cos(a), el.y + r * Math.sin(a)]); } return o; }
   return rectAt([el.x, el.y], el.w, el.d, el.rot);
 }
-function polyBox(P) { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const p of P) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); } return [x0, y0, x1, y1]; }
 function inPoly(p, P) { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const a = P[i], b = P[j]; if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
 function segSeg(a, b, c, d) { const o = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]); const d1 = o(a, b, c), d2 = o(a, b, d), d3 = o(c, d, a), d4 = o(c, d, b); return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0)); }
 function segPoly(a, b, P) { if (inPoly([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], P)) return true; for (let i = 0; i < P.length; i++) if (segSeg(a, b, P[i], P[(i + 1) % P.length])) return true; return false; }
@@ -508,9 +486,6 @@ const nameGrp = el => el.t === 'cabin' ? (el.tr ? 'troom' : 'cabin') : el.t === 
 const txAuto = S => !(S.site && S.site.txt != null && S.site.txt !== '' && S.site.txt !== 'auto');
 const txK = S => txAuto(S) ? 1 : clamp(num(S.site.txt, 100), 50, 250) / 100;
 const TXS = [1, 0.91, 0.83];                       /* the steps a name is tried at when the size is automatic: 2.2, 2.0 and 1.8 mm on the sheet. 1.8 mm is the usual least height of text on a drawing. */
-/* a pole tapers to 0.7 of its foot at the top: its radius dz above its foot. What is fastened to it lies against it at that height. */
-const poleR = (pole, dz) => Math.max(pole.w / 2, 0.1) * (1 - 0.3 * clamp(dz / Math.max(0.02, num(pole.h, 0.02)), 0, 1));
-const GIR = 0.057;                                  /* half the width of the G.I. riser pipe */
 /* the side of a pole that takes the loop holder and the closure: square to the aerial cable, and the riser's side when the pole has a riser */
 function poleSide(rg, pole, u) { let n = [-u[1], u[0]]; const r = pole ? rg.risers.find(q => q.pole === pole) : null, rs = r ? r.s || r.u : null; if (rs && n[0] * rs[0] + n[1] * rs[1] < -0.01) n = [-n[0], -n[1]]; return n; }
 /* (beta 7.16, CEF drawing) the owner: "Exit Conduit: extend conduits only without concrete scenarios". An exit conduit is the concrete block with the two
@@ -1470,13 +1445,6 @@ function topPed(S, pole, G, rg) {
 }
 /* ---------- labels that sit beside what they name, parallel to it, and never on top of anything ---------- */
 const readable = a => { a = ((a + 180) % 360 + 360) % 360 - 180; if (a > 90) a -= 180; if (a <= -90) a += 180; return a; };
-function hull(P) {
-  const p = P.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]); if (p.length < 3) return p;
-  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), lo = [], up = [];
-  for (const q of p) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
-  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
-  lo.pop(); up.pop(); return lo.concat(up);
-}
 /* do two convex outlines overlap? (separating axis test) */
 function polysHit(A, B) {
   for (const P of [A, B]) for (let i = 0; i < P.length; i++) {
