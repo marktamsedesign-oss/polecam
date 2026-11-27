@@ -840,7 +840,8 @@
   const taskCat = (name) => (isAcc(name) ? (pmeta(name).stage || 'PAT') : 'Survey');
   /* v2.16: a completed PAT is a closed record. Nothing in it is added, changed or removed; its items are tagged as fixed in
      the defect cleanup and the FAT, where what came from the PAT keeps its ID, place and items. Only the company list's
-     admin (or a phone without a company list) can reopen or delete a completed PAT. Surveys stay editable after completion. */
+     admin (or a phone without a company list) can reopen a completed PAT; (stage 11, small) any user can delete it, as any completed project.
+     Surveys stay editable after completion. */
   const patClosed = (name) => taskCat(name) === 'PAT' && !!pmeta(name).completedAt;
   const canReopenPat = () => !S.team || isAdmin();
   /** Remember who worked on the current project (printed on the reports). */
@@ -11905,7 +11906,7 @@
           : sug ? `Suggested from the GPS: ${regionLabel(sug)}. Approximate near a regional border: choose it above to confirm.` : 'Choose the region: it goes on the BOQ (no record with GPS yet to suggest it).';
       }
     }
-    $('delProjConfirm').hidden = true; $('delProject').hidden = false; // v2.22: a completed project is deleted with an admin's approval
+    $('delProjConfirm').hidden = true; $('delProject').hidden = false; // v2.22: the question closed when the project shows again
     if (tmHooks.projects) tmHooks.projects(); // v2.43 beta 2: the team mailbox (inbox, sent) and this project's team line
   }
   /* v2.22: the projects on this phone as a task list (filter, search, progress); tap one to open it. */
@@ -12043,11 +12044,12 @@
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
   function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; delete m.phPin; delete m.numPin; delete m.lblPin; delete m.cabPin; /* (Drawing photos; (beta 7.10, Drawing labels): the photos, numbers, pole details and cable labels placed by hand stay on this phone for now) */ delete m.planGrid; delete m.planRoads; /* ((beta 7.10, Plan kept) the grid kept with them and the plan's roads too) */ delete m.mvPin; delete m.mvStyle; delete m.mvKind; delete m.poleAt; /* ((beta 7.11, Drawing tools) the items turned and styled, the poles moved on the plan: on this phone too) */ delete m.mvText; delete m.mvOrder; delete m.drwNotes; delete m.mvHide; /* ((beta 7.12, Drawing edit) the texts edited, the draw order, the texts and photos added: on this phone, as the other Drawing edits) */ if (typeof m.notes !== 'string') delete m.notes; /* ((beta 7.16, Fixes) the remarks go to the team again (a text only), as before beta 7.12 */ delete m.tpl; /* ((beta 7.15, Client templates) the project's client template: on this phone in this beta) */ delete m.mvTurn; delete m.mvRec; /* ((beta 7.14, Changed by hand) its notes of what was changed by hand: the same) */ return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
-  /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
+  /** Delete a project (any, not only the open one): always asked first. (stage 11, small) A completed one too, with no admin's approval (the
+      owner: "remove the PIN requirement for deletion of completed sites. allow each user to delete as they needed."; from v2.22 it took an
+      approval code or the admin PIN). */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
     const m = pmeta(name), n = points.filter((p) => p.project === name).length, acc = m.mode === 'acceptance';
-    if (m.completedAt && S.team && !m.sample && !(await adminApproves(`Deleting the completed project “${name}”`))) return;
     const ok = await ask(`Delete “${name}”?`, `Its ${n} ${acc ? 'element' : 'record'}${n === 1 ? '' : 's'}, photos and offline maps are removed from this phone. Make a backup or share it first if you still need it. This can't be undone.`,
       [{ label: 'Keep', value: false }, { label: 'Delete project', value: true, primary: true }]);
     if (ok) await deleteProjectNow(name);
@@ -12299,7 +12301,8 @@
     if (!m.completedAt && taskCat() === 'FAT') { try { await completeFat('approved'); } catch (e) { toast(e.message || String(e), 7000); } return; } // v2.42.5: with the inspector's approval QR
     const pat = taskCat() === 'PAT';
     if (m.completedAt && pat && !canReopenPat()) { toast('A completed PAT is locked. Only the admin of the company list can reopen it.', 5000); return; }
-    // v2.22: reopening a completed project on a user's phone needs an admin's approval too (it would otherwise get round the delete approval)
+    // v2.22: reopening a completed project on a user's phone needs an admin's approval (then so that it did not get round the delete approval;
+    // (stage 11, small) the delete no longer asks for one, the reopen still does: the owner asked only about the delete)
     if (m.completedAt && S.team && !isAdmin() && !(await adminApproves(`Reopening the completed project “${S.project}”`))) return;
     const ok = m.completedAt
       ? await ask('Undo complete?', `The task is no longer marked complete${col ? `, and the ${col} is cleared in the online sheet` : ''}.${pat ? ' The PAT is unlocked: its elements and items can be changed and removed again.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Undo', value: true, primary: true }])
@@ -12541,19 +12544,15 @@
     S.project = name; persist(); renderPoles(); renderProjects(); drawAreas();
     toast(`Renamed to "${name}"`);
   }, 'Rename failed'));
-  let delApproved = '';
   $('delProject').addEventListener('click', () => guard(async () => {
-    delApproved = '';
-    // v2.22: a completed project (any category) is deleted only with an admin's approval: a one-time code or the admin PIN
-    if (pmeta().completedAt && S.team && !pmeta().sample) { if (!(await adminApproves(`Deleting the completed project “${S.project}”`))) return; delApproved = S.project; }
+    // (stage 11, small) a completed project (any category) is deleted as any other: no admin's approval (v2.22 to beta 7.17 asked for one)
     const n = projPoints().length, what = isAcc() ? 'element' : 'pole';
     $('delProjText').textContent = `Delete "${S.project}" with its ${n} ${what}${n === 1 ? '' : 's'}, photos and offline maps? Make a backup first if you still need them. This can't be undone.`;
     $('delProjConfirm').hidden = false; $('delProject').hidden = true;
   }, 'Not deleted'));
   $('delProjNo').addEventListener('click', () => { $('delProjConfirm').hidden = true; $('delProject').hidden = false; });
   $('delProjYes').addEventListener('click', () => guard(async () => {
-    if (pmeta().completedAt && S.team && !pmeta().sample && delApproved !== S.project) { $('delProjConfirm').hidden = true; $('delProject').hidden = false; return; }
-    const name = S.project; delApproved = '';
+    const name = S.project;
     await deleteProjectNow(name); // v2.26: the same as Delete on the project card
   }, 'Delete failed'));
 
@@ -17824,7 +17823,8 @@
     return ke && L.length && L[0] !== '*' && L.every((c) => adminCoSet().has(normCo(c))) && staffPhone() ? `&ke=${b64u.enc(enc8(JSON.stringify({ salt: ke.salt, iv: ke.iv, data: ke.data })))}` : '';
   }
 
-  /* ---- v2.22: admin approval codes (deleting a completed project) ---- */
+  /* ---- v2.22: admin approval codes (reopening a completed project; (stage 11, small) no longer deleting one. The code's text stays
+     "polecam-delete|…": a phone on an older version still asks for one to delete a completed project, and the admin's code still works) ---- */
   const REQ_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const reqCode = () => { const r = crypto.getRandomValues(new Uint8Array(6)); const c = [...r].map((x) => REQ_ABC[x % REQ_ABC.length]).join(''); return `${c.slice(0, 3)}-${c.slice(3)}`; };
   const normReq = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -17839,7 +17839,7 @@
     const P = pol(), req = reqCode();
     if (isAdmin() && !(S.team && S.team.keyEnc) && !P.otp) return true; // an older list with no PIN key and no approval key: its admin's phone decides
     LOG.info('approve.ask', { what: what.slice(0, 60) });
-    const v = await askPin('Admin approval needed', `${what} needs an admin's approval. Send this request code to an admin (Settings → Administration → Approve a delete) and type the 6-digit code you get back. It works only for this request. An admin who is with you can type the admin PIN instead.`, { code: req, placeholder: 'Approval code or admin PIN' });
+    const v = await askPin('Admin approval needed', `${what} needs an admin's approval. Send this request code to an admin (Settings → Administration → Approve a request) and type the 6-digit code you get back. It works only for this request. An admin who is with you can type the admin PIN instead.`, { code: req, placeholder: 'Approval code or admin PIN' });
     if (!v) return false;
     if (/^\d{6}$/.test(v) && P.otp && v === await approvalCode(P.otp, req)) { LOG.info('approve.ok', { by: 'code' }); return true; }
     if (/^\d{4,8}$/.test(v) && S.team && listKeyEnc() && (await unlockListKey(v).catch(() => null))) { LOG.info('approve.ok', { by: 'pin' }); return true; } // v2.42.5: this phone's copy of the admin key
@@ -23423,14 +23423,29 @@
     const f = $('cefFrame'); try { f.contentWindow.location.replace(new URL(CEF_PAGE, location.href).href); } catch (e) { f.src = CEF_PAGE; } // (replace: the phone's Back closes the plan, it does not go back inside the frame)
     return true;
   }
+  /** The project's site name and ID (and its site pin's coordinates) for a CEF plan: what its editor is given (APP.fix). pin: the plan's site pin
+      (an As-Plan's plan: the coordinates are always the pin's; (stage 11, small) the name and ID the project's until the plan has its own; '' in a
+      CEF-Plan project). */
+  function cefFixOf(name, pin) {
+    const m = pmeta(name), pinRec = pin ? points.find((p) => p.id === pin && p.project === name) : null, F = siteFieldsOf(name);
+    const sName = m.siteName || sfGet(F, /site\s*name|searchring|segment/i) || '', sId = m.plaId || sfGet(F, /pla\s*id/i) || '';
+    return { pinRec, site0: pinRec ? { name: sName || recName(pinRec) || '', id: sId, lat: +(+pinRec.lat).toFixed(6), lon: +(+pinRec.lon).toFixed(6) } : { name: sName, id: sId } };
+  }
+  /** (stage 11, small) A CEF plan's site name and ID as its sheets print them, read from one place (the owner: "Soon this CEF will be the homing
+      details required for the splicing details"): the plan's own (sk.site, typed in its editor; under a site pin site.own marks them) where it has
+      them, else the project's, as the editor takes them when it opens (vendor/cef/ui.js applyFixed). own: the names the plan has of its own. */
+  function cefSiteOf(name, plan) {
+    const si = (plan && plan.sk && plan.sk.site) || {}, w = si.own && typeof si.own === 'object' ? si.own : {}, { pinRec, site0 } = cefFixOf(name, plan && plan.pin), t = (v) => String(v == null ? '' : v);
+    const out = { name: '', id: '', own: [] };
+    for (const k of ['name', 'id']) { const f = t(site0[k]), v = t(si[k]), mine = pinRec ? !!w[k] || !f : !!v; out[k] = mine ? v : f; if (mine && v !== f) out.own.push(k); }
+    return out;
+  }
   /** What the editor starts with. */
   async function cefInit(job) {
     const c = (job && cefJobCtx[job]) || cefNow; if (!c) return null; // (beta 4.1: or the plan of a Drawing export, made out of sight)
     const plan = cefPlans(c.name).find((p) => p.id === c.id) || null, m = pmeta(c.name), u = S.user || {}, e = exporterInfo(), photos = {};
     if (plan) for (const pid of cefPhotoIds(plan)) { try { const ph = await dbGet('photos', pid); if (ph && (ph.clean || ph.thumb)) photos[pid] = (await cefPhotoSrc(ph.clean || ph.thumb)).src; } catch (x) { /* shown as not on this phone */ } }
-    const pinRec = c.pin ? points.find((p) => p.id === c.pin && p.project === c.name) : null, F = siteFieldsOf(c.name);
-    const sName = m.siteName || sfGet(F, /site\s*name|searchring|segment/i) || '', sId = m.plaId || sfGet(F, /pla\s*id/i) || '';
-    const site0 = pinRec ? { name: sName || recName(pinRec) || '', id: sId, lat: +(+pinRec.lat).toFixed(6), lon: +(+pinRec.lon).toFixed(6) } : { name: sName, id: sId };
+    const { pinRec, site0 } = cefFixOf(c.name, c.pin), F = siteFieldsOf(c.name);
     const T = tmTeam(c.name), ck = T && T.accepted ? String(T.accepted.byName || T.accepted.by || '') : '';
     const foot = `EXPORTED BY ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' - ').toUpperCase()} - G-eSAA ${VER_LABEL}`; // the line under the frame of every sheet
     return { sketch: plan ? JSON.stringify(plan.sk) : null, photos, logos: await cefLogos(), tab: c.tab || '',
@@ -24386,7 +24401,8 @@
     frame: () => $('cefFrame').contentWindow, logos: () => cefLogos(), canLogo: () => cefCanLogo(), logoSet: (f) => cefLogoSet(f), logoRemove: () => cefLogoRemove(), changed: (n, t) => cefChanged(n || S.project, t), pids: (n, t) => cefPids(n || S.project, t), summary: (n) => projSummary(n || S.project),
     put: (n, id, sk, o) => { const G = cefOf(n), x = o || {}, i = G.plans.findIndex((p) => p.id === id), rec = { id, pin: x.pin || '', sk, at: x.at || new Date().toISOString(), by: x.by || (S.user && S.user.name) || '', o: x.o != null ? x.o : cefMe(), made: x.at || new Date().toISOString() }; if (i >= 0) G.plans[i] = rec; else G.plans.push(rec); cefPut(n, G); },
     keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); },
-    planFiles: (n, only) => cefPlanFiles(n || S.project, only) }; // (beta 7.15, CEF template: the Drawing export's CEF files, for the tests)
+    planFiles: (n, only) => cefPlanFiles(n || S.project, only), // (beta 7.15, CEF template: the Drawing export's CEF files, for the tests)
+    site: (n, id) => { const p = cefPlans(n || S.project).find((x) => x.id === id) || null; return p ? cefSiteOf(n || S.project, p) : null; } }; // ((stage 11, small) a plan's own site name and ID)
   window.__polecam.jn = { att: (id) => { const j = points.find((p) => p.id === id); return j ? jnAtt(j).map((p) => p.id) : null; }, fit: (id) => { const j = points.find((p) => p.id === id); return j ? jnFit(j, jnAtt(j)) : null; }, msg: (id) => { const j = points.find((p) => p.id === id); return j ? jnMsgM(j) : null; }, // beta 6.9: a pull-off's or cross-over's poles, where it fits, its messenger
       pick: () => (jnPick ? { id: jnPick.id, need: jnPick.need, ch: jnPick.ch.slice(), fix: [...jnPick.fix], surf: jnPick.surf, bar: $('jnBarT').textContent, done: !$('jnBarDone').disabled } : null), tap: (id) => jnPickTap(id), done: () => jnPickDone(), start: (id, surf) => jnPickStart(id, surf), bar: () => ($('jnBar').hidden ? null : $('jnBarT').textContent), lbl: () => (drw && drw.jnLbl ? drw.jnLbl : null) };
   /* beta 4.6 (tests): the splicing details. frame(): the page's window; drwPt(id): where a record is on the Drawing (screen pixels) */
