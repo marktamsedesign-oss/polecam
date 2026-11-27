@@ -31,8 +31,8 @@ async def main():
         ids = await pg.evaluate("[...document.querySelectorAll('#tutList .tuttopic')].map((b) => b.dataset.topic)")
         T = await pg.evaluate("GESAA_TUTORIAL.topics.filter((t) => t.aud === 'admin').map((t) => ({ id: t.id, rm: t.steps.some((s) => /\\*\\*To (remove|cancel|untie|change|go back)/.test(s.t)) }))")
         need_rm = [t['id'] for t in T if t['id'] not in ('adm-inspect', 'adm-approve', 'adm-remove') and not t['rm']]
-        check('the admin guide lists 18 topics (v2.43: Stable and beta; beta 3.2: Switch Team on for a company; beta 7.16: User permissions), the Google Drive API key and "Remove or undo admin settings" among them; every setting topic says how to remove or undo it',
-              len(ids) == 18 and 'adm-perms' in ids and 'adm-beta' in ids and 'adm-team' in ids and 'adm-drivekey' in ids and ids[-1] == 'adm-remove' and not need_rm, (ids, need_rm))
+        check('the admin guide lists 19 topics (v2.43: Stable and beta; beta 3.2: Switch Team on for a company; beta 7.16: User permissions; stage 11: Plan templates, and A client\'s template moved here from the user guide), the Google Drive API key and "Remove or undo admin settings" among them; every setting topic says how to remove or undo it',
+              len(ids) == 19 and 'adm-perms' in ids and 'adm-beta' in ids and 'adm-team' in ids and 'adm-drivekey' in ids and 'adm-dxf' in ids and 'clienttpl' in ids and ids[-1] == 'adm-remove' and not need_rm, (ids, need_rm))
         # 2. the API key topic: the website address for the Google Cloud restriction filled in (the site part, then /*)
         await pg.evaluate("window.POLECAM_SITE = 'https://marktamsedesign-oss.github.io/polecam/'")
         await pg.click('#tutList .tuttopic[data-topic="adm-drivekey"]'); await W(pg, 300)
@@ -63,7 +63,7 @@ async def main():
         await open_tut(pg); await pg.click('#tutList .tuttopic[data-topic="adm-remove"]'); await W(pg, 300)
         rm = await pg.evaluate("[...document.querySelectorAll('#tutSteps li > div')].map((d) => d.textContent)")
         await pg.screenshot(path=f'{OUT}/d2_remove.png', full_page=False)
-        keys = ['List name', 'A company', 'Admin company', 'An admin user', 'admin PIN', 'invites', 'A logo', 'Form wording', 'Checklist', 'Field standards', 'Who records', 'KMZ lock', 'map pack', 'Area download source', 'Google Drive API key', 'Drawing template', 'Online sheet', 'org.json']
+        keys = ['List name', 'A company', 'Admin company', 'An admin user', 'admin PIN', 'invites', 'A logo', 'Form wording', 'Checklist', 'Field standards', 'Who records', 'KMZ lock', 'map pack', 'Area download source', 'Google Drive API key', 'Plan templates', 'Online sheet', 'org.json']  # (stage 11: Drawing template → Plan templates)
         miss = [k for k in keys if not any(k in x for x in rm)]
         check('"Remove or undo admin settings": every admin setting has its removal step, ending with Save and share the list', not miss and 'Save and share the list' in rm[-1], (len(rm), miss))
         bad = [e for e in errs if 'PAGEERROR' in e]

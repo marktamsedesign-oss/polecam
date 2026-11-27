@@ -4,14 +4,15 @@
    The online sheet is the real sheet script v2.43.6 (tests/regression/v243/sheet/PoleCam-online-sheet_v2.43.6.gs) on the in-memory spreadsheet of
    regression/v243/e2e/sheet_env.js, Google Drive a stand-in for it (made-up company CEF templates, tests/fixtures/cef-company-made-up.dxf, under
    made-up ids). Every name, email and place is made up.
-   - A solo phone: Plan style › Template › CEF template says the app's generic one (CEF plans printed on it); Load a CEF template: a plan template
-     refused, saying why; the made-up company one checked (its kit counted) and kept: every CEF plan printed on it (the DXF a copy of it on every
-     sheet, the PDF printed so, the README and the export's note say so); a client template's CEF sheet still wins for its project; Download
-     it: the company's, its style kit completed (the STYLE KEY sheet, the text style, the layer and the north arrow it lacked; the STYLE KEY's
-     heights its own styles').
-   - The admin shares it: Administration › CEF plan template (a Drive link) goes with the company list and to the sheet; a user's phone gets it
-     by itself through the sheet (cefseed=1) and prints its CEF plans on it; that user may not load another nor download it; a newer one
-     shared: the row says so, Get the newer CEF template gets it.
+   (stage 11, templates) The templates are the admin's (Administration › Plan templates), on the admin phone of a made-up company list (tests/tpl-admin.cjs;
+   the online sheet is now v2.43.7, which serves a public Drive link as v2.43.6 did):
+   - Plan templates › CEF plan: Published, the app's generic one at first (CEF plans printed on it); Testing › Load a DXF…: a plan template refused, saying
+     why; the made-up company one checked (its kit counted) and kept; Use the testing templates on: every CEF plan printed on it (the DXF a copy of it on
+     every sheet, the PDF printed so, the README and the export's note say so, "Testing template: not published", _TEST in the files' names); Download
+     (testing): its style kit completed (the STYLE KEY sheet, the text style, the layer and the north arrow it lacked; the STYLE KEY's heights its own
+     styles'); a 7.17 client template with a CEF sheet: Use as testing makes its CEF sheet the testing CEF template.
+   - The admin shares one by its Drive link (Plan templates › CEF plan › or paste a Google Drive link): it goes with the company list and to the
+     sheet; a user's phone gets it by itself through the sheet (cefseed=1) and prints its CEF plans on it; a newer one shared: got by itself.
    No page errors. Uses isolated browser contexts and a local HTTP server on a free port. */
 'use strict';
 const { test, before, after } = require('node:test');
@@ -25,14 +26,14 @@ const { chromium } = require('playwright');
 const T = require('../dxftpl.js');
 
 const root = path.resolve(__dirname, '..');
-process.env.GS_FILE = path.join(__dirname, 'regression', 'v243', 'sheet', 'PoleCam-online-sheet_v2.43.6.gs');
-const env = require('./regression/v243/e2e/sheet_env.js');
+const H = require('./tpl-admin.cjs');
+const SH = H.sheet(path.join(__dirname, 'regression', 'v243', 'sheet', 'PoleCam-online-sheet_v2.43.7.gs')), env = SH.env; // ((stage 11, templates) the admin's list on v2.43.7)
 const COMPANY = fs.readFileSync(path.join(__dirname, 'fixtures', 'cef-company-made-up.dxf'), 'utf8');
 const COMPANY2 = COMPANY.replace(/DEMO TELCO STANDARD/g, 'DEMO TELCO STANDARD V2');
 const CLIENT = fs.readFileSync(path.join(__dirname, 'fixtures', 'cef-seed-made-up.dxf'), 'utf8');
 const SEED_SQ = fs.readFileSync(path.join(__dirname, 'fixtures', 'plan-seed-made-up-square.dxf'), 'utf8');
 const PDFTOTEXT = !spawnSync('pdftotext', ['-v']).error;
-const SHEET = 'https://script.google.com/macros/s/DEMO-CEF-TEMPLATE-SHEET-0001/exec';
+const SHEET = SH.url;
 const ID1 = '1DemoCompanyCefTemplate000000001', ID2 = '1DemoCompanyCefTemplate000000002';
 const ADMIN = { name: 'Ana Reyes', mobile: '09170000009', email: 'ana@demo-telco.example' };
 const JUAN = { name: 'Juan Dela Cruz', mobile: '09170000001', email: 'juan@demo-contractor.example', company: 'DEMO CONTRACTOR' };
@@ -40,8 +41,8 @@ const NAME = 'DEMO CEF COMPANY TEST', T0 = '2026-11-01T08:00:00.000Z';
 const RECS = [['s1', 'CC-9001', 7.10465, 125.6010], ['s2', 'CC-9002', 7.10470, 125.6050]].map(([id, poleId, lat, lon], i) => ({ id, project: NAME, element: 'Pole', poleId, poleType: 'Concrete', status: 'Existing', lat, lon, created: `2026-11-01T08:0${i}:00.000Z`, updated: T0, takenAt: T0, by: JUAN.name, photos: [] }))
   .concat([{ id: 'site1', project: NAME, element: 'Site', poleId: 'SITE-0001', status: 'Proposed', lat: 7.10490, lon: 125.6030, created: '2026-11-01T08:09:00.000Z', updated: T0, takenAt: T0, by: JUAN.name, photos: [] }]);
 
-/* the online sheet: the real script on its stand-in; Google Drive: the made-up company CEF templates by their ids */
-const gs = env.load(env.NEW_GS);
+/* the online sheet: the real script on its stand-in; Google Drive: the made-up company CEF templates by their ids (public links) */
+const gs = SH.gs;
 const tab = (n) => env.world.ss.getSheetByName(n);
 const DRIVE = { [ID1]: { text: COMPANY, name: 'DEMO TELCO CEF template.dxf' }, [ID2]: { text: COMPANY2, name: 'DEMO TELCO CEF template v2.dxf' } };
 env.world.urlFetch = (u) => {
@@ -49,10 +50,8 @@ env.world.urlFetch = (u) => {
   return f ? resp(200, f.text, { 'Content-Disposition': `attachment; filename="${f.name}"` }) : resp(404, 'Not Found');
 };
 const sheetLog = [];
-let server, browser, base, team1 = null;
+let server, browser, base, team1 = null, ADMIN_ST = null;
 before(async () => {
-  gs.setup();
-  tab('Companies').getRange(1, 1, 3, 2).setValues([['Company', 'Authorization'], ['DEMO TELCO', 'ADMIN'], ['DEMO CONTRACTOR', 'USER']]);
   server = http.createServer(async (req, res) => {
     try {
       const rel = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
@@ -67,6 +66,7 @@ before(async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}/`;
   browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH || undefined });
+  ADMIN_ST = await H.makeAdmin(browser, base, SH); // ((stage 11, templates) Plan templates is the admin's)
 });
 after(async () => { if (browser) await browser.close(); if (server) await new Promise((resolve) => server.close(resolve)); });
 
@@ -101,7 +101,7 @@ async function open(o) {
   await page.evaluate(() => { window.__toasts = []; const t = document.getElementById('toast'); new MutationObserver(() => { if (t.textContent) window.__toasts.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); });
   return { ctx, page, errors };
 }
-const state = (u, team) => ({ projects: [NAME], project: NAME, sampleDone: true, saveCheck: false, zone: 51, user: u, ...(team ? { team } : {}), v17: 1, v20: 1, v64addr: 1, plNotice: 1, routeTip: true, rtGrabTip: true, drawHintOff: true,
+const state = (u, team) => ({ ...(u === null ? ADMIN_ST : {}), projects: [NAME], project: NAME, sampleDone: true, saveCheck: false, zone: 51, ...(u ? { user: u } : {}), ...(team ? { team } : {}), v17: 1, v20: 1, v64addr: 1, plNotice: 1, routeTip: true, rtGrabTip: true, drawHintOff: true,
   meta: { [NAME]: { mode: 'survey', purpose: 'As-plan', contractor: 'DEMO CONTRACTOR', links: [], cables24: true, siteFields: [['Project Name', 'DEMO RELOC'], ['Serial Number', 'OWO-0000-002'], ['PLA ID', 'DEMO-0002'], ['Site name', 'DEMO_SITE']] } } });
 const toasts = (page) => page.evaluate(() => window.__toasts.slice());
 async function until(page, fn, arg, s) { for (let i = 0; i < (s || 30) * 5; i++) { if (await page.evaluate(fn, arg)) return; await page.waitForTimeout(200); } throw new Error(`not so after ${s || 30} s: ${fn}`); }
@@ -110,17 +110,9 @@ async function answer(page, label) {
   await until(page, () => !document.getElementById('askBox').hidden, null, 30);
   await page.evaluate((l) => { const b = [...document.querySelectorAll('#askBox .row button')].find((x) => x.textContent.trim() === l) || document.querySelector('#askBox .row button.primary'); b.click(); }, label); await page.waitForTimeout(300);
 }
-/** Plan style (from the Drawing), its Template card open. */
-async function planStyle(page) {
-  await closeAll(page);
-  await page.evaluate(() => document.getElementById('drawBtn').click()); await page.waitForTimeout(700);
-  await page.evaluate(() => { const d = document.querySelector('dialog[open]'); if (d) d.close(); });
-  await page.evaluate(() => document.getElementById('drawSetBtn').click()); await page.waitForTimeout(700);
-  await page.evaluate(() => { const d = document.getElementById('stTpl'); d.open = true; document.getElementById('tplCefRow').scrollIntoView(); }); await page.waitForTimeout(300);
-}
-/** Plan style › Template › CEF template: what it says, which buttons it shows. */
-const cefRow = (page) => page.evaluate(() => ({ sum: document.getElementById('tplCefSum').textContent, get: !document.getElementById('tplCefGet').hidden && document.getElementById('tplCefGet').textContent,
-  down: !document.getElementById('tplCefDown').hidden, load: !document.getElementById('tplCefLoad').hidden && document.getElementById('tplCefLoad').textContent }));
+/** (stage 11, templates) Administration › Plan templates, and the CEF plan's two slots as it shows them. */
+const planTemplates = (page) => H.admin(page);
+const cefSlots = (page) => page.evaluate(() => ({ pub: document.getElementById('admTplCefPubSum').textContent, test: document.getElementById('admTplCefTestSum').textContent, down: document.getElementById('admTplCefPubDown').textContent }));
 /** The CEF plan of the site pin, opened in its editor with the made-up sample site (not marked sample). */
 async function cef(page) {
   assert.equal(await page.evaluate(() => window.__polecam.cef.open(null, { pin: 'site1' })), true);
@@ -153,57 +145,48 @@ function pdfText(b64) {
   return Array.from({ length: n }, (_, i) => String(execFileSync('pdftotext', ['-f', String(i + 1), '-l', String(i + 1), '-layout', f, '-'])).replace(/\s+/g, ' '));
 }
 
-test('a solo phone: the generic CEF template, then Load a CEF template (checked); every CEF plan printed on it, a client template\'s CEF sheet still first for its project; Download it: its style kit completed', async () => {
-  const { ctx, page, errors } = await open({ state: state(JUAN, null) });
+test('the admin phone: Plan templates › CEF plan: the generic one; Testing › Load a DXF… (checked); Use testing on: every CEF plan printed on it, _TEST, said; Download: its style kit completed; a 7.17 client template\'s CEF sheet as testing', async () => {
+  const { ctx, page, errors } = await open({ state: state(null, null) });
   try {
-    await planStyle(page);
-    assert.deepEqual(await cefRow(page), { sum: 'No company CEF template: CEF plans are printed on the app\'s generic one.', get: false, down: true, load: 'Load a CEF template…' }, 'a phone with no company list: its own admin');
+    await planTemplates(page);
+    assert.deepEqual(await cefSlots(page), { pub: 'None: CEF plans are printed on the app\'s generic CEF template.', test: 'None: Load a DXF, or make one from a client\'s file.', down: 'Download the generic one' });
     assert.deepEqual(await page.evaluate((n) => window.__polecam.cefTpl.now(n), NAME), { kind: 'generic', name: 'G-eSAA generic CEF template', size: fs.statSync(path.join(root, 'vendor', 'cef', 'cef-template-generic.dxf')).size, note: '' });
     // a plan template is not a CEF template: refused, said why, nothing kept
-    await page.setInputFiles('#tplCefFile', { name: 'plan-seed-made-up-square.dxf', mimeType: 'application/dxf', buffer: Buffer.from(SEED_SQ) });
-    await until(page, () => window.__toasts.some((t) => /^CEF template not loaded/.test(t)), null, 30);
+    await page.setInputFiles('#admTplCefLoadFile', { name: 'plan-seed-made-up-square.dxf', mimeType: 'application/dxf', buffer: Buffer.from(SEED_SQ) });
+    await until(page, () => window.__toasts.some((t) => /^Template not loaded/.test(t)), null, 30);
     assert.ok((await toasts(page)).some((t) => /This CEF template cannot be used: It has no sheet \(layout\) named CEF/.test(t)), JSON.stringify(await toasts(page)));
-    assert.equal(await page.evaluate(() => window.__polecam.cefTpl.info()), null);
-    // the made-up company one: checked, its kit counted, kept
-    await page.setInputFiles('#tplCefFile', { name: 'DEMO TELCO CEF template.dxf', mimeType: 'application/dxf', buffer: Buffer.from(COMPANY) });
+    assert.deepEqual(await page.evaluate(() => window.__polecam.tpl.test()), {});
+    // the made-up company one: checked, its kit counted, kept as the testing CEF template
+    await page.setInputFiles('#admTplCefLoadFile', { name: 'DEMO TELCO CEF template.dxf', mimeType: 'application/dxf', buffer: Buffer.from(COMPANY) });
     await until(page, () => !document.getElementById('askBox').hidden, null, 30);
     const said = await page.evaluate(() => document.getElementById('askBox').textContent);
-    assert.match(said, /CEF template ready/); assert.match(said, /Every CEF plan on this phone is now printed on DEMO TELCO CEF template\.dxf/); assert.match(said, /16 of 17 text styles, 21 of 22 layers/);
-    assert.match(said, /lacks 1 text style and 1 layer: those print as the app's own look \(Download adds them\)/);
+    assert.match(said, /Testing template ready/); assert.match(said, /DEMO TELCO CEF template\.dxf\. Its style kit: 16 of 17 text styles, 21 of 22 layers\./);
+    assert.match(said, /lacks 1 text style and 1 layer: those print as the app's own look \(Download adds them\)/); assert.match(said, /Tick Use the testing templates on this phone/);
     await answer(page, 'OK');
-    const info = await page.evaluate(() => window.__polecam.cefTpl.info());
+    const info = await page.evaluate(() => window.__polecam.tpl.test().cef);
     assert.equal(info.name, 'DEMO TELCO CEF template.dxf'); assert.equal(info.from, 'file'); assert.deepEqual(info.kit, { styles: [16, 17], layers: [21, 22], north: false, key: false });
-    assert.ok((await page.evaluate(() => window.__polecam.cefTpl.seedText())).includes('DEMO TELCO STANDARD'), 'kept on the phone');
-    const row = await cefRow(page);
-    assert.equal(row.sum, 'Company CEF template: ✓ DEMO TELCO CEF template.dxf (loaded on this phone) · style kit 16/17 text styles, 21/22 layers.'); assert.equal(row.load, 'Load it back (edited)…'); assert.equal(row.down, true);
+    assert.ok((await page.evaluate(() => window.__polecam.tpl.testText('cef'))).includes('DEMO TELCO STANDARD'), 'kept on the phone');
+    assert.match((await cefSlots(page)).test, /^DEMO TELCO CEF template\.dxf · \d+ KB · \d{4}-\d\d-\d\d · by Ana Reyes · ana@demo-telco\.example$/);
+    assert.equal((await page.evaluate((n) => window.__polecam.cefTpl.now(n), NAME)).kind, 'generic', 'Use the testing templates off: not used');
+    await page.check('#admTplTest'); await page.waitForTimeout(300);
     if (process.env.SHOTS) await page.screenshot({ path: path.join(process.env.SHOTS, 'cef-company-template-row.png') });
     // every CEF plan printed on it
     const fr = await cef(page), F = await files(fr), dxf = pick(F, /_CEF_sheets\.dxf$/), sh = sheetsOf(dxf);
-    assert.equal(F.tpl, 'DEMO TELCO CEF template.dxf'); assert.equal(F.err, '');
+    assert.equal(F.tpl, 'DEMO TELCO CEF template.dxf (testing)'); assert.equal(F.err, '');
+    assert.ok(Object.keys(F.files).filter((n) => /\.(dxf|pdf|kml|json)$/.test(n)).every((n) => /_TEST_CEF/.test(n)), `_TEST in the files' names: ${Object.keys(F.files).join(', ')}`);
     assert.deepEqual(sh.map((s) => s.name), ['COVER PAGE', 'CONTENTS', 'LEGEND', 'ISOMETRIC', 'TOP VIEW']);
     assert.ok(sh.slice(1).every((s) => s.texts.includes('DEMO TELCO STANDARD')), 'every sheet a copy of the company\'s sheet CEF');
     assert.deepEqual(styleOf(dxf, 'CEF BODY'), { font: 'romans.shx', height: 3 }, 'its own text styles');
-    assert.match(pick(F, /README\.txt$/), /TEMPLATE\r\n {2}The sheets are on the company CEF template DEMO TELCO CEF template\.dxf: its frame/);
+    assert.match(pick(F, /README\.txt$/), /TEMPLATE\r\n {2}The sheets are on the company CEF template DEMO TELCO CEF template\.dxf \(testing\): its frame/);
     if (PDFTOTEXT) { const P = pdfText(pick(F, /_CEF\.pdf$/)); assert.ok(P.length >= 5 && P[1].includes('DEMO TELCO STANDARD') && P[0].includes('CABLE ENTRANCE FACILITY'), 'the PDF printed on it'); }
+    const pop = await fr.evaluate(() => { expOpen = true; drawStrip(); const t = document.getElementById('tbpop').textContent; expOpen = false; drawStrip(); return t; });
+    assert.match(pop, /Testing template: not published: the files say _TEST\./, 'the editor\'s Export says it before anything is made');
     const note = await fr.evaluate(async () => { dl.save = async () => {}; await doExport('zip'); return (msg && msg.t) || ''; });
-    assert.match(note, /The ZIP is ready: .*_CEF\.zip\. On the company CEF template DEMO TELCO CEF template\.dxf\.$/);
-    // a client template with a CEF sheet: its project's CEF plan on it, the company one for the others
-    await page.evaluate(async ({ NAME, text }) => {
-      const P = window.__polecam, S = P.S;
-      await new Promise((res, rej) => { const r = indexedDB.open('polecam'); r.onsuccess = () => { const d = r.result, tx = d.transaction('packs', 'readwrite'); tx.objectStore('packs').put({ k: '~tpl:tplA', id: 'tplA', name: 'DEMO CLIENT A3', plan: null, cef: text, look: null }); tx.oncomplete = () => { d.close(); res(); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); });
-      S.tpls = [{ id: 'tplA', name: 'DEMO CLIENT A3', at: '2026-11-01T08:00:00.000Z', from: { file: 'demo-client-a3.dxf', size: 1000 }, client: 'DEMO CLIENT', look: null, ok: true, cef: true }];
-      S.meta[NAME] = { ...S.meta[NAME], tpl: 'tplA' }; P.persist();
-    }, { NAME, text: CLIENT });
-    assert.equal((await page.evaluate((n) => window.__polecam.cefTpl.now(n), NAME)).kind, 'client');
-    { const F2 = await files(fr); assert.equal(F2.tpl, 'DEMO CLIENT A3'); assert.ok(sheetsOf(pick(F2, /_CEF_sheets\.dxf$/)).slice(1).every((s) => !s.texts.includes('DEMO TELCO STANDARD')), 'on the client\'s sheet'); }
-    await page.evaluate((n) => { const P = window.__polecam, m = { ...P.S.meta[n] }; delete m.tpl; P.S.meta[n] = m; P.persist(); }, NAME);
-    assert.equal((await page.evaluate((n) => window.__polecam.cefTpl.now(n), NAME)).kind, 'company');
-    // Download it: the company's, its kit completed
-    await closeAll(page); await planStyle(page);
+    assert.match(note, /The ZIP is ready: .*_TEST_CEF\.zip\. On the company CEF template DEMO TELCO CEF template\.dxf \(testing\)\. Testing template: not published\.$/);
+    // Download (testing): its kit completed
+    await closeAll(page); await planTemplates(page);
     const dlP = page.waitForEvent('download', { timeout: 30000 });
-    await page.click('#tplCefDown');
-    await until(page, () => !document.getElementById('sendBox').hidden, null, 30);
-    await page.evaluate(() => { const b = ['sendSave', 'sendSave2'].map((id) => document.getElementById(id)).find((x) => x && !x.hidden); b.click(); });
+    await page.click('#admTplCefDown');
     const dl = await dlP, got = fs.readFileSync(await dl.path(), 'utf8');
     assert.equal(dl.suggestedFilename(), 'DEMO TELCO CEF template.dxf');
     const S2 = T.structure(new T.Doc(got));
@@ -212,28 +195,39 @@ test('a solo phone: the generic CEF template, then Load a CEF template (checked)
     assert.deepEqual(styleOf(got, 'CEF BODY'), { font: 'romans.shx', height: 3 }, 'its own styles kept');
     assert.ok(/GESAA_KEY\r?\n1000\r?\nheight\r?\n1000\r?\nCEF BODY/.test(got) && /\r?\n3 mm\r?\n/.test(got), 'the STYLE KEY says its CEF BODY is 3 mm');
     assert.ok((await toasts(page)).some((t) => t === 'Its style kit completed: 1 text style, 1 layer, the north arrow, the STYLE KEY sheet added as the app prints them'), JSON.stringify(await toasts(page)));
+    // a 7.17 client template with a CEF sheet (kept on this phone): Use as testing: its CEF sheet the testing CEF template
+    await page.evaluate(async ({ text, plan }) => {
+      const P = window.__polecam, S = P.S;
+      await new Promise((res, rej) => { const r = indexedDB.open('polecam'); r.onsuccess = () => { const d = r.result, tx = d.transaction('packs', 'readwrite'); tx.objectStore('packs').put({ k: '~tpl:tplA', id: 'tplA', name: 'DEMO CLIENT A3', client: 'DEMO CLIENT', plan, cef: text, look: null }); tx.oncomplete = () => { d.close(); res(); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); });
+      S.tpls = [{ id: 'tplA', name: 'DEMO CLIENT A3', at: '2026-11-01T08:00:00.000Z', from: { file: 'demo-client-a3.dxf', size: 1000 }, client: 'DEMO CLIENT', look: null, ok: true, cef: true }]; P.persist();
+    }, { text: CLIENT, plan: SEED_SQ });
+    await closeAll(page); await planTemplates(page);
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#admTplOldList .tplit')].map((d) => [d.querySelector('b').textContent, [...d.querySelectorAll('button')].map((b) => b.textContent)])), [['DEMO CLIENT A3', ['Use as testing', 'Remove']]]);
+    await page.click('#admTplOldList .tplit button.primary');
+    assert.match(await H.answer(page, 'Use as testing'), /Its as-plan and its CEF sheet become the testing templates on this phone, in place of the testing ones there now/);
+    await page.waitForTimeout(400);
+    const c2 = await page.evaluate((n) => window.__polecam.cefTpl.now(n), NAME);
+    assert.equal(c2.name, 'DEMO CLIENT A3 (testing)'); assert.equal(c2.test, true);
+    await closeAll(page);
+    { const F2 = await files(await cef(page)); assert.equal(F2.tpl, 'DEMO CLIENT A3 (testing)'); assert.ok(sheetsOf(pick(F2, /_TEST_CEF_sheets\.dxf$/)).slice(1).every((s) => !s.texts.includes('DEMO TELCO STANDARD')), 'on the client\'s sheet'); }
+    await closeAll(page); await planTemplates(page); await page.uncheck('#admTplTest'); await page.waitForTimeout(200);
+    assert.equal((await page.evaluate((n) => window.__polecam.cefTpl.now(n), NAME)).kind, 'generic', 'off: the published one (the generic one)');
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); }
 });
 
-test('the admin shares the company CEF template (Administration › CEF plan template): a user\'s phone gets it through the online sheet and prints on it; a newer one shared: got', async () => {
-  const admin = await open({ state: null }), { page } = admin;
+test('the admin shares a company CEF template by its Drive link (Plan templates › CEF plan › or paste a Google Drive link): a user\'s phone gets it through the online sheet and prints on it; a newer one shared: got by itself', async () => {
+  const admin = await open({ state: state(null, null) }), { page } = admin;
   try {
-    await page.fill('#pfName', ADMIN.name); await page.fill('#pfMobile', ADMIN.mobile); await page.fill('#pfEmail', ADMIN.email);
-    await page.click('#pfCreateBox summary'); await page.click('#pfCreate'); await page.waitForTimeout(400);
-    await page.fill('#admPin', '1234'); await page.fill('#admPin2', '1234'); await page.click('#admUnlock'); await page.waitForTimeout(700);
-    await page.fill('#admName', 'DEMO TELCO list');
-    await page.evaluate(({ url, rk, ak, link }) => { document.getElementById('admUrl').value = url; document.getElementById('admReadKey').value = rk; document.getElementById('admWriteKey').value = ak; document.getElementById('admCefSeed').value = link; document.getElementById('admCoRefresh').click(); },
-      { url: SHEET, rk: gs.settings_()['Read key'], ak: gs.settings_()['Admin key'], link: `https://drive.google.com/file/d/${ID1}/view?usp=sharing` });
-    await until(page, () => document.querySelectorAll('#admCos span').length >= 2, null, 20);
-    await page.selectOption('#admOwner', 'DEMO TELCO');
+    await planTemplates(page);
+    await page.fill('#admCefSeed', `https://drive.google.com/file/d/${ID1}/view?usp=sharing`);
     await page.evaluate(() => document.getElementById('admSave').click());
     await answer(page, 'OK');
-    await page.selectOption('#pfCompany', 'DEMO TELCO'); await page.click('#pfSave'); await page.waitForTimeout(1200);
-    await until(page, () => { const t = window.__polecam.S.team; return !!(t && t.rev === 1 && t.pol && t.pol.cefSeed); }, null, 20);
+    await until(page, () => { const t = window.__polecam.S.team; return !!(t && t.rev === 2 && t.pol && t.pol.cefSeed); }, null, 20);
     team1 = await page.evaluate(() => JSON.parse(JSON.stringify(window.__polecam.S.team)));
     assert.equal(team1.pol.cefSeed, `https://drive.google.com/file/d/${ID1}/view?usp=sharing`, 'the link goes with the company list');
     assert.equal(env.world.props['cefseed.id'], ID1, 'and to the sheet (setList: cefSeed)');
+    assert.equal(SH.setting('CEF template'), `https://drive.google.com/file/d/${ID1}/view`, '(sheet v2.43.7) its Settings row follows the newest link');
     assert.deepEqual(admin.errors, []);
   } finally { await admin.ctx.close(); }
   // a user of the list: the CEF template comes by itself, through the sheet
@@ -248,18 +242,13 @@ test('the admin shares the company CEF template (Administration › CEF plan tem
     const info = await p.evaluate(() => window.__polecam.cefTpl.info()); assert.equal(info.from, 'drive'); assert.equal(info.id, ID1);
     const fr = await cef(p), F = await files(fr);
     assert.equal(F.tpl, 'DEMO TELCO CEF template.dxf'); assert.ok(sheetsOf(pick(F, /_CEF_sheets\.dxf$/)).slice(1).every((s) => s.texts.includes('DEMO TELCO STANDARD')));
-    await planStyle(p);
-    let row = await cefRow(p);
-    assert.deepEqual({ ...row, sum: row.sum.replace(/ · style kit.*$/, '') }, { sum: 'Company CEF template: ✓ DEMO TELCO CEF template.dxf (from your admin)', get: false, down: false, load: false }, 'a user: no Download, no Load (the admin shares it)');
-    // a newer one shared (the sheet's Settings): said, then got
-    const st = tab('Settings'), L = st.getRange(1, 1, st.getLastRow(), 2).getValues(), i = L.findIndex((x) => x[0] === 'CEF template'); st.getRange(i + 1, 2).setValue(`https://drive.google.com/file/d/${ID2}/view`);
+    assert.ok(Object.keys(F.files).every((n) => !/_TEST/.test(n)), 'a user\'s files: no _TEST');
+    // a newer one shared (the sheet's Settings): got by itself at the next sync
+    SH.setSetting('CEF template', `https://drive.google.com/file/d/${ID2}/view`);
     await p.evaluate(() => window.__polecam.cloudSync(true)); await p.waitForTimeout(500);
     await until(p, () => window.__polecam.cefTpl.id() === '1DemoCompanyCefTemplate000000002', null, 20);
-    row = await cefRow(p);
-    if (row.get) { assert.equal(row.get, 'Get the newer CEF template'); assert.match(row.sum, /a newer one is shared/); await p.click('#tplCefGet'); }
     await until(p, () => { const i = window.__polecam.cefTpl.info(); return !!i && i.id === '1DemoCompanyCefTemplate000000002'; }, null, 30);
     assert.equal((await p.evaluate(() => window.__polecam.cefTpl.info())).name, 'DEMO TELCO CEF template v2.dxf');
-    assert.match((await cefRow(p)).sum, /^Company CEF template: ✓ DEMO TELCO CEF template v2\.dxf \(from your admin\)/);
     assert.deepEqual(u.errors, []);
   } finally { await u.ctx.close(); }
 });
