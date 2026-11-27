@@ -444,6 +444,15 @@ details.plmore > summary small{color:var(--muted);font-size:calc(12.5px * var(--
 .tplit small{display:block;color:var(--muted);font-size:calc(12px * var(--fs));line-height:1.35}
 .tplit .row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .tplit.on{border-color:var(--accent)}
+/* (stage 11, templates) Administration › Plan templates: a kind (Geo, CEF), its Published and Testing slots; the Drawing's banner while a testing template is used */
+.tplkind{border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:8px 0;display:flex;flex-direction:column;gap:8px}
+.tplkh{font:700 calc(12px * var(--fs)) system-ui,sans-serif;letter-spacing:.02em;color:var(--muted)}
+.tplslot{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--surface);border:1px solid var(--line2, var(--line))}
+.tplslot.test{border-style:dashed;border-color:#f08c00}
+.tplst{font-weight:700;font-size:calc(13px * var(--fs))}.tplst.pub{color:var(--accent)}
+.tplsum{display:block;color:var(--muted);font-size:calc(12px * var(--fs));line-height:1.35;overflow-wrap:anywhere}
+.tplslot .row{gap:6px}.tplslot .field{margin:0}
+.drwtest{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:5;margin:0;padding:4px 10px;border-radius:999px;pointer-events:none;white-space:nowrap;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis;background:var(--tn-amber,#fff4e6);color:var(--tn-amber-ink,#5c3c00);border:1px solid #f08c00;font:600 calc(12px * var(--fs))/1.3 system-ui,sans-serif;box-shadow:0 2px 6px rgba(0,0,0,.12)}
 #tplReview .body{max-width:980px;margin:0 auto;width:100%}
 .tprsec{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;margin:0 0 10px}
 .tprsec > h3{margin:0 0 6px;font-size:calc(15px * var(--fs))}
@@ -2170,6 +2179,7 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
   <div id="drawWrap"><canvas id="drawCanvas" aria-label="Drawing of the project: poles, route and spans"></canvas>
     <!-- (beta 7.12, Drawing edit) the tray of Add photo (the camera, the gallery) and of More, over the plan by the row -->
     <div class="drwicopop" id="drawIcoPop" role="group" aria-label="Drawing tools" hidden></div>
+    <p class="drwtest" id="drawTestBan" role="status" hidden>Testing template: not published</p><!-- (stage 11, templates) while this admin phone uses a testing template -->
     <input type="file" id="drawNoteCam" accept="image/*" capture="environment" hidden><input type="file" id="drawNotePick" accept="image/*" hidden>
     <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
     <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div><label class="drwgrid" id="drawGridRow" hidden><input type="checkbox" id="drawGrid" checked><span>Sheet grid: the plan's GEO sheets and their names</span></label></details>
@@ -2300,27 +2310,13 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
     <!-- the company standard (PL_STD in app.js): ✓, or what differs and Use company standard (the main look choices only) -->
     <div class="psstd" id="psStd" role="status"><div class="psstdt" id="psStdT"></div><button class="btn small" id="psStdUse" type="button" hidden>Use company standard</button></div>
     <p class="plban" id="plBanTpl" hidden><span>No company template on this phone</span><button type="button" class="btn sm" id="plBanTplGet">Get it</button></p>
+    <p class="plban" id="plBanTest" role="status" hidden><span>Testing template: not published</span></p><!-- (stage 11, templates) while this admin phone uses a testing template -->
     <p class="plban" id="plBanSimple" hidden><span>You make the Simple drawing: these settings are for the company plan</span><button type="button" class="btn sm" id="plBanSimpleGo">Change ›</button></p>
     <!-- (beta 7.8, Plan style cards): the plan's main choices in cards, one open at a time, each saying in one line what it is set to; a card
          opened shows its part of the plan in the preview. Every row kept its id, its label and its stored key: nobody's setting changes. -->
     <div class="plcards" id="plCards">
-      <!-- (beta 7.15, Client templates) the owner: "dxf for asplan and cef must be based from a template dxf ... By changing the template dxf, the app can now
-           accomodate plan creation from different clients using its template": each project's template (the company's, or a client's added here) -->
-      <details class="stgrp stsec plcard" id="stTpl" data-find="Template" data-tut="clienttpl"><summary><span class="plci" aria-hidden="true"><svg><use href="#i-tpl"/></svg></span><span class="t"><b>Template</b><small class="secsum"></small></span></summary><div class="secbody">
-        <div class="strow" id="tplRow" data-find="Template for this project"><label class="lbl" for="tplSel">Template for this project</label><select id="tplSel"></select>
-          <small class="sthint" id="tplSelSum"></small>
-          <!-- (templates, Round trip) admin: the template this project uses, downloaded to edit in AutoCAD and loaded back -->
-          <div class="row" id="tplRound" hidden><button type="button" class="btn small" id="tplDown">Download this template</button><button type="button" class="btn small" id="tplBack">Load it back…</button></div><input type="file" id="tplBackFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
-          <small class="sthint" id="tplRoundSum" hidden></small></div>
-        <div class="strow" id="tplListRow" data-find="Client templates"><span class="lbl">Client templates</span><div class="tpllist" id="tplList"></div>
-          <div class="row"><button type="button" class="btn small" id="tplAdd">Add a client's template…</button></div><input type="file" id="tplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
-          <small class="sthint">A client's own AutoCAD template (DXF), or a finished plan of theirs (the app learns its sheets, title block and look from it), read on this phone: nothing is uploaded. Its sheet, title block, fonts, text sizes and line weights make that client's as-plan and CEF plan. Kept on this phone: not shared with your team in this beta.</small></div>
-        <!-- (templates, company CEF template) the company's CEF template: every CEF plan is printed on it (a client's own CEF sheet wins for its
-             project), else on the app's generic one; got from the admin, and (the admin) downloaded, edited in AutoCAD and loaded back -->
-        <div class="strow" id="tplCefRow" data-find="CEF template"><span class="lbl">CEF template</span><small class="sthint" id="tplCefSum"></small>
-          <div class="row"><button type="button" class="btn small" id="tplCefGet" hidden>Get the CEF template</button><button type="button" class="btn small" id="tplCefDown" hidden>Download it</button><button type="button" class="btn small" id="tplCefLoad" hidden>Load a CEF template…</button></div><input type="file" id="tplCefFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
-          <small class="sthint" id="tplCefHow">Every CEF plan is printed on the company's CEF template (a DXF your admin shares), else on the app's own generic one. A client template with a CEF sheet is used for its project instead.</small></div>
-      </div></details>
+      <!-- (stage 11, templates) the Template card (beta 7.15: the project's template, the client templates, the CEF template) moved to Administration ›
+           Plan templates: the owner: "do not put it on drawing settings but rather put it on the admin settings only". Users have no template choices. -->
       <details class="stgrp stsec plcard" id="stNum" data-scene="street" data-find="Pole numbers" data-tut="planstyle"><summary><span class="plci" aria-hidden="true"><svg><use href="#i-hash"/></svg></span><span class="t"><b>Pole numbers</b><small class="secsum"></small></span></summary><div class="secbody">
         <div class="strow plb" id="psNum" data-find="Pole numbers in this project"><span class="lbl">Pole numbers in this project</span>
           <div class="seg segr" id="numBox" role="radiogroup" aria-label="Pole numbers in this project"><label class="chip small"><input type="radio" name="numMode" id="numProject"><span>1, 2, 3… for the whole project</span></label><label class="chip small"><input type="radio" name="numMode" id="numOwner"><span>Each owner from 1</span></label></div>
@@ -2535,7 +2531,7 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
     <div class="tprsec" id="tprModel"><h3>5. The template's model space</h3><p class="hint">Its sample drawing is removed; tables or legends shown on a sheet can stay.</p><div id="tplModel"></div></div>
     <div class="tprsec" id="tprCheck" hidden><h3>Check: a made-up plan on this template</h3><div id="tplCheckRes"></div><canvas class="tprpic" id="tplCheckPic" width="900" height="636" role="img" aria-label="A made-up plan drawn on the client's sheet"></canvas></div>
   </div>
-  <div class="foot"><button class="btn grow" id="tplMake" type="button">Make and check</button><button class="btn primary grow" id="tplSave" type="button" disabled>Save template</button></div>
+  <div class="foot"><button class="btn grow" id="tplMake" type="button">Make and check</button><button class="btn primary grow" id="tplSave" type="button" disabled>Save as testing</button></div>
 </section>
 <!-- v2.28: find a pin -->
 <section class="sheet" id="find" hidden aria-labelledby="findTitle">
@@ -3501,10 +3497,35 @@ body.deskpane.drwside:not(.sidenarrow) #drawWrap:has(> #drawLegend[open]) > #dra
         <textarea id="admPacks" style="min-height:80px" placeholder="Mindanao | https://drive.google.com/file/d/…/view | 200" aria-label="Offline map packs, one per line"></textarea>
         <label class="field">AREA DOWNLOAD SOURCE (optional): a .pmtiles file on your own storage that allows range requests, e.g. a copy of a Protomaps build on Cloudflare R2. Blank = the Protomaps daily build.<input type="url" id="admAreaSrc" placeholder="https://…/planet.pmtiles" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
         <label class="field">GOOGLE DRIVE API KEY (optional): lets the website and iPhones download the Drive packs above with one tap (Download), like the Android app. Make it once in Google Cloud (Google Drive API, key restricted to this website); the packs must be shared <i>Anyone with the link</i>. Blank = website users open the pack in Drive and import the file.<input type="text" id="admDriveKey" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="60"></label>
-        <label class="field">DRAWING TEMPLATE (DXF seed): a Google Drive link to the prepared plan template. Phones download it for Export → Plan drawing on the template; it is company property and is not inside the app. Sharing *Anyone with the link*: the Android app downloads it by itself (and anyone given the link can open it). Restricted to company accounts: users download it signed in and load the file.<input type="url" id="admDxfSeed" placeholder="https://drive.google.com/file/d/…" autocomplete="off"></label>
-        <label class="field">CEF PLAN TEMPLATE (DXF): a Google Drive link to the company's CEF template (made from the app's generic one: Plan style › Template › CEF template › Download it, edited in AutoCAD). Every CEF plan is printed on it; phones get it by themselves, as the drawing template. Blank: the app's own generic CEF template.<input type="url" id="admCefSeed" placeholder="https://drive.google.com/file/d/…/view" autocomplete="off" autocapitalize="off" spellcheck="false"></label><!-- (templates, company CEF template) -->
-        <label class="check"><input type="checkbox" id="admUserTpl"><span>Users may load a plan template file of their own (off: everyone uses the template above).</span></label>
         <p class="hint" id="admPacksInfo"></p>
+      </div>
+      <!-- (stage 11, templates) the owner: "for the Asplan/Asbuilt and CEF templates, do not put it on drawing settings but rather put it on the admin settings
+           only ... this should make that template sync in on each user to be use by them. allow admin user to use a new template for testing and calibration
+           without making an erroneous plan because of new template. there will be 4 dxf template. 2 for testing (Geo and CEF) to be use by admin user only and 2
+           for published template to be use by all user (Geo and CEF)". Published: what every phone uses (Publish sends it through the online sheet, v2.43.7);
+           Testing: on this phone only. The 7.17 template links (#admDxfSeed, #admCefSeed) are the Published slots' fallback, stored as before. -->
+      <div class="group" id="admTplBox">
+        <h3>Plan templates</h3>
+        <p class="hint" style="margin:0">The AutoCAD templates (DXF) every plan is printed on. <b>Published</b>: the one every phone of this list uses; it comes to them by itself through the online sheet. <b>Testing</b>: kept on this phone only, never sent to users, to check a new template (from a DXF, or made from a client's template or finished plan) before you <b>Publish</b> it. Users have no template choices.</p>
+        <label class="check"><input type="checkbox" id="admTplTest"><span>Use the testing templates on this phone (its plans then say TEST: <i>Testing template: not published</i>, and _TEST in every file name)</span></label>
+      <div class="tplkind" data-kind="geo"><b class="tplkh">AS-PLAN / AS-BUILT (GEO)</b>
+        <div class="tplslot" id="admTplGeoPubBox"><span class="tplst pub">Published</span><small class="tplsum" id="admTplGeoPubSum"></small>
+          <div class="row"><button class="btn sm" id="admTplGeoPubGet" type="button" hidden>Get it</button><button class="btn sm" id="admTplGeoPubDown" type="button">Download</button></div>
+          <label class="field">or paste a Google Drive link (the prepared plan template, shared: Anyone with the link; phones get it with the list)<input type="url" id="admDxfSeed" placeholder="https://drive.google.com/file/d/…" autocomplete="off"></label></div>
+        <div class="tplslot test" id="admTplGeoTestBox"><span class="tplst">Testing</span><small class="tplsum" id="admTplGeoTestSum"></small>
+          <div class="row"><button class="btn sm" id="admTplGeoLoad" type="button">Load a DXF…</button><button class="btn sm" id="admTplGeoMake" type="button">Make from a client's file…</button><button class="btn sm" id="admTplGeoDown" type="button">Download</button><button class="btn sm" id="admTplGeoBack" type="button">Load it back…</button><button class="btn sm" id="admTplGeoClear" type="button">Clear</button><button class="btn sm primary" id="admTplGeoPublish" type="button">Publish</button></div>
+          <input type="file" id="admTplGeoLoadFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden><input type="file" id="admTplGeoMakeFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden><input type="file" id="admTplGeoBackFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden></div>
+      </div>
+      <div class="tplkind" data-kind="cef"><b class="tplkh">CEF PLAN</b>
+        <div class="tplslot" id="admTplCefPubBox"><span class="tplst pub">Published</span><small class="tplsum" id="admTplCefPubSum"></small>
+          <div class="row"><button class="btn sm" id="admTplCefPubGet" type="button" hidden>Get it</button><button class="btn sm" id="admTplCefPubDown" type="button">Download</button></div>
+          <label class="field">or paste a Google Drive link (blank: the app's generic CEF template)<input type="url" id="admCefSeed" placeholder="https://drive.google.com/file/d/…/view" autocomplete="off" autocapitalize="off" spellcheck="false"></label></div>
+        <div class="tplslot test" id="admTplCefTestBox"><span class="tplst">Testing</span><small class="tplsum" id="admTplCefTestSum"></small>
+          <div class="row"><button class="btn sm" id="admTplCefLoad" type="button">Load a DXF…</button><button class="btn sm" id="admTplCefMake" type="button">Make from a client's file…</button><button class="btn sm" id="admTplCefDown" type="button">Download</button><button class="btn sm" id="admTplCefBack" type="button">Load it back…</button><button class="btn sm" id="admTplCefClear" type="button">Clear</button><button class="btn sm primary" id="admTplCefPublish" type="button">Publish</button></div>
+          <input type="file" id="admTplCefLoadFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden><input type="file" id="admTplCefMakeFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden><input type="file" id="admTplCefBackFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden></div>
+      </div>
+        <div class="field" id="admTplOld" hidden><span class="lbl">CLIENT TEMPLATES ON THIS PHONE (BETA 7.17)</span><small class="sthint">Projects no longer choose one. Use one as the testing template(s), then publish it to give it to everyone.</small><div class="tpllist" id="admTplOldList"></div></div>
+        <p class="hint help">Publish needs the online sheet's script v2.43.7 (run its setup once: it asks to allow Google Drive) and its Admin key on this phone: the template is kept in the sheet owner's Google Drive (folder <i>G-eSAA templates</i>; the one before it kept, renamed), and the list is saved with its link. Download gives the template with its style kit and STYLE KEY sheet, to edit in AutoCAD; Load it back… checks it (a made-up plan drawn on it).</p>
       </div>
       <div class="group">
         <h3>Online Google Sheet (optional)</h3>

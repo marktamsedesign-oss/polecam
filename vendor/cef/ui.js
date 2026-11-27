@@ -107,7 +107,7 @@ async function tplNow() {
     T = HOST.dxfLib ? await HOST.dxfLib() : null; if (!T || !T.Doc) throw new Error('the drawing library did not load');
     if (!t || typeof t.text !== 'string' || !t.text) return await tplGeneric(T, '');      /* ((templates, company CEF template) none from the app: the generic one) */
     const tp = { name: String(t.name || '').slice(0, 80), text: t.text, look: t.look && typeof t.look === 'object' ? t.look : null, vals: t.fields && typeof t.fields === 'object' ? t.fields : null, T, foot: footLine(),
-      kind: ['company', 'generic'].includes(t.kind) ? t.kind : 'client', note: String(t.note || '').slice(0, 200) };      /* ((templates, company CEF template) whose template it is) */
+      kind: ['company', 'generic'].includes(t.kind) ? t.kind : 'client', note: String(t.note || '').slice(0, 200), test: !!t.test };      /* ((templates, company CEF template) whose template it is; (stage 11, templates) test: the admin's testing template: _TEST in the files' names) */
     whose = tp.kind === 'company' ? 'The company CEF template' : tp.kind === 'client' ? 'The client\'s template' : whose;
     tp.sd = CefTpl.seed(tp.text, T, tp.look, { name: tp.name, foot: tp.foot, vals: tp.vals });      /* (read now: a template the CEF cannot be printed on is said before anything is made) */
     return tp;
@@ -1010,7 +1010,7 @@ function drawStrip() {
     if (!room && S.site.kind === 'fenced') p += '<b>Fence</b><div class="tiles">' + tile('gate-add', 'gate', 'Gate', ' data-w="4"') + tile('gate-add', 'door', 'Door', ' data-w="0.9"') + '</div>';
     p += '<b>Lines</b><div class="tiles">' + (room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => tile('run-draw', k, RUNS[k].n, ' data-kind="' + k + '"')).join('') + '</div>'; pop.innerHTML = p; }
   if (expOpen) { const libs = typeof PDFLib !== 'undefined', can = dlReady && dl && !busy, tile = (kind, icon, label, ok) => '<button type="button" class="tile" data-a="exp-go" data-kind="' + kind + '"' + (ok ? '' : ' disabled') + '>' + ico(icon) + '<span>' + label + '</span></button>';
-    pop.innerHTML = '<b>Export</b><div class="tiles">' + tile('pdf', 'doc', 'PDF', can && libs) + tile('dxf', 'dxfi', 'AutoCAD (DXF)', can) + tile('zip', 'exp', 'Both (ZIP)', can && libs) + '</div><p class="hint" style="margin:8px 2px 0">PDF: the sheets, to print or to send. AutoCAD (DXF): the sheets for AutoCAD, with a layout tab for each. Both (ZIP): DXF + PDF + KML + photos, and the sketch. Which pages the DXF holds: Menu, then Check and export.' + (libs ? '' : ' The PDF part did not load: reload with the network on.') + '</p>'; }
+    pop.innerHTML = '<b>Export</b><div class="tiles">' + tile('pdf', 'doc', 'PDF', can && libs) + tile('dxf', 'dxfi', 'AutoCAD (DXF)', can) + tile('zip', 'exp', 'Both (ZIP)', can && libs) + '</div><p class="hint" style="margin:8px 2px 0">PDF: the sheets, to print or to send. AutoCAD (DXF): the sheets for AutoCAD, with a layout tab for each. Both (ZIP): DXF + PDF + KML + photos, and the sketch. Which pages the DXF holds: Menu, then Check and export.' + (libs ? '' : ' The PDF part did not load: reload with the network on.') + '</p>' + (HOST && HOST.tplTest && HOST.tplTest() ? '<p class="note" style="margin:8px 2px 0">' + esc(HOST.tplTest()) + ': the files say _TEST.</p>' : ''); }      /* (stage 11, templates) the admin's testing CEF template, said before anything is made */
   if (txtOpen) pop.innerHTML = txtTray();
   if (hidOpen) pop.innerHTML = hidTray(HL);
   pop.hidden = !(palOpen || expOpen || hidOpen || txtOpen);
@@ -1690,7 +1690,7 @@ function openSketch(file) {
 }
 /* beta 4.1: the same files as Save ZIP, handed to the app (its Drawing export puts them in a folder of its own ZIP) */
 async function planFiles() {
-  const X = appSketch(ROOT), base = baseName(X), tp = await tplNow(), tq = tp ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)), g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X, tp) }, { name: base + '_CEF.pdf', data: pdf }];      /* (beta 7.15, CEF template: tp, the project's CEF template) */
+  const X = appSketch(ROOT), tp = await tplNow(), base = baseName(X) + (tp && tp.test ? '_TEST' : ''), tq = tp ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)), g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X, tp) }, { name: base + '_CEF.pdf', data: pdf }];      /* (beta 7.15, CEF template: tp, the project's CEF template) */
   if (g) files.push({ name: base + '_CEF.kml', data: toKML(X, g) });      /* (14 Nov) one DXF: the top view alone on its map position is no longer made */
   for (const k in LOGO) files.push({ name: 'logos/' + k + '_logo.png', data: b64bytes(LOGO[k].src) });
   X.photos.forEach((p, i) => { const src = IMG[p.id]; if (src) files.push({ name: 'photos/photo_' + String(i + 1).padStart(2, '0') + '.jpg', data: b64bytes(src), pid: p.id }); });
@@ -1702,7 +1702,7 @@ async function doExport(kind) {
   if (busy || !dl) return; busy = true; note('Building the files…', 'note');
   try {
     saveNow();
-    const X = appSketch(ROOT), base = baseName(X), tp = await tplNow(), tq = tp && kind !== 'dxf' ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = kind === 'dxf' ? null : await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)); let name, data;      /* (beta 7.15, CEF template: tp, the project's CEF template) */
+    const X = appSketch(ROOT), tp = await tplNow(), base = baseName(X) + (tp && tp.test ? '_TEST' : ''), tq = tp && kind !== 'dxf' ? await tplPdf(X, tp) : null, sheets = tq ? tq.sheets : appSheets(X), pdf = kind === 'dxf' ? null : await appPdf(tq ? tq.pdf : await toPDF(sheets, allImg(), X)); let name, data;      /* (beta 7.15, CEF template: tp, the project's CEF template) */
     if (kind === 'dxf') { name = base + '_CEF_sheets.dxf'; data = new Blob([await dxfText(X, tp)], { type: 'application/dxf' }); }      /* (19:25) the DXF alone */
     else if (kind === 'pdf') { name = base + '_CEF.pdf'; data = new Blob([pdf], { type: 'application/pdf' }); }
     else {

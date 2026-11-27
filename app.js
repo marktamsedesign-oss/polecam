@@ -160,7 +160,7 @@
     { k: 'exp', n: 'Other exports', d: 'material list (BOQ), photo ZIP, photo report, route and spans, pole list (RTA), completion report, deficiency lists, punchlist, progress of the fixes, photos for training', on: false, c: 'X' },
     { k: 'cef', n: 'CEF plan', d: 'the CEF plan: its editor and its files', on: false, c: 'C' },
     { k: 'edit', n: 'Drawing editing', d: 'Edit on the Drawing (and Edit route there); View stays', on: false, c: 'E' },
-    { k: 'tpl', n: 'Client templates', d: 'a client\u2019s own plan template', on: false, c: 'T' },
+    { k: 'tpl', n: 'Client templates', d: 'a client\u2019s own plan template', on: false, c: 'T', gone: true }, // ((stage 11, templates) no longer a choice: the admin makes and publishes the templates; kept so the list and the sheet's column read as before, not shown)
     { k: 'admin', n: 'Team admin', d: 'invite coworkers; the company list\u2019s Administration (with the admin PIN)', on: false, c: 'A' }];
   const PERM_SET = PERM_F.filter((f) => !f.always); // (the features the admin sets)
   /** A user's entry in the list ("PxK|DEMO CONTRACTOR": Plan drawing allowed, Other exports blocked, KMZ export allowed; their company):
@@ -2202,6 +2202,7 @@
     if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: the CEF plans of the tower sites
     if (splHooks.drawSync) splHooks.drawSync(); // beta 4.6: the splicing details
     try { renderCredit(); } catch (e) { /* not ready */ } // v2.42.7: the balance at the upper right
+    try { tplTestBanners(); } catch (e) { /* not ready */ } // ((stage 11, templates) Testing template: not published, over the plan)
     if (!again) openSheet('drawing');
     requestAnimationFrame(() => { sizeDrawing(); if (view && drw && view.sc > 0) drw.view = { ...drw.view, cx: view.cx, cy: view.cy, sc: view.sc }; else fitDrawing(); drawDrawing(); drawSeqSoon(); });
   }
@@ -2244,7 +2245,7 @@
     const J = await xNow(() => planJob(projPoints(), { preview: true })), st = J.SETS[0]; if (!live()) return; // (the records as an export sees them)
     if (!st) { drwPlanFail('the export has no plan drawing to make'); return; } // ((beta 7.16, Fixes) said, never a silent stop)
     // ((beta 7.9, Drawing preview) the plan is made with numbers only or no photo too: the Drawing shows it; no photo to place then)
-    const ct = projTpl(proj), sk = `${seed.length}|${ct ? `tpl:${ct.id}:${ct.at}` : (S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once)
+    const ct = tplTestFor('geo'), sk = `${seed.length}|${ct ? `test:${ct.at}` : (S.dxfSeed || {}).at || ''}`; if (!seedSigC || seedSigC.k !== sk) seedSigC = { k: sk, h: strHash(seed) }; // (the template's own, worked out once; (stage 11, templates) the testing template's, or the company's)
     const job = J.jobOf(st), sig = strHash(`${seedSigC.h}|${JSON.stringify({ ...job, date: 0 })}`), M = drwPhMem.get(proj);
     if (!force && M && M.sig === sig && M.row === row && M.plan) { if (phBuild) phStopBuild(); drw.ph = M; drw.phBusy = false; drwPlanShow(); return; } // (nothing changed: as made last time)
     if (!force && phBuild && phBuild.sig === sig) return; // (this very plan is being made: it is shown when it comes)
@@ -12737,7 +12738,7 @@
         H.push(`<div class="r"><span class="ic" aria-hidden="true">🛣</span><span class="tx"><b>${e(nm)}</b> is not on this phone. Without it ${tpl ? 'the barangay and city / municipality table stays blank, and ' : ''}the roads come from the internet (none without signal).</span><button class="btn sm primary" type="button" data-need="roads" data-region="${e(rg)}">Get the roads</button></div>`);
       });
     }
-    if (tpl && !S.dxfSeed && !seedBusy && !projTpl()) H.push(`<div class="r"><span class="ic" aria-hidden="true">📐</span><span class="tx"><b>No company template on this phone</b>${seedId() ? ': your admin shares it. Get it now (once: it stays on this phone), or the plan drawing gets it first.' : ': the plan is drawn on it. Ask your admin to share it, or load the file they sent you.'}</span><button class="btn sm primary" type="button" data-need="tpl">Get it</button></div>`); // beta 6.7 (UX step 3)
+    if (tpl && !S.dxfSeed && !seedBusy && !tplTestFor('geo')) H.push(`<div class="r"><span class="ic" aria-hidden="true">📐</span><span class="tx"><b>No company template on this phone</b>${seedId() ? ': your admin shares it. Get it now (once: it stays on this phone), or the plan drawing gets it first.' : ': the plan is drawn on it. Ask your admin to share it, or load the file they sent you.'}</span><button class="btn sm primary" type="button" data-need="tpl">Get it</button></div>`); // beta 6.7 (UX step 3)
     if (N && N.map && tpl) H.push(`<div class="r"><span class="ic" aria-hidden="true">🗺</span><span class="tx"><b>The offline map of this area</b> is not on this phone. The vicinity map then needs the internet${navigator.onLine === false ? ' (offline now: it is drawn from the roads only)' : '; without signal it is drawn from the roads only'}.</span><button class="btn sm" type="button" data-need="map">Download the map</button></div>`);
     box.innerHTML = H.length ? `<p class="hd">Not downloaded yet for this drawing</p>${H.join('')}` : '';
     box.hidden = !H.length;
@@ -12931,8 +12932,8 @@
       if (hid) L.push(['no', `${hid} left out of the files (on no cable)`, 'Show ›', 'hidden']);
       if (xSel.includes('doDxf') || xSel.includes('xOnePdf')) {
         const tpl = dxfMode() === 'tpl'; let N = null; try { N = planNeeds(S.project); } catch (x) { N = null; }
-        const ctp = projTpl(); // ((beta 7.15, Client templates) the project's client template, on this phone)
-        if (tpl && ctp) L.push(['ok', `On ${ctp.name} (client template)`]);
+        const ctp = tplTestFor('geo'); // ((stage 11, templates) the testing template on this admin phone)
+        if (tpl && ctp) L.push(['ok', `On the testing template ${ctp.name} (not published: its files say TEST)`]);
         else if (tpl && !S.dxfSeed && !seedBusy) L.push(['no', 'No company template on this phone', 'Get it ›', 'tpl']);
         else if (tpl && S.dxfSeed) L.push(['ok', 'On your company’s plan template']);
         if (N && N.roads && (tpl || $('dxfRoads').checked)) L.push(['no', `The road pack of ${N.roads.regions.length === 1 && REGION_BY[N.roads.regions[0]] ? REGION_BY[N.roads.regions[0]][2] : 'this area'} is not on this phone`, 'Get it ›', 'roads', N.roads.regions[0] || '']);
@@ -13570,25 +13571,26 @@
      once (the Android app), or loads the file (Load template file). It is kept on the phone. dxftpl.js fills a copy. */
   const SEED_KEY = '~dxfseed';
   /** v2.32: the Drive id of the admin's template: from the company list, else the one the online sheet names. */
-  const seedId = () => driveId(pol().dxfSeed || '') || (S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url && S.cloud.dxfSeed) || '';
+  const seedId = () => (S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url && S.cloud.dxfSeed) || driveId(pol().dxfSeed || '') || ''; // ((stage 11, templates) the online sheet's first, as the CEF template's: sheet v2.43.7 names the newest published one (its Settings row); else the list's link)
   const viaSheet = () => !!(S.team && S.team.src && S.team.src.url);
-  const seedStale = () => { const i = S.dxfSeed, id = seedId(); return !!(i && id && i.from === 'drive' && i.id && i.id !== id); };
+  const seedStale = () => { const i = S.dxfSeed, id = seedId(); return !!(i && id && (i.from !== 'drive' || (i.id && i.id !== id))); }; // ((stage 11, templates) a template loaded from a file on this phone counts as older than the one the admin shares: users have no template of their own)
   let seedBusy = null; // the background download, while it runs
   // v2.31: the company template is the default as soon as the admin shares one (or one is on the phone); Simple only when chosen
-  const dxfMode = () => (S.exp.dxfMode === 'simple' || (S.exp.dxfMode !== 'tpl' && !S.dxfSeed && !seedId() && !projTpl()) ? 'simple' : 'tpl'); // ((beta 7.15, Client templates) or the project's client template)
+  const dxfMode = () => (S.exp.dxfMode === 'simple' || (S.exp.dxfMode !== 'tpl' && !S.dxfSeed && !seedId() && !tplTestFor('geo')) ? 'simple' : 'tpl'); // ((stage 11, templates) or the testing template on this admin phone)
   function seedOk(text) { return typeof text === 'string' && /\bSECTION\b/.test(text.slice(0, 4000)) && /@@\w+@@/.test(text) && /\nGEO\r?\n/.test(text); }
-  async function storeSeed(text, name, from, id) {
+  async function storeSeed(text, name, from, id, info) { // ((stage 11, templates) info: the online sheet's answer (who published it, when, its client); info.look: its look, else read from it)
     if (!seedOk(text)) throw new Error('This is not the prepared G-eSAA plan template (no @@ fields or no GEO sheet). Use the seed made from your AutoCAD template, e.g. G-eSAA_seed….dxf, not the template itself.');
+    const look = info && info.look !== undefined ? info.look : await tplLookOfText(text); // ((stage 11, templates) a template made from a client's file carries its look: the plan follows it, as on the testing one)
     await dbPut('packs', { k: SEED_KEY, text });
-    S.dxfSeed = { name: String(name || 'template.dxf').slice(0, 80), size: text.length, at: new Date().toISOString(), from: from || 'file', id: from === 'drive' ? id || seedId() : '' };
+    S.dxfSeed = { name: String(name || 'template.dxf').slice(0, 80), size: text.length, at: new Date().toISOString(), from: from || 'file', id: from === 'drive' ? id || seedId() : '', ...tplPubInfo(info), ...(look ? { look } : {}) };
     if (S.exp.dxfMode !== 'simple') S.exp.dxfMode = 'tpl'; persist();
-    LOG.info('dxf.seed', { kb: Math.round(text.length / 1024), from }); renderDxfTpl();
+    LOG.info('dxf.seed', { kb: Math.round(text.length / 1024), from }); renderDxfTpl(); try { renderAdmTpl(); } catch (e) { /* not shown */ }
     toast('Plan template ready ✓', 3000);
   }
-  /** The plan template of a project: (beta 7.15, Client templates) its client template's as-plan seed, else the company template (for every caller:
-      the Drawing's preview, the exports, the worker jobs). */
-  async function seedText(proj) {
-    const t = projTpl(proj); if (t) { const c = await tplGet(t.id); if (c && c.plan) return c.plan; }
+  /** The plan template the plans are made on (for every caller: the Drawing's preview, the exports, the worker jobs): (stage 11, templates) the testing
+      template on this admin phone while Use the testing templates is on, else the company template (the published one). Projects no longer choose. */
+  async function seedText(proj) { // eslint-disable-line no-unused-vars (proj: as the callers give it)
+    if (tplTestFor('geo')) { const t = await tplTestText('geo'); if (t) return t; }
     const r = await dbGet('packs', SEED_KEY).catch(() => null); return r && r.text;
   }
   /* v2.32: the card in plain words: a tick when the template is on the phone, "Getting…" while it downloads by itself */
@@ -13598,7 +13600,8 @@
     $('dxfDescTpl').hidden = !tpl; $('dxfDescSimple').hidden = tpl;
     ['dxfPhotos', 'dxfPhotoW', 'setSym'].forEach((k) => { const el = $(k); const row = el && (el.closest('.opt2') || el.closest('label')); if (row) row.hidden = tpl; });
     const el = $('dxfTplInfo'); el.classList.toggle('ok', !!info && !stale && !seedBusy);
-    el.textContent = seedBusy ? 'Getting the plan template from your admin…'
+    const tt = tplTestFor('geo'); // ((stage 11, templates) the testing template, said first)
+    el.textContent = tt ? `${TPL_TEST_SAY}: this phone's plans are made on ${tt.name} and say TEST in their file names (Administration › Plan templates).` : seedBusy ? 'Getting the plan template from your admin…'
       : info ? `✓ Plan template ready on this phone (${info.name})${stale ? ' — your admin has shared a newer one: tap Update' : ''}. Export → Plan drawing uses it.`
         : id ? 'Your admin has shared the plan template. Tap Get the template (once: it stays on this phone), or just make the plan drawing (Export → Plan drawing).'
           : 'No plan template yet. Ask your admin to share it, or load the template file they sent you.';
@@ -13607,7 +13610,7 @@
     $('dxfTplGet').classList.toggle('primary', true);
     $('dxfTplLoad').textContent = info ? 'Use another template file…' : 'Load template file…';
     $('dxfTplLoad').classList.toggle('link', !!id); // with an admin link, loading a file by hand is the exception
-    $('dxfTplLoad').hidden = !!id && pol().userTpl !== true; // v2.41: the admin's template only, unless the admin lets users load their own
+    $('dxfTplLoad').hidden = !!id; // v2.41: the admin's template only ((stage 11, templates) Administration's "Users may load a plan template file of their own" is gone: a list that still has it on is ignored)
     $('dxfTplBox').querySelector('.dxflogo').hidden = !tpl; if (tpl) renderLogo(); // v2.34
     renderDxfMarks(); // v2.40 (v2.42.28: the card in both kinds of DXF)
     if (!$('drwStyle').hidden) renderPlanSet(); // (beta 6.7, UX step 4: Plan style)
@@ -13959,11 +13962,11 @@
     $('psKindSum').textContent = tpl ? 'Company plan' : 'Simple';
     renderDxfLbl(tpl);
     // the banners: no template on this phone (Get it); the Simple drawing (Basic's look is the company plan's: greyed, no company standard card)
-    $('plBanTpl').hidden = !tpl || !!S.dxfSeed || !!projTpl(); $('plBanTplGet').textContent = seedId() ? 'Get it' : 'Load it ›'; $('plBanTplGet').disabled = !!seedBusy;
+    $('plBanTpl').hidden = !tpl || !!S.dxfSeed || !!tplTestFor('geo'); $('plBanTplGet').textContent = seedId() ? 'Get it' : 'Load it ›'; $('plBanTplGet').disabled = !!seedBusy;
     $('plBanSimple').hidden = tpl;
     $('drwStyle').querySelectorAll('.plb:not(#psNum)').forEach((r) => r.classList.toggle('dim', !tpl)); // ((beta 7.8, Plan style cards): the main rows, in their cards)
     planStdRender(tpl);
-    try { renderTplCard(); } catch (e) { LOG.warn('tpl.card', errInfo(e)); } // (beta 7.15, Client templates)
+    try { tplTestBanners(); } catch (e) { LOG.warn('tpl.ban', errInfo(e)); } // ((stage 11, templates) the Template card is gone: Testing template: not published, while it is used)
   }
   /** The company standard in words, from PL_STD (one place: flipping it there changes this). */
   const plStdText = () => [PL_STD.dxfLabels === 'tidy' ? 'Tidy labels' : 'Standard labels', PL_STD.rtaOn ? 'owner colours' : 'one number colour', `photos ${phName(PL_STD.photoSize)}${PL_STD.photoStamp === 'off' ? '' : `, stamped ${PL_STD.photoStamp === 'addr' ? 'lat-long + address' : 'lat-long'}`}`, PL_STD.dxfClampType ? 'clamp types' : 'clamp sizes only', ...(PL_STD.boxLoops ? ['20 m loops written'] : []), ...(PL_STD.dxfBoqGrid ? ['BOQ table on each sheet'] : [])].join(' · ');
@@ -14030,7 +14033,6 @@
     set('stSite', `Name ${{ on: 'on the tower', top: 'top', side: 'side', bottom: 'bottom' }[P.site.name]} · ${P.site.move === 'point' ? 'kept at its point' : 'moved aside'} · ODF ${P.odf.place === 'auto' ? 'Auto' : P.odf.place}`);
     set('stVic', `Zoom ${on(P.vic.zoom)} · circle ${P.vic.area ? 'shown' : 'hidden'}`);
     set('stGrid', `Split ${P.grid.split ? `1/${P.grid.split}` : 'Auto'} · ${S.exp.dxfBoqGrid !== false ? 'BOQ table on each sheet' : 'no BOQ table'} · name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}`);
-    { const t = projTpl(); set('stTpl', !tplAllowed() ? 'Company template · 🔒 client templates' : !S.project ? `${tplList().length ? `${tplList().length} client template${tplList().length === 1 ? '' : 's'} on this phone` : 'Company template'} · open a project to choose` : t ? `${t.name} (client)${t.cef ? ' · as-plan and CEF' : ''}` : `Company template${tplList().length ? ` · ${tplList().length} client template${tplList().length === 1 ? '' : 's'} on this phone` : ''}`); } // (beta 7.15, Client templates)
     set('stFile', `${dxfMode() === 'tpl' ? (S.dxfSeed ? 'Company template ✓' : 'Company plan, no template yet') : 'Simple drawing'} · UTM ${S.zone}N · loops in the PMI ${on(S.exp.pmiLoops !== false)}`);
   }
   /** A section of Plan style, a card or one in More settings, by its id (stNum…) or the tutorial's part (numbers, sheets, file…); null for none. */
@@ -14294,7 +14296,7 @@
     if (!quiet) busy('Getting the plan template from your admin…');
     try {
       let text = '', sheetErr = null;
-      try { const j = await seedFromSheet(); if (j) { await storeSeed(j.text, j.name || 'Template from your admin', 'drive', j.id); return true; } } catch (e) { sheetErr = e; LOG.warn('dxf.seed.sheet', errInfo(e)); }
+      try { const j = await seedFromSheet(); if (j) { await storeSeed(j.text, j.name || 'Template from your admin', 'drive', j.id, j); return true; } } catch (e) { sheetErr = e; LOG.warn('dxf.seed.sheet', errInfo(e)); }
       if (!id) { if (quiet) return false; throw sheetErr || new Error('Your admin has not shared the plan template'); }
       if (NATIVE) {
         const r = await withTimeout(nativeGet(driveDownloadUrl(id), {}, 'text'), 90000, 'Google Drive did not answer');
@@ -14320,7 +14322,7 @@
   }
   /** The template ready for an export: on the phone, else downloaded now (and updated when the admin's link changed). */
   async function ensureSeed() {
-    if (projTpl()) { const t = await seedText(); if (t) return t; } // (beta 7.15, Client templates) a client's template: on this phone, nothing to get
+    if (tplTestFor('geo')) { const t = await seedText(); if (t) return t; } // ((stage 11, templates) the testing template: on this phone, nothing to get)
     if (seedBusy) await seedBusy.catch(() => {});
     let seed = await seedText(); const id = seedId();
     if ((!seed || seedStale()) && id && navigator.onLine !== false) {
@@ -14341,19 +14343,18 @@
   /* ================= (templates, company CEF template) the CEF plan's template for the company =================
      The owner: "yes i want the CEF to be a dxf template same as the asplan", "replace the generic one but give me first a generic dxf as a
      starting point. Iwant this to be the standard for all my clients" and "downloading a template, editing it and loading it back; yes for
-     admin". Every CEF plan is printed on a CEF template (vendor/cef prints it: CefTpl): the project's client template's CEF sheet (7.15,
-     while Client templates is allowed), else the company CEF template, else the app's own generic one (vendor/cef/cef-template-generic.dxf,
-     made by tools/cef-template from the frame the CEF drew before). The company CEF template is kept and shared as the plan template is: on
-     the phone (IndexedDB packs '~cefseed', S.cefSeed { name, size, at, from: file | drive, id, kit }), its Google Drive link in Administration
-     (pol().cefSeed) and the online sheet (cefseed=1, sheet script v2.43.6), fetched by the phones by themselves (an older sheet script: the
-     Android app reads Drive itself, the website asks). Plan style › Template › CEF template: what the CEF plans are printed on, Get it, and
-     for the admin Download it (the one the app uses, its style kit completed: vendor/cef/cefkit.js) and Load a CEF template (checked). */
-  // (function declarations: Plan style draws this row before this part of the app has run; its state on cefState(), not in a let)
+     admin". Every CEF plan is printed on a CEF template (vendor/cef prints it: CefTpl): the company CEF template, else the app's own generic
+     one (vendor/cef/cef-template-generic.dxf, made by tools/cef-template from the frame the CEF drew before). The company CEF template is kept
+     and shared as the plan template is: on the phone (IndexedDB packs '~cefseed', S.cefSeed { name, size, at, from: file | drive, id, kit }),
+     its Google Drive link in Administration (pol().cefSeed) and the online sheet (cefseed=1, sheet script v2.43.6), fetched by the phones by
+     themselves (an older sheet script: the Android app reads Drive itself). (stage 11, templates) Its controls moved to Administration › Plan
+     templates (the CEF plan's Published and Testing slots, below); a client template's CEF sheet is no longer chosen per project. */
+  // (function declarations: Plan style draws before this part of the app has run; its state on cefState(), not in a let)
   function cefState() { return cefState.s || (cefState.s = { busy: null, generic: null }); }
   /** The Drive id of the admin's CEF template: the one the list's online sheet names (its Settings → CEF template, else the link the admin
       phone sent it with the list: what its cefseed=1 sends), else the company list's own link (an older sheet script, or no sheet). */
   function cefSeedId() { try { return (S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url && S.cloud.cefSeed) || driveId(pol().cefSeed || '') || ''; } catch (e) { return ''; } }
-  function cefSeedStale() { const i = S.cefSeed, id = cefSeedId(); return !!(i && id && i.from === 'drive' && i.id && i.id !== id); }
+  function cefSeedStale() { const i = S.cefSeed, id = cefSeedId(); return !!(i && id && (i.from !== 'drive' || (i.id && i.id !== id))); } // ((stage 11, templates) one loaded from a file: older than the one the admin shares)
   async function cefSeedText() { const r = await dbGet('packs', '~cefseed').catch(() => null); return r && typeof r.text === 'string' && r.text ? r.text : null; }
   /** The app's own generic CEF template (its text, read once). */
   async function cefGeneric() {
@@ -14364,21 +14365,19 @@
     return (st.generic = t);
   }
   async function cefKit() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeCefKit) await loadScript('vendor/cef/cefkit.js'); return window.GeCefKit; }
-  /** Who may download the CEF template and load one: a phone with no company list, the admin phone and the admin company's admin users
-      (permAdmin), a user the admin allowed Team admin (when the admin limits what users may do): as B3's tplRoundOk('company'). Loading:
-      also anyone while the admin shares no CEF template, or lets users load their own plan template (Administration: Users may load a plan
-      template file of their own), as the plan template's Load template file. */
-  function cefTplAdmin() { try { if (!S.team || permAdmin()) return true; return !!permState().on && permOk('admin'); } catch (e) { return !S.team; } }
-  function cefTplCanLoad() { try { return cefTplAdmin() || !cefSeedId() || pol().userTpl === true; } catch (e) { return false; } }
-  /** A CEF template kept on this phone as the company's, when the CEF can be printed on it (else an error in plain words). Returns the check. */
-  async function storeCefSeed(text, name, from, id) {
-    const K = await cefKit(), G = await cefGeneric(), Sy = await synthReady().catch(() => null);
-    const ck = K.check(String(text || ''), window.GeDxfTpl, G, Sy);
+  /** The CEF template checked (the CEF can be printed on it): { ok, problems, notes, kit }. */
+  async function cefCheck(text) { const K = await cefKit(), G = await cefGeneric(), Sy = await synthReady().catch(() => null); return K.check(String(text || ''), window.GeDxfTpl, G, Sy); }
+  const cefKitInfo = (ck) => (ck && ck.kit ? { kit: { styles: ck.kit.styles, layers: ck.kit.layers, north: ck.kit.north, key: ck.kit.key } } : {});
+  /** A CEF template kept on this phone as the company's, when the CEF can be printed on it (else an error in plain words). Returns the check.
+      ((stage 11, templates) info: the online sheet's answer: who published it, when, its client; info.look: its look, else read from it.) */
+  async function storeCefSeed(text, name, from, id, info) {
+    const ck = await cefCheck(text);
     if (!ck.ok) throw new Error(`This CEF template cannot be used: ${ck.problems.join(' ')}`);
+    const look = info && info.look !== undefined ? info.look : await tplLookOfText(String(text)); // ((stage 11, templates) a template made from a client's file carries its look)
     await dbPut('packs', { k: '~cefseed', text: String(text) });
-    S.cefSeed = { name: String(name || 'CEF template.dxf').slice(0, 80), size: String(text).length, at: new Date().toISOString(), from: from || 'file', id: from === 'drive' ? id || cefSeedId() : '', ...(ck.kit ? { kit: { styles: ck.kit.styles, layers: ck.kit.layers, north: ck.kit.north, key: ck.kit.key } } : {}) };
+    S.cefSeed = { name: String(name || 'CEF template.dxf').slice(0, 80), size: String(text).length, at: new Date().toISOString(), from: from || 'file', id: from === 'drive' ? id || cefSeedId() : '', ...cefKitInfo(ck), ...tplPubInfo(info), ...(look ? { look } : {}) };
     persist(); LOG.info('cef.seed', { kb: Math.round(String(text).length / 1024), from: S.cefSeed.from, styles: ck.kit ? ck.kit.styles[0] : null });
-    try { renderTplCard(); } catch (e) { /* not shown */ }
+    try { renderAdmTpl(); } catch (e) { /* not shown */ }
     return ck;
   }
   /** The admin's CEF template fetched and kept (as downloadSeed: the online sheet, else Google Drive). quiet: no busy screen, no question. */
@@ -14387,7 +14386,7 @@
     if (!quiet) busy('Getting the CEF template from your admin…');
     try {
       let text = '', sheetErr = null;
-      try { const j = await seedFromSheet('cefseed'); if (j) { await storeCefSeed(j.text, j.name || 'CEF template from your admin', 'drive', j.id); return true; } } catch (e) { sheetErr = e; LOG.warn('cef.seed.sheet', errInfo(e)); }
+      try { const j = await seedFromSheet('cefseed'); if (j) { await storeCefSeed(j.text, j.name || 'CEF template from your admin', 'drive', j.id, j); return true; } } catch (e) { sheetErr = e; LOG.warn('cef.seed.sheet', errInfo(e)); }
       if (!id) { if (quiet) return false; throw sheetErr || new Error('Your admin has not shared a CEF template'); }
       if (NATIVE) {
         const r = await withTimeout(nativeGet(driveDownloadUrl(id), {}, 'text'), 90000, 'Google Drive did not answer');
@@ -14400,8 +14399,8 @@
         if (!r || !r.ok) {
           busy(false);
           const why = sheetErr ? `\n\n(${sheetErr.message || sheetErr})` : viaSheet() ? '\n\nFor your admin: with the online sheet script v2.43.6 the CEF template comes by itself.' : '';
-          const how = await ask('Get the CEF template', `This browser is not allowed to read the file from Google Drive by itself (the Android app can).${cefTplCanLoad() ? '\n\n1. Open in Drive and download the file.\n2. Come back and tap Load a CEF template.' : ''}${why}`, [{ label: 'Open in Drive', value: 'drive', primary: true }, ...(cefTplCanLoad() ? [{ label: 'Load the downloaded file', value: 'load' }] : []), { label: 'Cancel', value: false }]);
-          if (how === 'drive') openExternal(driveViewUrl(id)); else if (how === 'load') { $('tplCefFile').value = ''; $('tplCefFile').click(); }
+          const how = await ask('Get the CEF template', `This browser is not allowed to read the file from Google Drive by itself (the Android app can). Until it comes, CEF plans are printed on the app's generic CEF template.${why}`, [{ label: 'Open in Drive', value: 'drive', primary: true }, { label: 'Cancel', value: false }]); // ((stage 11, templates) users load no template of their own)
+          if (how === 'drive') openExternal(driveViewUrl(id));
           return false;
         }
         text = await r.text();
@@ -14415,222 +14414,272 @@
   function cefSeedInBackground() {
     const st = cefState(); if (st.busy || (S.cefSeed && !cefSeedStale()) || !cefSeedId() || navigator.onLine === false) return;
     if (!NATIVE && !viaSheet()) return;
-    st.busy = downloadCefSeed(true).catch((e) => { LOG.warn('cef.seed.bg', errInfo(e)); return false; }).finally(() => { st.busy = null; try { renderTplCard(); } catch (e) { /* not shown */ } });
-    try { renderTplCard(); } catch (e) { /* not shown */ }
+    st.busy = downloadCefSeed(true).catch((e) => { LOG.warn('cef.seed.bg', errInfo(e)); return false; }).finally(() => { st.busy = null; try { renderAdmTpl(); } catch (e) { /* not shown */ } });
+    try { renderAdmTpl(); } catch (e) { /* not shown */ }
   }
   setTimeout(() => { try { cefSeedInBackground(); } catch (e) { /* not ready */ } }, 9000);
-  /** The CEF template a project's CEF plan is printed on: { kind (client, company, generic), name, text, look, client, note }. The company's
-      is got first when the admin shares one this phone does not have yet (or a newer one); when it cannot be got, the generic one and a note. */
-  async function cefTplNow(proj) {
-    const ct = await tplCefText(proj); if (ct) return { kind: 'client', ...ct, note: '' };
+  /** The CEF template a project's CEF plan is printed on: { kind (company, generic), name, text, look, client, note, test }. (stage 11, templates)
+      The testing CEF template on this admin phone while Use the testing templates is on (test: its files say _TEST); else the company's, got
+      first when the admin shares one this phone does not have yet (or a newer one); when it cannot be got, the generic one and a note. */
+  async function cefTplNow(proj) { // eslint-disable-line no-unused-vars (proj: as the callers give it; the templates are the phone's, not a project's)
+    const tt = tplTestFor('cef'); if (tt) { const x = await tplTestText('cef'); if (x) return { kind: 'company', name: `${tt.name} (testing)`, text: x, look: tt.look || null, client: tt.client || '', note: `${TPL_TEST_SAY}.`, test: true }; }
     let t = await cefSeedText(), note = '';
     if ((!t || cefSeedStale()) && cefSeedId() && navigator.onLine !== false) {
       try { const st = cefState(); if (st.busy) await st.busy.catch(() => {}); else await downloadCefSeed(true); t = await cefSeedText(); } catch (e) { LOG.warn('cef.seed.now', errInfo(e)); }
     }
-    if (t) return { kind: 'company', name: (S.cefSeed && S.cefSeed.name) || 'Company CEF template', text: t, look: null, client: '', note: cefSeedStale() ? 'A newer company CEF template is shared: get it in Plan style › Template.' : '' };
-    if (cefSeedId()) note = 'The company CEF template is not on this phone yet (Plan style › Template › Get the CEF template): on the generic one.';
+    if (t) return { kind: 'company', name: (S.cefSeed && S.cefSeed.name) || 'Company CEF template', text: t, look: (S.cefSeed && S.cefSeed.look) || null, client: (S.cefSeed && S.cefSeed.client) || '', note: cefSeedStale() ? 'A newer company CEF template is shared but could not be got yet: on the one this phone has.' : '' };
+    if (cefSeedId()) note = 'The company CEF template is not on this phone yet (it comes with a signal): on the generic one.';
     return { kind: 'generic', name: 'G-eSAA generic CEF template', text: await cefGeneric(), look: null, client: '', note };
   }
-  /** Download it (the admin): the CEF template the app uses, the company's else the generic one, its style kit completed and its STYLE KEY. */
+  /** The CEF template as downloaded: its style kit completed (the kit pieces it lacks and the STYLE KEY from the generic one); none: the generic one. */
+  async function cefTplDownText(t, name0) {
+    const K = await cefKit(), G = await cefGeneric(); let text = '', name = '', added = null;
+    if (t) { const r = K.complete(t, G, window.GeDxfTpl); text = r.text; added = r.added; name = `${String(name0 || 'CEF template').replace(/\.dxf$/i, '').replace(/[^\w .()-]+/g, '_').slice(0, 60)}.dxf`; }
+    else { text = G; name = 'G-eSAA_CEF_template_generic.dxf'; }
+    return { text, name, added };
+  }
+  /** Download (the admin, Administration › Plan templates › CEF plan › Published): the CEF template the phones use, the company's else the generic one,
+      its style kit completed and its STYLE KEY. */
   async function cefTplDownload() {
-    if (!cefTplAdmin()) { toast('Ask your admin for the CEF template', 4500); return; }
-    busy('Making the CEF template…'); let text = '', name = '', added = null;
-    try {
-      const K = await cefKit(), G = await cefGeneric(), t = await cefSeedText();
-      if (t) { const r = K.complete(t, G, window.GeDxfTpl); text = r.text; added = r.added; name = `${String((S.cefSeed && S.cefSeed.name) || 'CEF template').replace(/\.dxf$/i, '').replace(/[^\w .()-]+/g, '_').slice(0, 60)}.dxf`; }
-      else { text = G; name = 'G-eSAA_CEF_template_generic.dxf'; }
-      LOG.info('cef.tpl.down', { kind: t ? 'company' : 'generic', kb: Math.round(text.length / 1024), ...(added ? { styles: added.styles.length, layers: added.layers.length, blocks: added.blocks.length, key: added.key } : {}) });
-    } finally { busy(false); }
-    await shareFile(new Blob([text], { type: 'application/dxf' }), name, 'application/dxf');
-    if (added && (added.styles.length || added.layers.length || added.blocks.length || added.key)) toast(`Its style kit completed: ${[added.styles.length ? `${added.styles.length} text style${added.styles.length === 1 ? '' : 's'}` : '', added.layers.length ? `${added.layers.length} layer${added.layers.length === 1 ? '' : 's'}` : '', added.blocks.length ? 'the north arrow' : '', added.key ? 'the STYLE KEY sheet' : ''].filter(Boolean).join(', ')} added as the app prints them`, 6000);
+    if (!tplAdminOk()) { toast('Ask your admin for the CEF template', 4500); return; }
+    busy('Making the CEF template…'); let o;
+    try { const t = await cefSeedText(); o = await cefTplDownText(t, S.cefSeed && S.cefSeed.name); LOG.info('cef.tpl.down', { kind: t ? 'company' : 'generic', kb: Math.round(o.text.length / 1024), ...(o.added ? { styles: o.added.styles.length, layers: o.added.layers.length, blocks: o.added.blocks.length, key: o.added.key } : {}) }); }
+    finally { busy(false); }
+    await shareFile(new Blob([o.text], { type: 'application/dxf' }), o.name, 'application/dxf');
+    cefKitSaid(o.added);
   }
-  /** Load a CEF template (the admin's edited one): read (a DWG or a binary DXF refused, saying how to save it), checked, then the company CEF
-      template on this phone. */
-  async function cefTplLoad(f) {
-    if (!cefTplCanLoad()) { toast('Your admin shares the CEF template: get it from your admin', 4500); return; }
-    busy('Checking the CEF template…'); let ck = null;
-    try {
-      const G = await synthReady(), rd = G.read(new Uint8Array(await f.arrayBuffer()));
-      if (!rd.ok) { busy(false); await ask('This file cannot be used', rd.error, [{ label: 'OK', value: true, primary: true }]); return; }
-      ck = await storeCefSeed(rd.text, f.name, 'file');
-    } finally { busy(false); }
-    const k = ck.kit, kit = k ? `Its style kit: ${k.styles[0]} of ${k.styles[1]} text styles, ${k.layers[0]} of ${k.layers[1]} layers${k.north ? ', the north arrow' : ''}${k.key ? ', the STYLE KEY' : ''}.` : '';
-    await ask('CEF template ready', `Every CEF plan on this phone is now printed on ${f.name} (a client template's CEF sheet still wins for its project). ${kit}${ck.notes.length ? `\n\n${ck.notes.join('\n')}` : ''}${isAdmin() ? '\n\nTo give it to your team: put the file on Google Drive (shared: Anyone with the link) and its link in Administration › CEF plan template.' : ''}`, [{ label: 'OK', value: true, primary: true }]);
-  }
-  /** Plan style › Template › CEF template: what the CEF plans are printed on, and its buttons. */
-  function renderCefTplRow() {
-    const sum = $('tplCefSum'); if (!sum) return;
-    const st = cefState(), info = S.cefSeed, id = cefSeedId(), stale = cefSeedStale(), ct = (() => { try { return projTpl(); } catch (e) { return null; } })();
-    const kit = info && info.kit && info.kit.styles ? ` · style kit ${info.kit.styles[0]}/${info.kit.styles[1]} text styles, ${info.kit.layers[0]}/${info.kit.layers[1]} layers` : '';
-    const co = st.busy ? 'Getting the company CEF template from your admin…' : info ? `Company CEF template: ✓ ${info.name}${info.from === 'drive' ? ' (from your admin)' : ' (loaded on this phone)'}${stale ? ' · a newer one is shared' : ''}${kit}.`
-      : id ? 'Your admin shares a company CEF template: get it (until then CEF plans are printed on the app\'s generic one).' : 'No company CEF template: CEF plans are printed on the app\'s generic one.';
-    sum.textContent = `${ct && ct.cef ? `This project's CEF plan: on ${ct.name} (its client template). ` : ''}${co}`;
-    $('tplCefGet').hidden = !id || (!!info && !stale); $('tplCefGet').disabled = !!st.busy; $('tplCefGet').textContent = stale ? 'Get the newer CEF template' : 'Get the CEF template';
-    $('tplCefDown').hidden = !cefTplAdmin(); $('tplCefLoad').hidden = !cefTplCanLoad();
-    $('tplCefLoad').textContent = info && info.from === 'file' ? 'Load it back (edited)…' : 'Load a CEF template…';
-  }
-  $('tplCefGet').addEventListener('click', () => guard(() => downloadCefSeed(false), 'CEF template not downloaded'));
-  $('tplCefDown').addEventListener('click', () => guard(() => cefTplDownload(), 'CEF template not made'));
-  $('tplCefLoad').addEventListener('click', () => { $('tplCefFile').value = ''; $('tplCefFile').click(); });
-  $('tplCefFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await cefTplLoad(f); }, 'CEF template not loaded'));
+  function cefKitSaid(added) { if (added && (added.styles.length || added.layers.length || added.blocks.length || added.key)) toast(`Its style kit completed: ${[added.styles.length ? `${added.styles.length} text style${added.styles.length === 1 ? '' : 's'}` : '', added.layers.length ? `${added.layers.length} layer${added.layers.length === 1 ? '' : 's'}` : '', added.blocks.length ? 'the north arrow' : '', added.key ? 'the STYLE KEY sheet' : ''].filter(Boolean).join(', ')} added as the app prints them`, 6000); }
   /* ================= (beta 7.15, Client templates) =================
      The owner: "dxf for asplan and cef must be based from a template dxf. Context: client requires a different template with a different text
      font style, drawing style size and thickness. By changing the template dxf, the app can now accomodate plan creation from different clients
-     using its template." and "add a dxf synthesizer that accepts and digest a dxf from other clients". Plan style › Template: each project's
-     template, the company's (the seed above, as before) or a client's, added here from the client's own DXF (vendor/synth/dxfsynth.js digests it on this
-     phone; nothing is uploaded) and reviewed. A client template: S.tpls [{ id, name, at, from: { file, size }, client, look, ok, cef }] (the list),
-     its texts in IndexedDB ('packs', '~tpl:<id>': src, the client's DXF as given, to make it again; plan, its as-plan seed; cef, its CEF seed or
-     null; map, the review's choices; look; checks). A project's choice: pmeta(proj).tpl (none: the company template; not shared with the team in
-     this beta: shareMeta leaves it out); a new project gets the last one chosen (S.tplLast). */
-  // (function declarations: dxfMode and Plan style ask for the project's template before this part of the app has run)
+     using its template." and "add a dxf synthesizer that accepts and digest a dxf from other clients". A client's own DXF is digested on the
+     phone (vendor/synth/dxfsynth.js; nothing is uploaded) and reviewed. (stage 11, templates) The owner: "for the Asplan/Asbuilt and CEF templates,
+     do not put it on drawing settings but rather put it on the admin settings only": what the review makes is now the TESTING template
+     (Administration › Plan templates › Make from a client's file…), and the admin publishes it; projects no longer choose a client template.
+     The 7.17 client templates (S.tpls [{ id, name, at, from, client, look, ok, cef }], their texts in IndexedDB 'packs' '~tpl:<id>': src, plan,
+     cef, map, look, cefLook) are kept, not deleted: on an admin phone Plan templates lists them with Use as testing; elsewhere they are unused.
+     A project's 7.17 choice (pmeta(proj).tpl) is left in its details and no longer read. */
   function tplKey(id) { return `~tpl:${id}`; }
   function tplList() { return Array.isArray(S.tpls) ? S.tpls : []; }
   function tplById(id) { return id ? tplList().find((t) => t.id === id) || null : null; }
-  /** (templates, permissions) Client templates allowed for this user (beta 7.16's User permissions, permOk('tpl')): when blocked, every
-      project is made on the company template (its choice is kept for when the admin allows it again) and Plan style › Template shows the
-      company template only, its client templates' buttons locked. While the app starts (the permissions not read yet): allowed, as
-      permState says then (nothing is exported yet; the locks are shown once the app has started). */
-  function tplAllowed() { try { return permOk('tpl'); } catch (e) { return true; } }
-  function tplAsk() { try { return permAsk('tpl'); } catch (e) { return 'Ask your admin to allow Client templates'; } }
-  /** The client template a project uses, or null (the company template; (templates, permissions) also when Client templates is blocked). */
-  function projTpl(proj) { const n = proj || S.project; return n && tplAllowed() ? tplById(pmeta(n).tpl) : null; }
   function tplGet(id) { return dbGet('packs', tplKey(id)).catch(() => null); }
-  /** The CEF seed of the project's client template (vendor/cef prints the CEF plan on it): { name, text, look }, or null (no client template, or
-      it has no CEF sheet: the CEF's own frame, as before). */
-  async function tplCefText(proj) { const t = projTpl(proj); if (!t || !t.cef) return null; const r = await tplGet(t.id); return r && r.cef ? { name: r.name, text: r.cef, look: r.cefLook || r.look || null, client: r.client || '' } : null; }
-  /** The look of the project's client template (its plan sheet's cell for 1:1100, its fonts…), or null. */
-  async function tplLookOf(proj) { const t = projTpl(proj); if (!t) return null; const r = await tplGet(t.id); return r && r.plan ? r.look || t.look || null : null; } // (its seed gone from this phone: the company template's, as seedText)
   async function synthReady() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); if (!window.GeDxfPdf) await loadScript('dxfpdf.js'); if (!window.GeDxfSynth) await loadScript('vendor/synth/dxfsynth.js'); return window.GeDxfSynth; }
-  /** A project's template chosen ('' : the company's). */
-  function tplChoose(proj, id) {
-    if (!proj) return; S.meta = S.meta || {}; const m = { ...pmeta(proj) };
-    if (id && tplById(id)) m.tpl = id; else delete m.tpl;
-    S.meta[proj] = m; S.tplLast = id && tplById(id) ? id : ''; persist();
-    try { drwPhMem.delete(proj); } catch (e) { /* no preview yet */ }
-    LOG.info('tpl.choose', { client: !!id });
-    renderStyle(); if (drw && drw.project === proj && !$('drawing').hidden) drwPhSoon(50);
+  /* ================= (stage 11, templates) Administration › Plan templates =================
+     The owner: "for the Asplan/Asbuilt and CEF templates, do not put it on drawing settings but rather put it on the admin settings only (globe in
+     this case) to be adjusted as needed. this should make that template sync in on each user to be use by them. allow admin user to use a new
+     template for testing and calibration without making an erroneous plan because of new template. there will be 4 dxf template. 2 for testing
+     (Geo and CEF) to be use by admin user only and 2 for published template to be use by all user (Geo and CEF)."
+     - Published (Geo: the company plan template, S.dxfSeed / packs '~dxfseed'; CEF: the company CEF template, S.cefSeed / '~cefseed'): what every
+       phone of the company list uses, got as before (the online sheet, else the list's Google Drive link). Publish (one tap) sends the testing
+       one to the online sheet (script v2.43.7: publishTemplate, with this phone's Admin key, as list saves): the sheet keeps it in its owner's
+       Google Drive, its Settings row then names it, and every phone gets it (at start, Refresh list, Get it). The list is saved with its link too,
+       because older apps read the list's link first. The fallback, a Google Drive link pasted (the 7.17 fields #admDxfSeed, #admCefSeed), works
+       as before.
+     - Testing (S.tplTest.geo / .cef { name, size, at, by, from: file | back | client | made, client, look, kit }, its text in packs '~tpltest:geo' /
+       '~tpltest:cef'): on this admin phone only, never sent to users. Used for this phone's plans only while "Use the testing templates on this
+       phone" (S.tplTestUse) is on: then the Drawing, Plan style, Export and the CEF export say TPL_TEST_SAY, and every file made on it says _TEST
+       in its name, so a calibration plan is never taken for a real one ("without making an erroneous plan because of new template").
+     Users have no template choices (Plan style's Template card is gone); the plan template still comes by itself (Plan file › Get it). */
+  const TPL_TEST_SAY = 'Testing template: not published';
+  const TPL_KINDS = { geo: { n: 'as-plan / as-built', id: 'Geo', plans: 'as-plans and as-builts' }, cef: { n: 'CEF plan', id: 'Cef', plans: 'CEF plans' } };
+  /** An admin of the company list on this phone (who opens Administration: the admin phone, the admin company's staff with the PIN). */
+  function tplAdminOk() { try { return !!S.team && canManage(); } catch (e) { return false; } }
+  function tplTestOn() { return S.tplTestUse === true && tplAdminOk(); }
+  /** The testing template of a kind this phone's plans use now (an admin phone, Use the testing templates on, one set), else null. */
+  function tplTestFor(kind) { const t = S.tplTest && S.tplTest[kind]; return t && t.name && tplTestOn() ? t : null; }
+  async function tplTestText(kind) { const r = await dbGet('packs', `~tpltest:${kind}`).catch(() => null); return r && typeof r.text === 'string' && r.text ? r.text : null; }
+  /** '_TEST' for the name of a file made with a testing template of one of these kinds, else ''. */
+  function tplTestTag(...kinds) { return kinds.some((k) => tplTestFor(k)) ? '_TEST' : ''; }
+  /** The name of a file made with a testing template: _TEST before its extension (once). */
+  const tplTestName = (n) => (/_TEST(\.[A-Za-z0-9]+)?$/.test(n) ? n : String(n).replace(/(\.[A-Za-z0-9]+)?$/, (x) => `_TEST${x || ''}`));
+  /** Who sets a template on this phone (shown with the slot). */
+  const tplWho = () => [S.user && S.user.name, S.user && S.user.email].filter(Boolean).join(' · ').slice(0, 120);
+  /** What the online sheet says of a published template (sheet v2.43.7: pub, by, at, client), kept with it. */
+  function tplPubInfo(j) { const c = (v, n) => String(v == null ? '' : v).trim().slice(0, n); return j && j.pub ? { by: c(j.by, 120), pub: c(j.at, 30), ...(j.client ? { client: c(j.client, 80) } : {}) } : {}; }
+  /** The look a template carries (the synthesizer's G-ESAA_LOOK: one made from a client's file), else null (a company template: the plan as before). */
+  async function tplLookOfText(text) { if (typeof text !== 'string' || text.indexOf('G-ESAA_LOOK') < 0) return null; try { const G = await synthReady(); return G.lookOf(text) || null; } catch (e) { LOG.warn('tpl.look', errInfo(e)); return null; } }
+  /** The look of the plan template this phone's as-plans use (the testing one while used, else the company's), or null: the plan as before. */
+  async function tplLookOf() { const t = tplTestFor('geo'); if (t) return t.look || null; return (S.dxfSeed && S.dxfSeed.look) || null; }
+  /** The client named with that template (a template made from a client's file), for the title block's Client field. */
+  function tplClientNow() { const t = tplTestFor('geo'); return t ? t.client || '' : (S.dxfSeed && S.dxfSeed.client) || ''; }
+  /** A testing template kept on this phone: a plan template the builder fills (seedOk), a CEF template the CEF prints on (checked, unless meta.checked:
+      made and checked by the review). meta: { name, from, client, look (undefined: read from it) }. */
+  async function tplTestSet(kind, text, meta) {
+    text = String(text || ''); const m = meta || {}; let ck = null;
+    if (kind === 'geo') { if (!seedOk(text)) throw new Error('This is not a G-eSAA plan template (no @@ fields or no GEO sheet). A client\'s own template or finished plan: use Make from a client\'s file….'); }
+    else if (!m.checked) { ck = await cefCheck(text); if (!ck.ok) throw new Error(`This CEF template cannot be used: ${ck.problems.join(' ')}`); }
+    const look = m.look !== undefined ? m.look : await tplLookOfText(text);
+    await dbPut('packs', { k: `~tpltest:${kind}`, text });
+    S.tplTest = { ...(S.tplTest && typeof S.tplTest === 'object' ? S.tplTest : {}), [kind]: { name: String(m.name || 'template.dxf').slice(0, 80), size: text.length, at: new Date().toISOString(), by: tplWho(), from: m.from || 'file', ...(m.client ? { client: String(m.client).slice(0, 80) } : {}), ...(look ? { look } : {}), ...cefKitInfo(ck) } };
+    persist(); LOG.info('tpl.test.set', { kind, kb: Math.round(text.length / 1024), from: m.from || 'file', look: !!look });
+    tplTestChanged();
+    return ck;
   }
-  /** Plan style › Template: the project's choice and the client templates on this phone. */
-  function renderTplCard() {
-    const sel = $('tplSel'); if (!sel) return;
-    const ok = tplAllowed(), cur = projTpl(), L = tplList(), lock = (b) => { try { permMark(b, 'tpl'); } catch (e) { /* the app starting: marked at its first permUi */ } }; // ((templates, permissions) blocked: the company template only)
-    sel.innerHTML = ''; [['', 'Company template'], ...(ok ? L.map((t) => [t.id, `${t.name} (client)`]) : [])].forEach(([v, n]) => { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.appendChild(o); });
-    sel.value = cur ? cur.id : ''; sel.disabled = !S.project || !ok;
-    $('tplSelSum').textContent = !S.project ? 'Open a project to choose its template.' : cur ? `This project's as-plan${cur.cef ? ' and CEF plan are' : ' is'} made on ${cur.name}${cur.cef ? '' : ' (the CEF plan on its own frame: the template has no CEF sheet)'}. New projects start with the last one chosen.`
-      : 'This project\'s plan is made on the company template (Plan file). New projects start with the last one chosen.';
-    if (!ok) $('tplSelSum').textContent = `${S.project ? 'This project\'s plan is made on the company template (Plan file).' : 'Plans are made on the company template (Plan file).'} 🔒 Client templates: ${tplAsk()}.`;
-    tplRoundRender(cur); // ((templates, Round trip) the admin's Download this template / Load it back)
-    const box = $('tplList'); box.innerHTML = '';
-    if (!L.length) { const p = document.createElement('small'); p.className = 'sthint'; p.textContent = 'None yet.'; box.appendChild(p); }
-    L.forEach((t) => {
-      const d = document.createElement('div'), uses = (S.projects || []).filter((n) => pmeta(n).tpl === t.id).length; d.className = `tplit${cur && cur.id === t.id ? ' on' : ''}`; d.dataset.id = t.id;
-      d.innerHTML = `<b></b><small></small><div class="row"></div>`;
-      d.querySelector('b').textContent = t.name;
-      d.querySelector('small').textContent = `${t.from && t.from.file ? `From ${t.from.file}` : 'Client template'}${t.fin ? ' (a finished plan)' : ''}${t.edited ? ' · edited in AutoCAD' : ''} · ${String(t.at || '').slice(0, 10)}${t.look && t.look.sheet ? ` · ${t.look.sheet.unit === 'in' ? `${t.look.sheet.paper[0]} × ${t.look.sheet.paper[1]} in` : `${Math.round(t.look.sheet.paper[0])} × ${Math.round(t.look.sheet.paper[1])} mm`}` : ''} · ${t.cef ? 'as-plan and CEF' : 'as-plan only'}${uses ? ` · used by ${uses} project${uses === 1 ? '' : 's'}` : ''}${t.ok === false ? ' · check: see Make again' : ''}`;
-      const row = d.querySelector('.row'), btn = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = `btn small${cls ? ` ${cls}` : ''}`; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); return b; };
-      if (S.project && !(cur && cur.id === t.id)) lock(btn('Use for this project', () => tplChoose(S.project, t.id), 'primary'));
-      lock(btn('Rename', () => guard(() => tplRename(t.id), 'Not renamed')));
-      lock(btn('Make again', () => guard(() => tplMakeAgain(t.id), 'Template not opened')));
-      lock(btn('Remove', () => guard(() => tplRemove(t.id), 'Not removed')));
-      box.appendChild(d);
-    });
-    lock($('tplAdd')); // ((templates, permissions) each a Client templates button: refused and said by the click gate when it is blocked)
-    try { renderCefTplRow(); } catch (e) { LOG.warn('cef.tpl.row', errInfo(e)); } // ((templates, company CEF template) the CEF template's row)
+  /** After the testing templates or Use them changed: Plan templates, the banners, Plan style. */
+  function tplTestChanged() {
+    try { renderAdmTpl(); } catch (e) { /* not shown */ }
+    try { tplTestBanners(); } catch (e) { /* not shown */ }
+    try { if (!$('drwStyle').hidden) renderStyle(); } catch (e) { /* not open */ }
+    try { if (drw && !$('drawing').hidden) drwPhSoon(50); } catch (e) { /* no Drawing */ }
   }
-  /* (templates, Round trip) The owner: "downloading a template, editing it and loading it back; yes for admin". The template this project uses
-     (the company template, or its client template) downloaded with its style kit and STYLE KEY sheet (GeDxfTpl.withKit, when the app has it) and
-     where it came from (GeDxfSynth.tagTemplate: the XRECORD G-ESAA_TEMPLATE), edited in AutoCAD, loaded back: checked as a client's template is
-     (a made-up plan drawn on it), then it replaces the company template on this phone (shared with the team as before: its Google Drive link in
-     Administration) or the client template it came from. Who: the admin (tplRoundOk). */
-  /** Whether this user downloads and loads back a template: the admin phone and the admin company's admin users (permAdmin), a phone with no
-      company list (its own admin), and, while user permissions are on, a user allowed Team admin; a client template needs Client templates too. */
-  function tplRoundOk(kind) {
-    let st; try { st = permState(); } catch (e) { return false; }
-    const admin = st.why === 'solo' || st.why === 'admin' || (st.on && permOk('admin'));
-    return !!admin && (kind !== 'client' || tplAllowed());
+  /** The plain banners ("Testing template: not published") where plans are made and shown: Plan style, the Drawing, Export's plan card. */
+  function tplTestBanners() {
+    const on = !!(tplTestFor('geo') || tplTestFor('cef')), g = tplTestFor('geo');
+    const ban = $('plBanTest'); if (ban) { ban.hidden = !on; ban.querySelector('span').textContent = `${TPL_TEST_SAY}${g ? ` (${g.name})` : ''}: this phone's plans say TEST.`; }
+    const dw = $('drawTestBan'); if (dw) dw.hidden = !on;
   }
-  function tplRoundRender(cur) {
-    const row = $('tplRound'), sum = $('tplRoundSum'); if (!row) return;
-    const kind = cur ? 'client' : 'company', ok = tplRoundOk(kind); row.hidden = !ok; sum.hidden = !ok; if (!ok) return;
-    const has = !!cur || !!S.dxfSeed; $('tplDown').disabled = !has;
-    $('tplDown').textContent = cur ? 'Download this template' : 'Download the company template';
-    sum.textContent = cur ? `Admin: download ${cur.name} (with its style kit and STYLE KEY sheet), edit it in AutoCAD, save it as DXF and load it back here. It is checked first (a made-up plan drawn on it), then it replaces ${cur.name} on this phone.`
-      : has ? 'Admin: download the company template (with its style kit and STYLE KEY sheet), edit it in AutoCAD, save it as DXF and load it back here. It is checked first (a made-up plan drawn on it), then it replaces the company template on this phone; share it with your team as before (its Google Drive link in Administration).'
-        : 'Admin: no company template on this phone yet (Plan file). A template edited in AutoCAD, loaded back here, becomes the company template on this phone once checked.';
+  async function tplTestClear(kind) {
+    const T = (S.tplTest || {})[kind]; if (!T) return;
+    if (!(await ask(`Clear the testing ${TPL_KINDS[kind].n} template?`, `${T.name} is deleted from this phone. ${tplTestFor(kind) ? `This phone's ${TPL_KINDS[kind].plans} go back to the published template.` : ''}`.trim(), [{ label: 'Cancel', value: false }, { label: 'Clear', value: true, primary: true }]))) return;
+    await dbDel('packs', `~tpltest:${kind}`).catch(() => {});
+    const o = { ...(S.tplTest || {}) }; delete o[kind]; S.tplTest = o; persist(); LOG.info('tpl.test.clear', { kind });
+    tplTestChanged(); toast('Testing template cleared', 2500);
   }
-  const tplFileName = (name) => `${String(name || 'template').replace(/\.dxf$/i, '').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'template'}_template.dxf`;
-  /** The project's template as downloaded: its seed with the style kit (withKit) and its tag. → { name, text, kit } */
-  async function tplDownText() {
-    const cur = projTpl(), kind = cur ? 'client' : 'company';
-    let text = null, name = '';
-    if (cur) { const r = await tplGet(cur.id); text = r && r.plan; name = cur.name; } else { const r = await dbGet('packs', SEED_KEY).catch(() => null); text = r && r.text; name = (S.dxfSeed && S.dxfSeed.name) || 'Company template'; }
-    if (!text) throw new Error(cur ? 'This template is not on this phone any more' : 'No company template on this phone yet (Plan file)');
-    const G = await synthReady(), T = window.GeDxfTpl; let k = text, kit = false;
-    if (T && typeof T.withKit === 'function') { try { k = T.withKit(text, { name }); kit = true; } catch (e) { LOG.warn('tpl.kit', errInfo(e)); } }
-    return { name: tplFileName(name.replace(/\s*\((client|company)\)$/i, '')), text: G.tagTemplate(k, { kind, id: cur ? cur.id : '', name }), kit, kind };
-  }
-  async function tplDownload() {
-    const kind = projTpl() ? 'client' : 'company';
-    if (!tplRoundOk(kind)) { toast(kind === 'client' && !tplAllowed() ? tplAsk() : 'Ask your admin: only the admin downloads and loads back the templates', 4500); return; }
-    busy('Preparing the template…'); let o;
-    try { await sleep(30); o = await tplDownText(); } finally { busy(false); }
-    const blob = new Blob([o.text], { type: 'application/dxf' });
-    if (NATIVE) { const r = await nativeSave({ blob, name: o.name }); toast(`Saved to ${r.where}${o.kit ? '' : ' (its style kit is added when the app has it)'}`, 5000); } else saveBlob(blob, o.name);
-    LOG.info('tpl.down', { kind: o.kind, kb: Math.round(o.text.length / 1024), kit: o.kit });
-  }
-  /** A template edited in AutoCAD, loaded back: read, checked (a made-up plan drawn on it), then what it replaces (by its tag, else asked). */
-  async function tplLoadBack(f) {
-    const cur = projTpl();
-    if (!tplRoundOk('company') && !tplRoundOk('client')) { toast('Ask your admin: only the admin downloads and loads back the templates', 4500); return; }
-    busy('Reading the template…'); let rd = null, ck = null, look = null, tag = null, kit = null;
+  /** Load a DXF… (testing): the plan template as Plan file's Load template file takes it (the prepared seed: @@ fields, a GEO sheet), the CEF template
+      checked as before (a sheet CEF the CEF can be printed on). back: Load it back… (a template downloaded here and edited in AutoCAD): the plan
+      template read and checked as 7.17's round trip did (tidied as a client's DXF is, a made-up plan drawn on it). */
+  async function tplTestLoad(kind, f, back) {
+    if (!tplAdminOk()) { toast('Only the admin sets the plan templates (Administration)', 4500); return; }
+    const K = TPL_KINDS[kind];
+    busy('Reading the template…'); let rd = null, ck = null, look, kit = null;
     try {
       const G = await synthReady(); await sleep(30); rd = G.read(new Uint8Array(await f.arrayBuffer()));
-      if (rd.ok) { try { rd.text = G.tidy(rd.text).text; } catch (e) { rd = { ok: false, error: e.message || String(e) }; } } // (tidied as a client's DXF is: what AutoCAD would mend)
-      if (rd.ok) { tag = G.templateTag(rd.text); look = G.lookOf(rd.text); busy('Checking it: a made-up plan drawn on it…'); await sleep(30); ck = G.check({ plan: rd.text, look, cef: null, notes: [] }, {}, { softLayers: true }); try { if (typeof window.GeDxfTpl.kitOf === 'function') kit = window.GeDxfTpl.kitOf(rd.text); } catch (e) { kit = null; } }
+      if (rd.ok && kind === 'geo' && back) {
+        try { rd.text = G.tidy(rd.text).text; } catch (e) { rd = { ok: false, error: e.message || String(e) }; } // (tidied as a client's DXF is: what AutoCAD would mend)
+        if (rd.ok) { look = G.lookOf(rd.text); busy('Checking it: a made-up plan drawn on it…'); await sleep(30); ck = G.check({ plan: rd.text, look, cef: null, notes: [] }, {}, { softLayers: true }); try { if (typeof window.GeDxfTpl.kitOf === 'function') kit = window.GeDxfTpl.kitOf(rd.text); } catch (e) { kit = null; } }
+      }
     } finally { busy(false); }
     if (!rd.ok) { await ask('This file cannot be used', rd.error, [{ label: 'OK', value: true, primary: true }]); return; }
-    if (!ck.ok) { LOG.info('tpl.back', { ok: false, problems: ck.problems.length }); await ask('This template cannot be used', `${ck.problems.join('\n')}\n\nIn AutoCAD: keep its GEO sheet, its square map viewport and its @@ fields; save it as DXF (2000 or later).`, [{ label: 'OK', value: true, primary: true }]); return; }
-    const kitS = kit && Array.isArray(kit.text) ? ` Its style kit: ${kit.text.filter((x) => x.has).length} of ${kit.text.length} text styles, ${(kit.layers || []).filter((x) => x.has).length} of ${(kit.layers || []).length} layers.` : '';
-    const what = `${f.name}: a made-up plan was drawn on it, no problem found.${kitS}${ck.notes.length ? `\n${ck.notes.filter((t) => !/^Made-up plan:/.test(t)).join('\n')}` : ''}`.trim();
-    const T0 = tag && tag.kind === 'client' ? tplById(tag.id) : null;
-    let to = tag && tag.kind === 'company' && tplRoundOk('company') ? 'company' : T0 && tplRoundOk('client') ? `client:${T0.id}` : '';
-    if (to) { if (!(await ask(to === 'company' ? 'Replace the company template?' : `Replace ${T0.name}?`, `${what}\n\nIt replaces ${to === 'company' ? 'the company template on this phone' : `the template ${T0.name} on this phone (the projects using it use the edited one)`}.`, [{ label: 'Cancel', value: false }, { label: 'Replace', value: true, primary: true }]))) return; }
-    else {
-      const opts = [{ label: 'Cancel', value: '' }];
-      if (tplRoundOk('company')) opts.push({ label: 'Replace the company template', value: 'company' });
-      if (cur && tplRoundOk('client')) opts.push({ label: `Replace ${cur.name}`, value: `client:${cur.id}` });
-      if (tplRoundOk('client')) opts.push({ label: 'Add it as a client template', value: 'new' });
-      to = await ask('Which template is it?', `${what}\n\n${tag && tag.kind === 'client' ? `It was downloaded from the client template ${tag.name || ''}, which is not on this phone.` : 'It does not say which template it was downloaded from.'}`, opts);
-      if (!to) return;
-    }
-    const at = new Date().toISOString(), checks = { ok: true, problems: [], notes: ck.notes, tokens: ck.tokens, at, back: f.name };
-    if (to === 'company') {
-      await storeSeed(rd.text, f.name, 'file');
-      await ask('Company template replaced on this phone', 'To share it with your team as before: put this file on Google Drive (Anyone with the link) and its link in Administration → Plan template; the phones get it by themselves (the online sheet sends it to the website).', [{ label: 'OK', value: true, primary: true }]);
-    } else if (to.startsWith('client:')) {
-      const id = to.slice(7), r = await tplGet(id); if (!r) throw new Error('This template is not on this phone any more');
-      await dbPut('packs', { ...r, plan: rd.text, look: look || r.look, at, checks, edited: { at, file: f.name } });
-      S.tpls = tplList().map((x) => (x.id === id ? { ...x, at, look: look || x.look, ok: true, edited: true } : x)); persist();
-      for (const n of (S.projects || []).filter((q) => pmeta(q).tpl === id)) { try { drwPhMem.delete(n); } catch (e) { /* no preview */ } }
-      toast(`${r.name}: the edited template is used ✓`, 3500);
-    } else {
-      const id = uid(), name = String((tag && tag.name) || (look && look.name) || f.name.replace(/\.dxf$/i, '')).replace(/\s*\((client|company)\)$/i, '').slice(0, 60), from = { file: String(f.name).slice(0, 120), size: f.size || rd.text.length };
-      await dbPut('packs', { k: tplKey(id), id, name, at, from, client: '', src: null, plan: rd.text, cef: null, map: null, look, cefLook: null, checks, edited: { at, file: f.name } });
-      S.tpls = [...tplList(), { id, name, at, from, client: '', look, ok: true, cef: false, edited: true }]; persist();
-      if (S.project) tplChoose(S.project, id);
-      toast(`${name} added ✓`, 3000);
-    }
-    LOG.info('tpl.back', { ok: true, to: to === 'company' ? 'company' : to === 'new' ? 'new' : 'client', tagged: !!tag, kit: !!kit });
-    renderStyle();
+    if (ck && !ck.ok) { LOG.info('tpl.back', { ok: false, problems: ck.problems.length }); await ask('This template cannot be used', `${ck.problems.join('\n')}\n\nIn AutoCAD: keep its GEO sheet, its square map viewport and its @@ fields; save it as DXF (2000 or later).`, [{ label: 'OK', value: true, primary: true }]); return; }
+    if (kind === 'geo' && !seedOk(rd.text)) { await ask('This is not a G-eSAA plan template', 'It has no @@ fields or no GEO sheet. A client\'s own template or a finished plan of theirs: use Make from a client\'s file… (the app makes the template from it). The company\'s AutoCAD template: the seed made from it by tools/dxf-seed.', [{ label: 'OK', value: true, primary: true }]); return; }
+    const T = (S.tplTest || {})[kind];
+    if (T && !(await ask(`Replace the testing ${K.n} template?`, `${f.name} replaces ${T.name} (the testing template on this phone).`, [{ label: 'Cancel', value: false }, { label: 'Replace', value: true, primary: true }]))) return;
+    busy('Checking the template…'); let c2 = null;
+    try { c2 = await tplTestSet(kind, rd.text, { name: f.name, from: back ? 'back' : 'file', ...(look !== undefined ? { look } : {}) }); } finally { busy(false); }
+    const kitS = kit && Array.isArray(kit.text) ? ` Its style kit: ${kit.text.filter((x) => x.has).length} of ${kit.text.length} text styles, ${(kit.layers || []).filter((x) => x.has).length} of ${(kit.layers || []).length} layers.`
+      : c2 && c2.kit ? ` Its style kit: ${c2.kit.styles[0]} of ${c2.kit.styles[1]} text styles, ${c2.kit.layers[0]} of ${c2.kit.layers[1]} layers${c2.kit.north ? ', the north arrow' : ''}${c2.kit.key ? ', the STYLE KEY' : ''}.` : '';
+    const notes = [...(ck ? ck.notes.filter((t) => !/^Made-up plan:/.test(t)) : []), ...(c2 ? c2.notes : [])];
+    LOG.info(back ? 'tpl.back' : 'tpl.test.load', { kind, ok: true, kit: !!(kit || (c2 && c2.kit)) });
+    await ask('Testing template ready', `${f.name}${ck ? ': a made-up plan was drawn on it, no problem found' : ''}.${kitS}${notes.length ? `\n${notes.join('\n')}` : ''}\n\n${tplTestFor(kind) ? `This phone's ${K.plans} use it now (TEST in their file names).` : 'Tick Use the testing templates on this phone to make plans with it here.'} Publish it when it is right.`, [{ label: 'OK', value: true, primary: true }]);
   }
-  $('tplDown').addEventListener('click', () => guard(tplDownload, 'Template not downloaded'));
-  $('tplBack').addEventListener('click', () => { if (!tplRoundOk('company') && !tplRoundOk('client')) { toast('Ask your admin: only the admin downloads and loads back the templates', 4500); return; } $('tplBackFile').value = ''; $('tplBackFile').click(); });
-  $('tplBackFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await tplLoadBack(f); }, 'Template not loaded'));
-  $('tplSel').addEventListener('change', () => tplChoose(S.project, $('tplSel').value));
-  $('tplAdd').addEventListener('click', () => { $('tplFile').value = ''; $('tplFile').click(); });
-  $('tplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await tplAddFile(f); }, 'Template not added'));
-  /** A client's DXF: read (a DWG, a binary DXF… refused, saying how to save it), digested, the review opened with its choices made. */
-  async function tplAddFile(f) {
+  /** Make from a client's file… (testing): the 7.17 digester (their empty template or a finished plan, the review, the made-up plan), saved as the testing template. */
+  function tplTestMake(kind, f) { if (!tplAdminOk()) { toast('Only the admin makes the plan templates (Administration)', 4500); return Promise.resolve(); } return tplAddFile(f, kind); }
+  const tplFileName = (name) => `${String(name || 'template').replace(/\.dxf$/i, '').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'template'}_template.dxf`;
+  /** A plan template as downloaded: with its style kit and STYLE KEY sheet (GeDxfTpl.withKit) and where it came from (GeDxfSynth.tagTemplate). → { name, text, kit } */
+  async function tplDownGeo(text, name) {
+    const G = await synthReady(), T = window.GeDxfTpl; let k = text, kit = false;
+    if (T && typeof T.withKit === 'function') { try { k = T.withKit(text, { name }); kit = true; } catch (e) { LOG.warn('tpl.kit', errInfo(e)); } }
+    return { name: tplFileName(String(name).replace(/\s*\((client|company)\)$/i, '')), text: G.tagTemplate(k, { kind: 'company', name }), kit }; // (the tag: a company template; Load it back puts it in the testing slot)
+  }
+  /** Download (a slot): the published or the testing template of a kind, to edit in AutoCAD (its kit and STYLE KEY, the 7.17 round trip). */
+  async function tplSlotDownload(kind, which) {
+    if (!tplAdminOk()) { toast('Ask your admin: only the admin downloads the templates', 4500); return; }
+    if (kind === 'cef' && which === 'pub') { await cefTplDownload(); return; }
+    busy('Preparing the template…'); let o = null, added = null;
+    try {
+      await sleep(30);
+      if (kind === 'geo') {
+        const P = which === 'test' ? (S.tplTest || {}).geo : S.dxfSeed, t = which === 'test' ? await tplTestText('geo') : ((await dbGet('packs', SEED_KEY).catch(() => null)) || {}).text;
+        if (!t) throw new Error(which === 'test' ? 'No testing template on this phone' : 'No company template on this phone yet');
+        o = await tplDownGeo(t, (P && P.name) || 'Company template');
+      } else { const T = (S.tplTest || {}).cef, t = await tplTestText('cef'); if (!t) throw new Error('No testing CEF template on this phone'); const r = await cefTplDownText(t, T && T.name); o = { name: r.name, text: r.text, kit: true }; added = r.added; }
+    } finally { busy(false); }
+    const blob = new Blob([o.text], { type: 'application/dxf' });
+    if (NATIVE) { const r = await nativeSave({ blob, name: o.name }); toast(`Saved to ${r.where}${o.kit ? '' : ' (its style kit is added when the app has it)'}`, 5000); } else saveBlob(blob, o.name);
+    if (added) cefKitSaid(added);
+    LOG.info('tpl.down', { kind, which, kb: Math.round(o.text.length / 1024), kit: !!o.kit });
+  }
+  /** Publish (testing → published, asked first naming what changes for everyone): sent to the online sheet (v2.43.7), then this phone's published
+      template is it, and the company list is saved with its link (older apps read the list's link first). */
+  async function tplPublish(kind) {
+    const K = TPL_KINDS[kind], T = (S.tplTest || {})[kind];
+    if (!tplAdminOk()) { toast('Only the admin publishes the plan templates', 4500); return; }
+    if (!T) { toast('No testing template to publish', 3000); return; }
+    const url = (admDraft && admDraft.src && admDraft.src.url) || (S.team && S.team.src && S.team.src.url) || '';
+    if (!url || !S.onlineAdminKey) { await ask('Publish needs the online sheet', `Publishing sends the template through the company list's online Google Sheet (its script v2.43.7 or later), with the sheet's Admin key on this phone (Online Google Sheet, below). Without it: Download the testing template, put it on Google Drive (shared: Anyone with the link) and paste its link under Published.`, [{ label: 'OK', value: true, primary: true }]); return; }
+    if (navigator.onLine === false) { toast('Publishing needs a signal', 4000); return; }
+    const text = await tplTestText(kind); if (!text) throw new Error('The testing template is not on this phone any more');
+    const P = kind === 'geo' ? S.dxfSeed : S.cefSeed, list = (S.team && S.team.name) || 'the company list';
+    const go = await ask(`Publish the ${K.n} template?`, `${T.name} becomes the ${K.n} template of every phone of ${list}: each gets it by itself (at its next start or Refresh list) and prints its ${K.plans} on it from then on.${kind === 'geo' ? ' Phones with an older G-eSAA get it too.' : ''}${P ? `\n\nThe one published now (${P.name}) is kept in the Google Drive folder "G-eSAA templates" of the online sheet's owner, renamed "… (replaced <date>)": you can go back to it.` : ''}\n\nThe company list is then saved and shared with its link (with the changes made on this screen).`, [{ label: 'Cancel', value: false }, { label: 'Publish', value: true, primary: true }]);
+    if (!go) return;
+    busy('Publishing the template…'); let j = null;
+    try { j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'publishTemplate', kind, name: T.name, text, by: tplWho(), client: T.client || '' }) }, null, 300000); }
+    catch (e) { j = { ok: false, error: e.message || String(e) }; }
+    finally { busy(false); }
+    if (!j || !j.ok) { LOG.warn('tpl.publish.fail', { kind, error: String((j && j.error) || '').slice(0, 120) }); await ask('Not published', j && j.error === 'action' ? 'The online sheet\'s script is older: update it to v2.43.7 (paste it, Save, run setup once and allow Google Drive; Deploy → Manage deployments → Edit → New version), then publish again.' : j && j.error === 'key' ? 'The online sheet refused this phone\'s Admin key (Online Google Sheet, below).' : `The online sheet answered: ${(j && j.error) || 'nothing'}.`, [{ label: 'OK', value: true, primary: true }]); return; }
+    const info = { pub: true, at: j.at, by: j.by, client: T.client || '', look: T.look || null };
+    if (kind === 'geo') await storeSeed(text, j.name || T.name, 'drive', j.id, info); else await storeCefSeed(text, j.name || T.name, 'drive', j.id, info);
+    if (S.cloud && S.cloud.src === url) { S.cloud[kind === 'geo' ? 'dxfSeed' : 'cefSeed'] = j.id; persist(); } // (the sheet names it from now on)
+    LOG.info('tpl.publish', { kind, kb: Math.round(text.length / 1024), replaced: !!j.replaced });
+    const link = j.link || `https://drive.google.com/file/d/${j.id}/view`; $(kind === 'geo' ? 'admDxfSeed' : 'admCefSeed').value = link;
+    renderAdmTpl();
+    toast(`${T.name}: published ✓ Saving the company list with its link…`, 4000);
+    $('admSave').click(); // (the list's version with the link: older apps read the list's link before the sheet's)
+  }
+  /** Use as testing: a 7.17 client template kept on this phone (its as-plan, and its CEF sheet when it has one), as the testing template(s). */
+  async function tplOldUse(id) {
+    const t = tplById(id), r = await tplGet(id); if (!t || !r || !r.plan) throw new Error('This template is not on this phone any more');
+    const has = (k) => !!(S.tplTest && S.tplTest[k]), both = !!r.cef;
+    if (!(await ask(`Use ${t.name} as testing?`, `Its as-plan${both ? ' and its CEF sheet become the testing templates' : ' becomes the testing template'} on this phone${has('geo') || (both && has('cef')) ? ', in place of the testing ones there now' : ''}. Projects no longer choose a client template: publish it to give it to everyone.`, [{ label: 'Cancel', value: false }, { label: 'Use as testing', value: true, primary: true }]))) return;
+    const cl = r.client || t.client || '';
+    await tplTestSet('geo', r.plan, { name: t.name, from: 'client', client: cl, look: r.look || t.look || null });
+    if (both) await tplTestSet('cef', r.cef, { name: t.name, from: 'client', client: cl, look: r.cefLook || r.look || null, checked: true });
+    toast(`${t.name}: the testing template${both ? 's' : ''} ✓`, 3000);
+  }
+  async function tplOldRemove(id) {
+    const t = tplById(id); if (!t) return;
+    if (!(await ask(`Remove ${t.name}?`, 'It is deleted from this phone (a client template of beta 7.17: projects no longer use it).', [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, primary: true }]))) return;
+    S.tpls = tplList().filter((x) => x.id !== id); if (S.tplLast === id) S.tplLast = ''; persist();
+    await dbDel('packs', tplKey(id)).catch(() => {});
+    LOG.info('tpl.remove', { old: true }); renderAdmTpl(); toast('Template removed', 2500);
+  }
+  const tplKb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`);
+  /** A slot in words: its name, size, date and who set it. */
+  function tplSlotSay(i, stale) {
+    const who = i.by ? `by ${i.by}` : i.from === 'drive' ? 'from the online sheet' : i.from === 'client' ? 'from a client template of this phone' : 'loaded on this phone';
+    return `${i.name} · ${tplKb(i.size)} · ${String(i.pub || i.at || '').slice(0, 10)} · ${who}${i.client ? ` · client ${i.client}` : ''}${stale ? ' · a newer one is shared' : ''}`;
+  }
+  /** Administration › Plan templates: the four slots, Use the testing templates, the 7.17 client templates of this phone. */
+  function renderAdmTpl() {
+    if (!$('admTplBox')) return;
+    $('admTplTest').checked = S.tplTestUse === true;
+    for (const kind of ['geo', 'cef']) {
+      const K = TPL_KINDS[kind], geo = kind === 'geo', P = geo ? S.dxfSeed : S.cefSeed, T = (S.tplTest || {})[kind], id = geo ? seedId() : cefSeedId(), stale = geo ? seedStale() : cefSeedStale(), getting = geo ? !!seedBusy : !!cefState().busy;
+      $(`admTpl${K.id}PubSum`).textContent = getting ? 'Getting it from the online sheet…' : P ? tplSlotSay(P, stale) : id ? 'Shared: not on this phone yet (Get it).' : geo ? 'None yet: publish a testing template (or paste a Google Drive link below).' : 'None: CEF plans are printed on the app\'s generic CEF template.';
+      $(`admTpl${K.id}PubGet`).hidden = !id || (!!P && !stale); $(`admTpl${K.id}PubGet`).disabled = getting; $(`admTpl${K.id}PubGet`).textContent = stale ? 'Get the newer one' : 'Get it';
+      $(`admTpl${K.id}PubDown`).disabled = geo && !P; $(`admTpl${K.id}PubDown`).textContent = !geo && !P ? 'Download the generic one' : 'Download';
+      $(`admTpl${K.id}TestSum`).textContent = T ? `${tplSlotSay(T)}${tplTestFor(kind) ? ' · this phone\'s plans use it now' : ''}` : 'None: Load a DXF, or make one from a client\'s file.';
+      ['Down', 'Back', 'Publish', 'Clear'].forEach((b) => { $(`admTpl${K.id}${b}`).disabled = !T; });
+    }
+    const L = tplList(), box = $('admTplOldList'); $('admTplOld').hidden = !L.length; box.innerHTML = '';
+    L.forEach((t) => {
+      const d = document.createElement('div'); d.className = 'tplit'; d.dataset.id = t.id; d.innerHTML = '<b></b><small></small><div class="row"></div>';
+      d.querySelector('b').textContent = t.name;
+      d.querySelector('small').textContent = `${t.from && t.from.file ? `From ${t.from.file}` : 'Client template'}${t.fin ? ' (a finished plan)' : ''}${t.edited ? ' · edited in AutoCAD' : ''} · ${String(t.at || '').slice(0, 10)} · ${t.cef ? 'as-plan and CEF' : 'as-plan only'}`;
+      const row = d.querySelector('.row'), btn = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = `btn small${cls ? ` ${cls}` : ''}`; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); };
+      btn('Use as testing', () => guard(() => tplOldUse(t.id), 'Not used'), 'primary'); btn('Remove', () => guard(() => tplOldRemove(t.id), 'Not removed'));
+      box.appendChild(d);
+    });
+    tplTestBanners();
+  }
+  $('admTplTest').addEventListener('change', () => { S.tplTestUse = $('admTplTest').checked; persist(); LOG.info('tpl.test.use', { on: S.tplTestUse }); tplTestChanged(); });
+  for (const kind of ['geo', 'cef']) {
+    const P = `admTpl${TPL_KINDS[kind].id}`, pick = (id) => { $(id).value = ''; $(id).click(); };
+    $(`${P}Load`).addEventListener('click', () => pick(`${P}LoadFile`));
+    $(`${P}Make`).addEventListener('click', () => pick(`${P}MakeFile`));
+    $(`${P}Back`).addEventListener('click', () => pick(`${P}BackFile`));
+    $(`${P}LoadFile`).addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await tplTestLoad(kind, f, false); }, 'Template not loaded'));
+    $(`${P}MakeFile`).addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await tplTestMake(kind, f); }, 'Template not made'));
+    $(`${P}BackFile`).addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await tplTestLoad(kind, f, true); }, 'Template not loaded'));
+    $(`${P}Down`).addEventListener('click', () => guard(() => tplSlotDownload(kind, 'test'), 'Template not downloaded'));
+    $(`${P}Publish`).addEventListener('click', () => guard(() => tplPublish(kind), 'Template not published'));
+    $(`${P}Clear`).addEventListener('click', () => guard(() => tplTestClear(kind), 'Not cleared'));
+    $(`${P}PubDown`).addEventListener('click', () => guard(() => tplSlotDownload(kind, 'pub'), 'Template not downloaded'));
+    $(`${P}PubGet`).addEventListener('click', () => guard(async () => { if (kind === 'geo') await downloadSeed(false); else await downloadCefSeed(false); renderAdmTpl(); }, 'Template not downloaded'));
+  }
+  /** A client's DXF: read (a DWG, a binary DXF… refused, saying how to save it), digested, the review opened with its choices made.
+      ((stage 11, templates) slot: the testing template it becomes, geo or cef.) */
+  async function tplAddFile(f, slot) {
     busy('Reading the client\'s template…'); let rd, dg;
     try {
       const G = await synthReady(); await sleep(30);
@@ -14640,31 +14689,7 @@
     if (!rd.ok) { await ask('This file cannot be used', rd.error, [{ label: 'OK', value: true, primary: true }]); return; }
     if (!dg.sheets.some((s) => s.vps.length)) { await ask('This template cannot be used', 'None of its sheets (layouts) has a viewport for the map. In AutoCAD, put the title block on a layout with a viewport over the drawing area, then save it as DXF and add that file.', [{ label: 'OK', value: true, primary: true }]); return; }
     LOG.info('tpl.digest', { kb: Math.round(rd.text.length / 1024), sheets: dg.sheets.length, fields: dg.sheets.reduce((n, s) => n + s.fields.length, 0), blocks: dg.blocks.length });
-    tprOpen({ text: rd.text, dg, map: window.GeDxfSynth.proposal(dg), file: f.name, size: f.size, id: null });
-  }
-  async function tplRename(id) {
-    const t = tplById(id); if (!t) return; const nm = await promptText('Rename the template', 'Its name in Plan style › Template.', 'e.g. DEMO CLIENT A', t.name); if (!nm) return;
-    const name = nm.slice(0, 60); S.tpls = tplList().map((x) => (x.id === id ? { ...x, name } : x)); persist();
-    const r = await tplGet(id); if (r) await dbPut('packs', { ...r, name });
-    renderStyle(); toast('Renamed ✓', 2000);
-  }
-  async function tplRemove(id) {
-    const t = tplById(id); if (!t) return; const used = (S.projects || []).filter((n) => pmeta(n).tpl === id);
-    if (!(await ask(`Remove ${t.name}?`, `It is deleted from this phone.${used.length ? ` ${used.length} project${used.length === 1 ? '' : 's'} using it (${used.slice(0, 3).join(', ')}${used.length > 3 ? '…' : ''}) go back to the company template.` : ''}`, [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, primary: true }]))) return;
-    for (const n of used) { const m = { ...pmeta(n) }; delete m.tpl; S.meta[n] = m; try { drwPhMem.delete(n); } catch (e) { /* none */ } }
-    S.tpls = tplList().filter((x) => x.id !== id); if (S.tplLast === id) S.tplLast = ''; persist();
-    await dbDel('packs', tplKey(id)).catch(() => {});
-    LOG.info('tpl.remove', { projects: used.length }); renderStyle(); toast('Template removed', 2500);
-  }
-  async function tplMakeAgain(id) {
-    const r = await tplGet(id); if (!r) throw new Error('This template is not on this phone any more');
-    if (!r.src) throw new Error('This template was loaded back from AutoCAD: there is no client DXF to make it again from'); // ((templates, Round trip))
-    if (r.edited && !(await ask('Make it again?', `${r.name} was edited in AutoCAD and loaded back (${String(r.edited.at || '').slice(0, 10)}, ${r.edited.file || 'a DXF'}). Making it again from the client's DXF leaves those edits out.`, [{ label: 'Cancel', value: false }, { label: 'Make it again', value: true, primary: true }]))) return;
-    busy('Reading the client\'s template…'); let dg, G;
-    try { G = await synthReady(); await sleep(30); dg = G.digest(r.src, (r.from && r.from.file) || r.name); } finally { busy(false); }
-    const p = G.proposal(dg), m = r.map || {}, ids = new Set(dg.sheets.flatMap((s) => s.fields.map((f) => f.id)));
-    const map = { ...p, ...m, fields: { ...p.fields, ...Object.fromEntries(Object.entries(m.fields || {}).filter(([k]) => ids.has(k))) }, symbols: { ...p.symbols, ...(m.symbols || {}) }, look: { ...p.look, ...(m.look || {}) }, model: m.model || p.model, name: r.name };
-    tprOpen({ text: r.src, dg, map, file: (r.from && r.from.file) || '', size: (r.from && r.from.size) || r.src.length, id });
+    tprOpen({ text: rd.text, dg, map: window.GeDxfSynth.proposal(dg), file: f.name, size: f.size, id: null, slot: slot === 'cef' ? 'cef' : 'geo' });
   }
 
   /* ---- the review ---- */
@@ -14837,7 +14862,7 @@
   $('tplReview').addEventListener('change', (e) => { if (e.target.closest('#tplSyms, #tplSymsMore, #tplLw, #tplLayers, #tplModel, #tplKeep, #tplTables') || ['tplFont', 'tplBold', 'tplExported', 'tplName', 'tplClient'].includes(e.target.id)) tprDirty(); });
   $('tplFin').addEventListener('change', () => { // ((templates, Digester) a finished plan or a template: the choices made again for it, the names typed kept)
     if (!TPR) return; const nm = $('tplName').value.trim(), cl = $('tplClient').value.trim(), p = window.GeDxfSynth.proposal(TPR.dg, { finished: $('tplFin').checked });
-    tprOpen({ text: TPR.text, dg: TPR.dg, file: TPR.file, size: TPR.size, id: TPR.id, map: { ...p, ...(nm ? { name: nm } : {}), ...(cl ? { client: cl } : {}) } });
+    tprOpen({ text: TPR.text, dg: TPR.dg, file: TPR.file, size: TPR.size, id: TPR.id, slot: TPR.slot, map: { ...p, ...(nm ? { name: nm } : {}), ...(cl ? { client: cl } : {}) } });
     LOG.info('tpl.finished', { on: !!p.finished });
   });
   /** Make and check: the seeds made from the choices, a made-up plan drawn on them; the problems in plain words, its first sheet as a picture. */
@@ -14857,15 +14882,24 @@
     LOG.info('tpl.check', { ok: ck.ok, problems: ck.problems.length, tokens: ck.tokens.length, cef: !!made.cef });
     setTimeout(() => { try { $('tprCheck').scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* old WebView */ } }, 50);
   }
+  /** Save (stage 11, templates): what the review made becomes the testing template (Administration › Plan templates): its as-plan (Geo), and its CEF
+      sheet when one was chosen (asked: both, or the slot's only). Kept on this phone; published from Plan templates. */
   async function tprSave() {
-    if (!TPR || !TPR.made) return; const m = TPR.map, made = TPR.made, id = TPR.id || uid(), at = new Date().toISOString(), name = (m.name || 'Client template').slice(0, 60);
-    const from = { file: String(TPR.file || '').slice(0, 120), size: TPR.size || TPR.text.length };
-    await dbPut('packs', { k: tplKey(id), id, name, at, from, client: m.client || '', src: TPR.text, plan: made.plan, cef: made.cef, map: m, look: made.look, cefLook: made.cefLook, checks: TPR.check });
-    const meta = { id, name, at, from, client: m.client || '', look: made.look, ok: !!(TPR.check && TPR.check.ok), cef: !!made.cef, ...(m.finished ? { fin: true } : {}) };
-    S.tpls = [...tplList().filter((t) => t.id !== id), meta]; persist();
-    if (!TPR.id && S.project) tplChoose(S.project, id);
-    LOG.info('tpl.save', { kb: Math.round(made.plan.length / 1024), cef: !!made.cef, again: !!TPR.id, fin: !!m.finished });
-    TPR = null; await closeSheet(); renderStyle(); toast(`${name} saved ✓`, 3000);
+    if (!TPR || !TPR.made) return; const m = TPR.map, made = TPR.made, name = (m.name || 'Client template').slice(0, 60), slot = TPR.slot === 'cef' ? 'cef' : 'geo', client = m.client || '';
+    let kinds = [slot];
+    if (slot === 'cef' && !made.cef) { await ask('No CEF sheet', 'Choose its CEF sheet in the review (Sheets › CEF sheet), then Make and check again.', [{ label: 'OK', value: true, primary: true }]); return; }
+    if (made.cef) {
+      const c = await ask('Save as the testing template', slot === 'geo' ? `${name}: its as-plan becomes the testing as-plan template. Its CEF sheet (${m.cef}) can be the testing CEF template too.` : `${name}: its CEF sheet (${m.cef}) becomes the testing CEF template. Its as-plan can be the testing as-plan template too.`,
+        [{ label: 'Cancel', value: '' }, { label: slot === 'geo' ? 'As-plan only' : 'CEF only', value: 'one' }, { label: slot === 'geo' ? 'As-plan and CEF' : 'CEF and as-plan', value: 'both', primary: true }]);
+      if (!c) return; if (c === 'both') kinds = ['geo', 'cef'];
+    }
+    const from = 'made'; // (made from a client's file by the review)
+    busy('Saving the testing template…');
+    try {
+      for (const k of kinds) await tplTestSet(k, k === 'geo' ? made.plan : made.cef, { name: `${name}.dxf`, from, client, look: k === 'geo' ? made.look || null : made.cefLook || made.look || null, checked: true });
+    } finally { busy(false); }
+    LOG.info('tpl.save', { kb: Math.round(made.plan.length / 1024), cef: !!made.cef, kinds: kinds.join(','), fin: !!m.finished });
+    TPR = null; await closeSheet(); toast(`${name}: the testing template${kinds.length > 1 ? 's' : ''} ✓`, 3000);
   }
   $('tplMake').addEventListener('click', () => guard(tprMake, 'Template not made'));
   $('tplSave').addEventListener('click', () => guard(tprSave, 'Template not saved'));
@@ -15308,7 +15342,7 @@
      planGridOf). Returns what the export goes on with, and jobOf(st): the job of one drawing of SETS. */
   async function planJob(pts, o) {
     const one = !!(o && o.one), prev = !!(o && o.preview), say = prev ? () => {} : busy; // (beta 4.6: One PDF: only the plan's sheets are made, of the drawing the Drawing shows)
-    const TPLK = await tplLookOf(S.project), CELL = TPLK && TPLK.sheet && +TPLK.sheet.cell > 0 ? +TPLK.sheet.cell : 440; // ((beta 7.15, Client templates) a client's plan sheet: its cell at 1:1100 on its paper)
+    const TPLK = await tplLookOf(), CELL = TPLK && TPLK.sheet && +TPLK.sheet.cell > 0 ? +TPLK.sheet.cell : 440; // ((beta 7.15, Client templates) a client's plan sheet: its cell at 1:1100 on its paper; (stage 11, templates) the template's look: the testing one's, else the published one's)
     const proj = S.project, m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
     const QC = { loops: [] }, R = routeModel(), Q = surveyQty(pts, QC), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R); // v2.42.16: the maintenance loops the app adds (As-Plan); v2.42.18: the own ones
@@ -15409,7 +15443,7 @@
       const vm = Object.fromEntries(['VICINITY MAP', ...Array.from({ length: 8 }, (_, k) => `VICINITY MAP (${k + 2})`)].map((n) => [n, ''])); // ((templates, Digester) a client's vicinity map sheet: its scale the builder's, as the key map's)
       Object.assign(values, { PROJECT_TYPE: pname, LINK: pname, LOCATION: known ? [sName, sPla].filter(Boolean).join('_') : (m.site || ''), SITE_NAME: sName || m.site || '', SITE_ID: sPla, SERIAL: sSerial,
         DWG_NO: sfGet(SF, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss, PREPARED_BY: who, DRAWN_BY: who, CHECKED_BY: chk, APPROVED_BY: sg.apr || '',
-        CLIENT: sfGet(SF, /client|customer/i) || (projTpl(proj) || {}).client || '', SHEET_TITLE: { ...Object.fromEntries(Object.keys(km).map((n) => [n, 'KEY MAP'])), '*': 'ROUTE PLAN' }, PLAN_KIND: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN',
+        CLIENT: sfGet(SF, /client|customer/i) || tplClientNow() || '', SHEET_TITLE: { ...Object.fromEntries(Object.keys(km).map((n) => [n, 'KEY MAP'])), '*': 'ROUTE PLAN' }, PLAN_KIND: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN',
         COORDINATES: at ? `${dms(at.lat, 'N', 'S')} ${dms(at.lon, 'E', 'W')}` : '', ...(S.exp.dxfLabels !== 'tidy' ? { SCALE: { ...km, ...vm, '*': '1 : 1,100 METERS' } } : {}) }); // (the key map's scale: dxftpl's; Tidy's finer sheets: dxftpl's)
     }
     /* beta 6.0: the PMI's quantities item by item, each where it is, for the BOQ table of each GEO sheet (dxftpl adds them up by grid
@@ -15551,7 +15585,8 @@
     if (!seed) { if (!seedId()) toast('No plan template yet: ask your admin to share it, or load the template file they sent you', 6000); renderDxfTpl(); return; }
     busy('Preparing the plan drawing…');
     drwPhStop(); // (beta 7.8, Drawing photos) a preview of the Drawing's photos still being made stops: the export first
-    const { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, roadsKept, gridKeep, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name, byPt, many, rtaC, rtaN, boxLoopN, jobOf } = await planJob(pts, { one }), outs = [];
+    const { m, zone, R, q, LA, OWN, showCT, PLS, SETS, rows, nLoc, roadsNote, roadsKept, gridKeep, rowNote, noPack, known, sName, sPla, sSerial, pmiExtraRows, pctA, files, withPh, GEO, PST, LOC, vicSay, logo, PS, name: name0, byPt, many, rtaC, rtaN, boxLoopN, jobOf } = await planJob(pts, { one }), outs = [];
+    const name = `${name0}${tplTestTag('geo')}`; // ((stage 11, templates) made on the testing template: _TEST in every file name, so it is never taken for a real plan)
     for (let k = 0; k < SETS.length; k++) { // v2.41: one DXF for each drawing of the export
       const st = SETS[k];
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
@@ -15660,7 +15695,7 @@
     { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
       resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}${S.exp.dxfLabels === 'tidy' ? 'Pole labels: Tidy. ' : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']), ...(cefFiles.length ? [['CEF', `${new Set(cefFiles.map((f) => f.name.split('/')[0])).size} CEF plan folder${new Set(cefFiles.map((f) => f.name.split('/')[0])).size === 1 ? '' : 's'}`, 'The CEF plan of each tower site: its PDF, DXF, KML and photos']] : []),
         ...(files.length ? [['JPG', `${files.length} picture${files.length === 1 ? '' : 's'}`, 'Photos, vicinity map, logo: keep them next to the drawings, or AutoCAD shows empty boxes (AutoCAD 2021: see README)']] : []), ['TXT', 'README.txt', 'What the plan holds, with the pole numbers of each drawing']]; }
-    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, ...cefFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`); notePlan(); // beta 6.7 (UX step 3)
+    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, ...cefFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}${!/_TEST$/.test(name) && cefFiles.length ? tplTestTag('cef') : ''}_DXF.zip`); notePlan(); // beta 6.7 (UX step 3) ((stage 11, templates) its CEF plans on the testing CEF template: _TEST too)
     { const A = routeAdvice(R), o0 = outs[0], MK0 = o0.out.report.marks || [];
       toast(`Plan: ${many ? `${outs.length} drawings · ` : ''}${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'}${!many && o0.st.no.size ? ` · numbered: ${o0.st.what} (${MK0.length})` : ''} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}${noPack.length ? ` · no road pack for ${noPack.map(({ region }) => region || 'a place').join(', ')}: its ROW table is blank (see the README)` : ''}`, noPack.length ? 9000 : 5000); }
   }
@@ -16973,7 +17008,7 @@
      Advanced section that is the part (opened, its part of the plan in the preview). (beta 7.8, Plan style cards): the part is a card (numbers,
      details, labels, photos, landmarks, vicinity, sheets) or a section of More settings (boxes, clamps, cables, crowded, site, file);
      basic: the cards; advanced: More settings. */
-  const TUT_PLPART = { template: 'stTpl', /* (beta 7.15, Client templates) */ numbers: 'stNum', details: 'stPole', labels: 'stCab', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
+  const TUT_PLPART = { numbers: 'stNum', details: 'stPole', labels: 'stCab', boxes: 'stId', clamps: 'stCl', cables: 'stRoute', photos: 'stPh', crowded: 'stCrowd', landmarks: 'stLm', site: 'stSite', vicinity: 'stVic', sheets: 'stGrid', file: 'stFile', basic: '', advanced: '' };
   const tutGoBase = (go) => String(go || '').split(':')[0];
   const tutHlEl = (st) => { try { return st && st.hl ? document.querySelector(st.hl) : null; } catch (e) { return null; } };
   /** beta 6.7 (UX step 4): Plan style's card or section of More settings for a step: its part, else where its control is. (Plan style
@@ -18806,9 +18841,9 @@
      A locked feature is shown with a 🔒 and "Ask your admin to allow <feature>" (not hidden), and its action is refused by every way in: a
      tap, a key, the tutorial's Show me, a click() of the app or of a test (the click gate below), and the functions themselves (the Drawing's
      Edit, Undo and Redo, Edit route; the CEF plan's editor and files; the splicing details; the shares and the team mailbox). An export under
-     way is never left half-made: what was allowed when it started holds until it ends (permHold). Client templates ((templates, permissions)):
-     projTpl() follows permOk('tpl') (tplAllowed), so the project's plans (seedText, the Drawing, the exports, the CEF plan's template) are on
-     the company template while it is blocked, and Plan style › Template shows the company template only, its buttons locked. */
+     way is never left half-made: what was allowed when it started holds until it ends (permHold). Client templates: (stage 11, templates) no
+     longer a choice of a user (the admin makes and publishes the templates in Administration › Plan templates): not shown, not used; kept in
+     the list and the sheet's tab (PERM_F's gone) so both read as before. */
   let permHold = null; // (an export under way: the features as they were when it started)
   const permMe = () => String((S.user && S.user.email) || '').trim().toLowerCase();
   /** The admin phone, and the admin company's admin users (the admin PIN, or verified by the online sheet's Admin users tab): everything. */
@@ -18870,8 +18905,8 @@
   /** Settings → Account: what this user may do (when permissions apply to them). */
   function renderPermMe() {
     const el = $('permMe'); if (!el) return; const st = permState(); el.hidden = !st.on; if (!st.on) return;
-    const no = PERM_F.filter((f) => !permOk(f.k)).map((f) => f.n);
-    el.textContent = `Your features: ${PERM_F.filter((f) => permOk(f.k)).map((f) => f.n).join(', ')}.${no.length ? ` 🔒 ${no.join(', ')}: ask your admin.` : ''}`;
+    const no = PERM_F.filter((f) => !f.gone && !permOk(f.k)).map((f) => f.n); // ((stage 11, templates) not Client templates)
+    el.textContent = `Your features: ${PERM_F.filter((f) => !f.gone && permOk(f.k)).map((f) => f.n).join(', ')}.${no.length ? ` 🔒 ${no.join(', ')}: ask your admin.` : ''}`;
   }
   /** The export rows of a locked feature: 🔒 and what to do, under their name (a row is shown only when picked: its tile is locked). */
   function permRows() {
@@ -18931,7 +18966,7 @@
     $('admPermOn').checked = !!D.on; $('admPermQ').hidden = all.length < 8;
     box.innerHTML = show.map(([m, u]) => `<div class="permu${D.on ? '' : ' off'}" role="listitem" data-e="${e(m)}"><div class="permh"><b>${e(m)}</b><small>${e([u.c, D.chg.has(m) ? 'changed here' : ''].filter(Boolean).join(' · '))}</small>`
       + `<button type="button" class="permx" data-pa="del" aria-label="${e(`Remove ${m}: back to what a user not listed has`)}" title="Remove: back to what a user not listed has">×</button></div>`
-      + `<div class="permf" role="group" aria-label="${e(`What ${m} may do`)}">${PERM_SET.map((x) => `<button type="button" class="chip small" data-pf="${x.k}" aria-pressed="${!!u.f[x.k]}" title="${e(`${x.n}: ${x.d}`)}">${e(x.n)}</button>`).join('')}</div></div>`).join('')
+      + `<div class="permf" role="group" aria-label="${e(`What ${m} may do`)}">${PERM_SET.filter((x) => !x.gone).map((x) => `<button type="button" class="chip small" data-pf="${x.k}" aria-pressed="${!!u.f[x.k]}" title="${e(`${x.n}: ${x.d}`)}">${e(x.n)}</button>`).join('')}</div></div>`).join('')
       + (L.length > show.length ? `<button type="button" class="btn sm" data-pa="more">Show ${Math.min(40, L.length - show.length)} more of ${L.length - show.length}</button>` : '')
       + (!all.length ? '<p class="hint" style="margin:0">No user listed yet: every user has what a user not listed has. Add one by their email (as in their Your details).</p>' : q && !L.length ? '<p class="hint" style="margin:0">No user matches the search.</p>' : '');
     const n = D.chg.size, viaSheet = !!(S.team && S.team.src && S.onlineAdminKey);
@@ -19251,7 +19286,7 @@
       npFile = null; npSite = null; await closeAll(); fitProject(); return;
     }
     S.projects.push(name);
-    S.meta[name] = k === 'survey' ? { mode: 'survey', purpose, ...sm, ...(tplById(S.tplLast) ? { tpl: S.tplLast } : {}) } : { mode: 'acceptance', stage: k, ...sm }; // ((beta 7.15, Client templates) a new survey: the template chosen last)
+    S.meta[name] = k === 'survey' ? { mode: 'survey', purpose, ...sm } : { mode: 'acceptance', stage: k, ...sm }; // ((stage 11, templates) projects no longer choose a template)
     if (k === 'survey') projKey(name); // v2.42.6: the credits' project key, with the project from the start (it travels with shares and backups)
     S.project = name; persist(); renderPoles(); queueProgress(name, ['surveyStart']); // the survey start date goes to the online sheet
     npFile = null; npSite = null; await closeAll();
@@ -19640,7 +19675,8 @@
       ADM_LISTS.forEach(([id, k]) => { $(id).value = (k === 'details' ? (Array.isArray(L0.detailItems) && L0.detailItems.length ? L0.detailItems : POLE_DETAIL_ITEMS) : was(k)).join('\n'); }); }
     $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = ''; $('admAreaSrc').value = P.areaSrc || ''; $('admDxfSeed').value = P.dxfSeed || ''; $('admCefSeed').value = P.cefSeed || ''; $('admDriveKey').value = P.driveKey || ''; // v2.29, v2.30, v2.35
     $('admUsers').value = (P.adminUsers || []).map((e) => `${e}${(P.adminJobs || {})[e] ? ` ${P.adminJobs[e].map((k) => JOB_NAME[k]).join(', ')}` : ''}`).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false; // v2.28: with the job
-    $('admSiteReq').checked = P.siteRequired === true; $('admUserTpl').checked = P.userTpl === true; // v2.41
+    $('admSiteReq').checked = P.siteRequired === true; // v2.41 ((stage 11, templates) Users may load a plan template file of their own: gone)
+    try { renderAdmTpl(); } catch (e) { LOG.warn('tpl.adm', errInfo(e)); } // (stage 11, templates) Plan templates
     { const sv = sheetSiteReq(); if (sv != null) $('admSiteReq').checked = sv; $('admSiteReq').disabled = sv != null; // v2.42.18: set in the sheet, shown here
       $('admSiteReqNote').textContent = sv != null ? `Set in the online sheet: Settings tab → Site required = ${sv ? 'Yes' : 'No'}. Every phone follows it at its next refresh.` : 'The online sheet has no “Site required” setting yet (its script is older than v2.42.18): this box decides, with the company list.'; }
     renderOrgBox(create);
@@ -19702,7 +19738,7 @@
       if (P.kmzOld && !P.kmzOld.length) delete P.kmzOld; }
     if ($('admVendorRec').checked) delete P.vendorRecords; else P.vendorRecords = false;
     if (!$('admSiteReq').disabled) { if ($('admSiteReq').checked) P.siteRequired = true; else delete P.siteRequired; } // v2.41: a new Survey / PAT must use a site of the online sheet (v2.42.18: unless the sheet sets it)
-    if ($('admUserTpl').checked) P.userTpl = true; else delete P.userTpl; // v2.41: users may load their own plan template file (off: only the admin's)
+    delete P.userTpl; // ((stage 11, templates) v2.41's "users may load their own plan template file" is gone: the next list version leaves it out)
     P.poleTypes = parseTypeLines($('admPoleTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p));
     { // v2.28: the BOQ lists and pole details, each kept only when it differs from the built-in one
       const lines = (id) => [...new Set($(id).value.split(/\n/).map((x) => x.trim().replace(/\s+/g, ' ').slice(0, 40)).filter(Boolean))].slice(0, 40);
@@ -23576,7 +23612,7 @@
     if (!t || typeof t.text !== 'string' || !t.text) return null;
     const F = siteFieldsOf(c.name), iss = sfGet(F, /\b(issue|rev(ision)?)\b/i);
     LOG.info('cef.tpl', { kb: Math.round(t.text.length / 1024), look: !!t.look, kind: t.kind || 'client' });
-    return { name: String(t.name || ''), text: t.text, look: t.look || null, kind: t.kind || 'client', note: String(t.note || ''), fields: { CLIENT: sfGet(F, /client|customer/i) || String(t.client || ''), DWG_NO: sfGet(F, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss } };
+    return { name: String(t.name || ''), text: t.text, look: t.look || null, kind: t.kind || 'client', note: String(t.note || ''), test: !!t.test, /* (stage 11, templates) its files say _TEST */ fields: { CLIENT: sfGet(F, /client|customer/i) || String(t.client || ''), DWG_NO: sfGet(F, /\bdwg\b|drawing\s*(no|num)/i), ISSUE_NO: iss, REV: iss } };
   }
   async function cefDxfLib() { if (!window.GeDxfTpl) await loadScript('dxftpl.js'); return window.GeDxfTpl; }
   /** A DXF the editor made on the CEF template, printed as the plan's PDF (o.images: the photos and logos by file name, JPEG or PNG). */
@@ -23659,6 +23695,7 @@
     mapPicture: (o) => cefMapPicture(o), setSign: (g) => cefSetSign(g), // beta 4.2
     photoDims: (ids) => cefPhotoDims(ids), // beta 4.3
     cefTpl: (job) => cefTplOf(job), dxfLib: () => cefDxfLib(), cefPdf: (text, o) => cefTplPdf(text, o), // (beta 7.15, CEF template)
+    tplTest: () => (tplTestFor('cef') ? TPL_TEST_SAY : ''), // ((stage 11, templates) the testing CEF template is used on this phone: said in the editor's Export)
     pref: (k, v) => { if (k === 'guide') { S.cefGuide = v !== false; persist(); } else if (k === 'dxf') { const g = v && typeof v === 'object' ? v : {}; S.cefDxf = { det: !!g.det, ph: !!g.ph, old: !!g.old }; persist(); } } }; // (beta 4.3: the pages and the kind of the CEF DXF)
 
   /** A project that came in a file or through the team mailbox: its CEF plans. A plan is taken whole: the one saved later wins, and it
@@ -24161,7 +24198,7 @@
       ...(skip.cef && skip.cef.length ? [[splIcon('i-cef'), 'CEF plan', `Not made yet for ${andList(skip.cef)}: not in this PDF`, true]] : []), // (also when another site's plan is in it)
       ...(skip.spl && !has('spl') ? [[splIcon('i-splice'), 'Splicing details', 'Not made yet: not in this PDF', true]] : [])];
     LOG.info('export.one', { parts: said.map((x) => `${x.kind}:${x.pages}`).join(','), mb: +(bytes.length / 1048576).toFixed(2) });
-    offerResult(new Blob([bytes], { type: 'application/pdf' }), `${fileBase()}_${tag}.pdf`); notePlan(); // beta 6.7 (UX step 3)
+    offerResult(new Blob([bytes], { type: 'application/pdf' }), `${fileBase()}_${tag}${has('plan') || has('cef') ? tplTestTag(...(has('plan') ? ['geo'] : []), ...(has('cef') ? ['cef'] : [])) : ''}.pdf`); notePlan(); // beta 6.7 (UX step 3) ((stage 11, templates) on a testing template: _TEST)
     toast(`One PDF: ${said.reduce((t, x) => t + x.pages, 0)} pages · ${said.filter((x) => x.pages).map((x) => x.label.replace(/ · .*$/, '')).filter((v, i, a) => a.indexOf(v) === i).join(' + ')}`, 5000);
   }
   splHooks.onePdf = (pdfFiles, cefFiles) => onePdfFinish(pdfFiles, cefFiles);
@@ -24283,10 +24320,13 @@
   window.__polecam.vicinity = async (o) => { const v = await vicinityJpeg(+o.E, +o.N, +o.size, o.zone || S.zone, !!o.south, null, o.street ? null : SAT_SOURCE, o.zCap || 0); if (!v || !v.jpg) return null; let s = ''; for (let i = 0; i < v.jpg.length; i += 0x8000) s += String.fromCharCode.apply(null, v.jpg.subarray(i, i + 0x8000)); return { b64: btoa(s), px: v.px, z: v.z, sat: !!v.sat }; }; // beta 4.3 (tests)
   window.__polecam.newAt = (o) => openEditor({ mode: 'new', element: (o && o.element) || 'Pole', lat: +o.lat, lon: +o.lon, source: 'map', takenAt: new Date().toISOString() }); // beta 4.3 (tests): a new record with no photo
   /* beta 6.7 (tests) */ window.__polecam.drwEdit = (on) => drwEditSet(!!on);
-  window.__polecam.tpl = { list: () => JSON.parse(JSON.stringify(tplList())), of: (n) => (projTpl(n) || {}).id || '', choose: (n, id) => tplChoose(n, id || ''), seedText: (n) => seedText(n), cefText: (n) => tplCefText(n), look: (n) => tplLookOf(n), review: () => (TPR ? JSON.parse(JSON.stringify(TPR.map)) : null), // ((beta 7.15, Client templates) tests)
-    down: () => tplDownText(), back: (text, name) => tplLoadBack(new File([text], name || 'edited_template.dxf', { type: 'application/dxf' })), roundOk: (k) => tplRoundOk(k) }; // ((templates, Round trip) tests)
-  window.__polecam.cefTpl = { now: async (n) => { const t = await cefTplNow(n); return { kind: t.kind, name: t.name, size: t.text.length, note: t.note }; }, seedText: () => cefSeedText(), info: () => (S.cefSeed ? JSON.parse(JSON.stringify(S.cefSeed)) : null), id: () => cefSeedId(),
-    store: (text, name) => storeCefSeed(text, name, 'file'), get: () => downloadCefSeed(true), complete: async (text) => (await cefKit()).complete(text, await cefGeneric(), window.GeDxfTpl), admin: () => cefTplAdmin(), canLoad: () => cefTplCanLoad() }; // ((templates, company CEF template) tests)
+  window.__polecam.tpl = { list: () => JSON.parse(JSON.stringify(tplList())), seedText: (n) => seedText(n), look: () => tplLookOf(), client: () => tplClientNow(), review: () => (TPR ? JSON.parse(JSON.stringify(TPR.map)) : null), // ((beta 7.15, Client templates) tests)
+    // ((stage 11, templates) tests: the testing templates, Use them, the admin, the published one's details, a download's text, the CEF template a plan gets)
+    test: () => JSON.parse(JSON.stringify(S.tplTest || {})), testText: (k) => tplTestText(k), testFor: (k) => !!tplTestFor(k), use: (on) => { S.tplTestUse = !!on; persist(); tplTestChanged(); }, admin: () => tplAdminOk(), tag: (...k) => tplTestTag(...k),
+    pub: () => ({ geo: S.dxfSeed ? JSON.parse(JSON.stringify(S.dxfSeed)) : null, cef: S.cefSeed ? JSON.parse(JSON.stringify(S.cefSeed)) : null }), seedId: () => seedId(),
+    down: async (k, w) => { if ((k || 'geo') === 'geo') { const P = w === 'test' ? (S.tplTest || {}).geo : S.dxfSeed, t = w === 'test' ? await tplTestText('geo') : ((await dbGet('packs', SEED_KEY).catch(() => null)) || {}).text; return t ? tplDownGeo(t, (P && P.name) || 'Company template') : null; } const t = w === 'test' ? await tplTestText('cef') : await cefSeedText(); return cefTplDownText(t, w === 'test' ? ((S.tplTest || {}).cef || {}).name : (S.cefSeed || {}).name); } };
+  window.__polecam.cefTpl = { now: async (n) => { const t = await cefTplNow(n); return { kind: t.kind, name: t.name, size: t.text.length, note: t.note, ...(t.test ? { test: true } : {}) }; }, seedText: () => cefSeedText(), info: () => (S.cefSeed ? JSON.parse(JSON.stringify(S.cefSeed)) : null), id: () => cefSeedId(),
+    store: (text, name) => storeCefSeed(text, name, 'file'), get: () => downloadCefSeed(true), complete: async (text) => (await cefKit()).complete(text, await cefGeneric(), window.GeDxfTpl), admin: () => tplAdminOk() }; // ((templates, company CEF template) tests; (stage 11, templates) admin: who sets the templates)
   window.__polecam.drwEd = () => ({ on: drwEd, handles: (drw && drw.edH ? drw.edH : []).map((h) => { const r = $('drawCanvas').getBoundingClientRect(); return { x: r.left + h.x, y: r.top + h.y, r: h.r, n: h.n, a: String(h.a), b: String(h.b) }; }), site: drwSiteArm ? drwSiteArm.kind : null, selRun: drw ? drw.selRun : null, n: drw ? drw.items.length : 0 });
   /* (beta 7.8, Drawing photos) for tests: the plan's photo places of the preview (report.photoAt), whether one is being made, and the frames drawn
      (each one's centre and size in page pixels, its turn), the pins kept, and where a point stands as the Drawing draws it (metres) */
