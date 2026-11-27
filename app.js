@@ -567,6 +567,20 @@
   const BOQ_MULTI = new Set(['guy', 'clampType']); // several at once: "Head guy + Side guy", "DEG + GCA" (v2.39)
   const loopYes = (b) => !!b && !!b.mloop && b.mloop !== 'No'; // v2.42.16: an As-Built record answers Yes or No
   const groundYes = (b) => !!b && !!b.ground && b.ground !== 'No'; // v2.42.26: grounding answered Yes or No (No: none on the pole)
+  /* (stage 11, riser detail) The owner (27 Nov): "a detailed drawing of Riser pole (not CEF) using an existing pole but the Uguard, concrete encase+conduit are
+     all proposed(Red) … this may be a detailed isometric view being added on the plan as attachent (more like photo that is to be put to the plan or another page
+     specific to this one as part of asplan"; decided: the user chooses per riser. A riser pole's record keeps its choice and sizes in riserDet { show: 'page' |
+     'plan' | 'none', pipeD, pipeL, guardL, encW, encH, cdD, cdR, cdL } (only what the user set; none: its own sheet for an existing pole, none for a proposed one;
+     the CEF editor's sizes; the conduit's size the span's, its length the plan's), saved, backed up and shared with the record; the plan's job carries it
+     (GeDxfTpl.build draws the detail). Set in the pole's form (AE to UG, under Riser) and on the Drawing (the pole's tools: Own sheet, On the plan, None). */
+  const RISER_SHOW = [['page', 'Own sheet', 'Its riser detail on a sheet of its own, after the plan\u2019s sheets'], ['plan', 'On the plan', 'Its riser detail in a frame near the pole, like a photo'], ['none', 'None', 'No riser detail']];
+  const RISER_SZ = [['pipeD', 'Riser pipe \u00d8, mm', '114.3'], ['pipeL', 'Riser pipe, m', '2.7'], ['guardL', 'U-guard, m', '1.9'], ['encW', 'Encasement width, m', '0.47'], ['encH', 'Encasement height, m', '1.73'], ['cdD', 'Conduit \u00d8, mm', ''], ['cdR', 'Conduit runs', ''], ['cdL', 'Conduit, m', '']]; // (the CEF editor's sizes, as GeDxfTpl.riserStd() gives them; the conduit's: its span's, its length the plan's)
+  /** (stage 11, riser detail) a riser's detail as kept: only what is set and valid (a size: a number over 0), else null */
+  const riserOk = (rd) => { if (!rd || typeof rd !== 'object') return null; const o = {}; if (RISER_SHOW.some(([k]) => k === rd.show)) o.show = rd.show; for (const [k] of RISER_SZ) { const v = parseFloat(rd[k]); if (Number.isFinite(v) && v > 0 && v < 10000) o[k] = k === 'cdR' ? Math.max(1, Math.min(4, Math.round(v))) : +v.toFixed(3); } return Object.keys(o).length ? o : null; };
+  /** (stage 11, riser detail) where a riser pole's detail goes (rd: its riserDet as it is being set; none given: the record's) */
+  const riserShow = (p, rd) => { const o = riserOk(rd !== undefined ? rd : p && p.riserDet); return o && o.show ? o.show : p && ['Proposed', 'New'].includes(p.status) ? 'none' : 'page'; };
+  /** (stage 11, riser detail) what the plan's job carries of a point's riser detail: { riserDet } on a pole that has one set, else nothing (the job as before) */
+  const riserJobOf = (p, el) => { const o = el === 'Pole' ? riserOk(p.riserDet) : null; return o ? { riserDet: o } : {}; };
   const BOX_LOOP_M = 20; // v2.42.16: a handhole, manhole or service box has its own maintenance loop, 20 m (counted, not drawn)
   const mloopLen = () => (Number.isFinite(+pol().mloopLen) && +pol().mloopLen > 0 ? +pol().mloopLen : 15); // v2.29: MLoop = 15 m unless the admin sets another
   /* v2.42.18: each loop has its own length, chosen on the record (10, 12, 15 or 20 m); by default it follows the cable at the pole:
@@ -3390,6 +3404,18 @@
     const k = ST_BOQ[field]; if (!k) return null; const b = { ...(p.boq || {}) }, st = ex ? 'Existing' : 'New'; if (b[k] === st) return null; b[k] = st; return { ...p, boq: b, ...stamp };
   }
   /** The items selected made existing or proposed: their records changed (one Undo step), the Drawing and its plan made again with them (the BOQ follows). */
+  /** (stage 11, riser detail) The record of a pole the plan draws a riser on, for an item of the Drawing (the pole itself), or null. */
+  function drwRiserRec(m) { if (!m || m.kind !== 'pole' || m.point == null) return null; const p = points.find((x) => String(x.id) === String(m.point)); return p && elemOf(p) === 'Pole' && ((p.boq && p.boq.riser) || riserAuto(p)) ? p : null; }
+  /** (stage 11, riser detail) The selected riser poles' detail put on a sheet of its own ('page'), on the plan ('plan') or none: in each one's record (riserDet.show), one Undo step, the
+      Drawing made again (an inset on the plan shows there; a sheet of its own in the export and the PDF). */
+  async function drwRiserSet(L, to) {
+    if (!RISER_SHOW.some(([k]) => k === to)) return; const recs = new Map(), why = [], stamp = { updated: new Date().toISOString(), updatedBy: byLine() };
+    for (const m of L) { const p0 = drwRiserRec(m); if (!p0 || recs.has(String(p0.id)) || riserShow(p0) === to) continue; const lk = tmHooks.locked ? tmHooks.locked(p0.id, 'edit') : ''; if (lk) { why.push(lk); continue; } recs.set(String(p0.id), { ...p0, riserDet: { ...(riserOk(p0.riserDet) || {}), show: to }, ...stamp }); }
+    if (!recs.size) { if (why.length) toast(why[0], 6000); return; }
+    const prev = [...recs.keys()].map((pid) => JSON.parse(JSON.stringify(points.find((x) => String(x.id) === pid))));
+    drwUndoPush(`riser detail: ${RISER_SHOW.find(([k]) => k === to)[1].toLowerCase()}`, prev); LOG.info('draw.tools.riser', { to, n: recs.size });
+    if (await drwRecsPut([...recs.values()])) toast(`${recs.size === 1 ? `${recName([...recs.values()][0]) || 'The pole'}: its` : `${recs.size} poles: their`} riser detail ${to === 'page' ? 'on a sheet of its own (in the export)' : to === 'plan' ? 'on the plan, near the pole' : 'left out'} (↶ undoes)`, 3500);
+  }
   async function drwStatusSet(L, to) {
     const T = L.filter((m) => { const s = canOf(m).status; return stOk(s) && drwStatusNow(s) !== to; }); if (!T.length) return;
     const recs = new Map(), why = [];
@@ -3424,7 +3450,8 @@
     // ((beta 7.12, Drawing edit) Edit text: one item with texts (or a text note); the draw order: anything; Delete: notes only (the plan's own items are not deleted); Automatic: not for notes)
     Object.assign(vis, { text: L.length === 1 && canText(L[0]), front: true, forward: true, backward: true, back: true, del: L.every((m) => !!delOf(m)), auto: !L.every(isNote) }); // ((beta 7.12) Delete: as the plan says for each)
     { const db = tb.querySelector('[data-a="del"]'), t = vis.del ? delSay(L) : 'Delete'; if (db.title !== t) { db.title = t; db.setAttribute('aria-label', t); } }
-    vis.scope = vis['h-'] || vis.color || vis['s-'] || vis.callout || vis.lead || vis['lw-']; vis.sep1 = vis['h-'] || vis.color || vis.text || vis['lw-']; vis.sep2 = vis['rot-']; vis.sep3 = vis['s-']; vis.sep4 = vis.status || vis.callout || vis.lead; vis.sep5 = true;
+    const RP = L.map(drwRiserRec); vis.riserdet = RP.length > 0 && RP.every(Boolean); // ((stage 11, riser detail) riser poles only: where each one's detail goes)
+    vis.scope = vis['h-'] || vis.color || vis['s-'] || vis.callout || vis.lead || vis['lw-']; vis.sep1 = vis['h-'] || vis.color || vis.text || vis['lw-']; vis.sep2 = vis['rot-']; vis.sep3 = vis['s-']; vis.sep4 = vis.status || vis.callout || vis.lead || vis.riserdet; vis.sep5 = true;
     tb.querySelectorAll('[data-a]').forEach((b) => { const a = b.dataset.a; if (a in vis) b.hidden = !vis[a]; });
     const xb = tb.querySelector('[data-a="xtra"]'); xb.hidden = ![...tb.querySelectorAll('.lo')].some((b) => !b.hidden); tb.classList.toggle('xopen', !!drw.tbX); xb.setAttribute('aria-expanded', String(!!drw.tbX)); xb.setAttribute('aria-pressed', String(!!drw.tbX)); // ((beta 7.12) a phone: the tools used less under More)
     const press = (a, on2) => tb.querySelectorAll(`[data-a="${a}"]`).forEach((b) => b.setAttribute('aria-pressed', String(!!on2))), seg = (a, v) => tb.querySelectorAll(`[data-a="${a}"] button`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
@@ -3435,6 +3462,7 @@
     $('drawTbPal').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === c1)));
     const st = [...new Set(L.map((m) => canOf(m).status).filter(stOk).map(drwStatusNow))]; seg('status', st.length === 1 ? st[0] : '');
     const co = [...new Set(L.filter((m) => canOf(m).callout).map((m) => styOf(m, M.mvStyle, M.mvKind).callout || pl.clo.style))]; seg('callout', co.length === 1 ? co[0] : '');
+    { const rs = vis.riserdet ? [...new Set(RP.map((p) => riserShow(p)))] : []; seg('riserdet', rs.length === 1 ? rs[0] : ''); } // ((stage 11, riser detail) as its record has it, else its default)
     seg('scope', drw.tbAll ? 'kind' : 'one');
     const ab = tb.querySelector('[data-a="auto"]'); ab.disabled = !L.some((m) => drwHandOf(m, M)) && !(drw.tbAll && L.some((m) => (M.mvKind || {})[m.kind]));
     $('drawTbN').textContent = L.length > 1 ? `${L.length} selected` : ''; $('drawTbN').hidden = L.length < 2;
@@ -3480,6 +3508,7 @@
     if (a === 'pal') { drwTbPal(false); drwStyleSet(L, 'color', v); return; }
     if (a === 'auto') { drwMvAuto(null, L.map((m) => m.id), !!drw.tbAll); return; }
     if (a === 'status') { drwStatusSet(L, v === 'existing' ? 'existing' : 'proposed'); return; }
+    if (a === 'riserdet') { drwRiserSet(L, v); return; } // ((stage 11, riser detail))
     if (a === 'rot-' || a === 'rot+') { const dd = a === 'rot+' ? 15 : -15; drwRotSet(L, (m) => drwAngNow(m) + dd, `turned ${dd > 0 ? '+' : ''}${dd}°`); return; }
     if (a === 'rot0') { drwRotSet(L, () => null, 'turned back'); return; }
     if (TB_NEED[a]) drwStyleSet(L, a, v);
@@ -10312,6 +10341,25 @@
   $('napId').addEventListener('input', () => { if (ed && isDummy()) $('napIdSug').hidden = $('napId').value.trim().toUpperCase() === dummyNapId(); });
   /** v2.26: the BOQ sizes of the element in the record: one row of chips per field (tap again to clear). */
   const edBoqKeys = () => (ed && !ed.acc && boqOn() ? boqKeys(ed.element || 'Pole', ed.status, !!ed.closure, ed.boq) : []); // v2.42.17: a box's closure has its switch
+  /** (stage 11, riser detail) The open riser pole's detail on the plan: where it goes (Own sheet, On the plan, None; the default shown as chosen) and its sizes
+      (blank: the standard's, shown as the field's hint), kept as the form's (ed.riserDet) until it is saved. */
+  function riserDetUi(row, ro) {
+    if (ed.riserDet === undefined) { const p0 = points.find((x) => x.id === ed.id); ed.riserDet = riserOk(p0 && p0.riserDet); }
+    const cur = riserShow({ status: ed.status || svDefaultStatus(ed.element || 'Pole') }, ed.riserDet || null), set = (o) => { ed.riserDet = riserOk({ ...(ed.riserDet || {}), ...o }); ed.riserDetSet = true; ed.boqTouched = true; };
+    const box = document.createElement('div'); box.className = 'riserdet'; box.dataset.k = 'riserDet';
+    const t = document.createElement('span'); t.className = 'lbl'; t.textContent = 'RISER DETAIL ON THE PLAN'; box.appendChild(t);
+    const ch = document.createElement('div'); ch.className = 'chips';
+    RISER_SHOW.forEach(([v, nm, tip]) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.dataset.v = v; c.textContent = nm; c.title = tip; c.setAttribute('aria-pressed', String(cur === v)); c.disabled = ro;
+      c.addEventListener('click', () => { set({ show: v }); renderBoq(); foldSum(); }); ch.appendChild(c); });
+    box.appendChild(ch);
+    if (cur !== 'none') {
+      const dt = document.createElement('details'), sm = document.createElement('summary'), g = document.createElement('div'); sm.textContent = 'Sizes (blank: the standard\u2019s; the conduit: the plan\u2019s)'; dt.appendChild(sm); dt.open = !!ed.riserSzOpen; dt.addEventListener('toggle', () => { ed.riserSzOpen = dt.open; }); g.className = 'riserszs';
+      for (const [k, nm, def] of RISER_SZ) { const L = document.createElement('label'), i = document.createElement('input'); L.textContent = nm; i.type = 'number'; i.inputMode = 'decimal'; i.min = '0'; i.step = k === 'cdR' ? '1' : 'any'; if (k === 'cdR') i.max = '4'; i.dataset.k = k; i.placeholder = def || (k === 'cdL' ? 'the plan\u2019s' : 'the span\u2019s'); i.value = ed.riserDet && ed.riserDet[k] != null ? String(ed.riserDet[k]) : ''; i.disabled = ro;
+        i.addEventListener('change', () => set({ [k]: i.value })); L.appendChild(i); g.appendChild(L); }
+      dt.appendChild(g); box.appendChild(dt);
+    }
+    row.appendChild(box);
+  }
   function renderBoq() {
     const box = $('boqBox'), rows = $('boqRows'); if (!ed) return;
     setTimeout(renderEdSym, 0); // v2.37: an owner, a NAP kind or a double LCP changes the symbol
@@ -10441,7 +10489,7 @@
       if (k === 'mloop' || k === 'ground' || k === 'riser') { // v2.29: one chip, on or off (v2.37: grounding and riser too)
         const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = k === 'mloop' ? `MLoop ${mloopLen()} m` : k === 'ground' ? 'Grounding' : 'Riser'; c.setAttribute('aria-pressed', String(k === 'mloop' ? loopYes(ed.boq) : !!ed.boq[k])); c.disabled = ro;
         c.addEventListener('click', () => { if (k === 'mloop' ? loopYes(ed.boq) : ed.boq[k]) delete ed.boq[k]; else ed.boq[k] = 'Yes'; ed.boqTouched = true; renderBoq(); foldSum(); });
-        chips.appendChild(c); row.appendChild(chips); rows.appendChild(row); return;
+        chips.appendChild(c); row.appendChild(chips); if (k === 'riser' && (ed.boq.riser || riserAuto({ id: ed.id }))) riserDetUi(row, ro); rows.appendChild(row); return; // ((stage 11, riser detail) a riser pole: its detail on the plan)
       }
       if (opts.length > 4) { // v2.28: a long list is a dropdown
         // v2.41: the clamp sizes this user picks most come first (a chip each, and at the top of the list), learnt on this phone
@@ -11193,6 +11241,7 @@
         siteKind: ed.element === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT' : 'Tower') : '', // v2.37
       });
       if (!rec.color) delete rec.color; if (!rec.siteKind) delete rec.siteKind; if (rec.gpsAge == null) delete rec.gpsAge; if (rec.gpsRef == null) delete rec.gpsRef;
+      if (ed.riserDetSet) { const o = riserOk(ed.riserDet); if (o && rec.element === 'Pole') rec.riserDet = o; else delete rec.riserDet; } // ((stage 11, riser detail) as set in the form; its record's otherwise, kept as it was)
       const photos = [], dropO = []; // ((beta 7.16, Photo marks) dropO: the unmarked photos no longer kept (their photo's marks taken off))
       if (ed.newBlob) {
         busy('Preparing photo…');
@@ -15336,7 +15385,7 @@
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
         napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', odfSz: el === 'ODF' ? b.odf || '' : '', odfConn: el === 'ODF' ? b.conn || '' : '', /* v2.42.26 */ ground: groundYes(b), riser: !!b.riser || riserAuto(p), p2pTo: b.p2p || null,
         clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType, hw: el === 'Pole' && showCT && PLS.clamp.hw ? hwShort(p, R) : '', /* v2.42.21: a 12C-only pole's hardware */
-        ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^(globe|bayantel)$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; /* (beta 6.7: Bayantel's is Globe's own: no owner's name either) */ }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
+        ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^(globe|bayantel)$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '', ...riserJobOf(p, el) }; /* (beta 6.7: Bayantel's is Globe's own: no owner's name either) */ }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
     const FX = fibers(); // (beta 6.7: the RUNs, for each UG span's own way)
     const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, lenW: planWs(s), lenC: civWs(s), /* beta 7.5 / 2.45.7: its length as written (with its allowance) and its UG civil length (ALLOW_CIVIL) ((beta 7.16, Span allowance) its own) */ cable: s.cable, long: s.long, more: (s.runs || []).slice(1), cabLbl: PLS.cab.on ? cabLabelOf(s, PLS.cab.word) : null, runLbls: s.lanes && s.lanes.some((f) => !f.ex) ? null : (s.runs || [s.cable]).map((k, i, all) => runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', all.length > 1 ? i + 1 : 0)) }; // (v2.42.23: each run's own label) // v2.42.18: + the other runs; v2.42.21: its cable label
       { const g = (s.fibers || []).filter((f) => isUG(f.cab)).sort((x, y) => x.n - y.n)[0], k = g ? null : (s.runs || [s.cable]).find((c) => isUG(c)); if (g || k) { const u = (g && ugSpanOf(s.ia, s.ib, FX)) || ugOf(g || { cab: k }); o.ug = { m: u.m, cd: u.cd, cr: u.cr, n: g ? g.n : 0, ...(u.own ? { own: true } : {}) }; } } // beta 6.7: how a UG span is laid (its own way, else its first new UG cable's method and conduit)

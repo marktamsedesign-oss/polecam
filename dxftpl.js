@@ -1362,6 +1362,7 @@
       ['PLAN SHEET NAME', 'standard', 'The GEO sheets\' names in their corner', [], 'gridLabel'],
       ['PLAN KEY MAP NAME', 'code', 'The sheets\' names on the key map (their font; each fills its cell)', [], null],
       ['PLAN VICINITY MAP', 'arial', 'The vicinity maps\' road and place names and the maps\' credit lines (their font; their sizes follow the map)', [], null],
+      ['PLAN DETAIL', 'arial', 'The riser details (stage 11): their labels, title and NOT TO SCALE, on their own page and on the plan (its height: the title\'s, printed mm; the labels in proportion)', [], null],
     ],
     layers: [
       ['PLAN CABLE AE', 1, 'DASHED', -3, 'Proposed aerial FOC cables (each cable\'s weight by its size while this layer\'s weight is Default)', 'cable'],
@@ -1372,6 +1373,9 @@
       ['PLAN LEADER', 8, 'Continuous', -3, 'The thin lines from a label, an ID, a loop\'s or a span\'s length, a photo or a note to what it names'],
       ['PLAN ROAD', 7, 'Continuous', -3, 'The roads\' edge lines (footpaths stay grey and bridges blue)', 'road'],
       ['PLAN GRID', 6, 'Continuous', -3, 'The map sheets\' grid on the plan: each sheet\'s cell (its name in PLAN SHEET NAME)', 'grid'],
+      ['PLAN DETAIL', 7, 'Continuous', 18, 'The riser details (stage 11): their frame, the ground line, the leaders to the parts'],
+      ['PLAN DETAIL PROPOSED', 1, 'Continuous', 35, 'The riser details: what is proposed (the riser pipe, U-guard, concrete encasement and conduit; a proposed pit or pole)'],
+      ['PLAN DETAIL EXISTING', 5, 'Continuous', 25, 'The riser details: what is existing (the riser pole; an existing pit, pole or site at the conduit\'s end)'],
     ],
     sym: [
       ['P-POLE', 'A proposed pole'], ['existing electric pole', 'An existing electric (or other owner\'s) pole'], ['existing telecom pole', 'An existing telecom pole'],
@@ -1912,6 +1916,123 @@
     }
     return out;
   }
+  /* ---------------- (stage 11, riser detail) the riser detail of a riser pole ----------------
+     The owner (27 Nov): "a detailed drawing of Riser pole (not CEF) using an existing pole but the Uguard, concrete encase+conduit are all proposed(Red).
+     this is usually going to site, HH/MH/SB. this may be a detailed isometric view being added on the plan as attachent (more like photo that is to be put
+     to the plan or another page specific to this one as part of asplan if drawn in asplan." Decided: the user chooses per riser (job.pts[i].riserDet.show):
+     'page' (its own page after the plan's sheets: the default for an existing riser pole), 'plan' (an inset in a frame near its pole, like a photo) or
+     'none' (the default for a proposed one). An isometric view, not to scale: the pole (existing: the existing colour; proposed: red), and, all proposed
+     (red), the G.I. riser pipe up the pole, the U-guard over it up to the cable, the concrete encasement at its foot, the conduit from the foot to the
+     next underground point of the route (a handhole, manhole or service box: a pit; a site, ODC or ODF: a pad; a pole: its foot), that point existing or
+     proposed as it is, with its own symbol (the template's block) beside its name; the ground line; each part named with a leader as a drafter names it;
+     its title and NOT TO SCALE under it. Drawn in millimetres as printed (riserDraw), then written on the detail page's paper or on the plan (riserPut).
+     The sizes: the CEF editor's own for a riser on an existing pole (vendor/cef/30_core.js: STD, riserParts, PVC_MM, beta 7.16), each one the user's
+     where typed (riserDet: pipeD, pipeL, guardL, encW, encH, cdD, cdR, cdL); the conduit's length from the plan (the span to that point as the plan
+     writes its UG civil length) unless typed. */
+  /** (stage 11, riser detail) the CEF editor's standard: the messenger 5.5 m above the ground, the closure and loop 0.6 m above it (CLOZ), the encasement
+      0.406 m above the ground and 1.32 m below, 0.47 m across (100 mm of concrete each side of the 270 mm pole), the G.I. pipe's straps 0.585, 0.838 and
+      0.838 m apart, the U-guard's every 0.6 m, the G.I. pipe 114.3 mm, the conduit 2 runs of 114.3 mm PVC */
+  const RISER_STD = { msg: 5.5, cloZ: 0.6, encUp: 0.406, encDn: 1.32, encW: 0.47, gi: [0.585, 0.838, 0.838], ugd: [0.6, 0.6, 0.6, 0.6], pipe: '114.3', pvc: '114.3', runs: 2 };
+  /** (stage 11, riser detail) the sizes of a riser on an existing pole as the CEF editor counts them (riserParts(0, msg - CLOZ): the G.I. pipe from the
+      ground to its top, the U-guard from there to its top): { pipeD, pipeL (2.7 m), guardL (1.9 m), encW, encH (1.73 m), cdD, cdR } */
+  const riserStd = () => { const R = RISER_STD, zc = R.msg - R.cloZ, e = R.encUp, z = R.gi.reduce((a, q) => a + q, e), giTop = Math.max(e + 0.2, Math.min(z, zc - 1)), t = R.ugd.reduce((a, q) => a + q, giTop), ugTop = Math.max(giTop, Math.min(t + 0.1, zc - 0.3)), r = (v, n) => +v.toFixed(n);
+    return { pipeD: R.pipe, pipeL: r(giTop, 1), guardL: r(ugTop - giTop, 1), encW: R.encW, encH: r(R.encUp + R.encDn, 2), cdD: R.pvc, cdR: R.runs }; };
+  const RISER_SHOW = ['page', 'plan', 'none'];
+  const riserOrder = (pts, spans, ids) => markOrder(pts, spans, ids); // (the route's order, as the plan numbers its points: buildOne has a markOrder of its own)
+  /** (stage 11, riser detail) a riser's sizes: the user's (riserDet), each where it is a size, else the standard's; a conduit's size and runs, else the plan's
+      span's (ug: { cd, cr }); cdL its length typed (null: the plan's) */
+  function riserSizes(rd, ug) {
+    const S0 = riserStd(), o = rd && typeof rd === 'object' ? rd : {}, pos = (v, mx) => { const n = parseFloat(v); return Number.isFinite(n) && n > 0 && n <= mx ? +n.toFixed(3) : null; }, dia = (v) => { const n = parseFloat(v); return Number.isFinite(n) && n > 0 && n <= 1000 ? String(+n.toFixed(2)) : null; };
+    const uc = ug && dia(ug.cd), ur = ug && (+ug.cr === 1 || +ug.cr === 2) ? +ug.cr : null;
+    return { pipeD: dia(o.pipeD) || S0.pipeD, pipeL: pos(o.pipeL, 30) || S0.pipeL, guardL: pos(o.guardL, 30) || S0.guardL, encW: pos(o.encW, 5) || S0.encW, encH: pos(o.encH, 10) || S0.encH,
+      cdD: dia(o.cdD) || uc || S0.cdD, cdR: [1, 2, 3, 4].includes(+o.cdR) ? +o.cdR : ur || S0.cdR, cdL: pos(o.cdL, 5000) };
+  }
+  const mStr = (v) => String(+(+v).toFixed(2));
+  /** (stage 11, riser detail) its texts (Ø written %%c, as AutoCAD reads it): I { no, poleEx, sizes…, cdL (m; null: none known), to: { name, id, ex } | null } */
+  function riserTexts(I) {
+    const to = I.to, cd = `${I.cdR > 1 ? `${I.cdR} x ` : ''}%%c${I.cdD}mm PVC CONDUIT${I.cdL > 0 ? `, ${mStr(I.cdL)}m` : ''}${to ? ` TO ${to.id || to.name}` : ''}`;
+    return { title: `RISER DETAIL – POLE ${I.no}`, nts: 'NOT TO SCALE', pole: `${I.poleEx ? 'EXISTING' : 'PROPOSED'} POLE ${I.no}`, guard: `PROPOSED U-GUARD, ${mStr(I.guardL)}m`,
+      pipe: `PROPOSED %%c${I.pipeD}mm G.I. RISER PIPE, ${mStr(I.pipeL)}m`, enc: `PROPOSED CONCRETE ENCASEMENT, ${mStr(I.encW)} x ${mStr(I.encW)} x ${mStr(I.encH)}m`, cd: `PROPOSED ${cd}`,
+      to: to ? `${to.ex ? 'EXISTING' : 'PROPOSED'} ${to.name}${to.id ? ` ${to.id}` : ''}` : null };
+  }
+  const RISER_W = 100, RISER_H = 114; // (stage 11, riser detail) its size as printed at its own size (mm), its title and NOT TO SCALE in it
+  /** (stage 11, riser detail) the drawing in printed millimetres from its lower left corner, K its texts' size (1: the labels 2 mm, the title 2.8 mm):
+      { w, h, P: [{ t: 'l', k, pts, closed } (a line; k 'd' the detail's own, 'p' proposed, 'e' existing), { t: 's', k, pts } (a filled triangle), { t: 'x', s,
+      x, y, h, ha, va, rot } (a text), { t: 'b', name, x, y, size } (the end point's symbol)] } */
+  function riserDraw(I, K) {
+    K = K > 0 ? K : 1; const W = RISER_W, H = RISER_H, P = [], T = riserTexts(I), C = Math.cos(Math.PI / 6), Sn = 0.5, KW = Math.sqrt(1.5), ox = 24, oy = 56;
+    const iso = (x, y, z) => [ox + (x - y) * C, oy + (x + y) * Sn + z], L = (k, pts, closed) => P.push({ t: 'l', k, pts: pts.map((q) => [q[0], q[1]]), closed: !!closed });
+    const ell = (c, rx, ry, a0, a1, n) => { const o = []; for (let i = 0; i <= n; i++) { const a = (a0 + (a1 - a0) * i / n) * Math.PI / 180; o.push([c[0] + rx * Math.cos(a), c[1] + ry * Math.sin(a)]); } return o; };
+    const box = (k, cx, cy, hx, hy, z0, z1) => { // (an upright box seen from the front: its top, its three near edges down, its foot)
+      const t = [iso(cx - hx, cy - hy, z1), iso(cx + hx, cy - hy, z1), iso(cx + hx, cy + hy, z1), iso(cx - hx, cy + hy, z1)]; L(k, t, true);
+      L(k, [iso(cx - hx, cy + hy, z1), iso(cx - hx, cy + hy, z0), iso(cx - hx, cy - hy, z0), iso(cx + hx, cy - hy, z0), iso(cx + hx, cy - hy, z1)]); L(k, [iso(cx - hx, cy - hy, z1), iso(cx - hx, cy - hy, z0)]); return t; };
+    const pk = I.poleEx ? 'e' : 'p', ZT = 2.6, ZG = 17.4, ZU = 30, ZC = 36, ZP = 48, zb = -8.6, rb = 2.8, rt = 2.1, rz = (z) => rb + (rt - rb) * Math.max(0, z) / ZP, e = 5.5;
+    // the concrete encasement round the pole's foot (proposed), where it meets the ground marked on its two near faces
+    box('p', 0, 0, e, e, zb, ZT); L('d', [iso(-e, e, 0), iso(-e, -e, 0), iso(e, -e, 0)]);
+    // the pole from the encasement up (not to scale), its top; its foot's front half where it comes out of the concrete
+    L(pk, [[ox - KW * rz(ZT), oy + ZT + 0.6], [ox - KW * rt, oy + ZP]]); L(pk, [[ox + KW * rz(ZT), oy + ZT + 0.6], [ox + KW * rt, oy + ZP]]);
+    L(pk, ell([ox, oy + ZP], KW * rt, rt * Math.SQRT1_2, 0, 360, 36), true); L(pk, ell([ox, oy + ZT + 0.6], KW * rz(ZT), rz(ZT) * Math.SQRT1_2, 180, 360, 18));
+    // the G.I. pipe against the pole on the conduit's side, its straps; the U-guard over it up to the cable, its straps; the cable on to the messenger
+    const xp = ox + KW * (rz(ZT) + 1.05), rp = 1.15, ru = 1.75;
+    L('p', [[xp - rp, oy + ZT], [xp - rp, oy + ZG]]); L('p', [[xp + rp, oy + ZT], [xp + rp, oy + ZG]]); L('p', ell([xp, oy + ZT], rp, rp * 0.45, 180, 360, 10));
+    for (const z of [ZT + 3.8, ZT + 9.2, ZG - 1.2]) L('p', [[xp - rp - 0.5, oy + z - 0.35], [xp + rp + 0.5, oy + z - 0.35], [xp + rp + 0.5, oy + z + 0.35], [xp - rp - 0.5, oy + z + 0.35]], true);
+    L('p', [[xp - ru, oy + ZG], [xp + ru, oy + ZG], [xp + ru, oy + ZU], [xp - ru, oy + ZU]], true); L('p', [[xp - ru + 0.55, oy + ZG], [xp - ru + 0.55, oy + ZU]]); L('p', [[xp + ru - 0.55, oy + ZG], [xp + ru - 0.55, oy + ZU]]);
+    for (let z = ZG + 3.9; z < ZU - 0.8; z += 3.9) L('p', [[xp - ru - 0.5, oy + z - 0.35], [xp + ru + 0.5, oy + z - 0.35], [xp + ru + 0.5, oy + z + 0.35], [xp - ru - 0.5, oy + z + 0.35]], true);
+    const pl = ox - KW * rz(ZC) - 0.4; L('p', [[xp, oy + ZU], [xp, oy + ZC - 2.4], [xp - 1.2, oy + ZC - 0.9], [ox, oy + ZC - 0.2], [pl, oy + ZC], [pl - 21 * C, oy + ZC + 21 * Sn]]); // (the cable: up the U-guard, round the pole, off along its aerial span)
+    // the conduit under the ground from the encasement to the next point (one or more runs, side by side), and that point
+    const to = I.to, R = Math.max(1, Math.min(4, I.cdR || 1)), a = (xp - ox) / (2 * C), Lc = 34, zc = -5.6, hy = to && to.kind === 'mh' ? 6.5 : to && to.kind === 'sb' ? 4.6 : 5.5;
+    const xs = Array.from({ length: R }, (_, i) => a - i * 2.5), xc = (xs[0] + xs[R - 1]) / 2, yE = -e, y1 = -(e + Lc), yc = y1 - hy, d = [C, -Sn], n = [Sn, C], rc = 0.95;
+    const pit = !!to && ['hh', 'mh', 'sb'].includes(to.kind), yEnd = (x) => (pit ? y1 + Math.max(0, x - (xc - hy)) + 0.4 : y1); // (into a pit: as far as it shows, then behind its near wall)
+    for (const x of xs) { const A = iso(x, yE, zc), B = iso(x, yEnd(x), zc); for (const s of [-1, 1]) L('p', [[A[0] + n[0] * rc * s, A[1] + n[1] * rc * s], [B[0] + n[0] * rc * s, B[1] + n[1] * rc * s]]); L('p', ell(A, rc * 0.62, rc, 0, 360, 16), true); }
+    let toAt = null, endTop = 30; // (where its name's leader points; the top of what is drawn there, for the names above it)
+    if (to && (to.kind === 'hh' || to.kind === 'mh' || to.kind === 'sb')) { // a pit: its box down from the ground, its lid
+      const k = to.ex ? 'e' : 'p', hx = hy; box(k, xc, yc, hx, hy, -11, 0.6); const m = 1.3; L(k, [iso(xc - hx + m, yc - hy + m, 0.6), iso(xc + hx - m, yc - hy + m, 0.6), iso(xc + hx - m, yc + hy - m, 0.6), iso(xc - hx + m, yc + hy - m, 0.6)], true);
+      toAt = iso(xc + hx, yc, 0.6); endTop = iso(xc + hx, yc + hy, 0.6)[1];
+    } else if (to && to.kind === 'pole') { // a pole: its foot, the conduit up into it
+      const k = to.ex ? 'e' : 'p', c = iso(xc, yc, 0), zt = 15; L(k, [[c[0] - KW * 2.4, c[1] - 2], [c[0] - KW * 2.1, c[1] + zt]]); L(k, [[c[0] + KW * 2.4, c[1] - 2], [c[0] + KW * 2.1, c[1] + zt]]); L(k, ell([c[0], c[1] + zt], KW * 2.1, 2.1 * Math.SQRT1_2, 0, 360, 30), true);
+      const B = iso(xc, y1, zc); L('p', [B, [c[0] + KW * 2.4 + 1, B[1]], [c[0] + KW * 2.4 + 1, c[1] + 4]]); toAt = [c[0] + KW * 2.2 + 0.2, c[1] + zt * 0.6]; endTop = c[1] + zt + 1.6;
+    } else if (to) { // a site, an ODC or ODF: its pad, the conduit up out of the ground into it
+      const k = to.ex ? 'e' : 'p'; box(k, xc, yc, 6.5, hy, 0, 2.2); const B = iso(xc, y1, zc), U = iso(xc, y1 - 1.2, 0.2); L('p', [B, [U[0], U[1] - 0.6], U]); toAt = iso(xc + 6.5, yc, 2.2); endTop = iso(xc + 6.5, yc + hy, 2.2)[1];
+    } else { const B = iso(xs[0], y1, zc); L('p', [[B[0] - 1, B[1] - 1.6], [B[0] + 1, B[1] + 1.6]]); } // (no point known: its end cut off)
+    // the ground line: the ground's two near edges, earth marks under them
+    const g0 = iso(-14, 12, 0), g1 = iso(-14, yc - hy - 8, 0), g2 = iso(9, yc - hy - 8, 0); L('d', [g0, g1, g2]);
+    for (const [A, B] of [[g0, g1], [g1, g2]]) { const len = dist2(A, B), u = unit(A, B); for (let s = 1.5; s < len - 0.5; s += 2.6) { const q = add2(A, u, s); L('d', [q, [q[0] - 1.2, q[1] - 1.5]]); } }
+    const gr = deg(unit(g0, g1)); P.push({ t: 'x', s: 'GROUND LINE', x: g0[0] + 1.6 * Math.cos(gr * Math.PI / 180) - 0.9 * Math.sin(gr * Math.PI / 180), y: g0[1] + 1.6 * Math.sin(gr * Math.PI / 180) + 0.9 * Math.cos(gr * Math.PI / 180), h: 1.5 * K, ha: 0, va: 0, rot: gr });
+    // the names, each with its leader (a short level line, then to its part, an arrow at the part): the pole's parts in a column at the right, top to
+    // bottom in the order of their parts; the conduit's at the lower left
+    const hT = 2 * K, pitch = hT * 1.55, x0 = 56, FW = 1.18, tw = (t) => arialW(t.replace(/%%c/g, 'Ø'), hT) * FW, wrapW = (s, w) => wrapLine(s.replace(/%%c/g, 'Ø'), w / FW, hT, false).map((t) => t.replace(/Ø/g, '%%c')), wrap = (s) => wrapW(s, W - x0 - 1.5); // (FW: room for a font wider than Arial, a template's SHX one)
+    const notes = [{ s: T.pole, to: [ox + KW * rz(ZP - 6) + 0.2, oy + ZP - 6] }, { s: T.guard, to: [xp + ru + 0.2, oy + (ZG + ZU) / 2] }, { s: T.pipe, to: [xp + rp + 0.2, oy + (ZT + ZG) / 2 + 1] }, { s: T.enc, to: iso(e, -e, (ZT + zb) / 2 + 1) }];
+    if (T.to && toAt) notes.push({ s: T.to, to: toAt, sym: to.sym || null });
+    const lead = (from, at) => { const u = unit(from, at), ah = 1.7, aw = 0.45, b = add2(at, u, -ah); L('d', [from, b]); P.push({ t: 's', k: 'd', pts: [at, [b[0] - u[1] * aw, b[1] + u[0] * aw], [b[0] + u[1] * aw, b[1] - u[0] * aw]] }); };
+    const N = notes.map((q) => ({ ...q, L: wrap(q.s) })).sort((p, q) => q.to[1] - p.to[1]); let y = H - 2;
+    const Y = N.map((q) => { const hb = q.L.length * pitch; let top = Math.min(y, q.to[1] + hb / 2 + 1.2); y = top - hb - 1.6; return top; });
+    const toTop = Math.max(toAt ? toAt[1] : 0, endTop) + 3;
+    for (let i = N.length - 1, floor = toTop; i >= 0; i--) { const hb = N[i].L.length * pitch; if (Y[i] - hb < floor) Y[i] = floor + hb; floor = Y[i] + 1.6; } // (none over the point at the conduit's end: the column moves up)
+    N.forEach((q, i) => { const xs0 = x0 + (q.sym ? 5.6 : 0); q.L.forEach((t, j) => P.push({ t: 'x', s: t, x: xs0, y: Y[i] - hT - j * pitch, h: hT, ha: 0, va: 0 }));
+      if (q.sym) P.push({ t: 'b', name: q.sym, x: x0 + 2.4, y: Y[i] - hT / 2, size: 4.4 });
+      if (q.to[0] > x0 - 2) { const yb = Y[i] - q.L.length * pitch - 0.2, xb = Math.min(Math.max(q.to[0], x0 + 1), xs0 + Math.min(...q.L.map(tw))); lead([xb, yb], q.to); return; } // (its part under it: from under its text)
+      const ym = Y[i] - hT / 2; L('d', [[x0 - 0.8, ym], [x0 - 3.2, ym]]); lead([x0 - 3.2, ym], q.to); });
+    { const Lc2 = wrapW(T.cd, 36), at = iso(xs[0], -(e + Lc * 0.45), zc - rc * 0.8), yt = 22;
+      Lc2.forEach((t, j) => P.push({ t: 'x', s: t, x: 2, y: yt - j * pitch, h: hT, ha: 0, va: 0 })); const wl = tw(Lc2[0]), ym = yt + hT / 2;
+      L('d', [[2 + wl + 0.8, ym], [2 + wl + 3.2, ym]]); lead([2 + wl + 3.2, ym], at); }
+    // its title, underlined (%%u: as wide as the font draws it), and NOT TO SCALE under it
+    P.push({ t: 'x', s: `%%u${T.title}`, x: W / 2, y: 6.2, h: 2.8 * K, ha: 1, va: 0 }); P.push({ t: 'x', s: T.nts, x: W / 2, y: 1.4, h: 2 * K, ha: 1, va: 0 });
+    return { w: W, h: H, P };
+  }
+  /** (stage 11, riser detail) the drawing D (riserDraw) written by an Out writer (the detail page's paper, the plan's model space), its lower left corner
+      at (x0, y0), s drawing units a printed mm. Z: { d, p, e: its layers; st: its texts' options (the kit's style); box(name): a block's box, null: none }.
+      → the records written */
+  function riserPut(out, D, x0, y0, s, Z) {
+    const X = (q) => [x0 + q[0] * s, y0 + q[1] * s], recs = [];
+    for (const q of D.P) {
+      if (q.t === 'l') recs.push(out.lwpoly(Z[q.k], q.pts.map(X), { closed: q.closed }));
+      else if (q.t === 's') recs.push(out.solid(Z[q.k], q.pts.map(X)));
+      else if (q.t === 'x') { const p = X([q.x, q.y]); recs.push(out.text(Z.d, p[0], p[1], q.h * s, q.s, { ...Z.st, ha: q.ha, va: q.va, ...(q.rot ? { rot: q.rot } : {}) })); }
+      else if (q.t === 'b') { const bb = Z.box(q.name); if (!bb) continue; const sz = Math.max(bb[2] - bb[0], bb[3] - bb[1]), p = X([q.x, q.y]), r = out.insert(Z.d, q.name, p[0], p[1], { scale: q.size * s / (sz > 1e-9 ? sz : 1), center: true }); if (r) recs.push(r); }
+    }
+    return recs;
+  }
+
   /* ---------------- the build ---------------- */
   // v2.32: new fiber red, existing fiber blue (the drafting rule); aerial dashed, underground solid
   const AE_ = (lw) => ({ layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true, lw }), UG_ = (lw) => ({ layer: 'Proposed foc duct', color: 3, w: 0.7776, aerial: false, lw }); // v2.42.24: lw, the line weight by size (Balanced, 1/100 mm)
@@ -2386,8 +2507,67 @@
       for (const L of S.layouts.filter((x) => x.name.startsWith(`${base} (`) && !names.includes(x.name))) { removeLayout(d, S, L); S = structure(d); }
       for (const nm of names) if (!S.layouts.some((L) => L.name === nm)) { cloneLayout(d, S, S.layouts.find((L) => L.name === base), nm); S = structure(d); }
     }
-    // tab order: TITLE, TOC, LEGENDS, VICINITY MAP(s), ROW AREA COVERAGE, KEYMAP(s), GEO…, PMI, then anything else
-    const want = ['TITLE', 'TOC', 'LEGENDS', ...vicNames, 'ROW AREA COVERAGE', ...kmNames, ...geoNames(N), 'PMI'];
+    /* (stage 11, riser detail) the riser poles, as the plan draws a riser (p.riser, or a pole where an aerial and an underground span meet), in route order,
+       and their details (riserDraw): each where its riserDet.show puts it ('page', 'plan', 'none'; not given: its page for an existing pole, none for a
+       proposed one); the conduit to the next underground point of the route (the first underground span at the pole: its other end), its length the
+       plan's for that span (its UG civil length) unless typed. The page ones on detail sheets (RISER DETAIL, RISER DETAIL (2) …) made from the GEO sheet
+       (its frame and title block; its map's viewport taken off, the details laid out where the map was: as many on one as fit, a row at a time) and
+       numbered within their kind as the GEO sheets are; none: nothing of this, the plan as before. */
+    const RISERS = (() => {
+      const byI = new Map(pts.map((p) => [String(p.id), p])), ugS = (s) => (CABLE_STYLE[s.cable] || CABLE_STYLE['']).aerial === false, out = [], isEx = (q) => !(q.status === 'Proposed' || q.status === 'New');
+      for (const p of pts) {
+        if (p.el !== 'Pole' || p.onPole) continue;
+        const at = spans.filter((s) => String(s.ia) === String(p.id) || String(s.ib) === String(p.id)), ug = at.filter(ugS);
+        if (!(p.riser || (ug.length && at.some((s) => !ugS(s))))) continue;
+        const rd = p.riserDet && typeof p.riserDet === 'object' ? p.riserDet : {}, show = RISER_SHOW.includes(rd.show) ? rd.show : isEx(p) ? 'page' : 'none';
+        const s0 = ug[0] || null, q = s0 ? byI.get(String(String(s0.ia) === String(p.id) ? s0.ib : s0.ia)) || null : null, Z = riserSizes(rd, s0 && s0.ug);
+        const kind = !q ? null : q.el === 'Handhole' ? 'hh' : q.el === 'Manhole' ? 'mh' : q.el === 'Service box' ? 'sb' : q.el === 'Pole' ? 'pole' : 'site', qEx = !!q && isEx(q);
+        const name = { hh: 'HANDHOLE', mh: 'MANHOLE', sb: 'SERVICE BOX', pole: 'POLE' }[kind] || (q && (q.el === 'ODC' || q.el === 'ODF' ? q.el : q.siteKind === 'OLT' ? 'OLT' : 'SITE'));
+        const sym = !q ? null : kind === 'hh' ? (qEx ? 'HANDHOLE' : 'proposed Handhole') : kind === 'mh' ? (qEx ? 'MH' : 'PROPOSED MAN HOLE') : kind === 'sb' ? (qEx ? 'SB' : 'proposed service box') : kind === 'pole' ? (qEx ? (q.telco ? 'existing telecom pole' : 'existing electric pole') : 'P-POLE')
+          : q.el === 'ODF' ? (qEx ? 'X-HOST' : 'P-HOST') : q.el === 'ODC' ? ODC_BLOCK : q.siteKind === 'OLT' ? (qEx ? 'OLT1' : '7') : qEx || !S.blocks.has('G-ESAA P-BTS') ? 'X-BTS' : 'G-ESAA P-BTS';
+        const lenP = s0 ? [s0.lenC, s0.lenW].map(Number).find((v) => Number.isFinite(v) && v > 0) || Math.round(+s0.len || 0) || null : null;
+        const no = String(p.poleId || p.tag || p.id), id = !q ? '' : String((q.el === 'Site' ? q.siteName || q.poleId : q.poleId || q.tag) || '').trim();
+        out.push({ p, show, I: { no, poleEx: isEx(p), ...Z, cdL: Z.cdL || lenP, cdOwn: !!Z.cdL, to: q ? { kind, name, id, ex: qEx, sym, pid: String(q.id) } : null } });
+      }
+      if (!out.length) return out; const ord = riserOrder(pts, spans.filter((s) => !ugS(s)), out.map((x) => x.p.id)); // (along the aerial route from the homing, as the plan numbers its poles) out.sort((a, b) => ord.indexOf(String(a.p.id)) - ord.indexOf(String(b.p.id)));
+      return out;
+    })();
+    const detPage = RISERS.filter((x) => x.show === 'page'), detNames = [], detAt = new Map(); // (each page detail: its sheet, its place on it in paper units, its scale)
+    if (detPage.length) {
+      const G0 = S.layouts.find((L) => L.name === 'GEO'), vps = layoutEnts(d, S, G0).filter((e) => typ(e) === 'VIEWPORT'), mv = vps.slice(1).sort((a, b) => num(b, 40, 0) * num(b, 41, 0) - num(a, 40, 0) * num(a, 41, 0))[0] || null;
+      let win = [num(G0.rec, 48, 0), num(G0.rec, 49, 0), num(G0.rec, 140, 0), num(G0.rec, 141, 0)]; // (paper units a printed mm: as the PDF fits the sheet to its paper)
+      if (!(win[2] - win[0] > 1 && win[3] - win[1] > 1)) { const B = layoutEnts(d, S, G0).filter((e) => typ(e) !== 'VIEWPORT').map((e) => drawnBox(S, e)).filter(Boolean); win = B.length ? [Math.min(...B.map((b) => b[0])), Math.min(...B.map((b) => b[1])), Math.max(...B.map((b) => b[2])), Math.max(...B.map((b) => b[3]))] : [0, 0, 420, 297]; }
+      const pa = num(G0.rec, 44, 420), pb = num(G0.rec, 45, 297), ww = win[2] - win[0], wh = win[3] - win[1], land = ww >= wh, kmm = Math.min((land ? Math.max(pa, pb) : Math.min(pa, pb)) / ww, (land ? Math.min(pa, pb) : Math.max(pa, pb)) / wh), uP = kmm > 0 && Number.isFinite(kmm) ? 1 / kmm : 1;
+      const A = mv ? [num(mv, 10, 0) - num(mv, 40, 0) / 2, num(mv, 20, 0) - num(mv, 41, 0) / 2, num(mv, 10, 0) + num(mv, 40, 0) / 2, num(mv, 20, 0) + num(mv, 41, 0) / 2] : [win[0] + ww * 0.03, win[1] + wh * 0.05, win[0] + ww * 0.62, win[3] - wh * 0.05];
+      const cw = (RISER_W + 8) * uP, chh = (RISER_H + 6) * uP, f = Math.min(1, (A[2] - A[0]) / cw, (A[3] - A[1]) / chh), nc = Math.max(1, Math.floor((A[2] - A[0]) / (cw * f) + 1e-6)), nr = Math.max(1, Math.floor((A[3] - A[1]) / (chh * f) + 1e-6)), per = nc * nr;
+      const nPg = Math.ceil(detPage.length / per); for (let k = 0; k < nPg; k++) detNames.push(k ? `RISER DETAIL (${k + 1})` : 'RISER DETAIL');
+      for (const nm of detNames) {
+        cloneLayout(d, S, G0, nm); S = structure(d); const L = S.layouts.find((x) => x.name === nm), V = layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT');
+        if (V.length > 1) { removeHandles(d, new Set(V.slice(1).map(handleOf).filter(Boolean))); S = structure(d); } // (the map's viewport, and any other: nothing of the plan on it)
+        const L2 = S.layouts.find((x) => x.name === nm); if (V[0]) setIn(L2.rec, 'AcDbLayout', 331, get(V[0], 5)); else { const k = L2.rec.findIndex((q) => q[0] === 331); if (k > 0) L2.rec.splice(k, 1); }
+      }
+      detPage.forEach((x, i) => { const pg = Math.floor(i / per), j = i % per, nOn = Math.min(per, detPage.length - pg * per), rows = Math.ceil(nOn / nc), cols = Math.min(nc, nOn), r0 = Math.floor(j / nc), c0 = j % nc;
+        const gw = (A[2] - A[0]) / cols, gh = (A[3] - A[1]) / rows, f2 = Math.min(1.35, gw / cw, gh / chh), s = uP * f2, x0 = A[0] + gw * (c0 + 0.5) - RISER_W * s / 2, y0 = A[3] - gh * (r0 + 0.5) - RISER_H * s / 2; // (the details on a page in rows from its top, each centred in its share of the map's place, larger where few share it)
+        detAt.set(x, { sheet: detNames[pg], x0, y0, s, uP, f: f2 }); });
+    }
+    /** (stage 11, riser detail) the layers and text style the details are drawn in: the kit's (PLAN DETAIL, PLAN DETAIL PROPOSED, PLAN DETAIL EXISTING;
+        the template's own when it has them), each added with the kit's look where it has none (only when a detail is drawn); its texts in the kit's PLAN
+        DETAIL style, else the template's arial (as the plan's other texts). K(mm): its texts' size for the title printed mm high (the kit's height; 1: the
+        app's). box(name): a block's box for the point's symbol */
+    let RZ = null; const rzOf = () => { if (RZ) return RZ; const Lz = {};
+      for (const [nm, color, lt, lw] of PLAN_KIT.layers.filter((k) => /^PLAN DETAIL/.test(k[0]))) { const K = KIT && KIT.layers[nm]; if (K) { Lz[nm] = K.name; continue; }
+        const LU = [...S.layers.keys()].find((n) => String(n).toUpperCase() === nm); if (LU) { Lz[nm] = LU; continue; }
+        addLayer(d, S, nm, color); const r = S.layers.get(nm); setFirst(r, 6, S.ltypes.has(lt) ? lt : 'Continuous'); if (!setFirst(r, 370, I(lw))) { const k6 = r.findIndex((q, i) => i > 0 && q[0] === 6); r.splice(k6 > 0 ? k6 + 1 : r.length, 0, [370, I(lw)]); } Lz[nm] = nm; }
+      return (RZ = { d: Lz['PLAN DETAIL'], p: Lz['PLAN DETAIL PROPOSED'], e: Lz['PLAN DETAIL EXISTING'], st: kitT('PLAN DETAIL', { style: 'arial' }), box: (nm) => (S.blocks.has(nm) ? blockBoxA(S, nm, 0) || blockBox(S, nm, 0) : null) }); };
+    const riserK = (mm, f) => (mm > 0 ? Math.max(0.5, Math.min(2, mm / (2.8 * f))) : 1);
+    for (const x of detPage) { // (stage 11, riser detail) each page detail drawn on its sheet's paper, in a thin frame
+      const at = detAt.get(x), L = S.layouts.find((q) => q.name === at.sheet), po = L && paperOut(d, S, L, Out); if (!po) continue; const Z = rzOf();
+      const hK = kitH('PLAN DETAIL', at.uP, 0), D = riserDraw(x.I, riserK(hK / at.uP, at.f)); // (the kit's height: the title's, printed mm on the page)
+      po.lwpoly(Z.d, [[at.x0 - 2 * at.s, at.y0 - 1.5 * at.s], [at.x0 + (RISER_W + 2) * at.s, at.y0 - 1.5 * at.s], [at.x0 + (RISER_W + 2) * at.s, at.y0 + (RISER_H + 1.5) * at.s], [at.x0 - 2 * at.s, at.y0 + (RISER_H + 1.5) * at.s]], { closed: true });
+      riserPut(po, D, at.x0, at.y0, at.s, Z);
+    }
+    // tab order: TITLE, TOC, LEGENDS, VICINITY MAP(s), ROW AREA COVERAGE, KEYMAP(s), GEO…, PMI, then anything else ((stage 11, riser detail) the detail sheets after the GEO sheets)
+    const want = ['TITLE', 'TOC', 'LEGENDS', ...vicNames, 'ROW AREA COVERAGE', ...kmNames, ...geoNames(N), ...detNames, 'PMI'];
     const rank = (n) => (n === 'Model' ? -1 : want.includes(n) ? want.indexOf(n) : 100);
     S.layouts.slice().sort((a, b) => rank(a.name) - rank(b.name)).forEach((L, k) => { if (L.name !== 'Model') setIn(L.rec, 'AcDbLayout', 71, I(k)); });
     /* 3. viewports */
@@ -4544,6 +4724,38 @@
     for (const { p, ph, w, h, q, how, lead } of photoPl.out) if (ph && havePhotos) rep.photoAt[String(p.id)] = { x: q[0], y: q[1], w, h, dp: [p.dp[0], p.dp[1]], line: lead ? lead.map((v) => [v[0], v[1]]) : null, how: how === 'by hand' ? 'by hand' : 'auto' };
     for (const [p, a] of tidyPhAt) if (tidyCard.has(p)) rep.photoAt[String(p.id)] = { ...a, dp: [p.dp[0], p.dp[1]], line: null, how: 'auto' };
     if (pinPl.size) rep.photos.byHand = pinPl.size;
+    /* (stage 11, riser detail) each riser detail on the plan ('plan'): its drawing in a thin frame near its pole, like a photo, at 0.65 of its page size
+       (its labels 1.3 mm, its title 1.8 mm high as printed; the kit's PLAN DETAIL height when it has one), where it covers no label, symbol or photo
+       (a road or the cable counts little) inside its pole's GEO sheet, else inside another sheet that prints; all round its pole, nearest first, with a
+       thin line to its pole (none where it is right beside it); where nothing is free, where it covers least (noted). Kept clear of afterwards as a photo. */
+    const detPlan = RISERS.filter((x) => x.show === 'plan'), detOn = new Map(), detMiss = [];
+    if (detPlan.length) {
+      const pkm = (printK || 0.62) * NU, FI = 0.65, Z = rzOf(), hK = kitH('PLAN DETAIL', 1, pkm), s = FI / pkm, w = RISER_W * s, h = RISER_H * s;
+      const W_IN = (t) => (t === 'road' ? 0.3 : t === 'cable' ? 4 : 10), LD_IN = (t) => (t === 'road' || t === 'cable' ? 0 : 1), ptIn = (q) => pts.reduce((n, r) => { const c = r.dp || [r.E, r.N]; return n + (Math.abs(c[0] - q[0]) < w / 2 + 2 && Math.abs(c[1] - q[1]) < h / 2 + 2 ? 1 : 0); }, 0); // (a point under it counts as a symbol, drawn or not)
+      for (const x of detPlan) {
+        const p = byId.get(String(x.p.id)) || x.p; if (!p.dp) continue; let best = null;
+        for (const dd of [1, 4, 8, 13, 19, 27, 37, 50, 66]) for (let a = 0; a < 360; a += 15) {
+          const u = rotv([1, 0], a), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9), q = add2(p.dp, u, rOf(p) + dd + t);
+          const own = cellHoldsQ(q, w / 2, h / 2, p.E, p.N); if (!own && !(cellHoldsQ(q, w / 2, h / 2, q[0], q[1]) && used.has(key(ci(q[0]), cj(q[1]))))) continue;
+          const box = Spots.box(q[0], q[1], w + 2, h + 2, 0), hb = spots.hitsW(box, W_IN), la = add2(p.dp, u, rOf(p) + 0.3), lb = add2(q, u, -t), L = dist2(la, lb), ln = L > 1.2 ? Spots.box((la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2, L, 0.3, deg(u)) : null;
+          const np = ptIn(q), cost = (hb + np * 10) * 10 + (ln ? spots.hitsW(ln, LD_IN) * 4 : 0) + (own ? 0 : 25) + dd * 0.15 + Math.min(a, 360 - a) / 15 * 0.01;
+          if (!best || cost < best.cost - 1e-9) best = { q, u, box, lead: ln ? [la, lb] : null, cost, free: !np && hb < 4 }; // (free: over a road or two at most)
+        }
+        if (!best) { detMiss.push(x.I.no); continue; } // (no printed sheet has room for it near its pole: said in the notes)
+        const D = riserDraw(x.I, riserK(hK * pkm, FI)), x0 = best.q[0] - w / 2, y0 = best.q[1] - h / 2;
+        o.lwpoly(Z.d, [[x0 - 1.5 * s, y0 - 1 * s], [x0 + (RISER_W + 1.5) * s, y0 - 1 * s], [x0 + (RISER_W + 1.5) * s, y0 + (RISER_H + 1) * s], [x0 - 1.5 * s, y0 + (RISER_H + 1) * s]], { closed: true });
+        riserPut(o, D, x0, y0, s, Z); if (best.lead) o.lwpoly(...ldr(Z.d, best.lead)); // (its line to its pole as a photo's: the kit's PLAN LEADER)
+        spots.add(best.box, 'photo'); if (best.lead) spots.line(best.lead, 0.3);
+        detOn.set(x, { at: [+best.q[0].toFixed(2), +best.q[1].toFixed(2)], w: +w.toFixed(2), h: +h.toFixed(2), line: !!best.lead, free: best.free });
+      }
+    }
+    if (RISERS.length) { // (stage 11, riser detail) where each riser's detail went, for the app and the checks; none: no such key (the report as before)
+      rep.riserDetails = RISERS.map((x) => ({ id: String(x.p.id), pole: x.I ? x.I.no : String(x.p.poleId || x.p.id), show: x.show, ...(x.show === 'page' && detAt.has(x) ? { sheet: detAt.get(x).sheet } : {}), ...(detOn.has(x) ? { plan: detOn.get(x) } : {}),
+        sizes: { pipeD: x.I.pipeD, pipeL: x.I.pipeL, guardL: x.I.guardL, encW: x.I.encW, encH: x.I.encH, cdD: x.I.cdD, cdR: x.I.cdR, cdL: x.I.cdL, cdFrom: x.I.cdOwn ? 'typed' : x.I.cdL ? 'plan' : null }, to: x.I.to ? { id: x.I.to.id, kind: x.I.to.kind, point: x.I.to.pid, existing: x.I.to.ex } : null, texts: riserTexts(x.I) }));
+      const nP = RISERS.filter((x) => x.show === 'page').length, nO = detOn.size, nBad = [...detOn.values()].filter((v) => !v.free).length;
+      if (detMiss.length) rep.notes.push(`Riser details left off the plan (no room for them near their pole on a printed sheet): ${detMiss.join(', ')}: give them a sheet of their own`);
+      if (nP || nO) rep.notes.push(`Riser details: ${[nP ? `${nP} on ${detNames.length === 1 ? `${nP === 1 ? 'a sheet of its' : 'a sheet of their'} own` : `${detNames.length} sheets of their own`} (${detNames.join(', ')})` : '', nO ? `${nO} on the plan beside ${nO === 1 ? 'its pole' : 'their poles'}` : ''].filter(Boolean).join(', ')}${nBad ? `; ${nBad} on the plan with no free place near ${nBad === 1 ? 'its pole' : 'their poles'} (placed where ${nBad === 1 ? 'it covers' : 'they cover'} least: move ${nBad === 1 ? 'it' : 'them'} to its own sheet if it is in the way)` : ''}`);
+    }
     /* (beta 7.10, Plan kept) every photo on a printed sheet (see build): the cells each photo's frame is in (upright, or turned in its Tidy block: its corners,
        and the four cells round a grid corner inside it), those the line of a photo placed by hand passes, and those of each point's symbol where
        the plan draws it (a pole beside its road can be drawn over the edge of its pin's cell); the ones no GEO sheet prints go to rep._offCells
@@ -4810,6 +5022,7 @@
       if (vicNames.includes(L.name)) vpFreeze(vp, offInVic); else if (/^GEO( \(\d+\))?$/.test(L.name) || kmNames.includes(L.name)) vpFreeze(vp, vicOnly); // v2.38: every place's sheets
       // v2.42.10: the keymap's own cell names on the keymap only; there, not the small corner names
       if (kmNames.includes(L.name)) vpFreeze(vp, [layerH(lay('GRIDNO.', 'GRIDNO'))].filter(Boolean)); else if (layerH(KMLAY)) vpFreeze(vp, [layerH(KMLAY)]);
+      if (kmNames.includes(L.name) && detOn.size && RZ) vpFreeze(vp, [...new Set([RZ.d, RZ.p, RZ.e])].map(layerH).filter(Boolean)); // ((stage 11, riser detail) a detail on the plan: not on the key map)
     }
     /* (beta 7.11, Drawing tools) DT, the end of the build: every element the Drawing may select, as written (beta 7.10's photos, numbers, pole details and
        cable labels, MV; the others, OWN), placed by hand and turned (job.pins), then report.movable: each one's id and kind, the DXF entities that draw
@@ -5611,9 +5824,9 @@
       const geo = geoNames(N).includes(sh); if (!geo && !kmNames.includes(sh) && !vicNames.includes(sh)) return null; const den = mh / (ph * LOOK.sheet.mm / 1000);
       return `1 : ${(geo ? Math.round(den) : Math.round(den / 100) * 100).toLocaleString('en-US')} METERS`; };
     const auto = {
-      SHEET_NO: (sh) => { const k = geoNames(N).indexOf(sh); return k >= 0 ? `${k + 1} OF ${N}` : '1 OF 1'; },
+      SHEET_NO: (sh) => { const k = geoNames(N).indexOf(sh), kd = detNames.indexOf(sh); return k >= 0 ? `${k + 1} OF ${N}` : kd >= 0 ? `${kd + 1} OF ${detNames.length}` : '1 OF 1'; }, // ((stage 11, riser detail) a detail sheet: within its kind, as the GEO sheets)
       DATE: () => dateText(job.date || new Date()),
-      SCALE: (sh) => lookScale(sh) || (geoNames(N).includes(sh) ? `1 : ${(NU > 1 ? Math.round(viewH / 400 * 1000) : viewH / 400 * 1000).toLocaleString('en-US')} METERS` : kmNames.includes(sh) ? `1 : ${(Math.round(kmH[kmNames.indexOf(sh)] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : vicNames.includes(sh) ? `1 : ${(Math.round(vics[vicNames.indexOf(sh)].area[2] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : ''),
+      SCALE: (sh) => (detNames.includes(sh) ? 'NOT TO SCALE' : null) || lookScale(sh) || (geoNames(N).includes(sh) ? `1 : ${(NU > 1 ? Math.round(viewH / 400 * 1000) : viewH / 400 * 1000).toLocaleString('en-US')} METERS` : kmNames.includes(sh) ? `1 : ${(Math.round(kmH[kmNames.indexOf(sh)] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : vicNames.includes(sh) ? `1 : ${(Math.round(vics[vicNames.indexOf(sh)].area[2] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : ''),
       IDX_TL: (sh) => idx(sh, -1, 1), IDX_T: (sh) => idx(sh, 0, 1), IDX_TR: (sh) => idx(sh, 1, 1), IDX_L: (sh) => idx(sh, -1, 0), IDX_C: (sh) => idx(sh, 0, 0), IDX_R: (sh) => idx(sh, 1, 0), IDX_BL: (sh) => idx(sh, -1, -1), IDX_B: (sh) => idx(sh, 0, -1), IDX_BR: (sh) => idx(sh, 1, -1),
       TOC_GEO: () => String(N), TOC_LEGEND: () => String(sheetNames.filter((n) => /^LEGENDS?( \(\d+\))?$/.test(n)).length), TOC_TOTAL: () => String(sheetNames.filter((n) => n !== 'Model').length),
     };
@@ -6353,7 +6566,7 @@
   }
   /** (templates, As-plan kit) a line of text cut at its spaces into lines of at most n letters */
   const wrapN = (s, n) => { const out = []; let ln = ''; for (const w of String(s).split(' ')) { if (ln && ln.length + w.length + 1 > n) { out.push(ln); ln = w; } else ln = ln ? `${ln} ${w}` : w; } if (ln) out.push(ln); return out; };
-  const KEY_SAMPLE = { 'PLAN POLE DETAILS': 'CC-9001 · 7.5M', 'PLAN POLE NUMBER': '12', 'PLAN LAT LONG': '7.106531 125.600214', 'PLAN ID': 'NAP-01', 'PLAN SPAN LENGTH': '36m', 'PLAN CABLE LABEL': 'PROP. 12C FOC', 'PLAN LOOP': '20m LOOP', 'PLAN CLOSURE': 'PROPOSED CLOSURE', 'PLAN SITE': 'DEMOSITE', 'PLAN ATTACHMENT': 'SG · HG', 'PLAN STREET': 'DEMO STREET', 'PLAN LANDMARK': 'DEMO SCHOOL', 'PLAN NOTE': 'A NOTE', 'PLAN TABLE': 'QUANTITY 12', 'PLAN LEGEND': 'DEMO RTA', 'PLAN SHEET NAME': 'A-1', 'PLAN KEY MAP NAME': 'B-2', 'PLAN VICINITY MAP': 'DEMO ROAD' }; // (made up)
+  const KEY_SAMPLE = { 'PLAN POLE DETAILS': 'CC-9001 · 7.5M', 'PLAN POLE NUMBER': '12', 'PLAN LAT LONG': '7.106531 125.600214', 'PLAN ID': 'NAP-01', 'PLAN SPAN LENGTH': '36m', 'PLAN CABLE LABEL': 'PROP. 12C FOC', 'PLAN LOOP': '20m LOOP', 'PLAN CLOSURE': 'PROPOSED CLOSURE', 'PLAN SITE': 'DEMOSITE', 'PLAN ATTACHMENT': 'SG · HG', 'PLAN STREET': 'DEMO STREET', 'PLAN LANDMARK': 'DEMO SCHOOL', 'PLAN NOTE': 'A NOTE', 'PLAN TABLE': 'QUANTITY 12', 'PLAN LEGEND': 'DEMO RTA', 'PLAN SHEET NAME': 'A-1', 'PLAN KEY MAP NAME': 'B-2', 'PLAN VICINITY MAP': 'DEMO ROAD', 'PLAN DETAIL': 'RISER DETAIL' }; // (made up)
   /** (templates, As-plan kit) the STYLE KEY sheet (as the CEF template's): a copy of the GEO sheet's paper (its own viewport kept, nothing else of it), the
       last tab, on layer PLAN STYLE KEY: each kit text style by name with a sample in it, its font and height and what it writes; each kit layer with a line
       on it (BYLAYER) and what it draws; each symbol's block with a sample insert and what it is; how the app uses them. → the structure after */
@@ -6452,5 +6665,5 @@
     };
   }
   return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, wrapLine, textWidth: arialW, APP_FONTS: APP_FONTS.map((f) => ({ name: f.name, file: f.file, kind: f.kind, from: f.from, ...(f.family ? { family: f.family } : {}) })), version: '2.42.17',
-    withKit, kitOf, PLAN_KIT: { text: PLAN_KIT.text.map(([name, , what, , learn]) => ({ name, what, learn })), layers: PLAN_KIT.layers.map(([name, color, lt, lw, what, learn]) => ({ name, color, lt, lw, what, learn: learn || null })), sym: PLAN_KIT.sym.map(([name, what]) => ({ name, what })) } }; // ((templates, As-plan kit) a template's kit, its starting kit, the kit's names) // ((beta 7.14, Text format) wrapLine, textWidth: the plan's own wrap and measure; APP_FONTS: the app's fonts)
+    riserStd, /* ((stage 11, riser detail) the riser detail's standard sizes, the CEF editor's: what the app's form shows when none is typed) */ withKit, kitOf, PLAN_KIT: { text: PLAN_KIT.text.map(([name, , what, , learn]) => ({ name, what, learn })), layers: PLAN_KIT.layers.map(([name, color, lt, lw, what, learn]) => ({ name, color, lt, lw, what, learn: learn || null })), sym: PLAN_KIT.sym.map(([name, what]) => ({ name, what })) } }; // ((templates, As-plan kit) a template's kit, its starting kit, the kit's names) // ((beta 7.14, Text format) wrapLine, textWidth: the plan's own wrap and measure; APP_FONTS: the app's fonts)
 }));

@@ -95,12 +95,12 @@ const KIT = T.withKit(KS); // the starting kit of the made-up company-like templ
 
 test('the kit\'s names: every kind once; kitOf reads a template\'s (in any case) and today\'s look for what it lacks', () => {
   const P = T.PLAN_KIT;
-  assert.equal(P.text.length, 18); assert.equal(P.layers.length, 8); assert.equal(P.sym.length, 41);
+  assert.equal(P.text.length, 19); assert.equal(P.layers.length, 11); assert.equal(P.sym.length, 41); // ((stage 11, riser detail) + PLAN DETAIL, its three layers)
   for (const L of [P.text, P.layers, P.sym]) { assert.equal(new Set(L.map((x) => x.name.toUpperCase())).size, L.length, 'each name once'); L.forEach((x) => assert.ok(x.what && x.what.length >= 7, `${x.name}: what it is`)); }
   [...P.text, ...P.layers].forEach((x) => assert.match(x.name, /^PLAN [A-Z ]+$/, 'a drafter-readable name'));
-  ['PLAN POLE DETAILS', 'PLAN POLE NUMBER', 'PLAN LAT LONG', 'PLAN ID', 'PLAN SPAN LENGTH', 'PLAN CABLE LABEL', 'PLAN LOOP', 'PLAN CLOSURE', 'PLAN SITE', 'PLAN ATTACHMENT', 'PLAN STREET', 'PLAN LANDMARK', 'PLAN NOTE', 'PLAN TABLE', 'PLAN LEGEND', 'PLAN SHEET NAME', 'PLAN KEY MAP NAME', 'PLAN VICINITY MAP']
+  ['PLAN POLE DETAILS', 'PLAN POLE NUMBER', 'PLAN LAT LONG', 'PLAN ID', 'PLAN SPAN LENGTH', 'PLAN CABLE LABEL', 'PLAN LOOP', 'PLAN CLOSURE', 'PLAN SITE', 'PLAN ATTACHMENT', 'PLAN STREET', 'PLAN LANDMARK', 'PLAN NOTE', 'PLAN TABLE', 'PLAN LEGEND', 'PLAN SHEET NAME', 'PLAN KEY MAP NAME', 'PLAN VICINITY MAP', 'PLAN DETAIL']
     .forEach((n, i) => assert.equal(P.text[i].name, n));
-  assert.deepEqual(P.layers.map((x) => [x.name, x.color, x.lw]), [['PLAN CABLE AE', 1, -3], ['PLAN CABLE UG', 3, -3], ['PLAN CABLE AE EXISTING', 5, -3], ['PLAN CABLE UG EXISTING', 5, -3], ['PLAN MESSENGER', 1, 18], ['PLAN LEADER', 8, -3], ['PLAN ROAD', 7, -3], ['PLAN GRID', 6, -3]]);
+  assert.deepEqual(P.layers.map((x) => [x.name, x.color, x.lw]), [['PLAN CABLE AE', 1, -3], ['PLAN CABLE UG', 3, -3], ['PLAN CABLE AE EXISTING', 5, -3], ['PLAN CABLE UG EXISTING', 5, -3], ['PLAN MESSENGER', 1, 18], ['PLAN LEADER', 8, -3], ['PLAN ROAD', 7, -3], ['PLAN GRID', 6, -3], ['PLAN DETAIL', 7, 18], ['PLAN DETAIL PROPOSED', 1, 35], ['PLAN DETAIL EXISTING', 5, 25]]);
   // a template without the kit: none of it; today's look (its arial style's font, its Standard's, its 样式 1's; its road layer; its DASHED)
   const k0 = T.kitOf(KS), t0 = Object.fromEntries(k0.text.map((x) => [x.name, x])), l0 = Object.fromEntries(k0.layers.map((x) => [x.name, x])), s0 = Object.fromEntries(k0.sym.map((x) => [x.name, x]));
   assert.ok([...k0.text, ...k0.layers].every((x) => !x.has));
